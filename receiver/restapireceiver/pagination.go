@@ -181,6 +181,47 @@ func parsePaginationResponse(cfg *Config, response any, extractedData []map[stri
 
 // parseOffsetLimitResponse parses the response for offset/limit pagination.
 func parseOffsetLimitResponse(cfg *Config, response any, state *paginationState) (bool, error) {
+	// If NextOffsetFieldName is configured, use token-based offset extraction
+	if cfg.Pagination.OffsetLimit.NextOffsetFieldName != "" {
+		responseMap, ok := response.(map[string]any)
+		if !ok {
+			state.CurrentOffsetToken = ""
+			return false, nil
+		}
+
+		tokenVal, exists := getNestedField(responseMap, cfg.Pagination.OffsetLimit.NextOffsetFieldName)
+		if !exists || tokenVal == nil {
+			state.CurrentOffsetToken = ""
+			return false, nil
+		}
+
+		var tokenStr string
+		switch v := tokenVal.(type) {
+		case string:
+			tokenStr = v
+		case float64:
+			tokenStr = fmt.Sprintf("%v", v)
+		case int:
+			tokenStr = fmt.Sprintf("%d", v)
+		default:
+			tokenStr = fmt.Sprintf("%v", v)
+		}
+
+		if tokenStr == "" {
+			state.CurrentOffsetToken = ""
+			return false, nil
+		}
+
+		state.CurrentOffsetToken = tokenStr
+		state.PagesFetched++
+
+		// The token is a bookmark for resuming — always save it.
+		// But hasMore is determined by data count: a partial/empty page means
+		// we're caught up, even though the API returned a valid token.
+		dataCount := getDataCount(response)
+		return dataCount >= state.Limit, nil
+	}
+
 	// Try to extract total record count if configured
 	if cfg.Pagination.TotalRecordCountField != "" {
 		if responseMap, ok := response.(map[string]any); ok {
