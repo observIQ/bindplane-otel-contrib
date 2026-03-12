@@ -183,6 +183,7 @@ gosec:
 		case "$$dir" in \
 			./exporter/chronicleexporter) EXCLUDES="-exclude-dir=internal/metadata -exclude-dir=protos/api" ;; \
 			./exporter/googlecloudstorageexporter) EXCLUDES="-exclude-dir=internal/metadata" ;; \
+			./exporter/awssecuritylakeexporter) EXCLUDES="-exclude-dir=internal/metadata" ;; \
 			./receiver/awss3eventreceiver) EXCLUDES="-exclude-dir=internal/metadata" ;; \
 			./receiver/gcspubsubeventreceiver) EXCLUDES="-exclude-dir=internal/metadata" ;; \
 			./receiver/pcapreceiver) EXCLUDES="-exclude-dir=internal/metadata" ;; \
