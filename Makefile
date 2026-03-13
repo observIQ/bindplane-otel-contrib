@@ -302,14 +302,15 @@ build-collector:
 		exit 1; \
 	fi
 	@echo "Building collector with local contrib modules..."
-	@CONTRIB_ROOT=$$(pwd); \
-	cd "$(COLLECTOR_PATH)" && \
+	@CONTRIB_ROOT=$$(pwd) && \
+	COLLECTOR_ABS=$$(cd "$(COLLECTOR_PATH)" && pwd) && \
 	rm -f go.work go.work.sum && \
-	go work init . && \
+	go work init "$$COLLECTOR_ABS" && \
 	for dir in $$(find "$$CONTRIB_ROOT" -name "go.mod" -not -path "*/vendor/*" -not -path "*/internal/tools/*" -exec dirname {} \;); do \
 		go work use "$$dir"; \
 	done && \
-	go build -tags bindplane -o /dev/null ./cmd/collector && \
+	mkdir -p build && \
+	go build -tags bindplane -o build/collector "$$COLLECTOR_ABS/cmd/collector" && \
 	rm -f go.work go.work.sum && \
 	echo "Collector built successfully"
 
