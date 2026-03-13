@@ -1,0 +1,15 @@
+build
+dist
+cover.*
+.DS_Store
+.vscode
+.idea/
+.local.env
+go.work
+go.work.sum
+
+# Ignore generated credentials from google-github-actions/auth
+gha-creds-*.json
+
+# Don't ignore the mdatagen generated config files
+!**/internal/metadata/testdata/config.yaml

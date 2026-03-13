@@ -1,0 +1,41 @@
+name: Build Check
+on:
+  pull_request:
+
+jobs:
+  build-collector:
+    if: github.actor != 'dependabot[bot]'
+    runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    steps:
+      - name: Checkout Contrib
+        uses: namespacelabs/nscloud-checkout-action@v7
+        with:
+          path: contrib
+
+      - name: Checkout Collector
+        uses: namespacelabs/nscloud-checkout-action@v7
+        with:
+          repository: observIQ/bindplane-otel-collector
+          ref: main
+          path: collector
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: contrib/internal/tools/go.mod
+          cache: false
+
+      - name: Set up Go cache
+        uses: namespacelabs/nscloud-cache-action@v1
+        with:
+          cache: go
+
+      - name: Build Collector with Contrib Modules
+        run: |
+          cd collector
+          go work init .
+          for dir in $(find ../contrib -name "go.mod" -not -path "*/vendor/*" -not -path "*/internal/tools/*" -exec dirname {} \;); do
+            go work use "$dir"
+          done
+          go build -tags bindplane -o /dev/null ./cmd/collector
+          rm -f go.work go.work.sum
