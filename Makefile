@@ -1,7 +1,7 @@
 # All source code and documents, used when checking for misspellings
 ALLDOC := $(shell find . \( -name "*.md" -o -name "*.yaml" \) \
                                 -type f | sort)
-ALL_MODULES := $(shell find . -type f -name "go.mod" -exec dirname {} \; | sort )
+ALL_MODULES := $(shell find . -type f -name "go.mod" -not -path "*/internal/tools/*" -exec dirname {} \; | sort )
 ALL_MDATAGEN_MODULES := $(shell find . -type f -name "metadata.yaml" -exec dirname {} \; | sort )
 
 # All source code files
@@ -149,24 +149,20 @@ tidy:
 
 .PHONY: gosec
 gosec:
-	gosec \
-	  -exclude-dir=receiver/sapnetweaverreceiver \
-	  -exclude-dir=extension/bindplaneextension \
-	  -exclude-dir=processor/snapshotprocessor \
-	  -exclude-dir=processor/ocsfstandardizationprocessor \
-	  -exclude-dir=internal/tools \
-	  -exclude-dir=exporter/chronicleexporter/internal/metadata \
-	  -exclude-dir=exporter/chronicleexporter/protos/api \
-	  -exclude-dir=exporter/googlecloudstorageexporter/internal/metadata \
-	  -exclude-dir=receiver/awss3eventreceiver/internal/metadata \
-	  -exclude-dir=receiver/gcspubsubeventreceiver/internal/metadata \
-	  -exclude-dir=receiver/pcapreceiver/internal/metadata \
-	  -exclude-dir=extension/opampgateway/internal/metadata \
-	  ./...
-	cd extension/bindplaneextension; gosec ./...
-	cd processor/snapshotprocessor; gosec ./...
-	cd receiver/sapnetweaverreceiver; gosec ./...
-	cd processor/ocsfstandardizationprocessor; gosec ./...
+	@set -e; for dir in $(ALL_MODULES); do \
+		EXCLUDES=""; \
+		case "$$dir" in \
+			./exporter/chronicleexporter) EXCLUDES="-exclude-dir=internal/metadata -exclude-dir=protos/api" ;; \
+			./exporter/googlecloudstorageexporter) EXCLUDES="-exclude-dir=internal/metadata" ;; \
+			./receiver/awss3eventreceiver) EXCLUDES="-exclude-dir=internal/metadata" ;; \
+			./receiver/gcspubsubeventreceiver) EXCLUDES="-exclude-dir=internal/metadata" ;; \
+			./receiver/pcapreceiver) EXCLUDES="-exclude-dir=internal/metadata" ;; \
+			./extension/opampgateway) EXCLUDES="-exclude-dir=internal/metadata" ;; \
+		esac; \
+		(cd "$$dir" && \
+			echo "running gosec in $$dir" && \
+			gosec $$EXCLUDES ./...); \
+	done
 
 # This target performs all checks that CI will do (excluding the build itself)
 .PHONY: ci-checks

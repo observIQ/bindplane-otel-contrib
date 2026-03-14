@@ -22,11 +22,7 @@ set -e
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-GO_VERSION=$(head -1 internal/tools/go.mod | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')
-if [ -z "$GO_VERSION" ]; then
-    echo "Error: could not determine Go version from internal/tools/go.mod"
-    exit 1
-fi
+GO_VERSION="1.25.7"
 
 echo "Generating go.work with go ${GO_VERSION}..."
 
