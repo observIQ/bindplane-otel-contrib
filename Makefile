@@ -24,6 +24,33 @@ export
 
 COLLECTOR_PATH ?= ../bindplane-otel-collector
 
+# Build the collector binary using local contrib modules.
+# Requires COLLECTOR_PATH to point to a local bindplane-otel-collector checkout.
+# Verifies COLLECTOR_PATH to exist before generating go.work and building collector.
+.PHONY: build-collector
+build-collector:
+	@if [ ! -d "$(COLLECTOR_PATH)" ]; then \
+		echo "Error: COLLECTOR_PATH=$(COLLECTOR_PATH) does not exist."; \
+		echo "Clone the collector repo or update .local.env"; \
+		exit 1; \
+	fi
+	@echo "Building collector with local contrib modules..."
+	@CONTRIB_ROOT=$$(pwd) && \
+	COLLECTOR_ABS=$$(cd "$(COLLECTOR_PATH)" && pwd) && \
+	rm -f go.work go.work.sum && \
+	go work init "$$COLLECTOR_ABS" && \
+	for dir in $$(find "$$CONTRIB_ROOT" -name "go.mod" -not -path "*/vendor/*" -not -path "*/internal/tools/*" -exec dirname {} \;); do \
+		go work use "$$dir"; \
+	done && \
+	mkdir -p build && \
+	go build -tags bindplane -o build/collector "$$COLLECTOR_ABS/cmd/collector" && \
+	rm -f go.work go.work.sum && \
+	echo "Collector built successfully"
+
+.PHONY: clean
+clean:
+	rm -f go.work go.work.sum build
+
 .PHONY: version
 version:
 	@printf $(VERSION)
@@ -147,6 +174,8 @@ fmt:
 tidy:
 	$(MAKE) for-all CMD="go mod tidy -compat=1.25.7"
 
+# This target runs gosec in each individual go module.
+# Specific modules have directories that need to be ignored.
 .PHONY: gosec
 gosec:
 	@set -e; for dir in $(ALL_MODULES); do \
@@ -283,36 +312,6 @@ release:
 	done
 
 	@git push --tags
-
-# Build the collector binary using local contrib modules.
-# Requires COLLECTOR_PATH to point to a local bindplane-otel-collector checkout.
-.PHONY: build-collector
-build-collector:
-	@if [ ! -f .local.env ]; then \
-		echo "COLLECTOR_PATH=../bindplane-otel-collector" > .local.env; \
-		echo "Created .local.env with default COLLECTOR_PATH=$(COLLECTOR_PATH)"; \
-	fi
-	@if [ ! -d "$(COLLECTOR_PATH)" ]; then \
-		echo "Error: COLLECTOR_PATH=$(COLLECTOR_PATH) does not exist."; \
-		echo "Clone the collector repo or update .local.env"; \
-		exit 1; \
-	fi
-	@echo "Building collector with local contrib modules..."
-	@CONTRIB_ROOT=$$(pwd) && \
-	COLLECTOR_ABS=$$(cd "$(COLLECTOR_PATH)" && pwd) && \
-	rm -f go.work go.work.sum && \
-	go work init "$$COLLECTOR_ABS" && \
-	for dir in $$(find "$$CONTRIB_ROOT" -name "go.mod" -not -path "*/vendor/*" -not -path "*/internal/tools/*" -exec dirname {} \;); do \
-		go work use "$$dir"; \
-	done && \
-	mkdir -p build && \
-	go build -tags bindplane -o build/collector "$$COLLECTOR_ABS/cmd/collector" && \
-	rm -f go.work go.work.sum && \
-	echo "Collector built successfully"
-
-.PHONY: clean
-clean:
-	rm -f go.work go.work.sum
 
 .PHONY: generate
 generate:

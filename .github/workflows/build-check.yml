@@ -22,7 +22,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: contrib/internal/tools/go.mod
+          go-version: "1.25.7"
           cache: false
 
       - name: Set up Go cache
@@ -31,11 +31,4 @@ jobs:
           cache: go
 
       - name: Build Collector with Contrib Modules
-        run: |
-          cd collector
-          go work init .
-          for dir in $(find ../contrib -name "go.mod" -not -path "*/vendor/*" -not -path "*/internal/tools/*" -exec dirname {} \;); do
-            go work use "$dir"
-          done
-          go build -tags bindplane -o /dev/null ./cmd/collector
-          rm -f go.work go.work.sum
+        run: make -C contrib build-collector COLLECTOR_PATH=../collector

@@ -52,7 +52,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: internal/tools/go.mod
+          go-version: "1.25.7"
           cache: false # Use Namespace caching instead
       - name: Set up Go cache
         uses: namespacelabs/nscloud-cache-action@v1
@@ -78,7 +78,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: internal/tools/go.mod
+          go-version: "1.25.7"
           cache: false # Use Namespace caching instead
       - name: Set up Go cache
         uses: namespacelabs/nscloud-cache-action@v1
@@ -106,7 +106,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: internal/tools/go.mod
+          go-version: "1.25.7"
           cache: false # Use Namespace caching instead
       - name: Set up Go cache
         uses: namespacelabs/nscloud-cache-action@v1
@@ -134,7 +134,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: internal/tools/go.mod
+          go-version: "1.25.7"
           cache: false # Use Namespace caching instead
       - name: Set up Go cache
         uses: namespacelabs/nscloud-cache-action@v1
@@ -162,7 +162,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: internal/tools/go.mod
+          go-version: "1.25.7"
           cache: false # Use Namespace caching instead
       - name: Set up Go cache
         uses: namespacelabs/nscloud-cache-action@v1
@@ -190,7 +190,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: internal/tools/go.mod
+          go-version: "1.25.7"
           cache: false # Use Namespace caching instead
       - name: Set up Go cache
         uses: namespacelabs/nscloud-cache-action@v1
