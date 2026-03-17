@@ -158,7 +158,7 @@ func (lr *logsReceiver) listenForEvents(ctx context.Context, eventConsumer *etw.
 }
 
 // TODO think about bundling logs into resources
-func (lr *logsReceiver) parseLogs(ctx context.Context, event *etw.Event) (plog.Logs, error) {
+func (lr *logsReceiver) parseLogs(_ context.Context, event *etw.Event) (plog.Logs, error) {
 	if lr.cfg.Raw {
 		return lr.rawEvent(event)
 	}
@@ -199,6 +199,7 @@ func (lr *logsReceiver) parseEventData(event *etw.Event, record plog.LogRecord) 
 
 	record.Body().SetEmptyMap()
 	record.Body().Map().PutStr("opcode", event.System.Opcode)
+	record.Body().Map().PutStr("level", strconv.FormatUint(uint64(event.System.Level), 10))
 
 	if event.System.Execution.ThreadID != 0 {
 		record.Body().Map().PutStr("thread_id", strconv.FormatUint(uint64(event.System.Execution.ThreadID), 10))
@@ -228,6 +229,12 @@ func (lr *logsReceiver) parseEventData(event *etw.Event, record plog.LogRecord) 
 	if event.System.EventID != "" {
 		eventID := record.Body().Map().PutEmptyMap("event_id")
 		eventID.PutStr("id", event.System.EventID)
+	}
+
+	record.Body().Map().PutStr("version", strconv.FormatUint(uint64(event.System.Version), 10))
+
+	if !event.System.TimeCreated.SystemTime.IsZero() {
+		record.Body().Map().PutStr("time_created", event.System.TimeCreated.SystemTime.UTC().Format(time.RFC3339Nano))
 	}
 
 	correlation := record.Body().Map().PutEmptyMap("correlation")
@@ -262,6 +269,14 @@ func (lr *logsReceiver) parseEventData(event *etw.Event, record plog.LogRecord) 
 		for key, data := range event.UserData {
 			putAnyValue(userData, key, data)
 		}
+	}
+
+	if event.System.Channel != "" {
+		record.Body().Map().PutStr("channel", event.System.Channel)
+	}
+
+	if event.System.Computer != "" {
+		record.Body().Map().PutStr("computer", event.System.Computer)
 	}
 }
 
