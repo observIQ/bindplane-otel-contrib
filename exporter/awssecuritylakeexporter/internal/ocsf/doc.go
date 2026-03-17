@@ -12,7 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:generate mdatagen metadata.yaml
-
 // Package ocsf provides OCSF parquet schema definitions.
 package ocsf // import "github.com/observiq/bindplane-otel-contrib/exporter/awssecuritylakeexporter/internal/ocsf"

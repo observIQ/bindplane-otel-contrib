@@ -8,7 +8,7 @@ import (
 
 var (
 	Type      = component.MustNewType("aws_security_lake")
-	ScopeName = "github.com/observiq/bindplane-otel-collector/exporter/awssecuritylakeexporter"
+	ScopeName = "github.com/observiq/bindplane-otel-contrib/exporter/awssecuritylakeexporter"
 )
 
 const (
