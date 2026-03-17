@@ -4,6 +4,7 @@ go 1.25.7
 
 require (
 	github.com/observiq/bindplane-otel-contrib/internal/exporterutils v1.0.0
+	github.com/observiq/bindplane-otel-contrib/internal/testutils v1.0.0
 	github.com/observiq/bindplane-otel-contrib/pkg/version v1.0.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.53.0
@@ -97,5 +98,7 @@ require (
 )
 
 replace github.com/observiq/bindplane-otel-contrib/internal/exporterutils => ../../internal/exporterutils
+
+replace github.com/observiq/bindplane-otel-contrib/internal/testutils => ../../internal/testutils
 
 replace github.com/observiq/bindplane-otel-contrib/pkg/version => ../../pkg/version
