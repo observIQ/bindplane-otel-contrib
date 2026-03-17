@@ -16,10 +16,22 @@ package restapireceiver // import "github.com/observiq/bindplane-otel-contrib/re
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/confighttp"
+)
+
+const (
+	// Epoch timestamp format constants for use in TimestampFormat.
+	// These send the timestamp as a numeric epoch value instead of a formatted string.
+	epochSeconds           = "epoch_s"
+	epochMilliseconds      = "epoch_ms"
+	epochMicroseconds      = "epoch_us"
+	epochNanoseconds       = "epoch_ns"
+	epochSecondsFractional = "epoch_s_frac"
 )
 
 // AuthMode defines the authentication mode for the REST API receiver.
@@ -240,14 +252,17 @@ type TimestampPagination struct {
 
 	// TimestampFieldName is the name of the field in each response item that contains the timestamp value.
 	// This is used to extract the timestamp from the last item for the next page.
-	// For Meraki API, this is typically "ts" (timestamp).
 	TimestampFieldName string `mapstructure:"timestamp_field_name"`
 
-	// TimestampFormat is the Go time format string for the timestamp query parameter.
+	// TimestampFormat is the format for the timestamp query parameter.
 	// Common formats:
 	//   - "2006-01-02T15:04:05Z07:00" (RFC3339, default)
 	//   - "20060102150405" (YYYYMMDDHHMMSS)
 	//   - "2006-01-02 15:04:05"
+	//   - "epoch_s" (Unix epoch seconds)
+	//   - "epoch_ms" (Unix epoch milliseconds)
+	//   - "epoch_us" (Unix epoch microseconds)
+	//   - "epoch_ns" (Unix epoch nanoseconds)
 	// If not set, defaults to RFC3339.
 	TimestampFormat string `mapstructure:"timestamp_format"`
 
@@ -260,6 +275,7 @@ type TimestampPagination struct {
 	// InitialTimestamp is the initial timestamp to start from (optional).
 	// If not set, will start from the beginning.
 	// Accepts the configured timestamp_format or RFC3339 (e.g., "2025-01-01T00:00:00Z").
+	// For epoch formats, accepts a numeric string (e.g., "1704067200" for epoch_s).
 	InitialTimestamp string `mapstructure:"initial_timestamp"`
 }
 
@@ -358,24 +374,34 @@ func (c *Config) Validate() error {
 		// Validate initial_timestamp format if provided
 		if c.Pagination.Timestamp.InitialTimestamp != "" {
 			var parsed bool
-			// First try the user's configured format (they likely copied the timestamp from the API)
-			if c.Pagination.Timestamp.TimestampFormat != "" {
-				if _, err := time.Parse(c.Pagination.Timestamp.TimestampFormat, c.Pagination.Timestamp.InitialTimestamp); err == nil {
+			// For epoch formats, validate that initial_timestamp is a numeric value
+			if isEpochFormat(c.Pagination.Timestamp.TimestampFormat) {
+				if _, err := strconv.ParseFloat(c.Pagination.Timestamp.InitialTimestamp, 64); err == nil {
 					parsed = true
 				}
-			}
-			// Fall back to RFC3339 (the default format)
-			if !parsed {
-				if _, err := time.Parse(time.RFC3339, c.Pagination.Timestamp.InitialTimestamp); err == nil {
-					parsed = true
+				if !parsed {
+					return fmt.Errorf("initial_timestamp %q must be a numeric value when using epoch timestamp_format (%s)", c.Pagination.Timestamp.InitialTimestamp, c.Pagination.Timestamp.TimestampFormat)
 				}
-			}
-			if !parsed {
-				formatHint := "RFC3339 (e.g., 2025-01-01T00:00:00Z)"
+			} else {
+				// First try the user's configured format (they likely copied the timestamp from the API)
 				if c.Pagination.Timestamp.TimestampFormat != "" {
-					formatHint = fmt.Sprintf("configured timestamp_format (%s) or RFC3339", c.Pagination.Timestamp.TimestampFormat)
+					if _, err := time.Parse(c.Pagination.Timestamp.TimestampFormat, c.Pagination.Timestamp.InitialTimestamp); err == nil {
+						parsed = true
+					}
 				}
-				return fmt.Errorf("initial_timestamp %q could not be parsed; must match %s", c.Pagination.Timestamp.InitialTimestamp, formatHint)
+				// Fall back to RFC3339 (the default format)
+				if !parsed {
+					if _, err := time.Parse(time.RFC3339, c.Pagination.Timestamp.InitialTimestamp); err == nil {
+						parsed = true
+					}
+				}
+				if !parsed {
+					formatHint := "RFC3339 (e.g., 2025-01-01T00:00:00Z)"
+					if c.Pagination.Timestamp.TimestampFormat != "" {
+						formatHint = fmt.Sprintf("configured timestamp_format (%s) or RFC3339", c.Pagination.Timestamp.TimestampFormat)
+					}
+					return fmt.Errorf("initial_timestamp %q could not be parsed; must match %s", c.Pagination.Timestamp.InitialTimestamp, formatHint)
+				}
 			}
 		}
 	}
@@ -411,4 +437,83 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// isEpochFormat returns true if the given format string is one of the epoch timestamp formats.
+func isEpochFormat(format string) bool {
+	switch format {
+	case epochSeconds, epochMilliseconds, epochMicroseconds, epochNanoseconds, epochSecondsFractional:
+		return true
+	}
+	return false
+}
+
+// formatTimestampEpoch formats a time.Time as an epoch numeric string.
+func formatTimestampEpoch(t time.Time, format string) string {
+	switch format {
+	case epochSeconds:
+		return strconv.FormatInt(t.Unix(), 10)
+	case epochMilliseconds:
+		return strconv.FormatInt(t.UnixMilli(), 10)
+	case epochMicroseconds:
+		return strconv.FormatInt(t.UnixMicro(), 10)
+	case epochNanoseconds:
+		return strconv.FormatInt(t.UnixNano(), 10)
+	case epochSecondsFractional:
+		nsec := int64(t.Nanosecond())
+		if nsec == 0 {
+			return strconv.FormatInt(t.Unix(), 10)
+		}
+		frac := strings.TrimRight(fmt.Sprintf("%09d", nsec), "0")
+		return fmt.Sprintf("%d.%s", t.Unix(), frac)
+	default:
+		return strconv.FormatInt(t.Unix(), 10)
+	}
+}
+
+// parseEpochTimestamp parses a numeric epoch string into a time.Time based on the epoch format.
+// For epoch_s, epoch_ms, epoch_us, epoch_ns: the value must be an integer in the configured unit.
+// For epoch_s_frac: the value is fractional seconds (e.g., "1704067200.123456") where the integer
+// part is seconds and the fractional digits are sub-second precision.
+func parseEpochTimestamp(value string, format string) (time.Time, error) {
+	// epoch_s_frac: fractional seconds (e.g., "1704067200.123456")
+	if format == epochSecondsFractional {
+		parts := strings.SplitN(value, ".", 2)
+		sec, err := strconv.ParseInt(parts[0], 10, 64)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("failed to parse epoch timestamp %q: %w", value, err)
+		}
+		var nsec int64
+		if len(parts) == 2 && len(parts[1]) > 0 {
+			fracStr := parts[1]
+			if len(fracStr) < 9 {
+				fracStr += strings.Repeat("0", 9-len(fracStr))
+			} else if len(fracStr) > 9 {
+				fracStr = fracStr[:9]
+			}
+			nsec, err = strconv.ParseInt(fracStr, 10, 64)
+			if err != nil {
+				return time.Time{}, fmt.Errorf("failed to parse fractional epoch timestamp %q: %w", value, err)
+			}
+		}
+		return time.Unix(sec, nsec), nil
+	}
+
+	// All other epoch formats: integer value in the configured unit
+	n, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to parse epoch timestamp %q: %w", value, err)
+	}
+	switch format {
+	case epochSeconds:
+		return time.Unix(n, 0), nil
+	case epochMilliseconds:
+		return time.Unix(0, n*int64(time.Millisecond)), nil
+	case epochMicroseconds:
+		return time.Unix(0, n*int64(time.Microsecond)), nil
+	case epochNanoseconds:
+		return time.Unix(0, n), nil
+	default:
+		return time.Unix(n, 0), nil
+	}
 }
