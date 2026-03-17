@@ -1,0 +1,19 @@
+receivers:
+  gcsevent:
+    project_id: "iris-dev-351502"
+    subscription_id: "gcs-event-topic-sub"
+    # credentials_file: "/path/to/key.json"  # optional if using ADC
+    workers: 5
+    max_extension: 1h
+
+exporters:
+  debug:
+    verbosity: detailed
+  file:
+    path: "./local/gcs-events.json"
+
+service:
+  pipelines:
+    logs:
+      receivers: [gcsevent]
+      exporters: [debug, file]

@@ -1,0 +1,34 @@
+receivers:
+  restapi:
+    url: "http://localhost:8080/profile/akamai"
+    response_field: "data"
+    auth_mode: "akamai_edgegrid"
+    akamai_edgegrid:
+      client_token: "akab-client-token-xxx"
+      client_secret: "akab-client-secret-xxx"
+      access_token: "akab-access-token-xxx"
+    # pagination:
+    #   mode: "offset_limit"
+    #   offset_limit:
+    #     offset_field_name: "token"
+    #     limit_field_name: "limit"
+    #     next_offset_field_name: "next_token"
+    pagination:
+      mode: "timestamp"
+      timestamp:
+        param_name: "from"
+        timestamp_field_name: "timestamp"
+        timestamp_format: "epoch_s"
+        page_size: 10
+
+exporters:
+  debug:
+    verbosity: detailed
+  file:
+    path: "./local/rest-api-events.json"
+
+service:
+  pipelines:
+    logs:
+      receivers: [restapi]
+      exporters: [debug, file]
