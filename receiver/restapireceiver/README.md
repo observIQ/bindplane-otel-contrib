@@ -103,11 +103,12 @@ Use `auth_mode: none` for public APIs that don't require authentication. No addi
 
 #### Offset/Limit Pagination
 
-| Field                                       | Type   | Default | Required | Description                     |
-| ------------------------------------------- | ------ | ------- | -------- | ------------------------------- |
-| `pagination.offset_limit.offset_field_name` | string |         | `false`  | Query parameter name for offset |
-| `pagination.offset_limit.limit_field_name`  | string |         | `false`  | Query parameter name for limit  |
-| `pagination.offset_limit.starting_offset`   | int    | `0`     | `false`  | Starting offset value           |
+| Field | Type | Default | Required | Description |
+|-------|------|---------|----------|-------------|
+| `pagination.offset_limit.offset_field_name` | string | | `false` | Query parameter name for offset |
+| `pagination.offset_limit.limit_field_name` | string | | `false` | Query parameter name for limit |
+| `pagination.offset_limit.starting_offset` | int | `0` | `false` | Starting offset value |
+| `pagination.offset_limit.next_offset_field_name` | string | | `false` | Field name in the response containing the next offset token. When set, the receiver uses token-based (cursor) pagination instead of numeric offsets. Supports nested fields with dot notation (e.g., `pagination.next_cursor`) |
 
 #### Page/Size Pagination
 
@@ -264,6 +265,41 @@ receivers:
       client_token: "your-client-token"
       client_secret: "your-client-secret"
 ```
+
+### Token-Based (Cursor) Offset Pagination
+
+Some APIs return a token or cursor in the response body instead of using numeric offsets. Use `next_offset_field_name` to extract this token and pass it as the offset parameter on subsequent requests.
+
+```yaml
+receivers:
+  restapi:
+    url: "https://api.example.com/events"
+    response_field: "data"
+    max_poll_interval: 5m
+    auth_mode: bearer
+    bearer:
+      token: "your-bearer-token-here"
+    pagination:
+      mode: offset_limit
+      offset_limit:
+        offset_field_name: "cursor"
+        limit_field_name: "limit"
+        next_offset_field_name: "next_cursor"
+    storage: file_storage
+```
+
+This configuration would work with an API that returns responses like:
+```json
+{
+  "data": [
+    {"id": "1", "message": "event 1"},
+    {"id": "2", "message": "event 2"}
+  ],
+  "next_cursor": "eyJpZCI6Mn0="
+}
+```
+
+When `next_cursor` is empty, null, or missing, the receiver treats it as the end of available data.
 
 ### Timestamp Pagination
 

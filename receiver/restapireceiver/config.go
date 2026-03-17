@@ -224,6 +224,10 @@ type OffsetLimitPagination struct {
 
 	// LimitFieldName is the name of the query parameter for limit.
 	LimitFieldName string `mapstructure:"limit_field_name"`
+
+	// NextOffsetFieldName is the name of the field in the response that contains the next offset token.
+	// When set, the receiver uses token-based (cursor) pagination instead of numeric offsets.
+	NextOffsetFieldName string `mapstructure:"next_offset_field_name"`
 }
 
 // PageSizePagination defines page/size pagination configuration.
