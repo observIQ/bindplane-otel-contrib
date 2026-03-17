@@ -5,6 +5,7 @@ cover.*
 .vscode
 .idea/
 .local.env
+local/
 go.work
 go.work.sum
 logging.yaml
