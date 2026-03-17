@@ -1,4 +1,4 @@
-module github.com/observiq/bindplane-otel-collector/exporter/awssecuritylakeexporter
+module github.com/observiq/bindplane-otel-contrib/exporter/awssecuritylakeexporter
 
 go 1.25.7
 

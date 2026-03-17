@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package awssecuritylakeexporter // import "github.com/observiq/bindplane-otel-collector/exporter/awssecuritylakeexporter"
+package awssecuritylakeexporter // import "github.com/observiq/bindplane-otel-contrib/exporter/awssecuritylakeexporter"
 
 import (
 	"bytes"
@@ -22,10 +22,10 @@ import (
 
 	"github.com/google/uuid"
 
-	v100 "github.com/observiq/bindplane-otel-collector/exporter/awssecuritylakeexporter/internal/ocsf/v1_0_0"
-	v110 "github.com/observiq/bindplane-otel-collector/exporter/awssecuritylakeexporter/internal/ocsf/v1_1_0"
-	v120 "github.com/observiq/bindplane-otel-collector/exporter/awssecuritylakeexporter/internal/ocsf/v1_2_0"
-	v130 "github.com/observiq/bindplane-otel-collector/exporter/awssecuritylakeexporter/internal/ocsf/v1_3_0"
+	v100 "github.com/observiq/bindplane-otel-contrib/exporter/awssecuritylakeexporter/internal/ocsf/v1_0_0"
+	v110 "github.com/observiq/bindplane-otel-contrib/exporter/awssecuritylakeexporter/internal/ocsf/v1_1_0"
+	v120 "github.com/observiq/bindplane-otel-contrib/exporter/awssecuritylakeexporter/internal/ocsf/v1_2_0"
+	v130 "github.com/observiq/bindplane-otel-contrib/exporter/awssecuritylakeexporter/internal/ocsf/v1_3_0"
 	"github.com/parquet-go/parquet-go"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"

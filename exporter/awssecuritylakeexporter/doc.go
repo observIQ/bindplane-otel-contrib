@@ -15,4 +15,4 @@
 //go:generate mdatagen metadata.yaml
 
 // Package awssecuritylakeexporter exports OCSF-formatted logs as Parquet files to AWS Security Lake via S3.
-package awssecuritylakeexporter // import "github.com/observiq/bindplane-otel-collector/exporter/awssecuritylakeexporter"
+package awssecuritylakeexporter // import "github.com/observiq/bindplane-otel-contrib/exporter/awssecuritylakeexporter"

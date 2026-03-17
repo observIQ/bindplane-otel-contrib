@@ -15,4 +15,4 @@
 //go:generate mdatagen metadata.yaml
 
 // Package ocsf provides OCSF parquet schema definitions.
-package ocsf // import "github.com/observiq/bindplane-otel-collector/exporter/awssecuritylakeexporter/internal/ocsf"
+package ocsf // import "github.com/observiq/bindplane-otel-contrib/exporter/awssecuritylakeexporter/internal/ocsf"
