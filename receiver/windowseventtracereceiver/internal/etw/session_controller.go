@@ -84,17 +84,8 @@ func (s *SessionController) Start() error {
 		s.logger.Debug("Session already exists, attempting to stop and restart")
 
 		// We need to aggressively close and reopen the session
-		propsCopy := *s.properties
-		r1, err := advapi32.ControlTrace(
-			nil,
-			advapi32.EVENT_TRACE_CONTROL_STOP,
-			namePtrU16,
-			&propsCopy,
-		)
-		if r1 != 0 {
-			s.logger.Warn("Failed to close existing trace, trying to continue anyway",
-				zap.Uint64("error_code", uint64(r1)),
-				zap.Error(err))
+		if err := s.stopTrace(s.name); err != nil {
+			s.logger.Warn("Failed to close existing trace, trying to continue anyway", zap.Error(err))
 		} else {
 			s.logger.Debug("Successfully stopped existing session", zap.String("name", s.name))
 		}
@@ -114,29 +105,14 @@ func (s *SessionController) Start() error {
 	return nil
 }
 
-func (s *SessionController) Stop(ctx context.Context) error {
+func (s *SessionController) Stop(_ context.Context) error {
 	if s.handle == 0 || s.isAttached {
 		s.logger.Debug("Session already stopped or not attached", zap.String("name", s.name), zap.Uintptr("handle", uintptr(s.handle)))
 		return nil
 	}
 
-	var namePtrU16 *uint16
-	var err error
-
-	if namePtrU16, err = syscall.UTF16PtrFromString(s.name); err != nil {
-		return fmt.Errorf("failed to convert session name to UTF-16: %w", err)
-	}
-
-	propsCopy := *s.properties
-	r1, err := advapi32.ControlTrace(
-		&s.handle,
-		advapi32.EVENT_TRACE_CONTROL_STOP,
-		namePtrU16,
-		&propsCopy,
-	)
-
-	if r1 != 0 {
-		return fmt.Errorf("failed to stop trace(%d): %w", r1, err)
+	if err := s.stopTrace(s.name); err != nil {
+		return err
 	}
 
 	s.handle = 0
