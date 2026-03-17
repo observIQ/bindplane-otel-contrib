@@ -1,5 +1,7 @@
 # AWS Security Lake Exporter
 
+**Status: Alpha**
+
 This exporter sends OCSF-formatted logs as Parquet files to an AWS Security Lake S3 bucket. It is designed to integrate with OpenTelemetry collectors to export log telemetry data into Amazon Security Lake for centralized security data management.
 
 ## Supported Pipelines
