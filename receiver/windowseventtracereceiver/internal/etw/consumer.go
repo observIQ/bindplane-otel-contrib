@@ -243,7 +243,7 @@ func (c *Consumer) parsedEventCallback(eventRecord *advapi32.EventRecord) uintpt
 			SID: eventRecord.SID(),
 		},
 		EventData:    data,
-		ExtendedData: []string{},
+		ExtendedData: nil,
 	}
 
 	if activityID := eventRecord.EventHeader.ActivityId.String(); activityID != zeroGUID {
