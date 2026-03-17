@@ -77,7 +77,7 @@ pkg/                Public utility packages
 
 | Component | Description |
 |---|---|
-| [awssecuritylakeexporter](exporter/awssecuritylakeexporter) | Exports OCSF-formatted logs as Parquet files to AWS Security Lake via S3 |
+| [awssecuritylakeexporter](exporter/awssecuritylakeexporter) | Exports OCSF-formatted logs as Parquet files to AWS Security Lake via S3 *(alpha)* |
 | [azureblobexporter](exporter/azureblobexporter) | Exports metrics, traces, and logs to Azure Blob Storage in OTLP JSON format |
 | [azureloganalyticsexporter](exporter/azureloganalyticsexporter) | Exports logs to Azure Log Analytics via the Log Analytics Ingestion API |
 | [chronicleexporter](exporter/chronicleexporter) | Sends logs to Chronicle using the v2 ingestion API |
