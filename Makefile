@@ -169,7 +169,7 @@ _build-windows-arm64:
 
 .PHONY: _build-collector
 _build-collector:
-    go build -ldflags "-s -w -X github.com/observiq/bindplane-otel-contrib/pkg/version.version=$(COLLECTOR_VERSION)" -tags bindplane -o $(OUTDIR)/collector_$(GOOS)_$(GOARCH)$(EXT) "$(COLLECTOR_ABS)/cmd/collector"
+	go build -ldflags "-s -w -X github.com/observiq/bindplane-otel-contrib/pkg/version.version=$(COLLECTOR_VERSION)" -tags bindplane -o $(OUTDIR)/collector_$(GOOS)_$(GOARCH)$(EXT) "$(COLLECTOR_ABS)/cmd/collector"
 
 .PHONY: clean
 clean:
