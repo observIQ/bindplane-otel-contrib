@@ -2,6 +2,9 @@ name: Build Check
 on:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   build-collector:
     if: github.actor != 'dependabot[bot]'
