@@ -23,12 +23,86 @@ VERSION ?= $(if $(CURRENT_TAG),$(CURRENT_TAG),$(PREVIOUS_TAG)-SNAPSHOT-$(SNAPSHO
 export
 
 COLLECTOR_PATH ?= ../bindplane-otel-collector
+COLLECTOR_ABS ?= $(abspath $(COLLECTOR_PATH))
+OUTDIR ?= build
 
-# Build the collector binary using local contrib modules.
-# Requires COLLECTOR_PATH to point to a local bindplane-otel-collector checkout.
-# Verifies COLLECTOR_PATH to exist before generating go.work and building collector.
+EXT = $(if $(filter windows,$(GOOS)),.exe,)
+
+## Public build targets
+
+.PHONY: build-all
+build-all: _build-setup
+	$(MAKE) _build-linux _build-darwin _build-windows
+	$(MAKE) _cleanup-build
+
+.PHONY: build-linux
+build-linux: _build-setup
+	$(MAKE) _build-linux
+	$(MAKE) _cleanup-build
+
+.PHONY: build-darwin
+build-darwin: _build-setup
+	$(MAKE) _build-darwin
+	$(MAKE) _cleanup-build
+
+.PHONY: build-windows
+build-windows: _build-setup
+	$(MAKE) _build-windows
+	$(MAKE) _cleanup-build
+
+.PHONY: build-linux-amd64
+build-linux-amd64: _build-setup
+	$(MAKE) _build-linux-amd64
+	$(MAKE) _cleanup-build
+
+.PHONY: build-linux-arm64
+build-linux-arm64: _build-setup
+	$(MAKE) _build-linux-arm64
+	$(MAKE) _cleanup-build
+
+.PHONY: build-linux-arm
+build-linux-arm: _build-setup
+	$(MAKE) _build-linux-arm
+	$(MAKE) _cleanup-build
+
+.PHONY: build-linux-ppc64
+build-linux-ppc64: _build-setup
+	$(MAKE) _build-linux-ppc64
+	$(MAKE) _cleanup-build
+
+.PHONY: build-linux-ppc64le
+build-linux-ppc64le: _build-setup
+	$(MAKE) _build-linux-ppc64le
+	$(MAKE) _cleanup-build
+
+.PHONY: build-darwin-amd64
+build-darwin-amd64: _build-setup
+	$(MAKE) _build-darwin-amd64
+	$(MAKE) _cleanup-build
+
+.PHONY: build-darwin-arm64
+build-darwin-arm64: _build-setup
+	$(MAKE) _build-darwin-arm64
+	$(MAKE) _cleanup-build
+
+.PHONY: build-windows-amd64
+build-windows-amd64: _build-setup
+	$(MAKE) _build-windows-amd64
+	$(MAKE) _cleanup-build
+
+.PHONY: build-windows-arm64
+build-windows-arm64: _build-setup
+	$(MAKE) _build-windows-arm64
+	$(MAKE) _cleanup-build
+
 .PHONY: build-collector
 build-collector:
+	go build -ldflags "-s -w -X github.com/observiq/bindplane-otel-contrib/pkg/version.version=$(VERSION)" -tags bindplane -o $(OUTDIR)/collector_$(GOOS)_$(GOARCH)$(EXT) "$(COLLECTOR_ABS)/cmd/collector"
+
+## Private build targets
+
+.PHONY: _build-setup
+_build-setup:
 	@if [ ! -d "$(COLLECTOR_PATH)" ]; then \
 		echo "Error: COLLECTOR_PATH=$(COLLECTOR_PATH) does not exist."; \
 		echo "Clone the collector repo or update .local.env"; \
@@ -36,16 +110,61 @@ build-collector:
 	fi
 	@echo "Building collector with local contrib modules..."
 	@CONTRIB_ROOT=$$(pwd) && \
-	COLLECTOR_ABS=$$(cd "$(COLLECTOR_PATH)" && pwd) && \
 	rm -f go.work go.work.sum && \
-	go work init "$$COLLECTOR_ABS" && \
+	go work init "$(COLLECTOR_ABS)" && \
 	for dir in $$(find "$$CONTRIB_ROOT" -name "go.mod" -not -path "*/vendor/*" -not -path "*/internal/tools/*" -exec dirname {} \;); do \
 		go work use "$$dir"; \
 	done && \
-	mkdir -p build && \
-	go build -tags bindplane -o build/collector "$$COLLECTOR_ABS/cmd/collector" && \
-	rm -f go.work go.work.sum && \
-	echo "Collector built successfully"
+	mkdir -p $(OUTDIR)
+
+.PHONY: _cleanup-build
+_cleanup-build:
+	rm -f go.work go.work.sum
+
+.PHONY: _build-linux
+_build-linux: _build-linux-amd64 _build-linux-arm64 _build-linux-arm _build-linux-ppc64 _build-linux-ppc64le
+
+.PHONY: _build-darwin
+_build-darwin: _build-darwin-amd64 _build-darwin-arm64
+
+.PHONY: _build-windows
+_build-windows: _build-windows-amd64 _build-windows-arm64
+
+.PHONY: _build-linux-amd64
+_build-linux-amd64:
+	GOOS=linux GOARCH=amd64 $(MAKE) build-collector -j2
+
+.PHONY: _build-linux-arm64
+_build-linux-arm64:
+	GOOS=linux GOARCH=arm64 $(MAKE) build-collector -j2
+
+.PHONY: _build-linux-arm
+_build-linux-arm:
+	GOOS=linux GOARCH=arm $(MAKE) build-collector -j2
+
+.PHONY: _build-linux-ppc64
+_build-linux-ppc64:
+	GOOS=linux GOARCH=ppc64 $(MAKE) build-collector -j2
+
+.PHONY: _build-linux-ppc64le
+_build-linux-ppc64le:
+	GOOS=linux GOARCH=ppc64le $(MAKE) build-collector -j2
+
+.PHONY: _build-darwin-amd64
+_build-darwin-amd64:
+	GOOS=darwin GOARCH=amd64 $(MAKE) build-collector -j2
+
+.PHONY: _build-darwin-arm64
+_build-darwin-arm64:
+	GOOS=darwin GOARCH=arm64 $(MAKE) build-collector -j2
+
+.PHONY: _build-windows-amd64
+_build-windows-amd64:
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(MAKE) build-collector -j2
+
+.PHONY: _build-windows-arm64
+_build-windows-arm64:
+	CGO_ENABLED=0 GOOS=windows GOARCH=arm64 $(MAKE) build-collector -j2
 
 .PHONY: clean
 clean:
@@ -183,6 +302,7 @@ gosec:
 		case "$$dir" in \
 			./exporter/chronicleexporter) EXCLUDES="-exclude-dir=internal/metadata -exclude-dir=protos/api" ;; \
 			./exporter/googlecloudstorageexporter) EXCLUDES="-exclude-dir=internal/metadata" ;; \
+			./exporter/awssecuritylakeexporter) EXCLUDES="-exclude-dir=internal/metadata" ;; \
 			./receiver/awss3eventreceiver) EXCLUDES="-exclude-dir=internal/metadata" ;; \
 			./receiver/gcspubsubeventreceiver) EXCLUDES="-exclude-dir=internal/metadata" ;; \
 			./receiver/pcapreceiver) EXCLUDES="-exclude-dir=internal/metadata" ;; \
