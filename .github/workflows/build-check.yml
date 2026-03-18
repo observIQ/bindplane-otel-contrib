@@ -6,6 +6,9 @@ jobs:
   build-collector:
     if: github.actor != 'dependabot[bot]'
     runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    strategy:
+      matrix:
+        target: [build-linux, build-darwin, build-windows]
     steps:
       - name: Checkout Contrib
         uses: namespacelabs/nscloud-checkout-action@v7
@@ -30,5 +33,5 @@ jobs:
         with:
           cache: go
 
-      - name: Build Collector with Contrib Modules
-        run: make -C contrib build-collector COLLECTOR_PATH=../collector
+      - name: Build
+        run: make -C contrib ${{ matrix.target }} COLLECTOR_PATH=../collector
