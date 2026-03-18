@@ -25,8 +25,9 @@ import (
 // paginationState tracks the current state of pagination.
 type paginationState struct {
 	// For offset/limit pagination
-	CurrentOffset int `json:"current_offset,omitempty"`
-	Limit         int `json:"limit,omitempty"`
+	CurrentOffset      int    `json:"current_offset,omitempty"`
+	CurrentOffsetToken string `json:"current_offset_token,omitempty"` // token-based (cursor) offset
+	Limit              int    `json:"limit,omitempty"`
 
 	// For page/size pagination
 	CurrentPage int `json:"current_page,omitempty"`
@@ -71,16 +72,23 @@ func newPaginationState(cfg *Config) *paginationState {
 		// Set initial timestamp if provided, otherwise start from zero time.
 		// Config validation ensures the timestamp is parseable.
 		if cfg.Pagination.Timestamp.InitialTimestamp != "" {
-			// First try the user's configured format (they likely copied the timestamp from the API)
-			if cfg.Pagination.Timestamp.TimestampFormat != "" {
-				if t, err := time.Parse(cfg.Pagination.Timestamp.TimestampFormat, cfg.Pagination.Timestamp.InitialTimestamp); err == nil {
+			if isEpochFormat(cfg.Pagination.Timestamp.TimestampFormat) {
+				// Parse epoch numeric value
+				if t, err := parseEpochTimestamp(cfg.Pagination.Timestamp.InitialTimestamp, cfg.Pagination.Timestamp.TimestampFormat); err == nil {
 					state.CurrentTimestamp = t
 				}
-			}
-			// Fall back to RFC3339 (the default format)
-			if state.CurrentTimestamp.IsZero() {
-				if t, err := time.Parse(time.RFC3339, cfg.Pagination.Timestamp.InitialTimestamp); err == nil {
-					state.CurrentTimestamp = t
+			} else {
+				// First try the user's configured format (they likely copied the timestamp from the API)
+				if cfg.Pagination.Timestamp.TimestampFormat != "" {
+					if t, err := time.Parse(cfg.Pagination.Timestamp.TimestampFormat, cfg.Pagination.Timestamp.InitialTimestamp); err == nil {
+						state.CurrentTimestamp = t
+					}
+				}
+				// Fall back to RFC3339 (the default format)
+				if state.CurrentTimestamp.IsZero() {
+					if t, err := time.Parse(time.RFC3339, cfg.Pagination.Timestamp.InitialTimestamp); err == nil {
+						state.CurrentTimestamp = t
+					}
 				}
 			}
 		}
@@ -107,7 +115,12 @@ func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
 	switch cfg.Pagination.Mode {
 	case paginationModeOffsetLimit:
 		if cfg.Pagination.OffsetLimit.OffsetFieldName != "" {
-			params.Set(cfg.Pagination.OffsetLimit.OffsetFieldName, fmt.Sprintf("%d", state.CurrentOffset))
+			if state.CurrentOffsetToken != "" {
+				// Use token-based offset when available
+				params.Set(cfg.Pagination.OffsetLimit.OffsetFieldName, state.CurrentOffsetToken)
+			} else {
+				params.Set(cfg.Pagination.OffsetLimit.OffsetFieldName, fmt.Sprintf("%d", state.CurrentOffset))
+			}
 		}
 		if cfg.Pagination.OffsetLimit.LimitFieldName != "" {
 			params.Set(cfg.Pagination.OffsetLimit.LimitFieldName, fmt.Sprintf("%d", state.Limit))
@@ -136,17 +149,36 @@ func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
 				// 2. timestampFromData is true: The timestamp came from response data (not initial config),
 				//    meaning we've already fetched records up to this timestamp in a previous cycle
 				if state.PagesFetched > 0 || state.TimestampFromData {
-					// Increment by 1 microsecond to ensure we get items strictly after this timestamp.
-					// We use microsecond (not nanosecond) because most timestamp formats only preserve
-					// microsecond precision, so adding 1 nanosecond wouldn't change the formatted value.
-					timestampForRequest = timestampForRequest.Add(time.Microsecond)
+					// Increment by the minimum resolution of the configured format to avoid
+					// re-fetching the same record.
+					switch cfg.Pagination.Timestamp.TimestampFormat {
+					case epochSeconds:
+						timestampForRequest = timestampForRequest.Add(time.Second)
+					case epochMilliseconds:
+						timestampForRequest = timestampForRequest.Add(time.Millisecond)
+					case epochMicroseconds:
+						timestampForRequest = timestampForRequest.Add(time.Microsecond)
+					case epochNanoseconds:
+						timestampForRequest = timestampForRequest.Add(time.Nanosecond)
+					case epochSecondsFractional:
+						// Fractional seconds — increment by 1 microsecond as a reasonable default.
+						timestampForRequest = timestampForRequest.Add(time.Microsecond)
+					default:
+						// For string formats, increment by 1 microsecond since most formats
+						// preserve microsecond precision at best.
+						timestampForRequest = timestampForRequest.Add(time.Microsecond)
+					}
 				}
 				// Use configured format or default to RFC3339
 				format := cfg.Pagination.Timestamp.TimestampFormat
-				if format == "" {
-					format = time.RFC3339
+				if isEpochFormat(format) {
+					params.Set(cfg.Pagination.Timestamp.ParamName, formatTimestampEpoch(timestampForRequest, format))
+				} else {
+					if format == "" {
+						format = time.RFC3339
+					}
+					params.Set(cfg.Pagination.Timestamp.ParamName, timestampForRequest.Format(format))
 				}
-				params.Set(cfg.Pagination.Timestamp.ParamName, timestampForRequest.Format(format))
 			}
 		}
 
@@ -163,10 +195,10 @@ func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
 func parsePaginationResponse(cfg *Config, response any, extractedData []map[string]any, state *paginationState, logger *zap.Logger) (bool, error) {
 	switch cfg.Pagination.Mode {
 	case paginationModeOffsetLimit:
-		return parseOffsetLimitResponse(cfg, response, state)
+		return parseOffsetLimitResponse(cfg, response, extractedData, state)
 
 	case paginationModePageSize:
-		return parsePageSizeResponse(cfg, response, state)
+		return parsePageSizeResponse(cfg, response, extractedData, state)
 
 	case paginationModeTimestamp:
 		return parseTimestampResponse(cfg, extractedData, state, logger)
@@ -180,7 +212,48 @@ func parsePaginationResponse(cfg *Config, response any, extractedData []map[stri
 }
 
 // parseOffsetLimitResponse parses the response for offset/limit pagination.
-func parseOffsetLimitResponse(cfg *Config, response any, state *paginationState) (bool, error) {
+func parseOffsetLimitResponse(cfg *Config, response any, extractedData []map[string]any, state *paginationState) (bool, error) {
+	// If NextOffsetFieldName is configured, use token-based offset extraction
+	if cfg.Pagination.OffsetLimit.NextOffsetFieldName != "" {
+		responseMap, ok := response.(map[string]any)
+		if !ok {
+			state.CurrentOffsetToken = ""
+			return false, nil
+		}
+
+		tokenVal, exists := getNestedField(responseMap, cfg.Pagination.OffsetLimit.NextOffsetFieldName)
+		if !exists || tokenVal == nil {
+			state.CurrentOffsetToken = ""
+			return false, nil
+		}
+
+		var tokenStr string
+		switch v := tokenVal.(type) {
+		case string:
+			tokenStr = v
+		case float64:
+			tokenStr = fmt.Sprintf("%v", v)
+		case int:
+			tokenStr = fmt.Sprintf("%d", v)
+		default:
+			tokenStr = fmt.Sprintf("%v", v)
+		}
+
+		if tokenStr == "" {
+			state.CurrentOffsetToken = ""
+			return false, nil
+		}
+
+		state.CurrentOffsetToken = tokenStr
+		state.PagesFetched++
+
+		// The token is a bookmark for resuming — always save it.
+		// But hasMore is determined by data count: a partial/empty page means
+		// we're caught up, even though the API returned a valid token.
+		dataCount := len(extractedData)
+		return dataCount >= state.Limit, nil
+	}
+
 	// Try to extract total record count if configured
 	if cfg.Pagination.TotalRecordCountField != "" {
 		if responseMap, ok := response.(map[string]any); ok {
@@ -197,8 +270,7 @@ func parseOffsetLimitResponse(cfg *Config, response any, state *paginationState)
 	// Determine if there are more records
 	// If we have total records, compare current offset + actual items returned to total
 	if state.TotalRecords > 0 {
-		// Use actual data count if available, otherwise use limit
-		dataCount := getDataCount(response)
+		dataCount := len(extractedData)
 		itemsProcessed := state.CurrentOffset + dataCount
 		hasMore := itemsProcessed < state.TotalRecords
 		return hasMore, nil
@@ -206,7 +278,7 @@ func parseOffsetLimitResponse(cfg *Config, response any, state *paginationState)
 
 	// If no total records field, check if we got a full page
 	// This is a heuristic: if we got exactly 'limit' items, assume there might be more
-	dataCount := getDataCount(response)
+	dataCount := len(extractedData)
 	if dataCount >= state.Limit {
 		return true, nil // Full page, assume more
 	}
@@ -215,7 +287,7 @@ func parseOffsetLimitResponse(cfg *Config, response any, state *paginationState)
 }
 
 // parsePageSizeResponse parses the response for page/size pagination.
-func parsePageSizeResponse(cfg *Config, response any, state *paginationState) (bool, error) {
+func parsePageSizeResponse(cfg *Config, response any, extractedData []map[string]any, state *paginationState) (bool, error) {
 	// Try to extract total pages if configured
 	if cfg.Pagination.PageSize.TotalPagesFieldName != "" {
 		if responseMap, ok := response.(map[string]any); ok {
@@ -238,7 +310,7 @@ func parsePageSizeResponse(cfg *Config, response any, state *paginationState) (b
 
 	// If no total pages field, check if we got a full page
 	// This is a heuristic: if we got exactly 'pageSize' items, assume there might be more
-	dataCount := getDataCount(response)
+	dataCount := len(extractedData)
 	if dataCount >= state.PageSize {
 		return true, nil // Full page, assume more
 	}
@@ -349,10 +421,14 @@ func parseTimestampValue(timestampVal any) time.Time {
 		// Unix timestamp (seconds or milliseconds)
 		if timestampFloat > 1e10 {
 			// Likely milliseconds
-			parsedTime = time.Unix(0, int64(timestampFloat*1e6))
+			ms := int64(timestampFloat)
+			fracNs := int64((timestampFloat - float64(ms)) * 1e6)
+			parsedTime = time.Unix(0, ms*int64(time.Millisecond)+fracNs)
 		} else {
-			// Likely seconds
-			parsedTime = time.Unix(int64(timestampFloat), 0)
+			// Likely seconds (preserve fractional part as nanoseconds)
+			sec := int64(timestampFloat)
+			fracNs := int64((timestampFloat - float64(sec)) * 1e9)
+			parsedTime = time.Unix(sec, fracNs)
 		}
 	} else if timestampInt, ok := timestampVal.(int64); ok {
 		if timestampInt > 1e10 {
@@ -365,37 +441,6 @@ func parseTimestampValue(timestampVal any) time.Time {
 	}
 
 	return parsedTime
-}
-
-// getDataCount extracts the count of data items from the response.
-func getDataCount(response any) int {
-	// If response is directly an array
-	if arr, ok := response.([]any); ok {
-		return len(arr)
-	}
-
-	// If response is a map, try to find a data field
-	if responseMap, ok := response.(map[string]any); ok {
-		// Try common field names
-		for _, fieldName := range []string{"data", "items", "results", "records"} {
-			if dataVal, exists := responseMap[fieldName]; exists {
-				// Try []any first
-				if arr, ok := dataVal.([]any); ok {
-					return len(arr)
-				}
-				// Try []map[string]any (common in JSON responses)
-				if arr, ok := dataVal.([]map[string]any); ok {
-					return len(arr)
-				}
-				// Try to convert interface{} slice
-				if arr, ok := dataVal.([]interface{}); ok {
-					return len(arr)
-				}
-			}
-		}
-	}
-
-	return 0
 }
 
 // updatePaginationState updates the pagination state to the next page/offset.
