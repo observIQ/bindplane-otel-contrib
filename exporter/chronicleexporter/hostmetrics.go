@@ -219,3 +219,18 @@ func (hmr *hostMetricsReporter) recordSent(count int64) {
 	hmr.agentStats.ExporterStats[0].AcceptedSpans += count
 	hmr.agentStats.LastSuccessfulUploadTime = timestamppb.Now()
 }
+
+func (hmr *hostMetricsReporter) recordDropped(count int64) {
+	hmr.mutex.Lock()
+	defer hmr.mutex.Unlock()
+
+	if len(hmr.agentStats.ExporterStats) == 0 {
+		hmr.agentStats.ExporterStats = []*api.ExporterStats{
+			{
+				Name: hmr.exporterID,
+			},
+		}
+	}
+
+	hmr.agentStats.ExporterStats[0].RefusedSpans += count
+}
