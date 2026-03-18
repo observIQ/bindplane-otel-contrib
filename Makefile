@@ -173,7 +173,7 @@ _build-collector:
 
 .PHONY: clean
 clean:
-	rm -f go.work go.work.sum build
+	rm -rf go.work go.work.sum build
 
 .PHONY: version
 version:
