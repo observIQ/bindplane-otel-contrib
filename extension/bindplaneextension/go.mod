@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/golang/snappy v1.0.0
-	github.com/observiq/bindplane-otel-contrib/internal/measurements v1.0.0
+	github.com/observiq/bindplane-otel-contrib/pkg/measurements v1.0.0
 	github.com/observiq/bindplane-otel-contrib/processor/topologyprocessor v1.0.0
 	github.com/open-telemetry/opamp-go v0.23.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages v0.147.0
@@ -57,6 +57,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/observiq/bindplane-otel-contrib/internal/measurements => ../../internal/measurements
+replace github.com/observiq/bindplane-otel-contrib/pkg/measurements => ../../pkg/measurements
 
 replace github.com/observiq/bindplane-otel-contrib/processor/topologyprocessor => ../../processor/topologyprocessor
