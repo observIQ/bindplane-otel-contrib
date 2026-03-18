@@ -96,8 +96,9 @@ build-windows-arm64: _build-setup
 	$(MAKE) _cleanup-build
 
 .PHONY: build-collector
-build-collector:
-	go build -ldflags "-s -w -X github.com/observiq/bindplane-otel-contrib/pkg/version.version=$(COLLECTOR_VERSION)" -tags bindplane -o $(OUTDIR)/collector_$(GOOS)_$(GOARCH)$(EXT) "$(COLLECTOR_ABS)/cmd/collector"
+build-collector: _build-setup
+	$(MAKE) _build-collector
+	$(MAKE) _cleanup-build
 
 ## Private build targets
 
@@ -132,43 +133,47 @@ _build-windows: _build-windows-amd64 _build-windows-arm64
 
 .PHONY: _build-linux-amd64
 _build-linux-amd64:
-	GOOS=linux GOARCH=amd64 $(MAKE) build-collector -j2
+	GOOS=linux GOARCH=amd64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-linux-arm64
 _build-linux-arm64:
-	GOOS=linux GOARCH=arm64 $(MAKE) build-collector -j2
+	GOOS=linux GOARCH=arm64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-linux-arm
 _build-linux-arm:
-	GOOS=linux GOARCH=arm $(MAKE) build-collector -j2
+	GOOS=linux GOARCH=arm $(MAKE) _build-collector -j2
 
 .PHONY: _build-linux-ppc64
 _build-linux-ppc64:
-	GOOS=linux GOARCH=ppc64 $(MAKE) build-collector -j2
+	GOOS=linux GOARCH=ppc64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-linux-ppc64le
 _build-linux-ppc64le:
-	GOOS=linux GOARCH=ppc64le $(MAKE) build-collector -j2
+	GOOS=linux GOARCH=ppc64le $(MAKE) _build-collector -j2
 
 .PHONY: _build-darwin-amd64
 _build-darwin-amd64:
-	GOOS=darwin GOARCH=amd64 $(MAKE) build-collector -j2
+	GOOS=darwin GOARCH=amd64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-darwin-arm64
 _build-darwin-arm64:
-	GOOS=darwin GOARCH=arm64 $(MAKE) build-collector -j2
+	GOOS=darwin GOARCH=arm64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-windows-amd64
 _build-windows-amd64:
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(MAKE) build-collector -j2
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-windows-arm64
 _build-windows-arm64:
-	CGO_ENABLED=0 GOOS=windows GOARCH=arm64 $(MAKE) build-collector -j2
+	CGO_ENABLED=0 GOOS=windows GOARCH=arm64 $(MAKE) _build-collector -j2
+
+.PHONY: _build-collector
+_build-collector:
+	go build -ldflags "-s -w -X github.com/observiq/bindplane-otel-contrib/pkg/version.version=$(COLLECTOR_VERSION)" -tags bindplane -o $(OUTDIR)/collector_$(GOOS)_$(GOARCH)$(EXT) "$(COLLECTOR_ABS)/cmd/collector"
 
 .PHONY: clean
 clean:
-	rm -f go.work go.work.sum build
+	rm -rf go.work go.work.sum build
 
 .PHONY: version
 version:
