@@ -12,18 +12,18 @@ GOARCH ?= $(shell go env GOARCH)
 
 TOOLS_MOD_DIR := ./internal/tools
 
-SNAPSHOT := $(shell git rev-parse --short HEAD)
-PREVIOUS_TAG := $(shell git tag --sort=v:refname --no-contains HEAD | grep -E "[0-9]+\.[0-9]+\.[0-9]+$$" | grep -v 'version' | tail -n1)
-CURRENT_TAG := $(shell git tag --sort=v:refname --points-at HEAD | grep -E "v[0-9]+\.[0-9]+\.[0-9]+$$" | grep -v 'version' | tail -n1)
-# Version will be the tag pointing to the current commit, or the previous version tag if there is no such tag
-VERSION ?= $(if $(CURRENT_TAG),$(CURRENT_TAG),$(PREVIOUS_TAG)-SNAPSHOT-$(SNAPSHOT))
-
 # Source .local.env if it exists (for COLLECTOR_PATH etc.)
 -include .local.env
 export
 
 COLLECTOR_PATH ?= ../bindplane-otel-collector
 COLLECTOR_ABS ?= $(abspath $(COLLECTOR_PATH))
+
+SNAPSHOT := $(shell git -C $(COLLECTOR_PATH) rev-parse --short HEAD)
+COLLECTOR_PREVIOUS_TAG := $(shell git -C $(COLLECTOR_PATH) tag --sort=v:refname --no-contains HEAD | grep -E "[0-9]+\.[0-9]+\.[0-9]+$$" | grep -v 'version' | tail -n1)
+COLLECTOR_CURRENT_TAG := $(shell git -C $(COLLECTOR_PATH) tag --sort=v:refname --points-at HEAD | grep -E "v[0-9]+\.[0-9]+\.[0-9]+$$" | grep -v 'version' | tail -n1)
+# Version will be the tag pointing to the current commit, or the previous version tag if there is no such tag
+COLLECTOR_VERSION ?= $(if $(COLLECTOR_CURRENT_TAG),$(COLLECTOR_CURRENT_TAG),$(COLLECTOR_PREVIOUS_TAG)-SNAPSHOT-$(SNAPSHOT))
 OUTDIR ?= build
 
 EXT = $(if $(filter windows,$(GOOS)),.exe,)
@@ -97,7 +97,7 @@ build-windows-arm64: _build-setup
 
 .PHONY: build-collector
 build-collector:
-	go build -ldflags "-s -w -X github.com/observiq/bindplane-otel-contrib/pkg/version.version=$(VERSION)" -tags bindplane -o $(OUTDIR)/collector_$(GOOS)_$(GOARCH)$(EXT) "$(COLLECTOR_ABS)/cmd/collector"
+	go build -ldflags "-s -w -X github.com/observiq/bindplane-otel-contrib/pkg/version.version=$(COLLECTOR_VERSION)" -tags bindplane -o $(OUTDIR)/collector_$(GOOS)_$(GOARCH)$(EXT) "$(COLLECTOR_ABS)/cmd/collector"
 
 ## Private build targets
 
@@ -172,7 +172,7 @@ clean:
 
 .PHONY: version
 version:
-	@printf $(VERSION)
+	@printf $(COLLECTOR_VERSION)
 
 # tool-related commands
 .PHONY: install-tools
