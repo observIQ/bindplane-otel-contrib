@@ -2,10 +2,16 @@ name: Build Check
 on:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   build-collector:
     if: github.actor != 'dependabot[bot]'
     runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    strategy:
+      matrix:
+        target: [build-linux, build-darwin, build-windows]
     steps:
       - name: Checkout Contrib
         uses: namespacelabs/nscloud-checkout-action@v7
@@ -31,4 +37,20 @@ jobs:
           cache: go
 
       - name: Build Collector with Contrib Modules
-        run: make -C contrib build-collector COLLECTOR_PATH=../collector
+        run: make -C contrib ${{ matrix.target }} COLLECTOR_PATH=../collector
+
+  build-summary:
+    if: always()
+    needs: [build-collector]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check build results
+        run: |
+          if [[ "${{ needs.build-collector.result }}" == "success" ]]; then
+            echo "All builds succeeded"
+          elif [[ "${{ needs.build-collector.result }}" == "skipped" ]]; then
+            echo "Build skipped"
+          else
+            echo "Builds failed"
+            exit 1
+          fi

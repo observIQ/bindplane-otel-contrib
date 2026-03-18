@@ -217,7 +217,7 @@ func (lr *logsReceiver) parseEventData(event *etw.Event, record plog.LogRecord) 
 	if len(event.EventData) > 0 {
 		message := record.Body().Map().PutEmptyMap("event_data")
 		for key, data := range event.EventData {
-			message.PutStr(key, fmt.Sprintf("%v", data))
+			putAnyValue(message, key, data)
 		}
 	}
 
@@ -251,16 +251,16 @@ func (lr *logsReceiver) parseEventData(event *etw.Event, record plog.LogRecord) 
 	}
 
 	if len(event.ExtendedData) > 0 {
-		extendedData := record.Body().Map().PutEmptySlice("extended_data")
-		for _, data := range event.ExtendedData {
-			extendedData.AppendEmpty().SetStr(data)
+		extendedData := record.Body().Map().PutEmptyMap("extended_data")
+		for k, v := range event.ExtendedData {
+			putAnyValue(extendedData, k, v)
 		}
 	}
 
 	if len(event.UserData) > 0 {
 		userData := record.Body().Map().PutEmptyMap("user_data")
 		for key, data := range event.UserData {
-			userData.PutStr(key, fmt.Sprintf("%v", data))
+			putAnyValue(userData, key, data)
 		}
 	}
 }
@@ -284,6 +284,49 @@ func (lr *logsReceiver) Shutdown(ctx context.Context) error {
 
 	lr.wg.Wait()
 	return nil
+}
+
+// putAnyValue writes a value of unknown type into a pcommon.Map entry,
+// preserving nested maps and slices as proper OTel attributes rather than
+// flattening them via fmt.Sprintf.
+func putAnyValue(dest pcommon.Map, key string, value any) {
+	switch v := value.(type) {
+	case string:
+		dest.PutStr(key, v)
+	case map[string]any:
+		nested := dest.PutEmptyMap(key)
+		for k, val := range v {
+			putAnyValue(nested, k, val)
+		}
+	case []any:
+		slice := dest.PutEmptySlice(key)
+		for _, item := range v {
+			appendAnyValue(slice, item)
+		}
+	default:
+		dest.PutStr(key, fmt.Sprintf("%v", v))
+	}
+}
+
+// appendAnyValue appends a value of unknown type to a pcommon.Slice,
+// preserving nested maps and slices as proper OTel attributes.
+func appendAnyValue(dest pcommon.Slice, value any) {
+	switch v := value.(type) {
+	case string:
+		dest.AppendEmpty().SetStr(v)
+	case map[string]any:
+		nested := dest.AppendEmpty().SetEmptyMap()
+		for k, val := range v {
+			putAnyValue(nested, k, val)
+		}
+	case []any:
+		nested := dest.AppendEmpty().SetEmptySlice()
+		for _, item := range v {
+			appendAnyValue(nested, item)
+		}
+	default:
+		dest.AppendEmpty().SetStr(fmt.Sprintf("%v", v))
+	}
 }
 
 /*
