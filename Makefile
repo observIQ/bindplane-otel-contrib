@@ -12,6 +12,12 @@ GOARCH ?= $(shell go env GOARCH)
 
 TOOLS_MOD_DIR := ./internal/tools
 
+SNAPSHOT := $(shell git rev-parse --short HEAD)
+PREVIOUS_TAG := $(shell git tag --sort=v:refname --no-contains HEAD | grep -E "[0-9]+\.[0-9]+\.[0-9]+$$" | grep -v 'version' | tail -n1)
+CURRENT_TAG := $(shell git tag --sort=v:refname --points-at HEAD | grep -E "v[0-9]+\.[0-9]+\.[0-9]+$$" | grep -v 'version' | tail -n1)
+# Version will be the tag pointing to the current commit, or the previous version tag if there is no such tag
+VERSION ?= $(if $(CURRENT_TAG),$(CURRENT_TAG),$(PREVIOUS_TAG)-SNAPSHOT-$(SNAPSHOT))
+
 # Source .local.env if it exists (for COLLECTOR_PATH etc.)
 -include .local.env
 export
