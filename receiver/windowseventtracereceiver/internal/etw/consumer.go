@@ -37,6 +37,60 @@ var (
 	rtLostEventGuid = "{6A399AE0-4BC6-4DE9-870B-3657F8947E7E}"
 )
 
+// buildRawXML constructs an XML representation of the event, mirroring the
+// structure produced by the Windows Event Log API. It is always called before
+// deciding whether the body should be raw or structured.
+func (c *Consumer) buildRawXML(eventRecord *advapi32.EventRecord, ti *tdh.TraceEventInfo, eventData map[string]any, providerName, providerGUID string) string {
+	var xmlBuilder strings.Builder
+	xmlBuilder.WriteString("<Event>\n")
+
+	xmlBuilder.WriteString("  <System>\n")
+	xmlBuilder.WriteString(fmt.Sprintf("    <Provider Name=\"%s\" Guid=\"{%s}\"/>\n",
+		xmlEscape(providerName), providerGUID))
+	xmlBuilder.WriteString(fmt.Sprintf("    <EventID>%d</EventID>\n", ti.EventID()))
+	xmlBuilder.WriteString(fmt.Sprintf("    <Version>%d</Version>\n",
+		eventRecord.EventHeader.EventDescriptor.Version))
+	xmlBuilder.WriteString(fmt.Sprintf("    <Level>%d</Level>\n",
+		eventRecord.EventHeader.EventDescriptor.Level))
+	xmlBuilder.WriteString(fmt.Sprintf("    <Task>%s</Task>\n", xmlEscape(ti.TaskName())))
+	xmlBuilder.WriteString(fmt.Sprintf("    <Opcode>%s</Opcode>\n", xmlEscape(ti.OpcodeName())))
+	xmlBuilder.WriteString(fmt.Sprintf("    <Keywords>0x%x</Keywords>\n",
+		eventRecord.EventHeader.EventDescriptor.Keyword))
+
+	timeStr := eventRecord.EventHeader.UTC().Format(time.RFC3339Nano)
+	xmlBuilder.WriteString(fmt.Sprintf("    <TimeCreated SystemTime=\"%s\"/>\n", timeStr))
+
+	if !eventRecord.EventHeader.ActivityId.Equals(&windows.GUID{}) {
+		xmlBuilder.WriteString(fmt.Sprintf("    <Correlation ActivityID=\"%s\" RelatedActivityID=\"%s\"/>\n",
+			eventRecord.EventHeader.ActivityId.String(), eventRecord.RelatedActivityID()))
+	} else {
+		xmlBuilder.WriteString("    <Correlation />\n")
+	}
+
+	xmlBuilder.WriteString(fmt.Sprintf("    <Execution ProcessID=\"%d\" ThreadID=\"%d\"/>\n",
+		eventRecord.EventHeader.ProcessId, eventRecord.EventHeader.ThreadId))
+	xmlBuilder.WriteString(fmt.Sprintf("    <Channel>%s</Channel>\n", xmlEscape(ti.ChannelName())))
+	xmlBuilder.WriteString(fmt.Sprintf("    <Computer>%s</Computer>\n", xmlEscape(hostname)))
+
+	if sid := eventRecord.SID(); sid != "" {
+		xmlBuilder.WriteString(fmt.Sprintf("    <Security UserID=\"%s\"/>\n", sid))
+	}
+	xmlBuilder.WriteString("  </System>\n")
+
+	dataTag := "EventData"
+	if ti != nil && ti.Flags&tdh.TEMPLATE_USER_DATA != 0 {
+		dataTag = "UserData"
+	}
+	xmlBuilder.WriteString(fmt.Sprintf("  <%s>\n", dataTag))
+	for key, value := range eventData {
+		xmlBuilder.WriteString(fmt.Sprintf("    <Data Name=\"%s\">%s</Data>\n", xmlEscape(key), xmlEscape(fmt.Sprintf("%v", value))))
+	}
+	xmlBuilder.WriteString(fmt.Sprintf("  </%s>\n", dataTag))
+
+	xmlBuilder.WriteString("</Event>")
+	return xmlBuilder.String()
+}
+
 // Consumer handles consuming ETW events from sessions
 type Consumer struct {
 	logger      *zap.Logger
@@ -89,7 +143,9 @@ func NewRealTimeConsumer(_ context.Context, logger *zap.Logger, session *Session
 
 var zeroGuid = windows.GUID{}
 
-// eventCallback is called for each event
+// eventCallback is called for each event. It always builds the raw XML
+// representation first, then routes to either a raw-body or a fully-parsed
+// event depending on the consumeRaw flag.
 func (c *Consumer) defaultEventCallback(eventRecord *advapi32.EventRecord) (rc uintptr) {
 	if eventRecord == nil {
 		c.logger.Error("Event record is nil cannot safely continue processing")
@@ -102,84 +158,89 @@ func (c *Consumer) defaultEventCallback(eventRecord *advapi32.EventRecord) (rc u
 		return 1
 	}
 
-	if c.consumeRaw {
-		return c.rawEventCallback(eventRecord)
-	}
-	return c.parsedEventCallback(eventRecord)
-}
-
-// TODO; this is kind of a hack, we should use the wevtapi to get properly render the event properties
-func (c *Consumer) rawEventCallback(eventRecord *advapi32.EventRecord) uintptr {
-	providerGUID := eventRecord.EventHeader.ProviderId.String()
+	// Provider lookup uses the raw GUID string as the map key.
+	rawProviderGUID := eventRecord.EventHeader.ProviderId.String()
 	var providerName string
-	if provider, ok := c.providerMap[providerGUID]; ok {
+	if provider, ok := c.providerMap[rawProviderGUID]; ok {
 		providerName = provider.Name
 	}
 
 	eventData, ti, err := c.getEventProperties(eventRecord, c.logger.Named("event_record_helper"))
 	if err != nil {
 		c.logger.Error("Failed to get event properties", zap.Error(err))
+		c.LostEvents++
 		return 1
 	}
-	// Create an XML-like representation
-	var xmlBuilder strings.Builder
-	xmlBuilder.WriteString("<Event>\n")
 
-	// System section
-	xmlBuilder.WriteString("  <System>\n")
-	xmlBuilder.WriteString(fmt.Sprintf("    <Provider Name=\"%s\" Guid=\"{%s}\"/>\n",
-		xmlEscape(providerName), providerGUID))
-	xmlBuilder.WriteString(fmt.Sprintf("    <EventID>%d</EventID>\n",
-		ti.EventID()))
-	xmlBuilder.WriteString(fmt.Sprintf("    <Version>%d</Version>\n",
-		eventRecord.EventHeader.EventDescriptor.Version))
-	xmlBuilder.WriteString(fmt.Sprintf("    <Level>%d</Level>\n",
-		eventRecord.EventHeader.EventDescriptor.Level))
-	xmlBuilder.WriteString(fmt.Sprintf("    <Task>%s</Task>\n",
-		xmlEscape(ti.TaskName())))
-	xmlBuilder.WriteString(fmt.Sprintf("    <Opcode>%s</Opcode>\n",
-		xmlEscape(ti.OpcodeName())))
-	xmlBuilder.WriteString(fmt.Sprintf("    <Keywords>0x%x</Keywords>\n",
-		eventRecord.EventHeader.EventDescriptor.Keyword))
+	// Always build the raw XML before deciding which body to use.
+	rawXML := c.buildRawXML(eventRecord, ti, eventData, providerName, rawProviderGUID)
 
-	timeStr := eventRecord.EventHeader.UTC().Format(time.RFC3339Nano)
-	xmlBuilder.WriteString(fmt.Sprintf("    <TimeCreated SystemTime=\"%s\"/>\n", timeStr))
-
-	if !eventRecord.EventHeader.ActivityId.Equals(&windows.GUID{}) {
-		xmlBuilder.WriteString(fmt.Sprintf("    <Correlation ActivityID=\"%s\" RelatedActivityID=\"%s\"/>\n",
-			eventRecord.EventHeader.ActivityId.String(), eventRecord.RelatedActivityID()))
+	var event *Event
+	if c.consumeRaw {
+		event = &Event{
+			Timestamp: parseTimestamp(uint64(eventRecord.EventHeader.TimeStamp)),
+			Raw:       rawXML,
+		}
 	} else {
-		xmlBuilder.WriteString("    <Correlation />\n")
-	}
+		// For structured event fields use an empty string for the zero GUID so
+		// downstream consumers can detect an absent provider GUID.
+		var structProviderGUID string
+		if eventRecord.EventHeader.ProviderId != zeroGuid {
+			structProviderGUID = rawProviderGUID
+		}
 
-	xmlBuilder.WriteString(fmt.Sprintf("    <Execution ProcessID=\"%d\" ThreadID=\"%d\"/>\n",
-		eventRecord.EventHeader.ProcessId, eventRecord.EventHeader.ThreadId))
+		var eventDataMap map[string]any
+		var userData map[string]any
+		if ti != nil && ti.Flags&tdh.TEMPLATE_USER_DATA != 0 {
+			userData = eventData
+		} else {
+			eventDataMap = eventData
+		}
 
-	xmlBuilder.WriteString(fmt.Sprintf("    <Channel>%s</Channel>\n", xmlEscape(ti.ChannelName())))
+		level := eventRecord.EventHeader.EventDescriptor.Level
+		event = &Event{
+			Raw:       rawXML,
+			Flags:     strconv.FormatUint(uint64(eventRecord.EventHeader.Flags), 10),
+			Session:   c.sessionName,
+			Timestamp: parseTimestamp(uint64(eventRecord.EventHeader.TimeStamp)),
+			System: EventSystem{
+				ActivityID: eventRecord.EventHeader.ActivityId.String(),
+				Channel:    ti.ChannelName(),
+				Keywords:   strconv.FormatUint(uint64(eventRecord.EventHeader.EventDescriptor.Keyword), 10),
+				EventID:    strconv.FormatUint(uint64(ti.EventID()), 10),
+				Opcode:     ti.OpcodeName(),
+				Task:       ti.TaskName(),
+				Provider: EventProvider{
+					GUID: structProviderGUID,
+					Name: providerName,
+				},
+				Level:       level,
+				Computer:    hostname,
+				Correlation: EventCorrelation{},
+				Execution: EventExecution{
+					ThreadID:  eventRecord.EventHeader.ThreadId,
+					ProcessID: eventRecord.EventHeader.ProcessId,
+				},
+				Version: eventRecord.EventHeader.EventDescriptor.Version,
+				TimeCreated: EventTimeCreated{
+					SystemTime: eventRecord.EventHeader.UTC(),
+				},
+			},
+			Security: EventSecurity{
+				SID: eventRecord.SID(),
+			},
+			EventData:    eventDataMap,
+			UserData:     userData,
+			ExtendedData: nil,
+		}
 
-	xmlBuilder.WriteString(fmt.Sprintf("    <Computer>%s</Computer>\n", xmlEscape(hostname)))
+		if activityID := eventRecord.EventHeader.ActivityId.String(); activityID != zeroGUID {
+			event.System.Correlation.ActivityID = activityID
+		}
 
-	if sid := eventRecord.SID(); sid != "" {
-		xmlBuilder.WriteString(fmt.Sprintf("    <Security UserID=\"%s\"/>\n", sid))
-	}
-	xmlBuilder.WriteString("  </System>\n")
-
-	// EventData/UserData section — tag follows the TEMPLATE_FLAGS layout indicator.
-	dataTag := "EventData"
-	if ti != nil && ti.Flags&tdh.TEMPLATE_USER_DATA != 0 {
-		dataTag = "UserData"
-	}
-	xmlBuilder.WriteString(fmt.Sprintf("  <%s>\n", dataTag))
-	for key, value := range eventData {
-		xmlBuilder.WriteString(fmt.Sprintf("    <Data Name=\"%s\">%s</Data>\n", xmlEscape(key), xmlEscape(fmt.Sprintf("%v", value))))
-	}
-	xmlBuilder.WriteString(fmt.Sprintf("  </%s>\n", dataTag))
-
-	xmlBuilder.WriteString("</Event>")
-
-	event := &Event{
-		Timestamp: parseTimestamp(uint64(eventRecord.EventHeader.TimeStamp)),
-		Raw:       xmlBuilder.String(),
+		if relatedActivityID := eventRecord.RelatedActivityID(); relatedActivityID != zeroGUID {
+			event.System.Correlation.RelatedActivityID = relatedActivityID
+		}
 	}
 
 	select {
@@ -196,86 +257,6 @@ func xmlEscape(s string) string {
 	var buf strings.Builder
 	xml.EscapeText(&buf, []byte(s)) //nolint:errcheck // strings.Builder never returns an error
 	return buf.String()
-}
-
-func (c *Consumer) parsedEventCallback(eventRecord *advapi32.EventRecord) uintptr {
-	data, ti, err := c.getEventProperties(eventRecord, c.logger.Named("event_record_helper"))
-	if err != nil {
-		c.logger.Error("Failed to get event properties", zap.Error(err))
-		c.LostEvents++
-		return 1
-	}
-
-	var providerGUID string
-	if eventRecord.EventHeader.ProviderId == zeroGuid {
-		providerGUID = ""
-	} else {
-		providerGUID = eventRecord.EventHeader.ProviderId.String()
-	}
-
-	var providerName string
-	if provider, ok := c.providerMap[providerGUID]; ok {
-		providerName = provider.Name
-	}
-
-	var eventData map[string]any
-	var userData map[string]any
-	if ti != nil && ti.Flags&tdh.TEMPLATE_USER_DATA != 0 {
-		userData = data
-	} else {
-		eventData = data
-	}
-
-	level := eventRecord.EventHeader.EventDescriptor.Level
-	event := &Event{
-		Flags:     strconv.FormatUint(uint64(eventRecord.EventHeader.Flags), 10),
-		Session:   c.sessionName,
-		Timestamp: parseTimestamp(uint64(eventRecord.EventHeader.TimeStamp)),
-		System: EventSystem{
-			ActivityID: eventRecord.EventHeader.ActivityId.String(),
-			Channel:    ti.ChannelName(),
-			Keywords:   strconv.FormatUint(uint64(eventRecord.EventHeader.EventDescriptor.Keyword), 10),
-			EventID:    strconv.FormatUint(uint64(ti.EventID()), 10),
-			Opcode:     ti.OpcodeName(),
-			Task:       ti.TaskName(),
-			Provider: EventProvider{
-				GUID: providerGUID,
-				Name: providerName,
-			},
-			Level:       level,
-			Computer:    hostname,
-			Correlation: EventCorrelation{},
-			Execution: EventExecution{
-				ThreadID:  eventRecord.EventHeader.ThreadId,
-				ProcessID: eventRecord.EventHeader.ProcessId,
-			},
-			Version: eventRecord.EventHeader.EventDescriptor.Version,
-			TimeCreated: EventTimeCreated{
-				SystemTime: eventRecord.EventHeader.UTC(),
-			},
-		},
-		Security: EventSecurity{
-			SID: eventRecord.SID(),
-		},
-		EventData:    eventData,
-		UserData:     userData,
-		ExtendedData: nil,
-	}
-
-	if activityID := eventRecord.EventHeader.ActivityId.String(); activityID != zeroGUID {
-		event.System.Correlation.ActivityID = activityID
-	}
-
-	if relatedActivityID := eventRecord.RelatedActivityID(); relatedActivityID != zeroGUID {
-		event.System.Correlation.RelatedActivityID = relatedActivityID
-	}
-
-	select {
-	case c.Events <- event:
-		return 0
-	case <-c.doneChan:
-		return 1
-	}
 }
 
 func (c *Consumer) defaultBufferCallback(buffer *advapi32.EventTraceLogfile) uintptr {
