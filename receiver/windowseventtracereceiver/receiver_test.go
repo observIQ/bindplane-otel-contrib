@@ -26,7 +26,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.uber.org/zap"
 
-	"github.com/observiq/bindplane-otel-collector/receiver/windowseventtracereceiver/internal/etw"
+	"github.com/observiq/bindplane-otel-contrib/receiver/windowseventtracereceiver/internal/etw"
 )
 
 func TestPutAnyValue_String(t *testing.T) {
