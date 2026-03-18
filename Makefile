@@ -41,7 +41,7 @@ build-linux: _build-setup
 	$(MAKE) _cleanup-build
 
 .PHONY: build-darwin
-build-darwin: _build-setupIs
+build-darwin: _build-setup
 	$(MAKE) _build-darwin
 	$(MAKE) _cleanup-build
 
