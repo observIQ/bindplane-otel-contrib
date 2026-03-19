@@ -18,9 +18,15 @@ package windowseventtracereceiver
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/pdata/pcommon"
+	"go.uber.org/zap"
+
+	"github.com/observiq/bindplane-otel-contrib/receiver/windowseventtracereceiver/internal/etw"
 )
 
 func TestPutAnyValue_String(t *testing.T) {
@@ -106,4 +112,92 @@ func TestPutAnyValue_UnknownTypeFallback(t *testing.T) {
 	v, ok := m.Get("num")
 	assert.True(t, ok)
 	assert.Equal(t, "42", v.Str())
+}
+
+func TestParseEventData_AllFieldsInBody(t *testing.T) {
+	lr := &logsReceiver{
+		cfg:      createDefaultConfig().(*Config),
+		logger:   zap.NewNop(),
+		consumer: consumertest.NewNop(),
+		wg:       nil,
+	}
+
+	event := &etw.Event{
+		Session:   "TestSession",
+		Timestamp: time.Now(),
+		System: etw.EventSystem{
+			Channel:  "Security",
+			Computer: "MYCOMPUTER",
+			EventID:  "4624",
+			Version:  2,
+			Level:    4,
+			Keywords: "9232379236109516800",
+			Opcode:   "Info",
+			Task:     "Logon",
+			TimeCreated: etw.EventTimeCreated{
+				SystemTime: time.Date(2024, 3, 13, 12, 34, 56, 789000000, time.UTC),
+			},
+			Provider: etw.EventProvider{
+				Name: "Microsoft-Windows-Security-Auditing",
+				GUID: "{54849625-5478-4994-A5BA-3E3B0328C30D}",
+			},
+			Execution: etw.EventExecution{
+				ProcessID: 1234,
+				ThreadID:  5678,
+			},
+			Correlation: etw.EventCorrelation{
+				ActivityID:        "{AAA-BBB}",
+				RelatedActivityID: "{CCC-DDD}",
+			},
+		},
+		Security: etw.EventSecurity{SID: "S-1-5-18"},
+		EventData: map[string]any{
+			"SubjectUserName": "SYSTEM",
+		},
+	}
+
+	logs, err := lr.parseEvent(event)
+	require.NoError(t, err)
+
+	body := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0).Body().Map()
+
+	assertBodyStr := func(key, want string) {
+		t.Helper()
+		v, ok := body.Get(key)
+		require.True(t, ok, "expected body key %q", key)
+		assert.Equal(t, want, v.Str())
+	}
+
+	assertNestedStr := func(mapKey, fieldKey, want string) {
+		t.Helper()
+		parent, ok := body.Get(mapKey)
+		require.True(t, ok, "expected body map %q", mapKey)
+		v, ok := parent.Map().Get(fieldKey)
+		require.True(t, ok, "expected key %q inside %q", fieldKey, mapKey)
+		assert.Equal(t, want, v.Str())
+	}
+
+	// Fields from Event Viewer XML system block
+	assertBodyStr("channel", "Security")
+	assertBodyStr("computer", "MYCOMPUTER")
+	assertBodyStr("level", "4")
+	assertBodyStr("keywords", "9232379236109516800")
+
+	// event_id carries the id; version is a top-level field
+	assertNestedStr("event_id", "id", "4624")
+	assertBodyStr("version", "2")
+	assertBodyStr("time_created", "2024-03-13T12:34:56.789Z")
+
+	// execution carries process_id and thread_id
+	assertNestedStr("execution", "process_id", "1234")
+	assertNestedStr("execution", "thread_id", "5678")
+
+	// Verify resource attributes still present (backwards compat)
+	attrs := logs.ResourceLogs().At(0).Resource().Attributes()
+	ch, ok := attrs.Get("channel")
+	require.True(t, ok)
+	assert.Equal(t, "Security", ch.Str())
+	comp, ok := attrs.Get("computer")
+	require.True(t, ok)
+	assert.Equal(t, "MYCOMPUTER", comp.Str())
 }
