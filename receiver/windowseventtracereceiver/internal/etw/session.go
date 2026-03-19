@@ -94,11 +94,15 @@ func (s *Session) EnableProvider(nameOrGuid string, traceLevel advapi32.TraceLev
 	if err != nil {
 		return fmt.Errorf("failed to parse provider GUID: %w", err)
 	}
-	if err := s.controller.enableProvider(s.handle, &guid, provider, traceLevel, matchAnyKeyword, matchAllKeyword); err != nil {
+	if err := s.controller.enableProvider(&guid, provider, traceLevel, matchAnyKeyword, matchAllKeyword); err != nil {
 		return fmt.Errorf("failed to enable provider %s: %w", provider.Name, err)
 	}
 	return nil
 
+}
+
+func (s *Session) Stop(ctx context.Context) error {
+	return s.controller.Stop(ctx)
 }
 
 var providerMapOnce sync.Once
