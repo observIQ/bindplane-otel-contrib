@@ -12,6 +12,12 @@ GOARCH ?= $(shell go env GOARCH)
 
 TOOLS_MOD_DIR := ./internal/tools
 
+SNAPSHOT := $(shell git rev-parse --short HEAD)
+PREVIOUS_TAG := $(shell git tag --sort=v:refname --no-contains HEAD | grep -E "[0-9]+\.[0-9]+\.[0-9]+$$" | grep -v 'version' | tail -n1)
+CURRENT_TAG := $(shell git tag --sort=v:refname --points-at HEAD | grep -E "v[0-9]+\.[0-9]+\.[0-9]+$$" | grep -v 'version' | tail -n1)
+# Version will be the tag pointing to the current commit, or the previous version tag if there is no such tag
+VERSION ?= $(if $(CURRENT_TAG),$(CURRENT_TAG),$(PREVIOUS_TAG)-SNAPSHOT-$(SNAPSHOT))
+
 # Source .local.env if it exists (for COLLECTOR_PATH etc.)
 -include .local.env
 export
@@ -96,8 +102,9 @@ build-windows-arm64: _build-setup
 	$(MAKE) _cleanup-build
 
 .PHONY: build-collector
-build-collector:
-	go build -ldflags "-s -w -X github.com/observiq/bindplane-otel-contrib/pkg/version.version=$(COLLECTOR_VERSION)" -tags bindplane -o $(OUTDIR)/collector_$(GOOS)_$(GOARCH)$(EXT) "$(COLLECTOR_ABS)/cmd/collector"
+build-collector: _build-setup
+	$(MAKE) _build-collector
+	$(MAKE) _cleanup-build
 
 ## Private build targets
 
@@ -132,43 +139,47 @@ _build-windows: _build-windows-amd64 _build-windows-arm64
 
 .PHONY: _build-linux-amd64
 _build-linux-amd64:
-	GOOS=linux GOARCH=amd64 $(MAKE) build-collector -j2
+	GOOS=linux GOARCH=amd64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-linux-arm64
 _build-linux-arm64:
-	GOOS=linux GOARCH=arm64 $(MAKE) build-collector -j2
+	GOOS=linux GOARCH=arm64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-linux-arm
 _build-linux-arm:
-	GOOS=linux GOARCH=arm $(MAKE) build-collector -j2
+	GOOS=linux GOARCH=arm $(MAKE) _build-collector -j2
 
 .PHONY: _build-linux-ppc64
 _build-linux-ppc64:
-	GOOS=linux GOARCH=ppc64 $(MAKE) build-collector -j2
+	GOOS=linux GOARCH=ppc64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-linux-ppc64le
 _build-linux-ppc64le:
-	GOOS=linux GOARCH=ppc64le $(MAKE) build-collector -j2
+	GOOS=linux GOARCH=ppc64le $(MAKE) _build-collector -j2
 
 .PHONY: _build-darwin-amd64
 _build-darwin-amd64:
-	GOOS=darwin GOARCH=amd64 $(MAKE) build-collector -j2
+	GOOS=darwin GOARCH=amd64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-darwin-arm64
 _build-darwin-arm64:
-	GOOS=darwin GOARCH=arm64 $(MAKE) build-collector -j2
+	GOOS=darwin GOARCH=arm64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-windows-amd64
 _build-windows-amd64:
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(MAKE) build-collector -j2
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-windows-arm64
 _build-windows-arm64:
-	CGO_ENABLED=0 GOOS=windows GOARCH=arm64 $(MAKE) build-collector -j2
+	CGO_ENABLED=0 GOOS=windows GOARCH=arm64 $(MAKE) _build-collector -j2
+
+.PHONY: _build-collector
+_build-collector:
+	go build -ldflags "-s -w -X github.com/observiq/bindplane-otel-contrib/pkg/version.version=$(COLLECTOR_VERSION)" -tags bindplane -o $(OUTDIR)/collector_$(GOOS)_$(GOARCH)$(EXT) "$(COLLECTOR_ABS)/cmd/collector"
 
 .PHONY: clean
 clean:
-	rm -f go.work go.work.sum build
+	rm -rf go.work go.work.sum build
 
 .PHONY: version
 version:
