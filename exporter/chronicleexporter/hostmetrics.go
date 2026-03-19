@@ -30,6 +30,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+const metricsInterval = 1 * time.Minute
+
 type hostMetricsReporter struct {
 	set    component.TelemetrySettings
 	cancel context.CancelFunc
@@ -87,7 +89,7 @@ func (hmr *hostMetricsReporter) start() {
 	hmr.wg.Add(1)
 
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(metricsInterval)
 
 		defer func() {
 			hmr.wg.Done()
