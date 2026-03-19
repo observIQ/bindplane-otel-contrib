@@ -216,6 +216,11 @@ func (exp *grpcExporter) uploadToChronicle(ctx context.Context, request *api.Bat
 			exp.telemetry.ExporterRequestCount.Add(ctx, 1,
 				metric.WithAttributeSet(attribute.NewSet(attrErrorUnknown)))
 
+			if exp.metrics != nil {
+				totalLogs := int64(len(request.GetBatch().GetEntries()))
+				exp.metrics.recordDropped(totalLogs)
+			}
+
 			return consumererror.NewPermanent(fmt.Errorf("upload logs to chronicle: %w", err))
 		}
 	}

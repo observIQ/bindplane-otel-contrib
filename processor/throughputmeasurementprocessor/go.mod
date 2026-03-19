@@ -3,7 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/processor/throughputmeasuremen
 go 1.25.7
 
 require (
-	github.com/observiq/bindplane-otel-contrib/internal/measurements v1.0.0
+	github.com/observiq/bindplane-otel-contrib/pkg/measurements v1.0.1
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden v0.147.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest v0.147.0
 	github.com/stretchr/testify v1.11.1
@@ -50,4 +50,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/observiq/bindplane-otel-contrib/internal/measurements => ../../internal/measurements
+replace github.com/observiq/bindplane-otel-contrib/pkg/measurements => ../../pkg/measurements
