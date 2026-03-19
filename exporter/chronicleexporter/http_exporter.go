@@ -401,6 +401,12 @@ func (exp *httpExporter) uploadToChronicleHTTP(ctx context.Context, logs *api.Im
 		if exp.cfg.LogErroredPayloads {
 			exp.set.Logger.Warn("Import request rejected", zap.String("logType", logType), zap.String("rejectedRequest", string(data)))
 		}
+		if exp.metrics != nil {
+			if inlineSource := logs.GetInlineSource(); inlineSource != nil {
+				totalLogs := int64(len(inlineSource.GetLogs()))
+				exp.metrics.recordDropped(totalLogs)
+			}
+		}
 		return consumererror.NewPermanent(statusErr)
 	}
 }
