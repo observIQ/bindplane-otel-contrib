@@ -188,6 +188,9 @@ func (lr *logsReceiver) parseEvent(event *etw.Event) (plog.Logs, error) {
 	scopeLog := resourceLog.ScopeLogs().AppendEmpty()
 	record := scopeLog.LogRecords().AppendEmpty()
 	lr.parseEventData(event, record)
+	if lr.cfg.IncludeLogRecordOriginal && event.Raw != "" {
+		record.Attributes().PutStr("log.record.original", event.Raw)
+	}
 	return logs, nil
 }
 

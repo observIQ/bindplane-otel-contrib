@@ -201,3 +201,60 @@ func TestParseEventData_AllFieldsInBody(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "MYCOMPUTER", comp.Str())
 }
+
+func TestParseEvent_LogRecordOriginal_Enabled(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	cfg.IncludeLogRecordOriginal = true
+	lr := &logsReceiver{
+		cfg:      cfg,
+		logger:   zap.NewNop(),
+		consumer: consumertest.NewNop(),
+		wg:       nil,
+	}
+
+	event := &etw.Event{
+		Raw:       "<Event><System><Level>4</Level></System></Event>",
+		Session:   "TestSession",
+		Timestamp: time.Now(),
+		System: etw.EventSystem{
+			Channel:  "Security",
+			Computer: "MYCOMPUTER",
+			Level:    4,
+		},
+	}
+
+	logs, err := lr.parseEvent(event)
+	require.NoError(t, err)
+
+	record := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+	v, ok := record.Attributes().Get("log.record.original")
+	require.True(t, ok, "expected log.record.original attribute to be set")
+	assert.Equal(t, event.Raw, v.Str())
+}
+
+func TestParseEvent_LogRecordOriginal_Disabled(t *testing.T) {
+	lr := &logsReceiver{
+		cfg:      createDefaultConfig().(*Config), // IncludeLogRecordOriginal defaults to false
+		logger:   zap.NewNop(),
+		consumer: consumertest.NewNop(),
+		wg:       nil,
+	}
+
+	event := &etw.Event{
+		Raw:       "<Event><System><Level>4</Level></System></Event>",
+		Session:   "TestSession",
+		Timestamp: time.Now(),
+		System: etw.EventSystem{
+			Channel:  "Security",
+			Computer: "MYCOMPUTER",
+			Level:    4,
+		},
+	}
+
+	logs, err := lr.parseEvent(event)
+	require.NoError(t, err)
+
+	record := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+	_, ok := record.Attributes().Get("log.record.original")
+	assert.False(t, ok, "log.record.original must not be set when include_log_record_original is false")
+}

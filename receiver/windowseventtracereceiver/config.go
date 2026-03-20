@@ -59,6 +59,10 @@ type Config struct {
 
 	// RawEvents is a flag to enable raw event logging.
 	Raw bool `mapstructure:"raw"`
+
+	// IncludeLogRecordOriginal sets whether to include the raw XML event as the
+	// log.record.original attribute on parsed (non-raw) log records.
+	IncludeLogRecordOriginal bool `mapstructure:"include_log_record_original"`
 }
 
 // Provider is a provider to create a session

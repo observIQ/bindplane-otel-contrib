@@ -132,9 +132,9 @@ func TestXMLEscape_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestRawEventCallback_XMLEscaping verifies that property values containing XML
-// special characters are escaped in the raw event output, preventing injection.
-func TestRawEventCallback_XMLEscaping(t *testing.T) {
+// TestDefaultEventCallback_RawMode_XMLEscaping verifies that property values
+// containing XML special characters are escaped in the raw event output.
+func TestDefaultEventCallback_RawMode_XMLEscaping(t *testing.T) {
 	tests := []struct {
 		name          string
 		eventData     map[string]any
@@ -185,12 +185,13 @@ func TestRawEventCallback_XMLEscaping(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			consumer := newTestConsumer()
+			consumer.consumeRaw = true
 			consumer.getEventProperties = func(_ *advapi32.EventRecord, _ *zap.Logger) (map[string]any, *tdh.TraceEventInfo, error) {
 				return tt.eventData, nil, nil
 			}
 
 			record := &advapi32.EventRecord{}
-			rc := consumer.rawEventCallback(record)
+			rc := consumer.defaultEventCallback(record)
 			assert.Equal(t, uintptr(0), rc)
 
 			event := <-consumer.Events
@@ -205,15 +206,16 @@ func TestRawEventCallback_XMLEscaping(t *testing.T) {
 
 			// Every output must parse as valid XML.
 			err := xml.Unmarshal([]byte(event.Raw), new(any))
-			assert.NoError(t, err, "rawEventCallback output must be valid XML:\n%s", event.Raw)
+			assert.NoError(t, err, "defaultEventCallback raw output must be valid XML:\n%s", event.Raw)
 		})
 	}
 }
 
-// TestRawEventCallback_XMLStructure verifies that the System section fields
-// derived from EventHeader are correctly rendered.
-func TestRawEventCallback_XMLStructure(t *testing.T) {
+// TestDefaultEventCallback_RawMode_XMLStructure verifies that the System
+// section fields derived from EventHeader are correctly rendered.
+func TestDefaultEventCallback_RawMode_XMLStructure(t *testing.T) {
 	consumer := newTestConsumer()
+	consumer.consumeRaw = true
 	consumer.getEventProperties = func(_ *advapi32.EventRecord, _ *zap.Logger) (map[string]any, *tdh.TraceEventInfo, error) {
 		return map[string]any{"Prop": "val"}, nil, nil
 	}
@@ -224,7 +226,7 @@ func TestRawEventCallback_XMLStructure(t *testing.T) {
 	record.EventHeader.ProcessId = 1234
 	record.EventHeader.ThreadId = 5678
 
-	rc := consumer.rawEventCallback(record)
+	rc := consumer.defaultEventCallback(record)
 	assert.Equal(t, uintptr(0), rc)
 
 	event := <-consumer.Events
@@ -245,9 +247,9 @@ func TestRawEventCallback_XMLStructure(t *testing.T) {
 	assert.NoError(t, err, "output must be valid XML:\n%s", event.Raw)
 }
 
-// TestParsedEventCallback_EventDataRouting verifies that event data is routed
-// to EventData or UserData based on the TEMPLATE_FLAGS in TraceEventInfo.
-func TestParsedEventCallback_EventDataRouting(t *testing.T) {
+// TestDefaultEventCallback_ParsedMode_EventDataRouting verifies that event
+// data is routed to EventData or UserData based on the TEMPLATE_FLAGS.
+func TestDefaultEventCallback_ParsedMode_EventDataRouting(t *testing.T) {
 	data := map[string]any{"key": "value"}
 
 	tests := []struct {
@@ -289,7 +291,7 @@ func TestParsedEventCallback_EventDataRouting(t *testing.T) {
 				return data, tt.ti, nil
 			}
 
-			rc := consumer.parsedEventCallback(&advapi32.EventRecord{})
+			rc := consumer.defaultEventCallback(&advapi32.EventRecord{})
 			assert.Equal(t, uintptr(0), rc)
 
 			event := <-consumer.Events
@@ -306,9 +308,30 @@ func TestParsedEventCallback_EventDataRouting(t *testing.T) {
 	}
 }
 
-// TestRawEventCallback_UserDataTag verifies that rawEventCallback uses the
-// correct XML tag (<UserData> vs <EventData>) based on TEMPLATE_FLAGS.
-func TestRawEventCallback_UserDataTag(t *testing.T) {
+// TestDefaultEventCallback_ParsedMode_RawPopulated verifies that event.Raw is
+// always set even when in parsed (non-raw) mode, enabling log.record.original.
+func TestDefaultEventCallback_ParsedMode_RawPopulated(t *testing.T) {
+	consumer := newTestConsumer()
+	consumer.getEventProperties = func(_ *advapi32.EventRecord, _ *zap.Logger) (map[string]any, *tdh.TraceEventInfo, error) {
+		return map[string]any{"Field": "value"}, nil, nil
+	}
+
+	rc := consumer.defaultEventCallback(&advapi32.EventRecord{})
+	assert.Equal(t, uintptr(0), rc)
+
+	event := <-consumer.Events
+	require.NotNil(t, event)
+
+	assert.NotEmpty(t, event.Raw, "event.Raw must be populated in parsed mode")
+	assert.NotEmpty(t, event.EventData, "event.EventData must be populated in parsed mode")
+
+	err := xml.Unmarshal([]byte(event.Raw), new(any))
+	assert.NoError(t, err, "event.Raw must be valid XML in parsed mode:\n%s", event.Raw)
+}
+
+// TestDefaultEventCallback_RawMode_UserDataTag verifies that the XML uses the
+// correct tag (<UserData> vs <EventData>) based on TEMPLATE_FLAGS.
+func TestDefaultEventCallback_RawMode_UserDataTag(t *testing.T) {
 	data := map[string]any{"key": "value"}
 
 	tests := []struct {
@@ -341,11 +364,12 @@ func TestRawEventCallback_UserDataTag(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			consumer := newTestConsumer()
+			consumer.consumeRaw = true
 			consumer.getEventProperties = func(_ *advapi32.EventRecord, _ *zap.Logger) (map[string]any, *tdh.TraceEventInfo, error) {
 				return data, tt.ti, nil
 			}
 
-			rc := consumer.rawEventCallback(&advapi32.EventRecord{})
+			rc := consumer.defaultEventCallback(&advapi32.EventRecord{})
 			assert.Equal(t, uintptr(0), rc)
 
 			event := <-consumer.Events
