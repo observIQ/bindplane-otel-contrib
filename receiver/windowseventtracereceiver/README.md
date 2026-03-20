@@ -52,8 +52,9 @@ This command will display a list of all registered ETW providers, including thei
 | providers             | []Provider        | `[]`              | `true`   | A list of providers to subscribe to for ETW events.               |
 | session_buffer_size   | int               | `64`              | `false`  | The size of the buffer in KiB to use for the ETW session. This shouldn't really be modified unless you are running into issues creating your `session_name`       |
 | attributes            | map[string]string | `{}`              | `false`  | A list of attributes to add to all logs.                          |
-| require_all_providers | bool              | `true`            | `false`  | If true, the receiver will fail if not all providers can be enabled. |
-| raw                   | bool              | `false`           | `false`  | If true, enables raw event logging.                               |
+| require_all_providers      | bool              | `true`            | `false`  | If true, the receiver will fail if not all providers can be enabled. |
+| raw                        | bool              | `false`           | `false`  | If true, enables raw event logging.                               |
+| include_log_record_original | bool             | `false`           | `false`  | If true, includes the raw XML event as the `log.record.original` attribute on parsed (non-raw) log records. Has no effect when `raw` is `true`. |
 
 ### Provider Configuration
 | Field             | Type   | Default | Required | Description                                                                                                                                |
