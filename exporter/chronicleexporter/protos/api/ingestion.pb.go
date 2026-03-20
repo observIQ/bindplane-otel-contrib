@@ -198,7 +198,7 @@ const file_ingestion_proto_rawDesc = "" +
 	"\x17BatchCreateLogsResponse2\xc8\x02\n" +
 	"\x12IngestionServiceV2\x12\x9b\x01\n" +
 	"\x11BatchCreateEvents\x120.malachite.ingestion.v2.BatchCreateEventsRequest\x1a1.malachite.ingestion.v2.BatchCreateEventsResponse\"!\x82\xd3\xe4\x93\x02\x1b:\x01*\"\x16/v2/events:batchCreate\x12\x93\x01\n" +
-	"\x0fBatchCreateLogs\x12..malachite.ingestion.v2.BatchCreateLogsRequest\x1a/.malachite.ingestion.v2.BatchCreateLogsResponse\"\x1f\x82\xd3\xe4\x93\x02\x19:\x01*\"\x14/v2/logs:batchCreateB1Z/github.com/exporter/chronicleexporter/proto/apib\x06proto3"
+	"\x0fBatchCreateLogs\x12..malachite.ingestion.v2.BatchCreateLogsRequest\x1a/.malachite.ingestion.v2.BatchCreateLogsResponse\"\x1f\x82\xd3\xe4\x93\x02\x19:\x01*\"\x14/v2/logs:batchCreateB1Z/github.com/exporter/googlesecopsexporter/proto/apib\x06proto3"
 
 var (
 	file_ingestion_proto_rawDescOnce sync.Once

@@ -273,7 +273,7 @@ const file_events_proto_rawDesc = "" +
 	"start_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\"-\n" +
 	"\tEventType\x12\x0f\n" +
 	"\vUNSPECIFIED\x10\x00\x12\x0f\n" +
-	"\vAGENT_STATS\x10\x19B1Z/github.com/exporter/chronicleexporter/proto/apib\x06proto3"
+	"\vAGENT_STATS\x10\x19B1Z/github.com/exporter/googlesecopsexporter/proto/apib\x06proto3"
 
 var (
 	file_events_proto_rawDescOnce sync.Once

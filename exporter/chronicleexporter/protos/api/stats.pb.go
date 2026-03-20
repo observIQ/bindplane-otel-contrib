@@ -402,7 +402,7 @@ const file_stats_proto_rawDesc = "" +
 	"\rrefused_spans\x18\x03 \x01(\x03R\frefusedSpans\x12%\n" +
 	"\x0equeue_capacity\x18\x04 \x01(\x03R\rqueueCapacity\x12\x1d\n" +
 	"\n" +
-	"queue_size\x18\x05 \x01(\x03R\tqueueSizeB1Z/github.com/exporter/chronicleexporter/proto/apib\x06proto3"
+	"queue_size\x18\x05 \x01(\x03R\tqueueSizeB1Z/github.com/exporter/googlesecopsexporter/proto/apib\x06proto3"
 
 var (
 	file_stats_proto_rawDescOnce sync.Once

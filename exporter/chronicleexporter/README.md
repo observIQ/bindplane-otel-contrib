@@ -4,14 +4,6 @@
 
 This exporter facilitates the sending of logs to Chronicle, which is a security analytics platform provided by Google. It is designed to integrate with OpenTelemetry collectors to export telemetry data such as logs to a Chronicle account.
 
-## Minimum Collector Versions
-
-- Introduced: [v1.39.0](https://github.com/observIQ/bindplane-otel-collector/releases/tag/v1.39.0)
-
-## Supported Pipelines
-
-- Logs
-
 ## How It Works
 
 1. The exporter uses the configured credentials to authenticate with the Google Cloud services.
@@ -77,16 +69,7 @@ For additional information on accessing Chronicle, see the [Chronicle documentat
 
 ```yaml
 chronicle:
-  creds_file_path: "/path/to/google/creds.json"
-  log_type: "ABSOLUTE"
-  customer_id: "customer-123"
-```
-
-### Basic Configuration with Regional Endpoint
-
-```yaml
-chronicle:
-  endpoint: https://malachiteingestion-pa.googleapis.com
+  endpoint: malachiteingestion-pa.googleapis.com
   creds_file_path: "/path/to/google/creds.json"
   log_type: "ONEPASSWORD"
   customer_id: "customer-123"

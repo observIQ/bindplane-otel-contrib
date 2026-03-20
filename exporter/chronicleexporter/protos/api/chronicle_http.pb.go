@@ -355,7 +355,7 @@ const file_chronicle_http_proto_rawDesc = "" +
 	"\x04logs\x18\x01 \x03(\v2\x1b.malachite.ingestion.v2.LogR\x04logs\x12\x1c\n" +
 	"\tforwarder\x18\x02 \x01(\tR\tforwarder\x12'\n" +
 	"\x0fsource_filename\x18\x03 \x01(\tR\x0esourceFilenameB\b\n" +
-	"\x06sourceB1Z/github.com/exporter/chronicleexporter/proto/apib\x06proto3"
+	"\x06sourceB1Z/github.com/exporter/googlesecopsexporter/proto/apib\x06proto3"
 
 var (
 	file_chronicle_http_proto_rawDescOnce sync.Once

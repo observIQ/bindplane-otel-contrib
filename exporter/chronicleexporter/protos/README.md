@@ -5,11 +5,11 @@ https://google.github.io/proto-lens/installing-protoc.html
 
 Use this command where protobuf `../googleapis` is a path to [this repo]("https://github.com/googleapis/googleapis") on your local system:
 ```
-protoc --proto_path=./exporter/chronicleexporter/protos \
+protoc --proto_path=./exporter/googlesecopsexporter/protos \
        --go-grpc_opt=paths=source_relative \
-       --go-grpc_out=./exporter/chronicleexporter/protos/api \
-       --go_out=./exporter/chronicleexporter/protos/api \
+       --go-grpc_out=./exporter/googlesecopsexporter/protos/api \
+       --go_out=./exporter/googlesecopsexporter/protos/api \
        --go_opt=paths=source_relative \
        --proto_path=../googleapis \
-       ./exporter/chronicleexporter/protos/*.proto
+       ./exporter/googlesecopsexporter/protos/*.proto
 ```

@@ -13,11 +13,11 @@ import (
 )
 
 func Meter(settings component.TelemetrySettings) metric.Meter {
-	return settings.MeterProvider.Meter("github.com/observiq/bindplane-otel-contrib/exporter/chronicleexporter")
+	return settings.MeterProvider.Meter("github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter")
 }
 
 func Tracer(settings component.TelemetrySettings) trace.Tracer {
-	return settings.TracerProvider.Tracer("github.com/observiq/bindplane-otel-contrib/exporter/chronicleexporter")
+	return settings.TracerProvider.Tracer("github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter")
 }
 
 // TelemetryBuilder provides an interface for components to report telemetry

@@ -179,7 +179,7 @@ const file_source_proto_rawDesc = "" +
 	"\x06labels\x18\x05 \x03(\v2\x1d.malachite.ingestion.v2.LabelR\x06labels\"/\n" +
 	"\x05Label\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05valueB1Z/github.com/exporter/chronicleexporter/proto/apib\x06proto3"
+	"\x05value\x18\x02 \x01(\tR\x05valueB1Z/github.com/exporter/googlesecopsexporter/proto/apib\x06proto3"
 
 var (
 	file_source_proto_rawDescOnce sync.Once

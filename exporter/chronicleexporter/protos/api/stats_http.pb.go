@@ -297,7 +297,7 @@ const file_stats_http_proto_rawDesc = "" +
 	"agentStatsB\a\n" +
 	"\x05event\"\f\n" +
 	"\n" +
-	"StatsEventB1Z/github.com/exporter/chronicleexporter/proto/apib\x06proto3"
+	"StatsEventB1Z/github.com/exporter/googlesecopsexporter/proto/apib\x06proto3"
 
 var (
 	file_stats_http_proto_rawDescOnce sync.Once

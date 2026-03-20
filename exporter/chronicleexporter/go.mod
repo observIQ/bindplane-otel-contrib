@@ -1,4 +1,4 @@
-module github.com/observiq/bindplane-otel-contrib/exporter/chronicleexporter
+module github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter
 
 go 1.25.7
 

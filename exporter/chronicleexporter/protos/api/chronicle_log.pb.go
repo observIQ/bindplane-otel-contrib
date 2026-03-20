@@ -222,7 +222,7 @@ const file_chronicle_log_proto_rawDesc = "" +
 	"\x04hint\x18\x04 \x01(\tR\x04hint\x12:\n" +
 	"\aentries\x18\x05 \x03(\v2 .malachite.ingestion.v2.LogEntryR\aentries\x129\n" +
 	"\n" +
-	"start_time\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTimeB1Z/github.com/exporter/chronicleexporter/proto/apib\x06proto3"
+	"start_time\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTimeB1Z/github.com/exporter/googlesecopsexporter/proto/apib\x06proto3"
 
 var (
 	file_chronicle_log_proto_rawDescOnce sync.Once
