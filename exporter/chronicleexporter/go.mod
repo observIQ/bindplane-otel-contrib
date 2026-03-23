@@ -3,25 +3,25 @@ module github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter
 go 1.25.7
 
 require (
-	github.com/goccy/go-json v0.10.6
+	github.com/goccy/go-json v0.10.5
 	github.com/golang/mock v1.7.0-rc.1
 	github.com/google/uuid v1.6.0
-	github.com/observiq/bindplane-otel-contrib/internal/testutils v1.1.1
-	github.com/observiq/bindplane-otel-contrib/pkg/expr v1.1.1
-	github.com/observiq/bindplane-otel-contrib/pkg/osinfo v1.1.1
+	github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/expr v1.0.0
+	github.com/observiq/bindplane-otel-contrib/internal/testutils v1.0.1
+	github.com/observiq/bindplane-otel-contrib/pkg/osinfo v1.0.1
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl v0.148.0
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.54.0
 	go.opentelemetry.io/collector/component/componenttest v0.148.0
-	go.opentelemetry.io/collector/config/configoptional v1.54.0
-	go.opentelemetry.io/collector/config/configretry v1.54.0
-	go.opentelemetry.io/collector/confmap v1.54.0
+	go.opentelemetry.io/collector/config/configoptional v1.53.0
+	go.opentelemetry.io/collector/config/configretry v1.53.0
+	go.opentelemetry.io/collector/confmap v1.53.0
 	go.opentelemetry.io/collector/consumer v1.54.0
 	go.opentelemetry.io/collector/consumer/consumererror v0.148.0
-	go.opentelemetry.io/collector/exporter v1.54.0
-	go.opentelemetry.io/collector/exporter/exporterhelper v0.148.0
-	go.opentelemetry.io/collector/exporter/exportertest v0.148.0
+	go.opentelemetry.io/collector/exporter v1.53.0
+	go.opentelemetry.io/collector/exporter/exporterhelper v0.147.0
+	go.opentelemetry.io/collector/exporter/exportertest v0.147.0
 	go.opentelemetry.io/collector/pdata v1.54.0
 	go.opentelemetry.io/otel v1.42.0
 	go.opentelemetry.io/otel/metric v1.42.0
@@ -32,7 +32,7 @@ require (
 	golang.org/x/exp v0.0.0-20260209203927-2842357ff358
 	golang.org/x/oauth2 v0.36.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260203192932-546029d2fa20
-	google.golang.org/grpc v1.79.3
+	google.golang.org/grpc v1.79.2
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -46,7 +46,6 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/elastic/go-grok v0.3.1 // indirect
 	github.com/elastic/lunes v0.2.0 // indirect
-	github.com/expr-lang/expr v1.17.8 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
@@ -61,7 +60,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/knadh/koanf/maps v0.1.2 // indirect
 	github.com/knadh/koanf/providers/confmap v1.0.0 // indirect
-	github.com/knadh/koanf/v2 v2.3.3 // indirect
+	github.com/knadh/koanf/v2 v2.3.2 // indirect
 	github.com/lufia/plan9stats v0.0.0-20251013123823-9fd1530e3ec3 // indirect
 	github.com/magefile/mage v1.15.0 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
@@ -80,18 +79,18 @@ require (
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/collector/client v1.54.0 // indirect
-	go.opentelemetry.io/collector/confmap/xconfmap v0.148.0 // indirect
+	go.opentelemetry.io/collector/confmap/xconfmap v0.147.0 // indirect
 	go.opentelemetry.io/collector/consumer/consumertest v0.148.0 // indirect
 	go.opentelemetry.io/collector/consumer/xconsumer v0.148.0 // indirect
-	go.opentelemetry.io/collector/exporter/xexporter v0.148.0 // indirect
-	go.opentelemetry.io/collector/extension v1.54.0 // indirect
-	go.opentelemetry.io/collector/extension/xextension v0.148.0 // indirect
+	go.opentelemetry.io/collector/exporter/xexporter v0.147.0 // indirect
+	go.opentelemetry.io/collector/extension v1.53.0 // indirect
+	go.opentelemetry.io/collector/extension/xextension v0.147.0 // indirect
 	go.opentelemetry.io/collector/featuregate v1.54.0 // indirect
 	go.opentelemetry.io/collector/internal/componentalias v0.148.0 // indirect
 	go.opentelemetry.io/collector/pdata/pprofile v0.148.0 // indirect
 	go.opentelemetry.io/collector/pdata/xpdata v0.148.0 // indirect
 	go.opentelemetry.io/collector/pipeline v1.54.0 // indirect
-	go.opentelemetry.io/collector/pipeline/xpipeline v0.148.0 // indirect
+	go.opentelemetry.io/collector/pipeline/xpipeline v0.147.0 // indirect
 	go.opentelemetry.io/collector/receiver v1.54.0 // indirect
 	go.opentelemetry.io/collector/receiver/receivertest v0.148.0 // indirect
 	go.opentelemetry.io/collector/receiver/xreceiver v0.148.0 // indirect
@@ -106,8 +105,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
+replace github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/expr => ./internal/expr
+
 replace github.com/observiq/bindplane-otel-contrib/internal/testutils => ../../internal/testutils
 
 replace github.com/observiq/bindplane-otel-contrib/pkg/osinfo => ../../pkg/osinfo
-
-replace github.com/observiq/bindplane-otel-contrib/pkg/expr => ../../pkg/expr

@@ -9,9 +9,9 @@ import (
 	json "github.com/goccy/go-json"
 
 	"github.com/google/uuid"
+	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/expr"
 	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/metadata"
 	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/protos/api"
-	"github.com/observiq/bindplane-otel-contrib/pkg/expr"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottllog"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pcommon"
