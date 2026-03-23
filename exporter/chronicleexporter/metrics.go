@@ -60,7 +60,7 @@ func newMetricsReporter(cfg *Config, set component.TelemetrySettings, exporterID
 		exporterID: exporterID,
 		source: &api.EventSource{
 			CustomerId:  customerID[:],
-			CollectorId: cfg.CollectorID,
+			CollectorId: []byte(cfg.CollectorID),
 			Namespace:   cfg.Namespace,
 		},
 		startTime: now,

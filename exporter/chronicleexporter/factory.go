@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configoptional"
@@ -26,9 +25,8 @@ const (
 	defaultHostname              = "chronicle.googleapis.com"
 	defaultBatchRequestSizeLimit = 4000000
 	defaultMetricsInterval       = 1 * time.Minute
+	defaultCollectorID           = "aaaa1111-aaaa-1111-aaaa-1111aaaa1111"
 )
-
-var defaultCollectorID = uuid.MustParse("aaaa1111-aaaa-1111-aaaa-1111aaaa1111")
 
 // createDefaultConfig creates the default configuration for the google secops exporter.
 func createDefaultConfig() component.Config {
@@ -45,7 +43,7 @@ func createDefaultConfig() component.Config {
 		TimeoutConfig:         exporterhelper.NewDefaultTimeoutConfig(),
 		QueueBatchConfig:      configoptional.Some(exporterhelper.NewDefaultQueueConfig()),
 		BackOffConfig:         configretry.NewDefaultBackOffConfig(),
-		CollectorID:           defaultCollectorID[:],
+		CollectorID:           defaultCollectorID,
 	}
 }
 

@@ -20,7 +20,7 @@ The exporter can be configured using the following fields:
 
 | Field                      | Type              | Default                       | Required | Description                                                                                                                                              |
 | -------------------------- | ----------------- | ----------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `api`                      | string            | `chronicle`                   | `false`  | The API to use for sending logs. Valid values are `chronicle` and `backstory`.                                                                           |
+| `api`                      | string            | `chronicle`                   | `true`  | The API to use for sending logs. Valid values are `chronicle` and `backstory`.                                                                            |
 | `hostname`                 | string            | `chronicle.googleapis.com`    | `false`  | The hostname used to construct the base URL for the API endpoints. Must not contain a protocol prefix.                                                   |
 | `customer_id`              | string            |                               | `false`  | The customer ID used for sending logs.                                                                                                                   |
 | `creds_file_path`          | string            |                               | `false`  | The file path to the Google credentials JSON file. Cannot be used with `creds`.                                                                          |
@@ -63,20 +63,20 @@ If there are nested fields in `attributes["secops_ingestion_label"]` or `attribu
 
 ## Credentials
 
-This exporter requires a Google Cloud service account with access to the appropiate APIs. The service account must have access to the API specfied in the config.
+This exporter requires a Google Cloud service account with access to the appropiate APIs.
 
 The following IAM permissions are required for the Chronicle API:
 - [chronicle.logs.import](https://docs.cloud.google.com/chronicle/docs/reference/rest/v1alpha/projects.locations.instances.logTypes.logs/import)
 - [chronicle.forwarders.importStatsEvents](https://docs.cloud.google.com/chronicle/docs/reference/rest/v1alpha/projects.locations.instances.forwarders/importStatsEvents) When running the exporter with `collect_agent_metrics` enabled.
 - [chronicle.logTypes.list](https://docs.cloud.google.com/chronicle/docs/reference/rest/v1alpha/projects.locations.instances.logTypes/list) When running the exporter with `validate_log_types` enabled.
 
-Besides the default base URL, there are also regional base URLs that can be used:
-- For the [Chronicle API](https://docs.cloud.google.com/chronicle/docs/reference/rest?rep_location=us#regional-service-endpoint)
-- For the [Backstory API](https://docs.cloud.google.com/chronicle/docs/reference/ingestion-api#regional_endpoints)
-
 For additional information on credentials, see the relevant documentation:
 - For the [Chronicle API](https://docs.cloud.google.com/chronicle/docs/reference/authentication)
 - For the [Backstory API](https://docs.cloud.google.com/chronicle/docs/reference/ingestion-api#getting_api_authentication_credentials).
+
+Besides the default hostnames, there are also regional hostnames which can be used:
+- For the [Chronicle API](https://docs.cloud.google.com/chronicle/docs/reference/rest?rep_location=us#regional-service-endpoint)
+- For the [Backstory API](https://docs.cloud.google.com/chronicle/docs/reference/ingestion-api#regional_endpoints)
 
 ## Log Batch Creation Request Limits
 

@@ -89,6 +89,16 @@ func TestConfigValidate(t *testing.T) {
 			expectedErr: "host should not contain a protocol prefix",
 		},
 		{
+			desc: "Empty API",
+			config: &Config{
+				CredsFilePath:         "/path/to/creds_file",
+				DefaultLogType:        "log_type_example",
+				Compression:           noCompression,
+				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
+			},
+			expectedErr: "api is required",
+		},
+		{
 			desc: "Invalid API",
 			config: &Config{
 				CredsFilePath:         "/path/to/creds_file",
@@ -188,7 +198,7 @@ func TestConfigValidate(t *testing.T) {
 				Compression:           noCompression,
 				API:                   backstoryAPI,
 				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
-				CollectorID:           []byte("not-a-uuid"),
+				CollectorID:           "not-a-uuid",
 			},
 			expectedErr: "invalid collector ID",
 		},

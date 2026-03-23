@@ -69,7 +69,7 @@ func newProtoMarshaler(cfg Config, teleSettings component.TelemetrySettings, tel
 		cfg:          cfg,
 		teleSettings: teleSettings,
 		customerID:   customerID[:],
-		collectorID:  cfg.CollectorID[:],
+		collectorID:  []byte(cfg.CollectorID),
 		telemetry:    telemetry,
 		logger:       logger,
 	}, nil

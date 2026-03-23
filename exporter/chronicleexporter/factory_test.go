@@ -21,7 +21,7 @@ func Test_createDefaultConfig(t *testing.T) {
 		CollectAgentMetrics:   true,
 		MetricsInterval:       defaultMetricsInterval,
 		BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
-		CollectorID:           defaultCollectorID[:],
+		CollectorID:           defaultCollectorID,
 	}
 
 	actual := createDefaultConfig()

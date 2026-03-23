@@ -95,7 +95,7 @@ type Config struct {
 
 	// CollectorID is the collector ID that will be used to send logs to Google SecOps.
 	// Do not modify this field.
-	CollectorID []byte `mapstructure:"collector_id"`
+	CollectorID string `mapstructure:"collector_id"`
 
 	TimeoutConfig    exporterhelper.TimeoutConfig                             `mapstructure:",squash"`
 	QueueBatchConfig configoptional.Optional[exporterhelper.QueueBatchConfig] `mapstructure:"sending_queue"`
@@ -146,12 +146,14 @@ func (cfg *Config) Validate() error {
 			}
 		}
 	case backstoryAPI:
+	case "":
+		return errors.New("api is required")
 	default:
 		return fmt.Errorf("invalid API: %s", cfg.API)
 	}
 
-	if cfg.CollectorID != nil {
-		if uuid.Validate(string(cfg.CollectorID[:])) != nil {
+	if cfg.CollectorID != "" {
+		if uuid.Validate(cfg.CollectorID) != nil {
 			return errors.New("invalid collector ID")
 		}
 	}
