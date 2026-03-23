@@ -11,16 +11,15 @@ import (
 
 func Test_createDefaultConfig(t *testing.T) {
 	expectedCfg := &Config{
-		TimeoutConfig:             exporterhelper.NewDefaultTimeoutConfig(),
-		QueueBatchConfig:          configoptional.Some(exporterhelper.NewDefaultQueueConfig()),
-		BackOffConfig:             configretry.NewDefaultBackOffConfig(),
-		OverrideLogType:           true,
-		Endpoint:                  "malachiteingestion-pa.googleapis.com",
-		Compression:               "none",
-		CollectAgentMetrics:       true,
-		Protocol:                  protocolGRPC,
-		BatchRequestSizeLimitGRPC: defaultBatchRequestSizeLimitGRPC,
-		BatchRequestSizeLimitHTTP: defaultBatchRequestSizeLimitHTTP,
+		TimeoutConfig:         exporterhelper.NewDefaultTimeoutConfig(),
+		QueueBatchConfig:      configoptional.Some(exporterhelper.NewDefaultQueueConfig()),
+		BackOffConfig:         configretry.NewDefaultBackOffConfig(),
+		OverrideLogType:       true,
+		BaseURL:               "malachiteingestion-pa.googleapis.com",
+		Compression:           "none",
+		CollectAgentMetrics:   true,
+		API:                   chronicleAPI,
+		BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
 	}
 
 	actual := createDefaultConfig()

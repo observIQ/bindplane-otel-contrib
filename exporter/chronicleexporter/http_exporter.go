@@ -125,9 +125,8 @@ func (exp *httpExporter) Start(ctx context.Context, _ component.Host) error {
 	}
 
 	if exp.cfg.CollectAgentMetrics {
-		collectorID := getCollectorIDString(exp.cfg.LicenseType)
 		f := func(ctx context.Context, request *api.BatchCreateEventsRequest) error {
-			return exp.uploadStatsHTTP(ctx, request, collectorID)
+			return exp.uploadStatsHTTP(ctx, request, string(exp.cfg.CollectorID[:]))
 		}
 		metrics, err := newHostMetricsReporter(exp.cfg, exp.set, exp.exporterID, f)
 		if err != nil {
@@ -380,7 +379,6 @@ func (exp *httpExporter) uploadToChronicleHTTP(ctx context.Context, logs *api.Im
 	statusErr := errors.New(resp.Status)
 	switch resp.StatusCode {
 	// Retryable response codes: https://github.com/open-telemetry/opentelemetry-proto/blob/main/docs/specification.md#retryable-response-codes
-	// TODO(cole): validate that we should remove 500
 	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return statusErr
 	default:
@@ -419,16 +417,16 @@ var httpStatsEndpoint = func(cfg *Config, collectorID string) string {
 
 func baseEndpoint(cfg *Config) string {
 	var baseURL string
-	if cfg.OverrideEndpoint {
-		baseURL = cfg.Endpoint
+	if cfg.OverrideBaseURL {
+		baseURL = cfg.BaseURL
 	} else {
-		baseURL = fmt.Sprintf("%s-%s", cfg.Location, cfg.Endpoint)
+		baseURL = fmt.Sprintf("%s-%s", cfg.Location, cfg.BaseURL)
 	}
 	if cfg.APIVersion == "" {
 		cfg.APIVersion = apiVersionV1Alpha
 	}
 	formatString := "https://%s/%s/projects/%s/locations/%s/instances/%s"
-	return fmt.Sprintf(formatString, baseURL, cfg.APIVersion, cfg.Project, cfg.Location, cfg.CustomerID)
+	return fmt.Sprintf(formatString, baseURL, cfg.APIVersion, cfg.ProjectNumber, cfg.Location, cfg.CustomerID)
 }
 
 func (exp *httpExporter) uploadStatsHTTP(ctx context.Context, request *api.BatchCreateEventsRequest, collectorID string) error {

@@ -57,7 +57,7 @@ func newHostMetricsReporter(cfg *Config, set component.TelemetrySettings, export
 		exporterID: exporterID,
 		source: &api.EventSource{
 			CustomerId:  customerID[:],
-			CollectorId: getCollectorID(cfg.LicenseType),
+			CollectorId: cfg.CollectorID,
 			Namespace:   cfg.Namespace,
 		},
 		startTime: now,

@@ -41,27 +41,6 @@ var (
 	logRecordOriginalField  = fmt.Sprintf(attrExprPattern, logRecordOriginalAttribute)
 )
 
-// Specific collector IDs for Chronicle used to identify bindplane agents.
-const (
-	googleCollectorIDString           = "aaaa1111-aaaa-1111-aaaa-1111aaaa1111"
-	googleEnterpriseCollectorIDString = "aaaa1111-aaaa-1111-aaaa-1111aaaa1112"
-	enterpriseCollectorIDString       = "aaaa1111-aaaa-1111-aaaa-1111aaaa1113"
-	defaultCollectorIDString          = "aaaa1111-aaaa-1111-aaaa-1111aaaa1114"
-)
-
-var (
-	googleCollectorID           = uuid.MustParse(googleCollectorIDString)
-	googleEnterpriseCollectorID = uuid.MustParse(googleEnterpriseCollectorIDString)
-	enterpriseCollectorID       = uuid.MustParse(enterpriseCollectorIDString)
-	defaultCollectorID          = uuid.MustParse(defaultCollectorIDString)
-)
-
-const (
-	licenseTypeGoogle           = "Google"
-	licenseTypeGoogleEnterprise = "GoogleEnterprise"
-	licenseTypeEnterprise       = "Enterprise"
-)
-
 var supportedLogTypes = map[string]string{
 	"windows_event.security":    "WINEVTLOG",
 	"windows_event.application": "WINEVTLOG",
@@ -70,15 +49,14 @@ var supportedLogTypes = map[string]string{
 }
 
 type protoMarshaler struct {
-	cfg               Config
-	teleSettings      component.TelemetrySettings
-	startTime         time.Time
-	customerID        []byte
-	collectorID       []byte
-	collectorIDString string
-	telemetry         *metadata.TelemetryBuilder
-	logTypes          map[string]exists
-	logger            *zap.Logger
+	cfg          Config
+	teleSettings component.TelemetrySettings
+	startTime    time.Time
+	customerID   []byte
+	collectorID  []byte
+	telemetry    *metadata.TelemetryBuilder
+	logTypes     map[string]exists
+	logger       *zap.Logger
 }
 
 func newProtoMarshaler(cfg Config, teleSettings component.TelemetrySettings, telemetry *metadata.TelemetryBuilder, logger *zap.Logger) (*protoMarshaler, error) {
@@ -87,14 +65,13 @@ func newProtoMarshaler(cfg Config, teleSettings component.TelemetrySettings, tel
 		return nil, fmt.Errorf("parse customer ID: %w", err)
 	}
 	return &protoMarshaler{
-		startTime:         time.Now(),
-		cfg:               cfg,
-		teleSettings:      teleSettings,
-		customerID:        customerID[:],
-		collectorID:       getCollectorID(cfg.LicenseType),
-		collectorIDString: getCollectorIDString(cfg.LicenseType),
-		telemetry:         telemetry,
-		logger:            logger,
+		startTime:    time.Now(),
+		cfg:          cfg,
+		teleSettings: teleSettings,
+		customerID:   customerID[:],
+		collectorID:  cfg.CollectorID[:],
+		telemetry:    telemetry,
+		logger:       logger,
 	}, nil
 }
 
@@ -240,17 +217,17 @@ func (m *protoMarshaler) getLogType(ctx context.Context, logRecord plog.LogRecor
 		}
 	}
 
-	if m.cfg.LogType == "" {
+	if m.cfg.DefaultLogType == "" {
 		return catchAllLogType, nil
 	}
 
 	if m.shouldValidateLogType() {
-		if _, ok := m.logTypes[m.cfg.LogType]; !ok {
-			m.logger.Warn("Default log type not found in log types map", zap.String("logType", m.cfg.LogType))
+		if _, ok := m.logTypes[m.cfg.DefaultLogType]; !ok {
+			m.logger.Warn("Default log type not found in log types map", zap.String("logType", m.cfg.DefaultLogType))
 			return catchAllLogType, nil
 		}
 	}
-	return m.cfg.LogType, nil
+	return m.cfg.DefaultLogType, nil
 }
 
 func (m *protoMarshaler) getNamespace(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (string, error) {
@@ -473,7 +450,7 @@ func (m *protoMarshaler) constructPayloads(logGrouper *logGrouper) []*api.BatchC
 func (m *protoMarshaler) enforceMaximumsGRPCRequest(request *api.BatchCreateLogsRequest) []*api.BatchCreateLogsRequest {
 	size := proto.Size(request)
 	entries := request.Batch.Entries
-	if size <= m.cfg.BatchRequestSizeLimitGRPC {
+	if size <= m.cfg.BatchRequestSizeLimit {
 		return []*api.BatchCreateLogsRequest{
 			request,
 		}
@@ -506,7 +483,7 @@ func (m *protoMarshaler) buildGRPCRequest(entries []*api.LogEntry, logType, name
 			Entries:   entries,
 			LogType:   logType,
 			Source: &api.EventSource{
-				CollectorId: []byte(m.collectorID),
+				CollectorId: m.collectorID,
 				CustomerId:  m.customerID,
 				Labels:      ingestionLabels,
 				Namespace:   namespace,
@@ -578,7 +555,7 @@ func getObservedTimestamp(logRecord plog.LogRecord) time.Time {
 
 func (m *protoMarshaler) buildForwarderString() string {
 	format := "projects/%s/locations/%s/instances/%s/forwarders/%s"
-	return fmt.Sprintf(format, m.cfg.Project, m.cfg.Location, m.cfg.CustomerID, m.collectorIDString)
+	return fmt.Sprintf(format, m.cfg.ProjectNumber, m.cfg.Location, m.cfg.CustomerID, string(m.collectorID[:]))
 }
 
 func (m *protoMarshaler) constructHTTPPayloads(rawLogs map[string][]*api.Log) map[string][]*api.ImportLogsRequest {
@@ -603,7 +580,7 @@ func (m *protoMarshaler) constructHTTPPayloads(rawLogs map[string][]*api.Log) ma
 func (m *protoMarshaler) enforceMaximumsHTTPRequest(request *api.ImportLogsRequest) []*api.ImportLogsRequest {
 	size := proto.Size(request)
 	logs := request.GetInlineSource().Logs
-	if size <= m.cfg.BatchRequestSizeLimitHTTP {
+	if size <= m.cfg.BatchRequestSizeLimit {
 		return []*api.ImportLogsRequest{
 			request,
 		}
@@ -631,10 +608,9 @@ func (m *protoMarshaler) enforceMaximumsHTTPRequest(request *api.ImportLogsReque
 
 func (m *protoMarshaler) buildHTTPRequest(entries []*api.Log) *api.ImportLogsRequest {
 	return &api.ImportLogsRequest{
-		// TODO: Add parent and hint
-		// We don't yet have solid guidance on what these should be
-		Parent: "",
-		Hint:   "",
+		// TODO: Add hint?
+		// No solid guidance on what this should be
+		Hint: "",
 
 		Source: &api.ImportLogsRequest_InlineSource{
 			InlineSource: &api.ImportLogsRequest_LogsInlineSource{
@@ -642,31 +618,5 @@ func (m *protoMarshaler) buildHTTPRequest(entries []*api.Log) *api.ImportLogsReq
 				Logs:      entries,
 			},
 		},
-	}
-}
-
-func getCollectorIDString(licenseType string) string {
-	switch strings.ToLower(licenseType) {
-	case strings.ToLower(licenseTypeGoogle):
-		return googleCollectorIDString
-	case strings.ToLower(licenseTypeGoogleEnterprise):
-		return googleEnterpriseCollectorIDString
-	case strings.ToLower(licenseTypeEnterprise):
-		return enterpriseCollectorIDString
-	default:
-		return defaultCollectorIDString
-	}
-}
-
-func getCollectorID(licenseType string) []byte {
-	switch strings.ToLower(licenseType) {
-	case strings.ToLower(licenseTypeGoogle):
-		return googleCollectorID[:]
-	case strings.ToLower(licenseTypeGoogleEnterprise):
-		return googleEnterpriseCollectorID[:]
-	case strings.ToLower(licenseTypeEnterprise):
-		return enterpriseCollectorID[:]
-	default:
-		return defaultCollectorID[:]
 	}
 }

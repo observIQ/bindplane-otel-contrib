@@ -49,11 +49,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Single log record with expected data",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				return mockLogs(mockLogRecord("Test log message", map[string]any{"log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["env"]`: "prod"}))
@@ -76,11 +76,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Single log record with expected data, no log_type, namespace, or ingestion labels",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           true,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       true,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				return mockLogs(mockLogRecord("Test log message", nil))
@@ -105,11 +105,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Multiple log records",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -132,11 +132,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Multiple log records with and without timestamps",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -182,11 +182,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Log record with attributes",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "attributes",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "attributes",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
@@ -205,11 +205,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "No log records",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "DEFAULT",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				return plog.NewLogs() // No log records added
@@ -221,10 +221,10 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "No log type set in config or attributes",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				RawLogField:               "body",
-				OverrideLogType:           true,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				RawLogField:           "body",
+				OverrideLogType:       true,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				return mockLogs(mockLogRecord("Log without logType", map[string]any{"namespace": "test", `ingestion_label["realkey1"]`: "realvalue1", `ingestion_label["realkey2"]`: "realvalue2"}))
@@ -238,11 +238,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Multiple log records with duplicate data, no log type in attributes",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -270,11 +270,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Multiple log records with different data, no log type in attributes",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -327,11 +327,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Override log type with attribute",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "DEFAULT", // This should be overridden by the log_type attribute
-				RawLogField:               "body",
-				OverrideLogType:           true,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT", // This should be overridden by the log_type attribute
+				RawLogField:           "body",
+				OverrideLogType:       true,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				return mockLogs(mockLogRecord("Log with overridden type", map[string]any{"log_type": "windows_event.application", "namespace": "test", `ingestion_label["realkey1"]`: "realvalue1", `ingestion_label["realkey2"]`: "realvalue2"}))
@@ -345,11 +345,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Override log type with chronicle attribute",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "DEFAULT", // This should be overridden by the chronicle_log_type attribute
-				RawLogField:               "body",
-				OverrideLogType:           true,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT", // This should be overridden by the chronicle_log_type attribute
+				RawLogField:           "body",
+				OverrideLogType:       true,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				return mockLogs(mockLogRecord("Log with overridden type", map[string]any{"chronicle_log_type": "ASOC_ALERT", "chronicle_namespace": "test", `chronicle_ingestion_label["realkey1"]`: "realvalue1", `chronicle_ingestion_label["realkey2"]`: "realvalue2"}))
@@ -371,11 +371,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Multiple log records with duplicate data, log type in attributes",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -409,11 +409,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Multiple log records with different data, log type in attributes",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -469,11 +469,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Many logs, all one batch",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -509,11 +509,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Single batch split into multiple because request size too large",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -558,11 +558,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Recursively split batch into multiple because request size too large",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -630,11 +630,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Unsplittable batch, single log exceeds max request size",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -653,11 +653,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Multiple valid log records + unsplittable log entries",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -693,11 +693,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Multiple namespace, ingestion labels, and log type",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitGRPC: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -820,7 +820,7 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 			name: "Destination ingestion labels are merged with config ingestion labels",
 			cfg: Config{
 				CustomerID:      uuid.New().String(),
-				LogType:         "WINEVTLOG",
+				DefaultLogType:  "WINEVTLOG",
 				RawLogField:     "body",
 				OverrideLogType: false,
 				IngestionLabels: map[string]string{
@@ -828,7 +828,7 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 					"key2": "value4",
 					"key3": "value5",
 				},
-				BatchRequestSizeLimitGRPC: 5242880,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -887,11 +887,11 @@ func BenchmarkProtoMarshaler_MarshalRawLogs(b *testing.B) {
 	}
 
 	cfg := Config{
-		CustomerID:                uuid.New().String(),
-		LogType:                   "WINEVTLOG",
-		RawLogField:               "body",
-		OverrideLogType:           false,
-		BatchRequestSizeLimitGRPC: 5242880,
+		CustomerID:            uuid.New().String(),
+		DefaultLogType:        "WINEVTLOG",
+		RawLogField:           "body",
+		OverrideLogType:       false,
+		BatchRequestSizeLimit: 5242880,
 	}
 
 	logs := plog.NewLogs()
@@ -938,15 +938,14 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "Single log record with expected data",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				Protocol:                  protocolHTTPS,
-				Project:                   "test-project",
-				Location:                  "us",
-				Forwarder:                 uuid.New().String(),
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				API:                   chronicleAPI,
+				ProjectNumber:         "test-project",
+				Location:              "us",
+				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{
 				{Key: "env", Value: "prod"},
@@ -967,11 +966,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "Multiple log records",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{
 				{Key: "env", Value: "staging"},
@@ -997,11 +996,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "Log record with attributes",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "attributes",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "attributes",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{},
 			logRecords: func() plog.Logs {
@@ -1019,11 +1018,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "No log records",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "DEFAULT",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{},
 			logRecords: func() plog.Logs {
@@ -1036,11 +1035,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "No log type set in config or attributes",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "attributes",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "attributes",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{},
 			logRecords: func() plog.Logs {
@@ -1058,11 +1057,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "Multiple log records with duplicate data, no log type in attributes",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -1090,11 +1089,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "Multiple log records with different data, no log type in attributes",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -1124,11 +1123,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "Override log type with attribute",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "DEFAULT", // This should be overridden by the log_type attribute
-				RawLogField:               "body",
-				OverrideLogType:           true,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT", // This should be overridden by the log_type attribute
+				RawLogField:           "body",
+				OverrideLogType:       true,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				return mockLogs(mockLogRecord("Log with overridden type", map[string]any{"log_type": "windows_event.application", "namespace": "test", `ingestion_label["realkey1"]`: "realvalue1", `ingestion_label["realkey2"]`: "realvalue2"}))
@@ -1142,11 +1141,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "Override log type with chronicle attribute",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "DEFAULT", // This should be overridden by the chronicle_log_type attribute
-				RawLogField:               "body",
-				OverrideLogType:           true,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT", // This should be overridden by the chronicle_log_type attribute
+				RawLogField:           "body",
+				OverrideLogType:       true,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				return mockLogs(mockLogRecord("Log with overridden type", map[string]any{"chronicle_log_type": "ASOC_ALERT", "chronicle_namespace": "test", `chronicle_ingestion_label["realkey1"]`: "realvalue1", `chronicle_ingestion_label["realkey2"]`: "realvalue2"}))
@@ -1167,11 +1166,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "Multiple log records with duplicate data, log type in attributes",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -1204,11 +1203,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "Multiple log records with different data, log type in attributes",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -1254,11 +1253,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "Many log records all one batch",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -1293,11 +1292,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "Many log records split into two batches because request size too large",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -1345,11 +1344,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "Recursively split into batches because request size too large",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -1415,11 +1414,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "Unsplittable log record, single log exceeds request size limit",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 100000,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 100000,
 			},
 			labels: []*api.Label{
 				{Key: "env", Value: "staging"},
@@ -1438,11 +1437,11 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 		{
 			name: "Unsplittable log record, single log exceeds request size limit, mixed with okay logs",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 100000,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 100000,
 			},
 			labels: []*api.Label{
 				{Key: "env", Value: "staging"},
@@ -1931,9 +1930,9 @@ func Benchmark_processLogRecord(b *testing.B) {
 	}
 
 	cfg := Config{
-		CustomerID:                uuid.New().String(),
-		RawLogField:               "", // Empty RawLogField forces json.Marshal of entire log record
-		BatchRequestSizeLimitGRPC: 5242880,
+		CustomerID:            uuid.New().String(),
+		RawLogField:           "", // Empty RawLogField forces json.Marshal of entire log record
+		BatchRequestSizeLimit: 5242880,
 	}
 
 	ctx := context.Background()
@@ -1966,71 +1965,6 @@ func Benchmark_processLogRecord(b *testing.B) {
 	}
 }
 
-func Test_getCollectorID(t *testing.T) {
-	cases := []struct {
-		name        string
-		licenseType string
-		expect      []byte
-	}{
-		{
-			name:        "GoogleEnterprise",
-			licenseType: "GoogleEnterprise",
-			expect:      googleEnterpriseCollectorID[:],
-		},
-		{
-			name:        "GoogleEnterprise lowercase",
-			licenseType: "googleenterprise",
-			expect:      googleEnterpriseCollectorID[:],
-		},
-		{
-			name:        "Enterprise",
-			licenseType: "Enterprise",
-			expect:      enterpriseCollectorID[:],
-		},
-		{
-			name:        "Google",
-			licenseType: "Google",
-			expect:      googleCollectorID[:],
-		},
-		{
-			name:        "FreeCloud",
-			licenseType: "FreeCloud",
-			expect:      defaultCollectorID[:],
-		},
-		{
-			name:        "Free",
-			licenseType: "Free",
-			expect:      defaultCollectorID[:],
-		},
-		{
-			name:        "Development",
-			licenseType: "Development",
-			expect:      defaultCollectorID[:],
-		},
-		{
-			name:        "Trial",
-			licenseType: "Trial",
-			expect:      defaultCollectorID[:],
-		},
-		{
-			name:        "Honeycomb",
-			licenseType: "Honeycomb",
-			expect:      defaultCollectorID[:],
-		},
-		{
-			name:        "unknown license type",
-			licenseType: "unknown",
-			expect:      defaultCollectorID[:],
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.expect, getCollectorID(tc.licenseType))
-		})
-	}
-}
-
 func Test_getLogType(t *testing.T) {
 	logger := zap.NewNop()
 	startTime := time.Now()
@@ -2057,15 +1991,14 @@ func Test_getLogType(t *testing.T) {
 		{
 			name: "Single log record with expected data",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				Protocol:                  protocolHTTPS,
-				Project:                   "test-project",
-				Location:                  "us",
-				Forwarder:                 uuid.New().String(),
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				API:                   chronicleAPI,
+				ProjectNumber:         "test-project",
+				Location:              "us",
+				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{
 				{Key: "env", Value: "prod"},
@@ -2078,16 +2011,15 @@ func Test_getLogType(t *testing.T) {
 		{
 			name: "Single log record with expected data, with validation",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				Protocol:                  protocolHTTPS,
-				Project:                   "test-project",
-				Location:                  "us",
-				Forwarder:                 uuid.New().String(),
-				BatchRequestSizeLimitHTTP: 5242880,
-				ValidateLogTypes:          true,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				API:                   chronicleAPI,
+				ProjectNumber:         "test-project",
+				Location:              "us",
+				BatchRequestSizeLimit: 5242880,
+				ValidateLogTypes:      true,
 			},
 			logTypes: map[string]exists{
 				"WINEVTLOG": {},
@@ -2103,15 +2035,14 @@ func Test_getLogType(t *testing.T) {
 		{
 			name: "Single log record with expected data, fails validation",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				Protocol:                  protocolHTTPS,
-				Project:                   "test-project",
-				Location:                  "us",
-				Forwarder:                 uuid.New().String(),
-				BatchRequestSizeLimitHTTP: 5242880,
-				ValidateLogTypes:          true,
+				CustomerID:            uuid.New().String(),
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				API:                   chronicleAPI,
+				ProjectNumber:         "test-project",
+				Location:              "us",
+				BatchRequestSizeLimit: 5242880,
+				ValidateLogTypes:      true,
 			},
 			logTypes: map[string]exists{
 				"CATCH_ALL": {},
@@ -2127,11 +2058,11 @@ func Test_getLogType(t *testing.T) {
 		{
 			name: "Log record with attributes",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "attributes",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "attributes",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{},
 			logRecords: func() plog.Logs {
@@ -2142,11 +2073,11 @@ func Test_getLogType(t *testing.T) {
 		{
 			name: "No log records",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "DEFAULT",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{},
 			logRecords: func() plog.Logs {
@@ -2156,11 +2087,11 @@ func Test_getLogType(t *testing.T) {
 		{
 			name: "Log type set in config, ignore log_type attribute (OverrideLogType false)",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "DEFAULT",
-				RawLogField:               "attributes",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT",
+				RawLogField:           "attributes",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{},
 			logRecords: func() plog.Logs {
@@ -2171,12 +2102,12 @@ func Test_getLogType(t *testing.T) {
 		{
 			name: "Log type set in config, ignore log_type attribute (OverrideLogType false), validation",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "DEFAULT",
-				RawLogField:               "attributes",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
-				ValidateLogTypes:          true,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT",
+				RawLogField:           "attributes",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
+				ValidateLogTypes:      true,
 			},
 			logTypes: map[string]exists{
 				"DEFAULT": {},
@@ -2191,11 +2122,11 @@ func Test_getLogType(t *testing.T) {
 		{
 			name: "Override log type with attribute",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "DEFAULT", // This should be overridden by the log_type attribute
-				RawLogField:               "body",
-				OverrideLogType:           true,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT", // This should be overridden by the log_type attribute
+				RawLogField:           "body",
+				OverrideLogType:       true,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				return mockLogs(mockLogRecord("Log with overridden type", map[string]any{"log_type": "windows_event.application", "namespace": "test", `ingestion_label["realkey1"]`: "realvalue1", `ingestion_label["realkey2"]`: "realvalue2"}))
@@ -2205,12 +2136,12 @@ func Test_getLogType(t *testing.T) {
 		{
 			name: "Override log type with attribute, validation",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "DEFAULT", // This should be overridden by the log_type attribute
-				RawLogField:               "body",
-				OverrideLogType:           true,
-				BatchRequestSizeLimitHTTP: 5242880,
-				ValidateLogTypes:          true,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT", // This should be overridden by the log_type attribute
+				RawLogField:           "body",
+				OverrideLogType:       true,
+				BatchRequestSizeLimit: 5242880,
+				ValidateLogTypes:      true,
 			},
 			logTypes: map[string]exists{
 				"WINEVTLOG": {},
@@ -2223,12 +2154,12 @@ func Test_getLogType(t *testing.T) {
 		{
 			name: "Override log type with attribute, fails validation",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "DEFAULT", // This should be overridden by the log_type attribute
-				RawLogField:               "body",
-				OverrideLogType:           true,
-				BatchRequestSizeLimitHTTP: 5242880,
-				ValidateLogTypes:          true,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT", // This should be overridden by the log_type attribute
+				RawLogField:           "body",
+				OverrideLogType:       true,
+				BatchRequestSizeLimit: 5242880,
+				ValidateLogTypes:      true,
 			},
 			logTypes: map[string]exists{
 				"CATCH_ALL": {},
@@ -2241,11 +2172,11 @@ func Test_getLogType(t *testing.T) {
 		{
 			name: "Override log type with chronicle attribute",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "DEFAULT", // This should be overridden by the chronicle_log_type attribute
-				RawLogField:               "body",
-				OverrideLogType:           true,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT", // This should be overridden by the chronicle_log_type attribute
+				RawLogField:           "body",
+				OverrideLogType:       true,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				return mockLogs(mockLogRecord("Log with overridden type", map[string]any{"chronicle_log_type": "ASOC_ALERT", "chronicle_namespace": "test", `chronicle_ingestion_label["realkey1"]`: "realvalue1", `chronicle_ingestion_label["realkey2"]`: "realvalue2"}))
@@ -2256,11 +2187,11 @@ func Test_getLogType(t *testing.T) {
 		{
 			name: "Log type in attributes",
 			cfg: Config{
-				CustomerID:                uuid.New().String(),
-				LogType:                   "WINEVTLOG",
-				RawLogField:               "body",
-				OverrideLogType:           false,
-				BatchRequestSizeLimitHTTP: 5242880,
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "WINEVTLOG",
+				RawLogField:           "body",
+				OverrideLogType:       false,
+				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
 				logs := plog.NewLogs()
@@ -2317,7 +2248,7 @@ func Test_getLogType(t *testing.T) {
 			cfg: Config{
 				CustomerID:       uuid.New().String(),
 				RawLogField:      "body",
-				LogType:          "MISSING_TYPE",
+				DefaultLogType:   "MISSING_TYPE",
 				ValidateLogTypes: true,
 			},
 			logTypes: map[string]exists{

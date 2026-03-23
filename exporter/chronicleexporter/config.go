@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/observiq/bindplane-otel-contrib/pkg/expr"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configoptional"
@@ -15,95 +16,86 @@ import (
 )
 
 const (
-	// noCompression is the no compression type.
 	noCompression     = "none"
-	protocolHTTPS     = "https"
-	protocolGRPC      = "gRPC"
+	chronicleAPI      = "chronicle"
+	backstoryAPI      = "backstory"
 	apiVersionV1Alpha = "v1alpha"
 	apiVersionV1Beta  = "v1beta"
 )
 
-// Config defines configuration for the Chronicle exporter.
+// Config defines configuration for the Google SecOps Exporter.
 type Config struct {
-	TimeoutConfig    exporterhelper.TimeoutConfig                             `mapstructure:",squash"` // squash ensures fields are correctly decoded in embedded struct.
-	QueueBatchConfig configoptional.Optional[exporterhelper.QueueBatchConfig] `mapstructure:"sending_queue"`
-	BackOffConfig    configretry.BackOffConfig                                `mapstructure:"retry_on_failure"`
+	// API is the API that will be used to send logs to Google SecOps
+	// Either chronicle or backstory.
+	API string `mapstructure:"api"`
 
-	// Endpoint is the URL where Chronicle data will be sent.
-	Endpoint string `mapstructure:"endpoint"`
+	// BaseURL is the base URL used to construct the API endpoints.
+	BaseURL string `mapstructure:"base_url"`
+
+	// CustomerID is the customer ID that will be used to send logs to Google SecOps.
+	CustomerID string `mapstructure:"customer_id"`
+
+	// OverrideBaseURL determines whether or not the Location field is used when constructing the base URL for the Chronicle API.
+	// Only applies to the Chronicle API.
+	OverrideBaseURL bool `mapstructure:"override_base_url"`
+
+	// APIVersion is the version of the Chronicle API to use. Defaults to "v1alpha".
+	// Only used for the Chronicle API.
+	APIVersion string `mapstructure:"api_version"`
+
+	// Location is the location of the Google SecOps tenant to send logs to.
+	// Only used for the Chronicle API.
+	Location string `mapstructure:"location"`
+
+	// ProjectNumber is the GCP project number of the Google SecOps tenant to send logs to.
+	// Only used for the Chronicle API.
+	ProjectNumber string `mapstructure:"project_number"`
+
+	// Namespace is the namespace that will be used to send logs to Google SecOps.
+	Namespace string `mapstructure:"namespace"`
+
+	// Creds are the Google credentials JSON.
+	Creds string `mapstructure:"creds"`
 
 	// CredsFilePath is the file path to the Google credentials JSON file.
 	CredsFilePath string `mapstructure:"creds_file_path"`
 
-	// Creds are the Google credentials JSON file.
-	Creds string `mapstructure:"creds"`
+	// DefaultLogType is the type of log that will be sent to Google SecOps if not overridden by `attributes["log_type"]` or `attributes["chronicle_log_type"]`.
+	DefaultLogType string `mapstructure:"default_log_type"`
 
-	// LogType is the type of log that will be sent to Chronicle if not overridden by `attributes["log_type"]` or `attributes["chronicle_log_type"]`.
-	LogType string `mapstructure:"log_type"`
-
-	// ValidateLogTypes is a flag that determines whether or not to validate the log types using an API call to SecOps.
-	ValidateLogTypes bool `mapstructure:"validate_log_types"`
-
-	// OverrideLogType is a flag that determines whether or not to override the `log_type` in the config with `attributes["log_type"]`.
+	// OverrideLogType is a flag that determines whether or not to override the `default_log_type` in the config with `attributes["log_type"]`.
 	OverrideLogType bool `mapstructure:"override_log_type"`
 
-	// RawLogField is the field name that will be used to send raw logs to Chronicle.
+	// ValidateLogTypes is a flag that determines whether or not to validate the log types using an API call.
+	ValidateLogTypes bool `mapstructure:"validate_log_types"`
+
+	// RawLogField is the field name that will be used to send raw logs to Google SecOps.
 	RawLogField string `mapstructure:"raw_log_field"`
 
-	// CustomerID is the customer ID that will be used to send logs to Chronicle.
-	CustomerID string `mapstructure:"customer_id"`
-
-	// Namespace is the namespace that will be used to send logs to Chronicle.
-	Namespace string `mapstructure:"namespace"`
-
-	// Compression is the compression type that will be used to send logs to Chronicle.
+	// Compression is the compression type that will be used to send logs to Google SecOps.
 	Compression string `mapstructure:"compression"`
 
-	// IngestionLabels are the labels that will be attached to logs when sent to Chronicle.
+	// IngestionLabels are the labels that will be attached to logs when sent to Google SecOps.
 	IngestionLabels map[string]string `mapstructure:"ingestion_labels"`
 
 	// CollectAgentMetrics is a flag that determines whether or not to collect agent metrics.
 	CollectAgentMetrics bool `mapstructure:"collect_agent_metrics"`
 
-	// Protocol is the protocol that will be used to send logs to Chronicle.
-	// Either https or grpc.
-	Protocol string `mapstructure:"protocol"`
-
-	// Location is the location that will be used when the protocol is https.
-	Location string `mapstructure:"location"`
-
-	// Project is the project that will be used when the protocol is https.
-	Project string `mapstructure:"project"`
-
-	// Forwarder is the forwarder that will be used when the protocol is https.
-	// Deprecated as of v1.87.1: The forwarder (Collector ID) is now determined by the license type
-	Forwarder string `mapstructure:"forwarder"`
-
-	// BatchRequestSizeLimitGRPC is the maximum batch request size, in bytes, that can be sent to Chronicle via the GRPC protocol
-	// This field is defaulted to 4000000 as that is the default Chronicle backend limit
-	// Setting this option to a value above the Chronicle backend limit may result in rejected log batch requests
-	BatchRequestSizeLimitGRPC int `mapstructure:"batch_request_size_limit_grpc"`
-
-	// BatchRequestSizeLimitHTTP is the maximum batch request size, in bytes, that can be sent to Chronicle via the HTTP protocol
-	// This field is defaulted to 4000000 as that is the default Chronicle backend limit
-	// Setting this option to a value above the Chronicle backend limit may result in rejected log batch requests
-	BatchRequestSizeLimitHTTP int `mapstructure:"batch_request_size_limit_http"`
-
-	// LicenseType is the license type of the bindplane instance managing this agent.
-	// This field is used to determine collector ID for Chronicle.
-	LicenseType string `mapstructure:"license_type"`
+	// BatchRequestSizeLimit is the maximum batch request size, in bytes, that can be sent to Google SecOps
+	// This field is defaulted to 4000000 as that is the default limit
+	// Setting this option to a value above the backend limit may result in rejected log batch requests
+	BatchRequestSizeLimit int `mapstructure:"batch_request_size_limit"`
 
 	// LogErroredPayloads is a flag that determines whether or not to log errored payloads.
 	LogErroredPayloads bool `mapstructure:"log_errored_payloads"`
 
-	// OverrideEndpoint determines whether or not to ignore the Location field when constructing the endpoint.
-	// This is useful for when the endpoint is a custom endpoint and the Location field is not needed.
-	// We still need the Location field for the API call to Chronicle, but we don't want to use it in the endpoint.
-	// Only applies to HTTPS protocol.
-	OverrideEndpoint bool `mapstructure:"override_endpoint"`
+	// CollectorID is the collector ID that will be used to send logs to Google SecOps.
+	// Do not modify this field.
+	CollectorID []byte `mapstructure:"collector_id"`
 
-	// APIVersion is the version of the API to use. Default is "v1alpha". Only applies to HTTPS protocol.
-	APIVersion string `mapstructure:"api_version"`
+	TimeoutConfig    exporterhelper.TimeoutConfig                             `mapstructure:",squash"`
+	QueueBatchConfig configoptional.Optional[exporterhelper.QueueBatchConfig] `mapstructure:"sending_queue"`
+	BackOffConfig    configretry.BackOffConfig                                `mapstructure:"retry_on_failure"`
 }
 
 // Validate checks if the configuration is valid.
@@ -125,22 +117,15 @@ func (cfg *Config) Validate() error {
 		return fmt.Errorf("invalid compression type: %s", cfg.Compression)
 	}
 
-	if strings.HasPrefix(cfg.Endpoint, "http://") || strings.HasPrefix(cfg.Endpoint, "https://") {
-		return fmt.Errorf("endpoint should not contain a protocol: %s", cfg.Endpoint)
-	}
-
-	if cfg.Protocol == protocolHTTPS {
+	if cfg.API == chronicleAPI {
 		if cfg.Location == "" {
-			return errors.New("location is required when protocol is https")
+			return errors.New("location is required for the Chronicle API")
 		}
-		if cfg.Endpoint == "" {
-			return errors.New("endpoint is required when protocol is https")
+		if cfg.BaseURL == "" {
+			return errors.New("base URL is required for the Chronicle API")
 		}
-		if cfg.Project == "" {
-			return errors.New("project is required when protocol is https")
-		}
-		if cfg.BatchRequestSizeLimitHTTP <= 0 {
-			return errors.New("positive batch request size limit is required when protocol is https")
+		if cfg.ProjectNumber == "" {
+			return errors.New("project number is required for the Chronicle API")
 		}
 		if cfg.APIVersion != "" {
 			if cfg.APIVersion != apiVersionV1Alpha && cfg.APIVersion != apiVersionV1Beta {
@@ -151,13 +136,21 @@ func (cfg *Config) Validate() error {
 		return nil
 	}
 
-	if cfg.Protocol == protocolGRPC {
-		if cfg.BatchRequestSizeLimitGRPC <= 0 {
-			return errors.New("positive batch request size limit is required when protocol is grpc")
+	if cfg.API == backstoryAPI {
+		if strings.HasPrefix(cfg.BaseURL, "http://") || strings.HasPrefix(cfg.BaseURL, "https://") {
+			return fmt.Errorf("base URL should not contain a protocol prefix for the Backstory API: %s", cfg.BaseURL)
 		}
 
 		return nil
 	}
 
-	return fmt.Errorf("invalid protocol: %s", cfg.Protocol)
+	if cfg.BatchRequestSizeLimit <= 0 {
+		return errors.New("positive batch request size limit is required")
+	}
+
+	if uuid.Validate(string(cfg.CollectorID[:])) != nil {
+		return errors.New("invalid collector ID")
+	}
+
+	return fmt.Errorf("invalid API: %s", cfg.API)
 }

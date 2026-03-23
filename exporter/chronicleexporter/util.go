@@ -21,7 +21,7 @@ var tokenSource = func(ctx context.Context, cfg *Config) (oauth2.TokenSource, er
 
 func googleCredentials(ctx context.Context, cfg *Config) (*google.Credentials, error) {
 	scope := grpcScope
-	if cfg.Protocol == protocolHTTPS {
+	if cfg.API == chronicleAPI {
 		scope = httpScope
 	}
 	switch {

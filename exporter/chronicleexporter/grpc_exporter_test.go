@@ -68,9 +68,9 @@ func TestGRPCExporter(t *testing.T) {
 
 	// By default, tests will apply the following changes to NewFactory.CreateDefaultConfig()
 	defaultCfgMod := func(cfg *Config) {
-		cfg.Protocol = protocolGRPC
+		cfg.API = backstoryAPI
 		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
-		cfg.LogType = "FAKE"
+		cfg.DefaultLogType = "FAKE"
 		cfg.QueueBatchConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
 		cfg.BackOffConfig.Enabled = false
 	}
@@ -157,7 +157,7 @@ func TestGRPCExporter(t *testing.T) {
 			f := NewFactory()
 			cfg := f.CreateDefaultConfig().(*Config)
 			defaultCfgMod(cfg)
-			cfg.Endpoint = endpoint
+			cfg.BaseURL = endpoint
 
 			require.NoError(t, cfg.Validate())
 
@@ -185,9 +185,9 @@ func TestGRPCExporter(t *testing.T) {
 // TestGRPCJSONCredentialsError tests that the GRPC exporter returns an error when the json credentials are invalid and does not panic during shutdown
 func TestGRPCJSONCredentialsError(t *testing.T) {
 	defaultCfgMod := func(cfg *Config) {
-		cfg.Protocol = protocolGRPC
+		cfg.API = backstoryAPI
 		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
-		cfg.LogType = "FAKE"
+		cfg.DefaultLogType = "FAKE"
 		cfg.QueueBatchConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
 		cfg.BackOffConfig.Enabled = false
 	}
@@ -225,9 +225,9 @@ func TestGRPCExporterTelemetry(t *testing.T) {
 
 	// By default, tests will apply the following changes to NewFactory.CreateDefaultConfig()
 	defaultCfgMod := func(cfg *Config) {
-		cfg.Protocol = protocolGRPC
+		cfg.API = backstoryAPI
 		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
-		cfg.LogType = "FAKE"
+		cfg.DefaultLogType = "FAKE"
 		cfg.QueueBatchConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
 		cfg.BackOffConfig.Enabled = false
 	}
@@ -402,7 +402,7 @@ func TestGRPCExporterTelemetry(t *testing.T) {
 			f := NewFactory()
 			cfg := f.CreateDefaultConfig().(*Config)
 			defaultCfgMod(cfg)
-			cfg.Endpoint = endpoint
+			cfg.BaseURL = endpoint
 			if tc.rawLogField != "" {
 				cfg.RawLogField = tc.rawLogField
 			}

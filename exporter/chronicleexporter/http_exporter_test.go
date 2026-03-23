@@ -59,12 +59,11 @@ func TestHTTPExporter(t *testing.T) {
 
 	// By default, tests will apply the following changes to NewFactory.CreateDefaultConfig()
 	defaultCfgMod := func(cfg *Config) {
-		cfg.Protocol = protocolHTTPS
+		cfg.API = chronicleAPI
 		cfg.Location = "us"
 		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
-		cfg.Project = "fake"
-		cfg.Forwarder = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-		cfg.LogType = "FAKE"
+		cfg.ProjectNumber = "fake"
+		cfg.DefaultLogType = "FAKE"
 		cfg.QueueBatchConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
 		cfg.BackOffConfig.Enabled = false
 	}
@@ -307,12 +306,11 @@ func TestHTTPExporterRetrySequences(t *testing.T) {
 
 			f := NewFactory()
 			cfg := f.CreateDefaultConfig().(*Config)
-			cfg.Protocol = protocolHTTPS
+			cfg.API = chronicleAPI
 			cfg.Location = "us"
 			cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
-			cfg.Project = "fake"
-			cfg.Forwarder = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-			cfg.LogType = "FAKE"
+			cfg.ProjectNumber = "fake"
+			cfg.DefaultLogType = "FAKE"
 			cfg.QueueBatchConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
 			cfg.BackOffConfig.Enabled = false
 			require.NoError(t, cfg.Validate())
@@ -343,12 +341,11 @@ func TestHTTPExporterRetrySequences(t *testing.T) {
 // TestHTTPJSONCredentialsError tests that the HTTP exporter returns an error when the json credentials are invalid and does not panic during shutdown
 func TestHTTPJSONCredentialsError(t *testing.T) {
 	defaultCfgMod := func(cfg *Config) {
-		cfg.Protocol = protocolHTTPS
+		cfg.API = chronicleAPI
 		cfg.Location = "us"
 		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
-		cfg.Project = "fake"
-		cfg.Forwarder = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-		cfg.LogType = "FAKE"
+		cfg.ProjectNumber = "fake"
+		cfg.DefaultLogType = "FAKE"
 		cfg.QueueBatchConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
 		cfg.BackOffConfig.Enabled = false
 	}
@@ -425,12 +422,11 @@ func TestHTTPExporterAgentMetrics(t *testing.T) {
 
 		f := NewFactory()
 		cfg := f.CreateDefaultConfig().(*Config)
-		cfg.Protocol = protocolHTTPS
+		cfg.API = chronicleAPI
 		cfg.Location = "us"
 		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
-		cfg.Project = "fake"
-		cfg.Forwarder = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-		cfg.LogType = "FAKE"
+		cfg.ProjectNumber = "fake"
+		cfg.DefaultLogType = "FAKE"
 		cfg.QueueBatchConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
 		cfg.BackOffConfig.Enabled = false
 		cfg.CollectAgentMetrics = true
@@ -466,12 +462,11 @@ func TestHTTPExporterAgentMetrics(t *testing.T) {
 
 		f := NewFactory()
 		cfg := f.CreateDefaultConfig().(*Config)
-		cfg.Protocol = protocolHTTPS
+		cfg.API = chronicleAPI
 		cfg.Location = "us"
 		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
-		cfg.Project = "fake"
-		cfg.Forwarder = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-		cfg.LogType = "FAKE"
+		cfg.ProjectNumber = "fake"
+		cfg.DefaultLogType = "FAKE"
 		cfg.QueueBatchConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
 		cfg.BackOffConfig.Enabled = false
 		cfg.CollectAgentMetrics = false
@@ -516,11 +511,11 @@ func TestUploadStatsHTTP(t *testing.T) {
 		}
 
 		cfg := &Config{
-			Protocol:    protocolHTTPS,
-			Location:    "us",
-			CustomerID:  "00000000-1111-2222-3333-444444444444",
-			Project:     "fake",
-			Compression: noCompression,
+			API:           chronicleAPI,
+			Location:      "us",
+			CustomerID:    "00000000-1111-2222-3333-444444444444",
+			ProjectNumber: "fake",
+			Compression:   noCompression,
 		}
 
 		exp := &httpExporter{
@@ -569,11 +564,11 @@ func TestUploadStatsHTTP(t *testing.T) {
 		}
 
 		cfg := &Config{
-			Protocol:    protocolHTTPS,
-			Location:    "us",
-			CustomerID:  "00000000-1111-2222-3333-444444444444",
-			Project:     "fake",
-			Compression: noCompression,
+			API:           chronicleAPI,
+			Location:      "us",
+			CustomerID:    "00000000-1111-2222-3333-444444444444",
+			ProjectNumber: "fake",
+			Compression:   noCompression,
 		}
 
 		exp := &httpExporter{
@@ -622,10 +617,10 @@ func TestHTTPStatsEndpoint(t *testing.T) {
 		{
 			name: "default API version",
 			cfg: &Config{
-				Location:   "us",
-				Endpoint:   "chronicle.googleapis.com",
-				Project:    "my-project",
-				CustomerID: "my-customer-id",
+				Location:      "us",
+				BaseURL:       "chronicle.googleapis.com",
+				ProjectNumber: "my-project",
+				CustomerID:    "my-customer-id",
 			},
 			statsEndpoint:    "https://us-chronicle.googleapis.com/v1alpha/projects/my-project/locations/us/instances/my-customer-id/forwarders/collector-123:importStatsEvents",
 			logTypesEndpoint: "https://us-chronicle.googleapis.com/v1alpha/projects/my-project/locations/us/instances/my-customer-id/logTypes",
@@ -636,11 +631,11 @@ func TestHTTPStatsEndpoint(t *testing.T) {
 		{
 			name: "custom API version",
 			cfg: &Config{
-				Location:   "us",
-				Endpoint:   "chronicle.googleapis.com",
-				Project:    "my-project",
-				CustomerID: "my-customer-id",
-				APIVersion: "v1beta",
+				Location:      "us",
+				BaseURL:       "chronicle.googleapis.com",
+				ProjectNumber: "my-project",
+				CustomerID:    "my-customer-id",
+				APIVersion:    "v1beta",
 			},
 			statsEndpoint:    "https://us-chronicle.googleapis.com/v1beta/projects/my-project/locations/us/instances/my-customer-id/forwarders/collector-123:importStatsEvents",
 			logTypesEndpoint: "https://us-chronicle.googleapis.com/v1beta/projects/my-project/locations/us/instances/my-customer-id/logTypes",
@@ -651,12 +646,12 @@ func TestHTTPStatsEndpoint(t *testing.T) {
 		{
 			name: "custom API version and ignore location",
 			cfg: &Config{
-				Location:         "us",
-				Endpoint:         "my-endpoint.com",
-				Project:          "my-project",
-				CustomerID:       "my-customer-id",
-				APIVersion:       "v1beta",
-				OverrideEndpoint: true,
+				Location:        "us",
+				BaseURL:         "my-endpoint.com",
+				ProjectNumber:   "my-project",
+				CustomerID:      "my-customer-id",
+				APIVersion:      "v1beta",
+				OverrideBaseURL: true,
 			},
 			statsEndpoint:    "https://my-endpoint.com/v1beta/projects/my-project/locations/us/instances/my-customer-id/forwarders/collector-123:importStatsEvents",
 			logTypesEndpoint: "https://my-endpoint.com/v1beta/projects/my-project/locations/us/instances/my-customer-id/logTypes",
@@ -691,12 +686,11 @@ func TestHTTPExporterTelemetry(t *testing.T) {
 
 	// By default, tests will apply the following changes to NewFactory.CreateDefaultConfig()
 	defaultCfgMod := func(cfg *Config) {
-		cfg.Protocol = protocolHTTPS
+		cfg.API = chronicleAPI
 		cfg.Location = "us"
 		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
-		cfg.Project = "fake"
-		cfg.Forwarder = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-		cfg.LogType = "FAKE"
+		cfg.ProjectNumber = "fake"
+		cfg.DefaultLogType = "FAKE"
 		cfg.QueueBatchConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
 		cfg.BackOffConfig.Enabled = false
 	}

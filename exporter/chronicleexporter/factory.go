@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configoptional"
@@ -21,26 +22,27 @@ func NewFactory() exporter.Factory {
 }
 
 const (
-	defaultEndpoint                  = "malachiteingestion-pa.googleapis.com"
-	defaultBatchRequestSizeLimitGRPC = 4000000
-	defaultBatchRequestSizeLimitHTTP = 4000000
+	defaultBaseURL               = "malachiteingestion-pa.googleapis.com"
+	defaultBatchRequestSizeLimit = 4000000
 )
 
-// createDefaultConfig creates the default configuration for the exporter.
+var defaultCollectorID = uuid.MustParse("aaaa1111-aaaa-1111-aaaa-1111aaaa1111")
+
+// createDefaultConfig creates the default configuration for the google secops exporter.
 func createDefaultConfig() component.Config {
 	return &Config{
-		Protocol:                  protocolGRPC,
-		TimeoutConfig:             exporterhelper.NewDefaultTimeoutConfig(),
-		QueueBatchConfig:          configoptional.Some(exporterhelper.NewDefaultQueueConfig()),
-		BackOffConfig:             configretry.NewDefaultBackOffConfig(),
-		OverrideLogType:           true,
-		Compression:               noCompression,
-		CollectAgentMetrics:       true,
-		Endpoint:                  defaultEndpoint,
-		BatchRequestSizeLimitGRPC: defaultBatchRequestSizeLimitGRPC,
-		BatchRequestSizeLimitHTTP: defaultBatchRequestSizeLimitHTTP,
-		LogErroredPayloads:        false,
-		ValidateLogTypes:          false,
+		API:                   chronicleAPI,
+		BaseURL:               defaultBaseURL,
+		OverrideLogType:       true,
+		CollectAgentMetrics:   true,
+		LogErroredPayloads:    false,
+		ValidateLogTypes:      false,
+		Compression:           noCompression,
+		BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
+		TimeoutConfig:         exporterhelper.NewDefaultTimeoutConfig(),
+		QueueBatchConfig:      configoptional.Some(exporterhelper.NewDefaultQueueConfig()),
+		BackOffConfig:         configretry.NewDefaultBackOffConfig(),
+		CollectorID:           defaultCollectorID[:],
 	}
 }
 
@@ -56,7 +58,7 @@ func createLogsExporter(
 	}
 
 	c := cfg.(*Config)
-	if c.Protocol == protocolHTTPS {
+	if c.API == chronicleAPI {
 		exp, err = newHTTPExporter(c, params, t)
 	} else {
 		exp, err = newGRPCExporter(c, params, t)
