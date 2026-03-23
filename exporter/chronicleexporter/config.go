@@ -93,8 +93,7 @@ type Config struct {
 	// LogErroredPayloads is a flag that determines whether or not to log errored payloads.
 	LogErroredPayloads bool `mapstructure:"log_errored_payloads"`
 
-	// CollectorID is the collector ID that will be used to send logs to Google SecOps.
-	// Do not modify this field.
+	// CollectorID is the collector ID of the ingestion method. Leave empty to use the default collector ID (recommended).
 	CollectorID string `mapstructure:"collector_id"`
 
 	TimeoutConfig    exporterhelper.TimeoutConfig                             `mapstructure:",squash"`
