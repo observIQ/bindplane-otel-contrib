@@ -148,15 +148,9 @@ func (cfg *Config) Validate() error {
 		return nil
 	}
 
-	if cfg.API != backstoryAPI {
-		return fmt.Errorf("invalid API: %s", cfg.API)
+	if uuid.Validate(string(cfg.CollectorID[:])) != nil {
+		return errors.New("invalid collector ID")
 	}
 
-	if cfg.CollectorID == nil {
-		if uuid.Validate(string(cfg.CollectorID)) != nil {
-			return fmt.Errorf("invalid collector ID: %s", string(cfg.CollectorID))
-		}
-	}
-
-	return nil
+	return fmt.Errorf("invalid API: %s", cfg.API)
 }
