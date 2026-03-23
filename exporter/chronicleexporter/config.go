@@ -150,7 +150,7 @@ func (cfg *Config) Validate() error {
 		return fmt.Errorf("invalid API: %s", cfg.API)
 	}
 
-	if cfg.CollectorID == nil {
+	if cfg.CollectorID != nil {
 		if uuid.Validate(string(cfg.CollectorID[:])) != nil {
 			return errors.New("invalid collector ID")
 		}
