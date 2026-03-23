@@ -68,6 +68,7 @@ type FieldMapping struct {
 type EventMapping struct {
 	Filter        string         `mapstructure:"filter"`
 	ClassID       int            `mapstructure:"class_id"`
+	Profiles      []string       `mapstructure:"profiles"`
 	FieldMappings []FieldMapping `mapstructure:"field_mappings"`
 }
 
@@ -87,6 +88,7 @@ func (cfg Config) Validate() error {
 	if !validVersion {
 		return fmt.Errorf("invalid OCSF version: %s", cfg.OCSFVersion)
 	}
+	schema := getOCSFSchema(cfg.OCSFVersion)
 
 	for i, em := range cfg.EventMappings {
 		if em.ClassID == 0 {
@@ -96,6 +98,14 @@ func (cfg Config) Validate() error {
 		if em.Filter != "" {
 			if _, err := expr.CreateBoolExpression(em.Filter); err != nil {
 				return fmt.Errorf("event_mappings[%d]: invalid filter expression: %w", i, err)
+			}
+		}
+
+		if len(em.Profiles) > 0 {
+			for _, profile := range em.Profiles {
+				if err := schema.ValidateProfile(em.ClassID, profile); err != nil {
+					return fmt.Errorf("event_mappings[%d]: invalid profile: %w", i, err)
+				}
 			}
 		}
 
@@ -123,7 +133,7 @@ func (cfg Config) Validate() error {
 			fieldPaths[j+defaultFieldCount] = fm.To
 		}
 
-		coverageErr := getOCSFSchema(cfg.OCSFVersion).ValidateFieldCoverage(em.ClassID, fieldPaths)
+		coverageErr := schema.ValidateFieldCoverage(em.ClassID, em.Profiles, fieldPaths)
 		if coverageErr != nil {
 			return fmt.Errorf("event_mappings[%d]: OCSF Class %d has validation errors\n%w", i, em.ClassID, coverageErr)
 		}

@@ -19452,6 +19452,528 @@ func validateWinWindowsServiceActivity(data map[string]any) error {
 	return errors.Join(errs...)
 }
 
+// validateProfileCloud checks required fields, constraints, and enum values.
+func validateProfileCloud(data map[string]any) error {
+	var errs []error
+	if _, ok := data["cloud"]; !ok {
+		errs = append(errs, errors.New("cloud is required"))
+	}
+	if v, ok := data["api"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateAPI(m); err != nil {
+				errs = append(errs, fmt.Errorf("api: %w", err))
+			}
+		}
+	}
+	if v, ok := data["cloud"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateCloud(m); err != nil {
+				errs = append(errs, fmt.Errorf("cloud: %w", err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// validateProfileContainer checks required fields, constraints, and enum values.
+func validateProfileContainer(data map[string]any) error {
+	var errs []error
+	if v, ok := data["container"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateContainer(m); err != nil {
+				errs = append(errs, fmt.Errorf("container: %w", err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// validateProfileDataClassification checks required fields, constraints, and enum values.
+func validateProfileDataClassification(data map[string]any) error {
+	var errs []error
+	if v, ok := data["data_classification"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateDataClassification(m); err != nil {
+				errs = append(errs, fmt.Errorf("data_classification: %w", err))
+			}
+		}
+	}
+	if v, ok := data["data_classifications"]; ok {
+		if arr, ok := v.([]any); ok {
+			for i, elem := range arr {
+				if m, ok := elem.(map[string]any); ok {
+					if err := validateDataClassification(m); err != nil {
+						errs = append(errs, fmt.Errorf("data_classifications[%d]: %w", i, err))
+					}
+				}
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// validateProfileDatetime checks required fields, constraints, and enum values.
+func validateProfileDatetime(data map[string]any) error {
+	var errs []error
+	if v, ok := data["accessed_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("accessed_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["boot_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("boot_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["created_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("created_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["deleted_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("deleted_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["end_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("end_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["expiration_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("expiration_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["exploit_last_seen_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("exploit_last_seen_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["first_seen_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("first_seen_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["hire_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("hire_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["last_login_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("last_login_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["last_run_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("last_run_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["last_seen_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("last_seen_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["leave_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("leave_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["logged_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("logged_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["modified_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("modified_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["next_run_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("next_run_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["processed_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("processed_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["query_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("query_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["response_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("response_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["start_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("start_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["terminated_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("terminated_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["transmit_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("transmit_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	if v, ok := data["uploaded_time_dt"]; ok {
+		if strVal, ok := v.(string); ok {
+			if !regexDatetimeT.MatchString(strVal) {
+				errs = append(errs, fmt.Errorf("uploaded_time_dt: invalid value %q", strVal))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// validateProfileHost checks required fields, constraints, and enum values.
+func validateProfileHost(data map[string]any) error {
+	var errs []error
+	if v, ok := data["actor"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateActor(m); err != nil {
+				errs = append(errs, fmt.Errorf("actor: %w", err))
+			}
+		}
+	}
+	if v, ok := data["device"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateDevice(m); err != nil {
+				errs = append(errs, fmt.Errorf("device: %w", err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// validateProfileIncident checks required fields, constraints, and enum values.
+func validateProfileIncident(data map[string]any) error {
+	var errs []error
+	if v, ok := data["impact_id"]; ok {
+		if intVal, ok := toInt64(v); ok {
+			switch intVal {
+			case 0, 1, 2, 3, 4, 99:
+			default:
+				errs = append(errs, fmt.Errorf("impact_id: invalid value %d", intVal))
+			}
+		}
+	}
+	if v, ok := data["priority_id"]; ok {
+		if intVal, ok := toInt64(v); ok {
+			switch intVal {
+			case 0, 1, 2, 3, 4, 99:
+			default:
+				errs = append(errs, fmt.Errorf("priority_id: invalid value %d", intVal))
+			}
+		}
+	}
+	if v, ok := data["verdict_id"]; ok {
+		if intVal, ok := toInt64(v); ok {
+			switch intVal {
+			case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 99:
+			default:
+				errs = append(errs, fmt.Errorf("verdict_id: invalid value %d", intVal))
+			}
+		}
+	}
+	if v, ok := data["assignee"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateUser(m); err != nil {
+				errs = append(errs, fmt.Errorf("assignee: %w", err))
+			}
+		}
+	}
+	if v, ok := data["assignee_group"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateGroup(m); err != nil {
+				errs = append(errs, fmt.Errorf("assignee_group: %w", err))
+			}
+		}
+	}
+	if v, ok := data["ticket"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateTicket(m); err != nil {
+				errs = append(errs, fmt.Errorf("ticket: %w", err))
+			}
+		}
+	}
+	if v, ok := data["tickets"]; ok {
+		if arr, ok := v.([]any); ok {
+			for i, elem := range arr {
+				if m, ok := elem.(map[string]any); ok {
+					if err := validateTicket(m); err != nil {
+						errs = append(errs, fmt.Errorf("tickets[%d]: %w", i, err))
+					}
+				}
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// validateProfileLinuxLinuxUsers checks required fields, constraints, and enum values.
+func validateProfileLinuxLinuxUsers(data map[string]any) error {
+	var errs []error
+	if v, ok := data["group"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateGroup(m); err != nil {
+				errs = append(errs, fmt.Errorf("group: %w", err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// validateProfileLoadBalancer checks required fields, constraints, and enum values.
+func validateProfileLoadBalancer(data map[string]any) error {
+	var errs []error
+	if v, ok := data["load_balancer"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateLoadBalancer(m); err != nil {
+				errs = append(errs, fmt.Errorf("load_balancer: %w", err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// validateProfileNetworkProxy checks required fields, constraints, and enum values.
+func validateProfileNetworkProxy(data map[string]any) error {
+	var errs []error
+	if v, ok := data["proxy_connection_info"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateNetworkConnectionInfo(m); err != nil {
+				errs = append(errs, fmt.Errorf("proxy_connection_info: %w", err))
+			}
+		}
+	}
+	if v, ok := data["proxy_endpoint"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateNetworkProxy(m); err != nil {
+				errs = append(errs, fmt.Errorf("proxy_endpoint: %w", err))
+			}
+		}
+	}
+	if v, ok := data["proxy_http_request"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateHTTPRequest(m); err != nil {
+				errs = append(errs, fmt.Errorf("proxy_http_request: %w", err))
+			}
+		}
+	}
+	if v, ok := data["proxy_http_response"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateHTTPResponse(m); err != nil {
+				errs = append(errs, fmt.Errorf("proxy_http_response: %w", err))
+			}
+		}
+	}
+	if v, ok := data["proxy_tls"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateTLS(m); err != nil {
+				errs = append(errs, fmt.Errorf("proxy_tls: %w", err))
+			}
+		}
+	}
+	if v, ok := data["proxy_traffic"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateNetworkTraffic(m); err != nil {
+				errs = append(errs, fmt.Errorf("proxy_traffic: %w", err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// validateProfileOsint checks required fields, constraints, and enum values.
+func validateProfileOsint(data map[string]any) error {
+	var errs []error
+	if _, ok := data["osint"]; !ok {
+		errs = append(errs, errors.New("osint is required"))
+	}
+	if v, ok := data["osint"]; ok {
+		if arr, ok := v.([]any); ok {
+			for i, elem := range arr {
+				if m, ok := elem.(map[string]any); ok {
+					if err := validateOsint(m); err != nil {
+						errs = append(errs, fmt.Errorf("osint[%d]: %w", i, err))
+					}
+				}
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// validateProfileSecurityControl checks required fields, constraints, and enum values.
+func validateProfileSecurityControl(data map[string]any) error {
+	var errs []error
+	if v, ok := data["action_id"]; ok {
+		if intVal, ok := toInt64(v); ok {
+			switch intVal {
+			case 0, 1, 2, 3, 4, 99:
+			default:
+				errs = append(errs, fmt.Errorf("action_id: invalid value %d", intVal))
+			}
+		}
+	}
+	if v, ok := data["confidence_id"]; ok {
+		if intVal, ok := toInt64(v); ok {
+			switch intVal {
+			case 0, 1, 2, 3, 99:
+			default:
+				errs = append(errs, fmt.Errorf("confidence_id: invalid value %d", intVal))
+			}
+		}
+	}
+	if v, ok := data["disposition_id"]; ok {
+		if intVal, ok := toInt64(v); ok {
+			switch intVal {
+			case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 99:
+			default:
+				errs = append(errs, fmt.Errorf("disposition_id: invalid value %d", intVal))
+			}
+		}
+	}
+	if v, ok := data["risk_level_id"]; ok {
+		if intVal, ok := toInt64(v); ok {
+			switch intVal {
+			case 0, 1, 2, 3, 4, 99:
+			default:
+				errs = append(errs, fmt.Errorf("risk_level_id: invalid value %d", intVal))
+			}
+		}
+	}
+	if v, ok := data["attacks"]; ok {
+		if arr, ok := v.([]any); ok {
+			for i, elem := range arr {
+				if m, ok := elem.(map[string]any); ok {
+					if err := validateAttack(m); err != nil {
+						errs = append(errs, fmt.Errorf("attacks[%d]: %w", i, err))
+					}
+				}
+			}
+		}
+	}
+	if v, ok := data["authorizations"]; ok {
+		if arr, ok := v.([]any); ok {
+			for i, elem := range arr {
+				if m, ok := elem.(map[string]any); ok {
+					if err := validateAuthorization(m); err != nil {
+						errs = append(errs, fmt.Errorf("authorizations[%d]: %w", i, err))
+					}
+				}
+			}
+		}
+	}
+	if v, ok := data["firewall_rule"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateFirewallRule(m); err != nil {
+				errs = append(errs, fmt.Errorf("firewall_rule: %w", err))
+			}
+		}
+	}
+	if v, ok := data["malware"]; ok {
+		if arr, ok := v.([]any); ok {
+			for i, elem := range arr {
+				if m, ok := elem.(map[string]any); ok {
+					if err := validateMalware(m); err != nil {
+						errs = append(errs, fmt.Errorf("malware[%d]: %w", i, err))
+					}
+				}
+			}
+		}
+	}
+	if v, ok := data["malware_scan_info"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateMalwareScanInfo(m); err != nil {
+				errs = append(errs, fmt.Errorf("malware_scan_info: %w", err))
+			}
+		}
+	}
+	if v, ok := data["policy"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validatePolicy(m); err != nil {
+				errs = append(errs, fmt.Errorf("policy: %w", err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// validateProfileTrace checks required fields, constraints, and enum values.
+func validateProfileTrace(data map[string]any) error {
+	var errs []error
+	if v, ok := data["trace"]; ok {
+		if m, ok := v.(map[string]any); ok {
+			if err := validateTrace(m); err != nil {
+				errs = append(errs, fmt.Errorf("trace: %w", err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // Class UIDs
 const (
 	ClassUIDAccountChange                     = 3001
@@ -19538,177 +20060,317 @@ const (
 )
 
 // ValidateClass validates data against the OCSF event class identified by classUID.
-func ValidateClass(classUID int, data any) error {
+// If profiles are provided, profile-specific validation is also applied.
+func ValidateClass(classUID int, profiles []string, data any) error {
 	m, ok := data.(map[string]any)
 	if !ok {
 		return fmt.Errorf("expected map[string]any, got %T", data)
 	}
+	var baseErr error
 	switch classUID {
 	case ClassUIDAccountChange:
-		return validateAccountChange(m)
+		baseErr = validateAccountChange(m)
 	case ClassUIDAdminGroupQuery:
-		return validateAdminGroupQuery(m)
+		baseErr = validateAdminGroupQuery(m)
 	case ClassUIDAirborneBroadcastActivity:
-		return validateAirborneBroadcastActivity(m)
+		baseErr = validateAirborneBroadcastActivity(m)
 	case ClassUIDAPIActivity:
-		return validateAPIActivity(m)
+		baseErr = validateAPIActivity(m)
 	case ClassUIDApplicationError:
-		return validateApplicationError(m)
+		baseErr = validateApplicationError(m)
 	case ClassUIDApplicationLifecycle:
-		return validateApplicationLifecycle(m)
+		baseErr = validateApplicationLifecycle(m)
 	case ClassUIDApplicationSecurityPostureFinding:
-		return validateApplicationSecurityPostureFinding(m)
+		baseErr = validateApplicationSecurityPostureFinding(m)
 	case ClassUIDAuthentication:
-		return validateAuthentication(m)
+		baseErr = validateAuthentication(m)
 	case ClassUIDAuthorizeSession:
-		return validateAuthorizeSession(m)
+		baseErr = validateAuthorizeSession(m)
 	case ClassUIDBaseEvent:
-		return validateBaseEvent(m)
+		baseErr = validateBaseEvent(m)
 	case ClassUIDCloudResourcesInventoryInfo:
-		return validateCloudResourcesInventoryInfo(m)
+		baseErr = validateCloudResourcesInventoryInfo(m)
 	case ClassUIDComplianceFinding:
-		return validateComplianceFinding(m)
+		baseErr = validateComplianceFinding(m)
 	case ClassUIDConfigState:
-		return validateConfigState(m)
+		baseErr = validateConfigState(m)
 	case ClassUIDDataSecurityFinding:
-		return validateDataSecurityFinding(m)
+		baseErr = validateDataSecurityFinding(m)
 	case ClassUIDDatastoreActivity:
-		return validateDatastoreActivity(m)
+		baseErr = validateDatastoreActivity(m)
 	case ClassUIDDetectionFinding:
-		return validateDetectionFinding(m)
+		baseErr = validateDetectionFinding(m)
 	case ClassUIDDeviceConfigStateChange:
-		return validateDeviceConfigStateChange(m)
+		baseErr = validateDeviceConfigStateChange(m)
 	case ClassUIDDhcpActivity:
-		return validateDhcpActivity(m)
+		baseErr = validateDhcpActivity(m)
 	case ClassUIDDNSActivity:
-		return validateDNSActivity(m)
+		baseErr = validateDNSActivity(m)
 	case ClassUIDDroneFlightsActivity:
-		return validateDroneFlightsActivity(m)
+		baseErr = validateDroneFlightsActivity(m)
 	case ClassUIDEmailActivity:
-		return validateEmailActivity(m)
+		baseErr = validateEmailActivity(m)
 	case ClassUIDEmailFileActivity:
-		return validateEmailFileActivity(m)
+		baseErr = validateEmailFileActivity(m)
 	case ClassUIDEmailURLActivity:
-		return validateEmailURLActivity(m)
+		baseErr = validateEmailURLActivity(m)
 	case ClassUIDEntityManagement:
-		return validateEntityManagement(m)
+		baseErr = validateEntityManagement(m)
 	case ClassUIDEventLogActvity:
-		return validateEventLogActvity(m)
+		baseErr = validateEventLogActvity(m)
 	case ClassUIDEvidenceInfo:
-		return validateEvidenceInfo(m)
+		baseErr = validateEvidenceInfo(m)
 	case ClassUIDFileActivity:
-		return validateFileActivity(m)
+		baseErr = validateFileActivity(m)
 	case ClassUIDFileHosting:
-		return validateFileHosting(m)
+		baseErr = validateFileHosting(m)
 	case ClassUIDFileQuery:
-		return validateFileQuery(m)
+		baseErr = validateFileQuery(m)
 	case ClassUIDFileRemediationActivity:
-		return validateFileRemediationActivity(m)
+		baseErr = validateFileRemediationActivity(m)
 	case ClassUIDFolderQuery:
-		return validateFolderQuery(m)
+		baseErr = validateFolderQuery(m)
 	case ClassUIDFtpActivity:
-		return validateFtpActivity(m)
+		baseErr = validateFtpActivity(m)
 	case ClassUIDGroupManagement:
-		return validateGroupManagement(m)
+		baseErr = validateGroupManagement(m)
 	case ClassUIDHTTPActivity:
-		return validateHTTPActivity(m)
+		baseErr = validateHTTPActivity(m)
 	case ClassUIDIncidentFinding:
-		return validateIncidentFinding(m)
+		baseErr = validateIncidentFinding(m)
 	case ClassUIDInventoryInfo:
-		return validateInventoryInfo(m)
+		baseErr = validateInventoryInfo(m)
 	case ClassUIDJobQuery:
-		return validateJobQuery(m)
+		baseErr = validateJobQuery(m)
 	case ClassUIDKernelActivity:
-		return validateKernelActivity(m)
+		baseErr = validateKernelActivity(m)
 	case ClassUIDKernelExtensionActivity:
-		return validateKernelExtensionActivity(m)
+		baseErr = validateKernelExtensionActivity(m)
 	case ClassUIDKernelObjectQuery:
-		return validateKernelObjectQuery(m)
+		baseErr = validateKernelObjectQuery(m)
 	case ClassUIDMemoryActivity:
-		return validateMemoryActivity(m)
+		baseErr = validateMemoryActivity(m)
 	case ClassUIDModuleActivity:
-		return validateModuleActivity(m)
+		baseErr = validateModuleActivity(m)
 	case ClassUIDModuleQuery:
-		return validateModuleQuery(m)
+		baseErr = validateModuleQuery(m)
 	case ClassUIDNetworkActivity:
-		return validateNetworkActivity(m)
+		baseErr = validateNetworkActivity(m)
 	case ClassUIDNetworkConnectionQuery:
-		return validateNetworkConnectionQuery(m)
+		baseErr = validateNetworkConnectionQuery(m)
 	case ClassUIDNetworkFileActivity:
-		return validateNetworkFileActivity(m)
+		baseErr = validateNetworkFileActivity(m)
 	case ClassUIDNetworkRemediationActivity:
-		return validateNetworkRemediationActivity(m)
+		baseErr = validateNetworkRemediationActivity(m)
 	case ClassUIDNetworksQuery:
-		return validateNetworksQuery(m)
+		baseErr = validateNetworksQuery(m)
 	case ClassUIDNtpActivity:
-		return validateNtpActivity(m)
+		baseErr = validateNtpActivity(m)
 	case ClassUIDOsintInventoryInfo:
-		return validateOsintInventoryInfo(m)
+		baseErr = validateOsintInventoryInfo(m)
 	case ClassUIDPatchState:
-		return validatePatchState(m)
+		baseErr = validatePatchState(m)
 	case ClassUIDPeripheralDeviceQuery:
-		return validatePeripheralDeviceQuery(m)
+		baseErr = validatePeripheralDeviceQuery(m)
 	case ClassUIDProcessActivity:
-		return validateProcessActivity(m)
+		baseErr = validateProcessActivity(m)
 	case ClassUIDProcessQuery:
-		return validateProcessQuery(m)
+		baseErr = validateProcessQuery(m)
 	case ClassUIDProcessRemediationActivity:
-		return validateProcessRemediationActivity(m)
+		baseErr = validateProcessRemediationActivity(m)
 	case ClassUIDRDPActivity:
-		return validateRDPActivity(m)
+		baseErr = validateRDPActivity(m)
 	case ClassUIDRemediationActivity:
-		return validateRemediationActivity(m)
+		baseErr = validateRemediationActivity(m)
 	case ClassUIDScanActivity:
-		return validateScanActivity(m)
+		baseErr = validateScanActivity(m)
 	case ClassUIDScheduledJobActivity:
-		return validateScheduledJobActivity(m)
+		baseErr = validateScheduledJobActivity(m)
 	case ClassUIDScriptActivity:
-		return validateScriptActivity(m)
+		baseErr = validateScriptActivity(m)
 	case ClassUIDSecurityFinding:
-		return validateSecurityFinding(m)
+		baseErr = validateSecurityFinding(m)
 	case ClassUIDServiceQuery:
-		return validateServiceQuery(m)
+		baseErr = validateServiceQuery(m)
 	case ClassUIDSessionQuery:
-		return validateSessionQuery(m)
+		baseErr = validateSessionQuery(m)
 	case ClassUIDSmbActivity:
-		return validateSmbActivity(m)
+		baseErr = validateSmbActivity(m)
 	case ClassUIDSoftwareInfo:
-		return validateSoftwareInfo(m)
+		baseErr = validateSoftwareInfo(m)
 	case ClassUIDSSHActivity:
-		return validateSSHActivity(m)
+		baseErr = validateSSHActivity(m)
 	case ClassUIDStartupItemQuery:
-		return validateStartupItemQuery(m)
+		baseErr = validateStartupItemQuery(m)
 	case ClassUIDTunnelActivity:
-		return validateTunnelActivity(m)
+		baseErr = validateTunnelActivity(m)
 	case ClassUIDUserAccess:
-		return validateUserAccess(m)
+		baseErr = validateUserAccess(m)
 	case ClassUIDUserInventory:
-		return validateUserInventory(m)
+		baseErr = validateUserInventory(m)
 	case ClassUIDUserQuery:
-		return validateUserQuery(m)
+		baseErr = validateUserQuery(m)
 	case ClassUIDVulnerabilityFinding:
-		return validateVulnerabilityFinding(m)
+		baseErr = validateVulnerabilityFinding(m)
 	case ClassUIDWebResourceAccessActivity:
-		return validateWebResourceAccessActivity(m)
+		baseErr = validateWebResourceAccessActivity(m)
 	case ClassUIDWebResourcesActivity:
-		return validateWebResourcesActivity(m)
+		baseErr = validateWebResourcesActivity(m)
 	case ClassUIDWinPrefetchQuery:
-		return validateWinPrefetchQuery(m)
+		baseErr = validateWinPrefetchQuery(m)
 	case ClassUIDWinRegistryKeyActivity:
-		return validateWinRegistryKeyActivity(m)
+		baseErr = validateWinRegistryKeyActivity(m)
 	case ClassUIDWinRegistryKeyQuery:
-		return validateWinRegistryKeyQuery(m)
+		baseErr = validateWinRegistryKeyQuery(m)
 	case ClassUIDWinRegistryValueActivity:
-		return validateWinRegistryValueActivity(m)
+		baseErr = validateWinRegistryValueActivity(m)
 	case ClassUIDWinRegistryValueQuery:
-		return validateWinRegistryValueQuery(m)
+		baseErr = validateWinRegistryValueQuery(m)
 	case ClassUIDWinWindowsResourceActivity:
-		return validateWinWindowsResourceActivity(m)
+		baseErr = validateWinWindowsResourceActivity(m)
 	case ClassUIDWinWindowsServiceActivity:
-		return validateWinWindowsServiceActivity(m)
+		baseErr = validateWinWindowsServiceActivity(m)
 	default:
 		return fmt.Errorf("unknown class UID: %d", classUID)
 	}
+	for _, p := range profiles {
+		switch p {
+		case "cloud":
+			if err := validateProfileCloud(m); err != nil {
+				baseErr = errors.Join(baseErr, err)
+			}
+		case "datetime":
+			if err := validateProfileDatetime(m); err != nil {
+				baseErr = errors.Join(baseErr, err)
+			}
+		case "host":
+			if err := validateProfileHost(m); err != nil {
+				baseErr = errors.Join(baseErr, err)
+			}
+		case "incident":
+			if err := validateProfileIncident(m); err != nil {
+				baseErr = errors.Join(baseErr, err)
+			}
+		case "load_balancer":
+			if err := validateProfileLoadBalancer(m); err != nil {
+				baseErr = errors.Join(baseErr, err)
+			}
+		case "network_proxy":
+			if err := validateProfileNetworkProxy(m); err != nil {
+				baseErr = errors.Join(baseErr, err)
+			}
+		case "osint":
+			if err := validateProfileOsint(m); err != nil {
+				baseErr = errors.Join(baseErr, err)
+			}
+		case "security_control":
+			if err := validateProfileSecurityControl(m); err != nil {
+				baseErr = errors.Join(baseErr, err)
+			}
+		case "trace":
+			if err := validateProfileTrace(m); err != nil {
+				baseErr = errors.Join(baseErr, err)
+			}
+		}
+	}
+	return baseErr
+}
+
+// classProfiles maps each class UID to its set of valid profile names.
+var classProfiles = map[int]map[string]bool{
+	ClassUIDAccountChange:                     {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDAdminGroupQuery:                   {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDAirborneBroadcastActivity:         {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDAPIActivity:                       {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true, "trace": true},
+	ClassUIDApplicationError:                  {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDApplicationLifecycle:              {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDApplicationSecurityPostureFinding: {"cloud": true, "datetime": true, "host": true, "incident": true, "osint": true, "security_control": true},
+	ClassUIDAuthentication:                    {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDAuthorizeSession:                  {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDBaseEvent:                         {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDCloudResourcesInventoryInfo:       {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDComplianceFinding:                 {"cloud": true, "datetime": true, "host": true, "incident": true, "osint": true, "security_control": true},
+	ClassUIDConfigState:                       {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDDataSecurityFinding:               {"cloud": true, "datetime": true, "incident": true, "osint": true, "security_control": true},
+	ClassUIDDatastoreActivity:                 {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDDetectionFinding:                  {"cloud": true, "datetime": true, "host": true, "incident": true, "osint": true, "security_control": true},
+	ClassUIDDeviceConfigStateChange:           {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDDhcpActivity:                      {"cloud": true, "datetime": true, "host": true, "load_balancer": true, "network_proxy": true, "osint": true, "security_control": true},
+	ClassUIDDNSActivity:                       {"cloud": true, "datetime": true, "host": true, "load_balancer": true, "network_proxy": true, "osint": true, "security_control": true},
+	ClassUIDDroneFlightsActivity:              {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDEmailActivity:                     {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDEmailFileActivity:                 {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDEmailURLActivity:                  {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDEntityManagement:                  {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDEventLogActvity:                   {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDEvidenceInfo:                      {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDFileActivity:                      {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDFileHosting:                       {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDFileQuery:                         {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDFileRemediationActivity:           {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDFolderQuery:                       {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDFtpActivity:                       {"cloud": true, "datetime": true, "host": true, "load_balancer": true, "network_proxy": true, "osint": true, "security_control": true},
+	ClassUIDGroupManagement:                   {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDHTTPActivity:                      {"cloud": true, "datetime": true, "host": true, "load_balancer": true, "network_proxy": true, "osint": true, "security_control": true, "trace": true},
+	ClassUIDIncidentFinding:                   {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDInventoryInfo:                     {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDJobQuery:                          {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDKernelActivity:                    {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDKernelExtensionActivity:           {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDKernelObjectQuery:                 {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDMemoryActivity:                    {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDModuleActivity:                    {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDModuleQuery:                       {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDNetworkActivity:                   {"cloud": true, "datetime": true, "host": true, "load_balancer": true, "network_proxy": true, "osint": true, "security_control": true},
+	ClassUIDNetworkConnectionQuery:            {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDNetworkFileActivity:               {"cloud": true, "datetime": true, "host": true, "load_balancer": true, "network_proxy": true, "osint": true, "security_control": true},
+	ClassUIDNetworkRemediationActivity:        {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDNetworksQuery:                     {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDNtpActivity:                       {"cloud": true, "datetime": true, "host": true, "load_balancer": true, "network_proxy": true, "osint": true, "security_control": true},
+	ClassUIDOsintInventoryInfo:                {"cloud": true, "datetime": true, "host": true, "security_control": true},
+	ClassUIDPatchState:                        {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDPeripheralDeviceQuery:             {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDProcessActivity:                   {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDProcessQuery:                      {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDProcessRemediationActivity:        {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDRDPActivity:                       {"cloud": true, "datetime": true, "host": true, "load_balancer": true, "network_proxy": true, "osint": true, "security_control": true},
+	ClassUIDRemediationActivity:               {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDScanActivity:                      {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDScheduledJobActivity:              {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDScriptActivity:                    {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDSecurityFinding:                   {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDServiceQuery:                      {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDSessionQuery:                      {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDSmbActivity:                       {"cloud": true, "datetime": true, "host": true, "load_balancer": true, "network_proxy": true, "osint": true, "security_control": true},
+	ClassUIDSoftwareInfo:                      {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDSSHActivity:                       {"cloud": true, "datetime": true, "host": true, "load_balancer": true, "network_proxy": true, "osint": true, "security_control": true},
+	ClassUIDStartupItemQuery:                  {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDTunnelActivity:                    {"cloud": true, "datetime": true, "host": true, "load_balancer": true, "network_proxy": true, "osint": true, "security_control": true},
+	ClassUIDUserAccess:                        {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDUserInventory:                     {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDUserQuery:                         {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDVulnerabilityFinding:              {"cloud": true, "datetime": true, "host": true, "incident": true, "osint": true, "security_control": true},
+	ClassUIDWebResourceAccessActivity:         {"cloud": true, "datetime": true, "host": true, "network_proxy": true, "osint": true, "security_control": true},
+	ClassUIDWebResourcesActivity:              {"cloud": true, "datetime": true, "host": true, "network_proxy": true, "osint": true, "security_control": true},
+	ClassUIDWinPrefetchQuery:                  {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDWinRegistryKeyActivity:            {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDWinRegistryKeyQuery:               {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDWinRegistryValueActivity:          {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDWinRegistryValueQuery:             {"cloud": true, "datetime": true, "host": true, "osint": true, "security_control": true},
+	ClassUIDWinWindowsResourceActivity:        {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+	ClassUIDWinWindowsServiceActivity:         {"cloud": true, "datetime": true, "osint": true, "security_control": true},
+}
+
+// ValidateProfile makes sure the profile is valid for the class identified by classUID.
+func ValidateProfile(classUID int, profile string) error {
+	profiles, ok := classProfiles[classUID]
+	if !ok {
+		return fmt.Errorf("profile %q is not valid for class UID %d (class has no profiles)", profile, classUID)
+	}
+	if !profiles[profile] {
+		return fmt.Errorf("profile %q is not valid for class UID %d", profile, classUID)
+	}
+	return nil
 }
 
 // fieldReqs describes the requirement metadata for a class or object.
@@ -20879,18 +21541,1765 @@ var objectFieldReqs = map[string]*fieldReqs{
 	},
 }
 
+var profileClassFieldReqs = map[string]map[int]*fieldReqs{
+	"cloud": {
+		ClassUIDAccountChange: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDAdminGroupQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDAirborneBroadcastActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDAPIActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"cloud": "cloud"},
+		},
+		ClassUIDApplicationError: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDApplicationLifecycle: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDApplicationSecurityPostureFinding: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDAuthentication: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDAuthorizeSession: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDCloudResourcesInventoryInfo: {
+			objectFields: map[string]string{"api": "api"},
+		},
+		ClassUIDComplianceFinding: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDConfigState: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDDataSecurityFinding: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDDatastoreActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDDetectionFinding: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDDeviceConfigStateChange: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDDhcpActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDDNSActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDDroneFlightsActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDEmailActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDEmailFileActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDEmailURLActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDEntityManagement: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDEventLogActvity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDEvidenceInfo: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDFileActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDFileHosting: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDFileQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDFileRemediationActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDFolderQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDFtpActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDGroupManagement: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDHTTPActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDIncidentFinding: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDInventoryInfo: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDJobQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDKernelActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDKernelExtensionActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDKernelObjectQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDMemoryActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDModuleActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDModuleQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDNetworkActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDNetworkConnectionQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDNetworkFileActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDNetworkRemediationActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDNetworksQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDNtpActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDOsintInventoryInfo: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDPatchState: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDPeripheralDeviceQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDProcessActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDProcessQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDProcessRemediationActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDRDPActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDRemediationActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDScanActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDScheduledJobActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDScriptActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDSecurityFinding: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDServiceQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDSessionQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDSmbActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDSoftwareInfo: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDSSHActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDStartupItemQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDTunnelActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDUserAccess: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDUserInventory: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDUserQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDVulnerabilityFinding: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDWebResourceAccessActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDWebResourcesActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDWinPrefetchQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDWinRegistryKeyActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDWinRegistryKeyQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDWinRegistryValueActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDWinRegistryValueQuery: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDWinWindowsResourceActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+		ClassUIDWinWindowsServiceActivity: {
+			required:     []string{"cloud"},
+			objectFields: map[string]string{"api": "api", "cloud": "cloud"},
+		},
+	},
+	"container":           {},
+	"data_classification": {},
+	"datetime": {
+		ClassUIDAccountChange: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDAdminGroupQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDAirborneBroadcastActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDAPIActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDApplicationError: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDApplicationLifecycle: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDApplicationSecurityPostureFinding: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDAuthentication: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDAuthorizeSession: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDCloudResourcesInventoryInfo: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDComplianceFinding: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDConfigState: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDDataSecurityFinding: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDDatastoreActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDDetectionFinding: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDDeviceConfigStateChange: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDDhcpActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDDNSActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "query_time_dt": "datetime", "response_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDDroneFlightsActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDEmailActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDEmailFileActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDEmailURLActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDEntityManagement: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDEventLogActvity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDEvidenceInfo: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDFileActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDFileHosting: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "expiration_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDFileQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDFileRemediationActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDFolderQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDFtpActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDGroupManagement: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDHTTPActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDIncidentFinding: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDInventoryInfo: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDJobQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDKernelActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDKernelExtensionActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDKernelObjectQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDMemoryActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDModuleActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDModuleQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDNetworkActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDNetworkConnectionQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDNetworkFileActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "expiration_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDNetworkRemediationActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDNetworksQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDNtpActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDOsintInventoryInfo: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDPatchState: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDPeripheralDeviceQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDProcessActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDProcessQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDProcessRemediationActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDRDPActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDRemediationActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDScanActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDScheduledJobActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDScriptActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDSecurityFinding: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDServiceQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDSessionQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDSmbActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDSoftwareInfo: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDSSHActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDStartupItemQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDTunnelActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDUserAccess: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDUserInventory: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDUserQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDVulnerabilityFinding: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDWebResourceAccessActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDWebResourcesActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDWinPrefetchQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "last_run_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDWinRegistryKeyActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDWinRegistryKeyQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDWinRegistryValueActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDWinRegistryValueQuery: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDWinWindowsResourceActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+		ClassUIDWinWindowsServiceActivity: {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime", "time_dt": "datetime"},
+		},
+	},
+	"host": {
+		ClassUIDAccountChange: {
+			objectFields: map[string]string{"device": "device"},
+		},
+		ClassUIDAdminGroupQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDAirborneBroadcastActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDAPIActivity: {
+			objectFields: map[string]string{"device": "device"},
+		},
+		ClassUIDApplicationError: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDApplicationLifecycle: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDApplicationSecurityPostureFinding: {
+			objectFields: map[string]string{"actor": "actor"},
+		},
+		ClassUIDAuthentication: {
+			objectFields: map[string]string{"device": "device"},
+		},
+		ClassUIDAuthorizeSession: {
+			objectFields: map[string]string{"device": "device"},
+		},
+		ClassUIDCloudResourcesInventoryInfo: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDComplianceFinding: {
+			objectFields: map[string]string{"actor": "actor"},
+		},
+		ClassUIDDatastoreActivity: {
+			objectFields: map[string]string{"device": "device"},
+		},
+		ClassUIDDetectionFinding: {
+			objectFields: map[string]string{"actor": "actor"},
+		},
+		ClassUIDDhcpActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDDNSActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDDroneFlightsActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDEmailActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDEmailFileActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDEmailURLActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDEntityManagement: {
+			objectFields: map[string]string{"device": "device"},
+		},
+		ClassUIDEvidenceInfo: {
+			objectFields: map[string]string{"actor": "actor"},
+		},
+		ClassUIDFileHosting: {
+			objectFields: map[string]string{"device": "device"},
+		},
+		ClassUIDFileQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDFileRemediationActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDFolderQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDFtpActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDGroupManagement: {
+			objectFields: map[string]string{"device": "device"},
+		},
+		ClassUIDHTTPActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDIncidentFinding: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDJobQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDKernelObjectQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDModuleQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDNetworkActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDNetworkConnectionQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDNetworkFileActivity: {
+			objectFields: map[string]string{"device": "device"},
+		},
+		ClassUIDNetworkRemediationActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDNetworksQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDNtpActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDOsintInventoryInfo: {
+			objectFields: map[string]string{"device": "device"},
+		},
+		ClassUIDPatchState: {
+			objectFields: map[string]string{"actor": "actor"},
+		},
+		ClassUIDPeripheralDeviceQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDProcessQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDProcessRemediationActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDRDPActivity: {
+			objectFields: map[string]string{"actor": "actor"},
+		},
+		ClassUIDRemediationActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDScanActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDSecurityFinding: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDServiceQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDSessionQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDSmbActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDSSHActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDStartupItemQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDTunnelActivity: {
+			objectFields: map[string]string{"actor": "actor"},
+		},
+		ClassUIDUserAccess: {
+			objectFields: map[string]string{"device": "device"},
+		},
+		ClassUIDUserInventory: {
+			objectFields: map[string]string{"device": "device"},
+		},
+		ClassUIDUserQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDVulnerabilityFinding: {
+			objectFields: map[string]string{"actor": "actor"},
+		},
+		ClassUIDWebResourceAccessActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDWebResourcesActivity: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDWinPrefetchQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDWinRegistryKeyQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+		ClassUIDWinRegistryValueQuery: {
+			objectFields: map[string]string{"actor": "actor", "device": "device"},
+		},
+	},
+	"incident": {
+		ClassUIDApplicationSecurityPostureFinding: {
+			objectFields: map[string]string{"assignee": "user", "assignee_group": "group", "ticket": "ticket", "tickets": "ticket"},
+			fieldTypes:   map[string]string{"impact": "string", "impact_id": "integer", "impact_score": "integer", "is_suspected_breach": "boolean", "priority": "string", "priority_id": "integer", "src_url": "string", "verdict": "string", "verdict_id": "integer"},
+		},
+		ClassUIDComplianceFinding: {
+			objectFields: map[string]string{"assignee": "user", "assignee_group": "group", "ticket": "ticket", "tickets": "ticket"},
+			fieldTypes:   map[string]string{"impact": "string", "impact_id": "integer", "impact_score": "integer", "is_suspected_breach": "boolean", "priority": "string", "priority_id": "integer", "src_url": "string", "verdict": "string", "verdict_id": "integer"},
+		},
+		ClassUIDDataSecurityFinding: {
+			objectFields: map[string]string{"assignee": "user", "assignee_group": "group", "ticket": "ticket", "tickets": "ticket"},
+			fieldTypes:   map[string]string{"is_suspected_breach": "boolean", "priority": "string", "priority_id": "integer", "src_url": "string", "verdict": "string", "verdict_id": "integer"},
+		},
+		ClassUIDDetectionFinding: {
+			objectFields: map[string]string{"assignee": "user", "assignee_group": "group", "ticket": "ticket", "tickets": "ticket"},
+			fieldTypes:   map[string]string{"is_suspected_breach": "boolean", "priority": "string", "priority_id": "integer", "src_url": "string", "verdict": "string", "verdict_id": "integer"},
+		},
+		ClassUIDVulnerabilityFinding: {
+			objectFields: map[string]string{"assignee": "user", "assignee_group": "group", "ticket": "ticket", "tickets": "ticket"},
+			fieldTypes:   map[string]string{"impact": "string", "impact_id": "integer", "impact_score": "integer", "is_suspected_breach": "boolean", "priority": "string", "priority_id": "integer", "src_url": "string", "verdict": "string", "verdict_id": "integer"},
+		},
+	},
+	"linux/linux_users": {},
+	"load_balancer": {
+		ClassUIDDhcpActivity: {
+			objectFields: map[string]string{"load_balancer": "load_balancer"},
+		},
+		ClassUIDDNSActivity: {
+			objectFields: map[string]string{"load_balancer": "load_balancer"},
+		},
+		ClassUIDFtpActivity: {
+			objectFields: map[string]string{"load_balancer": "load_balancer"},
+		},
+		ClassUIDHTTPActivity: {
+			objectFields: map[string]string{"load_balancer": "load_balancer"},
+		},
+		ClassUIDNetworkActivity: {
+			objectFields: map[string]string{"load_balancer": "load_balancer"},
+		},
+		ClassUIDNetworkFileActivity: {
+			objectFields: map[string]string{"load_balancer": "load_balancer"},
+		},
+		ClassUIDNtpActivity: {
+			objectFields: map[string]string{"load_balancer": "load_balancer"},
+		},
+		ClassUIDRDPActivity: {
+			objectFields: map[string]string{"load_balancer": "load_balancer"},
+		},
+		ClassUIDSmbActivity: {
+			objectFields: map[string]string{"load_balancer": "load_balancer"},
+		},
+		ClassUIDSSHActivity: {
+			objectFields: map[string]string{"load_balancer": "load_balancer"},
+		},
+		ClassUIDTunnelActivity: {
+			objectFields: map[string]string{"load_balancer": "load_balancer"},
+		},
+	},
+	"network_proxy": {
+		ClassUIDDhcpActivity: {
+			objectFields: map[string]string{"proxy_connection_info": "network_connection_info", "proxy_endpoint": "network_proxy", "proxy_http_request": "http_request", "proxy_http_response": "http_response", "proxy_tls": "tls", "proxy_traffic": "network_traffic"},
+		},
+		ClassUIDDNSActivity: {
+			objectFields: map[string]string{"proxy_connection_info": "network_connection_info", "proxy_endpoint": "network_proxy", "proxy_http_request": "http_request", "proxy_http_response": "http_response", "proxy_tls": "tls", "proxy_traffic": "network_traffic"},
+		},
+		ClassUIDFtpActivity: {
+			objectFields: map[string]string{"proxy_connection_info": "network_connection_info", "proxy_endpoint": "network_proxy", "proxy_http_request": "http_request", "proxy_http_response": "http_response", "proxy_tls": "tls", "proxy_traffic": "network_traffic"},
+		},
+		ClassUIDHTTPActivity: {
+			objectFields: map[string]string{"proxy_connection_info": "network_connection_info", "proxy_endpoint": "network_proxy", "proxy_http_request": "http_request", "proxy_http_response": "http_response", "proxy_tls": "tls", "proxy_traffic": "network_traffic"},
+		},
+		ClassUIDNetworkActivity: {
+			objectFields: map[string]string{"proxy_connection_info": "network_connection_info", "proxy_endpoint": "network_proxy", "proxy_http_request": "http_request", "proxy_http_response": "http_response", "proxy_tls": "tls", "proxy_traffic": "network_traffic"},
+		},
+		ClassUIDNetworkFileActivity: {
+			objectFields: map[string]string{"proxy_connection_info": "network_connection_info", "proxy_endpoint": "network_proxy", "proxy_http_request": "http_request", "proxy_http_response": "http_response", "proxy_tls": "tls", "proxy_traffic": "network_traffic"},
+		},
+		ClassUIDNtpActivity: {
+			objectFields: map[string]string{"proxy_connection_info": "network_connection_info", "proxy_endpoint": "network_proxy", "proxy_http_request": "http_request", "proxy_http_response": "http_response", "proxy_tls": "tls", "proxy_traffic": "network_traffic"},
+		},
+		ClassUIDRDPActivity: {
+			objectFields: map[string]string{"proxy_connection_info": "network_connection_info", "proxy_endpoint": "network_proxy", "proxy_http_request": "http_request", "proxy_http_response": "http_response", "proxy_tls": "tls", "proxy_traffic": "network_traffic"},
+		},
+		ClassUIDSmbActivity: {
+			objectFields: map[string]string{"proxy_connection_info": "network_connection_info", "proxy_endpoint": "network_proxy", "proxy_http_request": "http_request", "proxy_http_response": "http_response", "proxy_tls": "tls", "proxy_traffic": "network_traffic"},
+		},
+		ClassUIDSSHActivity: {
+			objectFields: map[string]string{"proxy_connection_info": "network_connection_info", "proxy_endpoint": "network_proxy", "proxy_http_request": "http_request", "proxy_http_response": "http_response", "proxy_tls": "tls", "proxy_traffic": "network_traffic"},
+		},
+		ClassUIDTunnelActivity: {
+			objectFields: map[string]string{"proxy_connection_info": "network_connection_info", "proxy_endpoint": "network_proxy", "proxy_http_request": "http_request", "proxy_http_response": "http_response", "proxy_tls": "tls", "proxy_traffic": "network_traffic"},
+		},
+		ClassUIDWebResourceAccessActivity: {
+			objectFields: map[string]string{"proxy_connection_info": "network_connection_info", "proxy_endpoint": "network_proxy", "proxy_http_request": "http_request", "proxy_http_response": "http_response", "proxy_tls": "tls", "proxy_traffic": "network_traffic"},
+		},
+		ClassUIDWebResourcesActivity: {
+			objectFields: map[string]string{"proxy_connection_info": "network_connection_info", "proxy_endpoint": "network_proxy", "proxy_http_request": "http_request", "proxy_http_response": "http_response", "proxy_tls": "tls", "proxy_traffic": "network_traffic"},
+		},
+	},
+	"osint": {
+		ClassUIDAccountChange: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDAdminGroupQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDAirborneBroadcastActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDAPIActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDApplicationError: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDApplicationLifecycle: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDApplicationSecurityPostureFinding: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDAuthentication: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDAuthorizeSession: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDCloudResourcesInventoryInfo: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDComplianceFinding: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDConfigState: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDDataSecurityFinding: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDDatastoreActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDDetectionFinding: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDDeviceConfigStateChange: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDDhcpActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDDNSActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDDroneFlightsActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDEmailActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDEmailFileActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDEmailURLActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDEntityManagement: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDEventLogActvity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDEvidenceInfo: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDFileActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDFileHosting: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDFileQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDFileRemediationActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDFolderQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDFtpActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDGroupManagement: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDHTTPActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDIncidentFinding: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDInventoryInfo: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDJobQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDKernelActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDKernelExtensionActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDKernelObjectQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDMemoryActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDModuleActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDModuleQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDNetworkActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDNetworkConnectionQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDNetworkFileActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDNetworkRemediationActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDNetworksQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDNtpActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDPatchState: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDPeripheralDeviceQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDProcessActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDProcessQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDProcessRemediationActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDRDPActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDRemediationActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDScanActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDScheduledJobActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDScriptActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDSecurityFinding: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDServiceQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDSessionQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDSmbActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDSoftwareInfo: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDSSHActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDStartupItemQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDTunnelActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDUserAccess: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDUserInventory: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDUserQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDVulnerabilityFinding: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDWebResourceAccessActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDWebResourcesActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDWinPrefetchQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDWinRegistryKeyActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDWinRegistryKeyQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDWinRegistryValueActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDWinRegistryValueQuery: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDWinWindowsResourceActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+		ClassUIDWinWindowsServiceActivity: {
+			required:     []string{"osint"},
+			objectFields: map[string]string{"osint": "osint"},
+		},
+	},
+	"security_control": {
+		ClassUIDAccountChange: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDAdminGroupQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDAirborneBroadcastActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDAPIActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDApplicationError: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDApplicationLifecycle: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDApplicationSecurityPostureFinding: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDAuthentication: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDAuthorizeSession: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDCloudResourcesInventoryInfo: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDComplianceFinding: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDConfigState: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDDataSecurityFinding: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "disposition": "string", "disposition_id": "integer"},
+		},
+		ClassUIDDatastoreActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDDetectionFinding: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "disposition": "string", "disposition_id": "integer"},
+		},
+		ClassUIDDeviceConfigStateChange: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDDhcpActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDDNSActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDDroneFlightsActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDEmailActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDEmailFileActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDEmailURLActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDEntityManagement: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDEventLogActvity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDEvidenceInfo: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDFileActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDFileHosting: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDFileQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDFileRemediationActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDFolderQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDFtpActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDGroupManagement: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDHTTPActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDIncidentFinding: {
+			objectFields: map[string]string{"authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDInventoryInfo: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDJobQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDKernelActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDKernelExtensionActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDKernelObjectQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDMemoryActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDModuleActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDModuleQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDNetworkActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDNetworkConnectionQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDNetworkFileActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDNetworkRemediationActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDNetworksQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDNtpActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDOsintInventoryInfo: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDPatchState: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDPeripheralDeviceQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDProcessActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDProcessQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDProcessRemediationActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDRDPActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDRemediationActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDScanActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDScheduledJobActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDScriptActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDSecurityFinding: {
+			objectFields: map[string]string{"authorizations": "authorization", "firewall_rule": "firewall_rule", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string"},
+		},
+		ClassUIDServiceQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDSessionQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDSmbActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDSoftwareInfo: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDSSHActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDStartupItemQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDTunnelActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDUserAccess: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDUserInventory: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDUserQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDVulnerabilityFinding: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDWebResourceAccessActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDWebResourcesActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDWinPrefetchQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDWinRegistryKeyActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDWinRegistryKeyQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDWinRegistryValueActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDWinRegistryValueQuery: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDWinWindowsResourceActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+		ClassUIDWinWindowsServiceActivity: {
+			objectFields: map[string]string{"attacks": "attack", "authorizations": "authorization", "firewall_rule": "firewall_rule", "malware": "malware", "malware_scan_info": "malware_scan_info", "policy": "policy"},
+			fieldTypes:   map[string]string{"action": "string", "action_id": "integer", "confidence": "string", "confidence_id": "integer", "confidence_score": "integer", "disposition": "string", "disposition_id": "integer", "is_alert": "boolean", "risk_details": "string", "risk_level": "string", "risk_level_id": "integer", "risk_score": "integer"},
+		},
+	},
+	"trace": {
+		ClassUIDAPIActivity: {
+			objectFields: map[string]string{"trace": "trace"},
+		},
+		ClassUIDHTTPActivity: {
+			objectFields: map[string]string{"trace": "trace"},
+		},
+	},
+}
+
+var profileObjectFieldReqs = map[string]map[string]*fieldReqs{
+	"cloud": {
+		"application": {
+			fieldTypes: map[string]string{"region": "string"},
+		},
+		"databucket": {
+			fieldTypes: map[string]string{"cloud_partition": "string", "region": "string", "zone": "string"},
+		},
+		"file": {
+			fieldTypes: map[string]string{"is_public": "boolean", "storage_class": "string"},
+		},
+		"resource_details": {
+			fieldTypes: map[string]string{"cloud_partition": "string", "region": "string", "zone": "string"},
+		},
+	},
+	"container": {
+		"device": {
+			objectFields: map[string]string{"container": "container"},
+			fieldTypes:   map[string]string{"namespace_pid": "integer"},
+		},
+		"endpoint": {
+			objectFields: map[string]string{"container": "container"},
+			fieldTypes:   map[string]string{"namespace_pid": "integer"},
+		},
+		"network_endpoint": {
+			objectFields: map[string]string{"container": "container"},
+			fieldTypes:   map[string]string{"namespace_pid": "integer"},
+		},
+		"network_proxy": {
+			objectFields: map[string]string{"container": "container"},
+			fieldTypes:   map[string]string{"namespace_pid": "integer"},
+		},
+		"process": {
+			objectFields: map[string]string{"container": "container"},
+			fieldTypes:   map[string]string{"namespace_pid": "integer"},
+		},
+	},
+	"data_classification": {
+		"database": {
+			objectFields: map[string]string{"data_classification": "data_classification", "data_classifications": "data_classification"},
+		},
+		"databucket": {
+			objectFields: map[string]string{"data_classification": "data_classification", "data_classifications": "data_classification"},
+		},
+		"email": {
+			objectFields: map[string]string{"data_classification": "data_classification", "data_classifications": "data_classification"},
+		},
+		"file": {
+			objectFields: map[string]string{"data_classification": "data_classification", "data_classifications": "data_classification"},
+		},
+		"metadata": {
+			objectFields: map[string]string{"data_classification": "data_classification", "data_classifications": "data_classification"},
+		},
+		"product": {
+			objectFields: map[string]string{"data_classification": "data_classification", "data_classifications": "data_classification"},
+		},
+		"resource_details": {
+			objectFields: map[string]string{"data_classification": "data_classification", "data_classifications": "data_classification"},
+		},
+		"web_resource": {
+			objectFields: map[string]string{"data_classification": "data_classification", "data_classifications": "data_classification"},
+		},
+		"win/win_resource": {
+			objectFields: map[string]string{"data_classification": "data_classification", "data_classifications": "data_classification"},
+		},
+	},
+	"datetime": {
+		"advisory": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"authentication_token": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "expiration_time_dt": "datetime"},
+		},
+		"certificate": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "expiration_time_dt": "datetime"},
+		},
+		"cve": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"database": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"databucket": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"device": {
+			fieldTypes: map[string]string{"boot_time_dt": "datetime", "created_time_dt": "datetime", "first_seen_time_dt": "datetime", "last_seen_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"digital_signature": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime"},
+		},
+		"enrichment": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime"},
+		},
+		"epss": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime"},
+		},
+		"file": {
+			fieldTypes: map[string]string{"accessed_time_dt": "datetime", "created_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"finding": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "first_seen_time_dt": "datetime", "last_seen_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"finding_info": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "first_seen_time_dt": "datetime", "last_seen_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"http_cookie": {
+			fieldTypes: map[string]string{"expiration_time_dt": "datetime"},
+		},
+		"job": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "last_run_time_dt": "datetime", "next_run_time_dt": "datetime"},
+		},
+		"kb_article": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime"},
+		},
+		"ldap_person": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "deleted_time_dt": "datetime", "hire_time_dt": "datetime", "last_login_time_dt": "datetime", "leave_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"logger": {
+			fieldTypes: map[string]string{"logged_time_dt": "datetime", "transmit_time_dt": "datetime"},
+		},
+		"malware_scan_info": {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime"},
+		},
+		"metadata": {
+			fieldTypes: map[string]string{"logged_time_dt": "datetime", "modified_time_dt": "datetime", "processed_time_dt": "datetime"},
+		},
+		"osint": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "expiration_time_dt": "datetime", "modified_time_dt": "datetime", "uploaded_time_dt": "datetime"},
+		},
+		"process": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "terminated_time_dt": "datetime"},
+		},
+		"process_entity": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime"},
+		},
+		"query_info": {
+			fieldTypes: map[string]string{"query_time_dt": "datetime"},
+		},
+		"related_event": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "first_seen_time_dt": "datetime", "last_seen_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"resource_details": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"sbom": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime"},
+		},
+		"scim": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "last_run_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"session": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "expiration_time_dt": "datetime"},
+		},
+		"span": {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime"},
+		},
+		"sso": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"table": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"timespan": {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime"},
+		},
+		"trace": {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime"},
+		},
+		"transformation_info": {
+			fieldTypes: map[string]string{"time_dt": "datetime"},
+		},
+		"unmanned_system_operating_area": {
+			fieldTypes: map[string]string{"end_time_dt": "datetime", "start_time_dt": "datetime"},
+		},
+		"vulnerability": {
+			fieldTypes: map[string]string{"exploit_last_seen_time_dt": "datetime", "first_seen_time_dt": "datetime", "last_seen_time_dt": "datetime"},
+		},
+		"web_resource": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+		"whois": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "last_seen_time_dt": "datetime"},
+		},
+		"win/reg_key": {
+			fieldTypes: map[string]string{"modified_time_dt": "datetime"},
+		},
+		"win/reg_value": {
+			fieldTypes: map[string]string{"modified_time_dt": "datetime"},
+		},
+		"win/win_resource": {
+			fieldTypes: map[string]string{"created_time_dt": "datetime", "modified_time_dt": "datetime"},
+		},
+	},
+	"host":     {},
+	"incident": {},
+	"linux/linux_users": {
+		"process": {
+			objectFields: map[string]string{"group": "group"},
+			fieldTypes:   map[string]string{"auid": "integer", "egid": "integer", "euid": "integer"},
+		},
+	},
+	"load_balancer":    {},
+	"network_proxy":    {},
+	"osint":            {},
+	"security_control": {},
+	"trace":            {},
+}
+
+var validProfiles = map[string]bool{
+	"cloud":               true,
+	"container":           true,
+	"data_classification": true,
+	"datetime":            true,
+	"host":                true,
+	"incident":            true,
+	"linux/linux_users":   true,
+	"load_balancer":       true,
+	"network_proxy":       true,
+	"osint":               true,
+	"security_control":    true,
+	"trace":               true,
+}
+
 // ValidateFieldCoverage checks that fieldPaths cover all required fields
 // for the class identified by classUID, recursively validating nested objects.
+// If profiles are provided, profile-specific required fields are also checked.
 // fieldPaths are dot-notation paths as configured by the user (e.g., "metadata.product.name").
-func ValidateFieldCoverage(classUID int, fieldPaths []string) error {
+func ValidateFieldCoverage(classUID int, profiles []string, fieldPaths []string) error {
 	reqs, ok := classFieldReqs[classUID]
 	if !ok {
 		return fmt.Errorf("unknown class UID: %d", classUID)
 	}
-	return validateCoverage(reqs, fieldPaths, "")
+
+	for _, p := range profiles {
+		if !validProfiles[p] {
+			return fmt.Errorf("unknown profile: %q", p)
+		}
+	}
+
+	err := validateCoverage(reqs, profiles, fieldPaths, "")
+
+	for _, p := range profiles {
+		if profileReqs, ok := profileClassFieldReqs[p]; ok {
+			if pReqs, ok := profileReqs[classUID]; ok {
+				if pErr := validateCoverage(pReqs, profiles, fieldPaths, ""); pErr != nil {
+					err = errors.Join(err, pErr)
+				}
+			}
+		}
+	}
+
+	return err
 }
 
-func validateCoverage(reqs *fieldReqs, paths []string, prefix string) error {
+func validateCoverage(reqs *fieldReqs, profiles []string, paths []string, prefix string) error {
 	var errs []error
 
 	// Group paths by top-level key
@@ -20956,8 +23365,18 @@ func validateCoverage(reqs *fieldReqs, paths []string, prefix string) error {
 		if !ok {
 			continue
 		}
-		if err := validateCoverage(objReqs, subPaths, prefix+field+"."); err != nil {
+		if err := validateCoverage(objReqs, profiles, subPaths, prefix+field+"."); err != nil {
 			errs = append(errs, err)
+		}
+		// Also validate profile-specific required fields for this object type
+		for _, p := range profiles {
+			if profObjMap, ok := profileObjectFieldReqs[p]; ok {
+				if profObjReqs, ok := profObjMap[objType]; ok {
+					if err := validateCoverage(profObjReqs, profiles, subPaths, prefix+field+"."); err != nil {
+						errs = append(errs, err)
+					}
+				}
+			}
 		}
 	}
 
@@ -20975,16 +23394,28 @@ func splitFirst(s string) (string, string) {
 // LookupFieldType returns the coercion type name for a field path in the
 // given class. It resolves dot-notation paths (e.g. "src_endpoint.ip") by
 // recursing through object field definitions. Returns "" if the field or
-// class is unknown.
-func LookupFieldType(classUID int, fieldPath string) string {
+// class is unknown. If profiles are provided, profile-specific fields are
+// also searched.
+func LookupFieldType(classUID int, profiles []string, fieldPath string) string {
 	reqs, ok := classFieldReqs[classUID]
-	if !ok {
-		return ""
+	if ok {
+		if t := lookupFieldTypeInReqs(reqs, profiles, fieldPath); t != "" {
+			return t
+		}
 	}
-	return lookupFieldTypeInReqs(reqs, fieldPath)
+	for _, p := range profiles {
+		if profileReqs, ok := profileClassFieldReqs[p]; ok {
+			if pReqs, ok := profileReqs[classUID]; ok {
+				if t := lookupFieldTypeInReqs(pReqs, profiles, fieldPath); t != "" {
+					return t
+				}
+			}
+		}
+	}
+	return ""
 }
 
-func lookupFieldTypeInReqs(reqs *fieldReqs, path string) string {
+func lookupFieldTypeInReqs(reqs *fieldReqs, profiles []string, path string) string {
 	top, sub := splitFirst(path)
 	if sub == "" {
 		return reqs.fieldTypes[top]
@@ -20993,27 +23424,44 @@ func lookupFieldTypeInReqs(reqs *fieldReqs, path string) string {
 	if !ok {
 		return ""
 	}
-	objReqs, ok := objectFieldReqs[objType]
-	if !ok {
-		return ""
+	// Check base object reqs
+	if objReqs, ok := objectFieldReqs[objType]; ok {
+		if t := lookupFieldTypeInReqs(objReqs, profiles, sub); t != "" {
+			return t
+		}
 	}
-	return lookupFieldTypeInReqs(objReqs, sub)
+	// Check profile-specific object reqs
+	for _, p := range profiles {
+		if profObjMap, ok := profileObjectFieldReqs[p]; ok {
+			if profObjReqs, ok := profObjMap[objType]; ok {
+				if t := lookupFieldTypeInReqs(profObjReqs, profiles, sub); t != "" {
+					return t
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // Schema implements the OCSFSchema interface for this version.
 type Schema struct{}
 
 // ValidateClass validates data against the OCSF event class identified by classUID.
-func (Schema) ValidateClass(classUID int, data any) error {
-	return ValidateClass(classUID, data)
+func (Schema) ValidateClass(classUID int, profiles []string, data any) error {
+	return ValidateClass(classUID, profiles, data)
+}
+
+// ValidateProfile makes sure the profile is valid for the class identified by classUID.
+func (Schema) ValidateProfile(classUID int, profile string) error {
+	return ValidateProfile(classUID, profile)
 }
 
 // LookupFieldType returns the coercion type name for a field path in the given class.
-func (Schema) LookupFieldType(classUID int, fieldPath string) string {
-	return LookupFieldType(classUID, fieldPath)
+func (Schema) LookupFieldType(classUID int, profiles []string, fieldPath string) string {
+	return LookupFieldType(classUID, profiles, fieldPath)
 }
 
 // ValidateFieldCoverage checks that fieldPaths cover all required fields for the class identified by classUID.
-func (Schema) ValidateFieldCoverage(classUID int, fieldPaths []string) error {
-	return ValidateFieldCoverage(classUID, fieldPaths)
+func (Schema) ValidateFieldCoverage(classUID int, profiles []string, fieldPaths []string) error {
+	return ValidateFieldCoverage(classUID, profiles, fieldPaths)
 }
