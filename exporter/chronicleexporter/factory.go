@@ -5,15 +5,16 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/config/configretry"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
+
+	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/metadata"
 )
 
-// NewFactory creates a new Chronicle exporter factory.
+// NewFactory creates a new Google SecOps exporter factory.
 func NewFactory() exporter.Factory {
 	return exporter.NewFactory(
 		metadata.Type,
