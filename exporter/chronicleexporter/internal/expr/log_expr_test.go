@@ -1,16 +1,16 @@
 package expr
 
 import (
-	"context"
 	"testing"
 
-	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottllog"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.uber.org/zap"
+
+	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottllog"
 )
 
 func newTestTransformContext(lr plog.LogRecord, resource pcommon.Resource, scope pcommon.InstrumentationScope) *ottllog.TransformContext {
@@ -33,7 +33,7 @@ func TestNewOTTLLogRecordExpression(t *testing.T) {
 		lr.Body().SetStr("hello world")
 
 		tCtx := newTestTransformContext(lr, pcommon.NewResource(), pcommon.NewInstrumentationScope())
-		val, err := expr.Execute(context.Background(), tCtx)
+		val, err := expr.Execute(t.Context(), tCtx)
 		require.NoError(t, err)
 		require.Equal(t, "hello world", val)
 	})
@@ -48,7 +48,7 @@ func TestNewOTTLLogRecordExpression(t *testing.T) {
 		res.Attributes().PutStr("service.name", "my-service")
 
 		tCtx := newTestTransformContext(lr, res, pcommon.NewInstrumentationScope())
-		val, err := expr.Execute(context.Background(), tCtx)
+		val, err := expr.Execute(t.Context(), tCtx)
 		require.NoError(t, err)
 		require.Equal(t, "my-service", val)
 	})
@@ -62,7 +62,7 @@ func TestNewOTTLLogRecordExpression(t *testing.T) {
 		lr.Attributes().PutStr("key", "value")
 
 		tCtx := newTestTransformContext(lr, pcommon.NewResource(), pcommon.NewInstrumentationScope())
-		val, err := expr.Execute(context.Background(), tCtx)
+		val, err := expr.Execute(t.Context(), tCtx)
 		require.NoError(t, err)
 		require.Equal(t, "value", val)
 	})
@@ -77,7 +77,7 @@ func TestNewOTTLLogRecordExpression(t *testing.T) {
 		lr.Attributes().PutStr("b", "bar")
 
 		tCtx := newTestTransformContext(lr, pcommon.NewResource(), pcommon.NewInstrumentationScope())
-		val, err := expr.Execute(context.Background(), tCtx)
+		val, err := expr.Execute(t.Context(), tCtx)
 		require.NoError(t, err)
 		require.Equal(t, "foo-bar", val)
 	})

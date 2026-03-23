@@ -1,14 +1,15 @@
-package expr
+package expr // import "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/googlesecopsexporter/internal/expr"
 
 import (
 	"context"
 	"errors"
 	"fmt"
 
+	"go.opentelemetry.io/collector/component"
+
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottllog"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/ottlfuncs"
-	"go.opentelemetry.io/collector/component"
 )
 
 // OTTLExpression evaluates an OTTL expression, returning a resultant value.

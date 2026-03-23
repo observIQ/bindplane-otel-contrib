@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/expr"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/config/configretry"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/encoding/gzip"
+
+	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/expr"
 )
 
 const (
@@ -107,13 +108,8 @@ func (cfg *Config) Validate() error {
 		return errors.New("can only specify creds_file_path or creds")
 	}
 
-	if cfg.RawLogField != "" {
-		_, err := expr.NewOTTLLogRecordExpression(cfg.RawLogField, component.TelemetrySettings{
-			Logger: zap.NewNop(),
-		})
-		if err != nil {
-			return fmt.Errorf("raw_log_field is invalid: %s", err)
-		}
+	if cfg.CustomerID == "" {
+		return errors.New("customer ID is required")
 	}
 
 	if cfg.Compression != gzip.Name && cfg.Compression != noCompression {
@@ -149,6 +145,15 @@ func (cfg *Config) Validate() error {
 		return errors.New("api is required")
 	default:
 		return fmt.Errorf("invalid API: %s", cfg.API)
+	}
+
+	if cfg.RawLogField != "" {
+		_, err := expr.NewOTTLLogRecordExpression(cfg.RawLogField, component.TelemetrySettings{
+			Logger: zap.NewNop(),
+		})
+		if err != nil {
+			return fmt.Errorf("invalid raw_log_field: %w", err)
+		}
 	}
 
 	if cfg.CollectorID != "" {

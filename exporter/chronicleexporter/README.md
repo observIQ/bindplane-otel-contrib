@@ -6,7 +6,7 @@ This exporter facilitates the sending of logs to [Google SecOps](https://cloud.g
 
 This exporter supports sending logs to Google SecOps using either of the following APIs
 - [Chronicle API](https://docs.cloud.google.com/chronicle/docs/reference/ingestion-methods) (Preferred)
-- [(Backstory) Ingestion API](https://docs.cloud.google.com/chronicle/docs/reference/ingestion-api)
+- [Backstory Ingestion API](https://docs.cloud.google.com/chronicle/docs/reference/ingestion-api)
 
 ## How It Works
 
@@ -20,9 +20,9 @@ The exporter can be configured using the following fields:
 
 | Field                      | Type              | Default                       | Required | Description                                                                                                                                              |
 | -------------------------- | ----------------- | ----------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `api`                      | string            | `chronicle`                   | `true`  | The API to use for sending logs. Valid values are `chronicle` and `backstory`.                                                                            |
+| `api`                      | string            | `chronicle`                   | `false`  | The API to use for sending logs. Valid values are `chronicle` and `backstory`.                                                                            |
 | `hostname`                 | string            | `chronicle.googleapis.com`    | `false`  | The hostname used to construct the base URL for the API endpoints. Must not contain a protocol prefix.                                                   |
-| `customer_id`              | string            |                               | `false`  | The customer ID used for sending logs.                                                                                                                   |
+| `customer_id`              | string            |                               | `true`  | The customer ID used for sending logs.                                                                                                                   |
 | `creds_file_path`          | string            |                               | `false`  | The file path to the Google credentials JSON file. Cannot be used with `creds`.                                                                          |
 | `creds`                    | string            |                               | `false`  | The Google credentials JSON. Cannot be used with `creds_file_path`.                                                                                      |
 | `default_log_type`         | string            |                               | `false`  | The type of log that will be sent if not overridden by `attributes["log_type"]`, `attributes["chronicle_log_type"]`, or `attributes["secops_log_type"]`. |
@@ -63,7 +63,7 @@ If there are nested fields in `attributes["secops_ingestion_label"]` or `attribu
 
 ## Credentials
 
-This exporter requires a Google Cloud service account with access to the appropiate APIs.
+This exporter requires a Google Cloud service account with access to the appropriate APIs.
 
 The following IAM permissions are required for the Chronicle API:
 - [chronicle.logs.import](https://docs.cloud.google.com/chronicle/docs/reference/rest/v1alpha/projects.locations.instances.logTypes.logs/import)
@@ -120,7 +120,7 @@ googlesecops:
   namespace: "production"
 ```
 
-### Chronicle API with Overriden Hostname
+### Chronicle API with Overridden Hostname
 
 ```yaml
 googlesecops:

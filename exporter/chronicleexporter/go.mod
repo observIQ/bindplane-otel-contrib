@@ -6,7 +6,6 @@ require (
 	github.com/goccy/go-json v0.10.5
 	github.com/golang/mock v1.7.0-rc.1
 	github.com/google/uuid v1.6.0
-	github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/expr v1.0.0
 	github.com/observiq/bindplane-otel-contrib/internal/testutils v1.0.1
 	github.com/observiq/bindplane-otel-contrib/pkg/osinfo v1.0.1
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl v0.148.0
@@ -104,8 +103,6 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/expr => ./internal/expr
 
 replace github.com/observiq/bindplane-otel-contrib/internal/testutils => ../../internal/testutils
 
