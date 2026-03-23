@@ -24,7 +24,7 @@ func TestConfigValidate(t *testing.T) {
 			expectedErr: "can only specify creds_file_path or creds",
 		},
 		{
-			desc: "Valid config with creds",
+			desc: "Valid backstory config with creds",
 			config: &Config{
 				Creds:                 "creds_example",
 				DefaultLogType:        "log_type_example",
@@ -35,7 +35,7 @@ func TestConfigValidate(t *testing.T) {
 			expectedErr: "",
 		},
 		{
-			desc: "Valid config with creds_file_path",
+			desc: "Valid backstory config with creds_file_path",
 			config: &Config{
 				CredsFilePath:         "/path/to/creds_file",
 				DefaultLogType:        "log_type_example",
@@ -46,7 +46,7 @@ func TestConfigValidate(t *testing.T) {
 			expectedErr: "",
 		},
 		{
-			desc: "Valid config with raw log field",
+			desc: "Valid backstory config with raw log field",
 			config: &Config{
 				CredsFilePath:         "/path/to/creds_file",
 				DefaultLogType:        "log_type_example",
@@ -66,7 +66,7 @@ func TestConfigValidate(t *testing.T) {
 				API:                   backstoryAPI,
 				BatchRequestSizeLimit: 0,
 			},
-			expectedErr: "positive batch request size limit is required when protocol is grpc",
+			expectedErr: "positive batch request size limit is required",
 		},
 		{
 			desc: "Invalid compression type",
@@ -78,20 +78,68 @@ func TestConfigValidate(t *testing.T) {
 			expectedErr: "invalid compression type",
 		},
 		{
-			desc: "Protocol is https and endpoint is empty",
+			desc: "Hostname contains protocol prefix",
 			config: &Config{
+				Hostname:              "https://myendpoint.com",
+				CredsFilePath:         "/path/to/creds_file",
+				DefaultLogType:        "log_type_example",
+				Compression:           noCompression,
+				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
+			},
+			expectedErr: "host should not contain a protocol prefix",
+		},
+		{
+			desc: "Invalid API",
+			config: &Config{
+				CredsFilePath:         "/path/to/creds_file",
+				DefaultLogType:        "log_type_example",
+				Compression:           noCompression,
+				API:                   "invalid",
+				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
+			},
+			expectedErr: "invalid API: invalid",
+		},
+		{
+			desc: "Chronicle API missing location",
+			config: &Config{
+				Hostname:              "myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
 				DefaultLogType:        "log_type_example",
 				API:                   chronicleAPI,
 				Compression:           noCompression,
 				ProjectNumber:         "project_example",
 				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
-				Location:              "location_example",
 			},
-			expectedErr: "endpoint is required when protocol is https",
+			expectedErr: "location is required for the Chronicle API",
 		},
 		{
-			desc: "Protocol is https and forwarder is empty",
+			desc: "Chronicle API missing hostname",
+			config: &Config{
+				CredsFilePath:         "/path/to/creds_file",
+				DefaultLogType:        "log_type_example",
+				API:                   chronicleAPI,
+				Compression:           noCompression,
+				ProjectNumber:         "project_example",
+				Location:              "location_example",
+				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
+			},
+			expectedErr: "hostname is required for the Chronicle API",
+		},
+		{
+			desc: "Chronicle API missing project number",
+			config: &Config{
+				Hostname:              "myendpoint.com",
+				CredsFilePath:         "/path/to/creds_file",
+				DefaultLogType:        "log_type_example",
+				API:                   chronicleAPI,
+				Compression:           noCompression,
+				Location:              "location_example",
+				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
+			},
+			expectedErr: "project number is required for the Chronicle API",
+		},
+		{
+			desc: "Valid Chronicle API config",
 			config: &Config{
 				Hostname:              "myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
@@ -102,50 +150,9 @@ func TestConfigValidate(t *testing.T) {
 				Location:              "location_example",
 				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
 			},
-			expectedErr: "",
 		},
 		{
-			desc: "Protocol is https and project is empty",
-			config: &Config{
-				Hostname:              "myendpoint.com",
-				CredsFilePath:         "/path/to/creds_file",
-				DefaultLogType:        "log_type_example",
-				API:                   chronicleAPI,
-				Compression:           noCompression,
-				Location:              "location_example",
-				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
-			},
-			expectedErr: "project is required when protocol is https",
-		},
-		{
-			desc: "Protocol is https and http batch request size limit is 0",
-			config: &Config{
-				Hostname:              "myendpoint.com",
-				CredsFilePath:         "/path/to/creds_file",
-				DefaultLogType:        "log_type_example",
-				API:                   chronicleAPI,
-				Compression:           noCompression,
-				ProjectNumber:         "project_example",
-				Location:              "location_example",
-				BatchRequestSizeLimit: 0,
-			},
-			expectedErr: "positive batch request size limit is required when protocol is https",
-		},
-		{
-			desc: "Valid https config",
-			config: &Config{
-				Hostname:              "myendpoint.com",
-				CredsFilePath:         "/path/to/creds_file",
-				DefaultLogType:        "log_type_example",
-				API:                   chronicleAPI,
-				Compression:           noCompression,
-				ProjectNumber:         "project_example",
-				Location:              "location_example",
-				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
-			},
-		},
-		{
-			desc: "Valid https config with custom API version",
+			desc: "Valid Chronicle API config with custom API version",
 			config: &Config{
 				Hostname:              "myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
@@ -172,6 +179,18 @@ func TestConfigValidate(t *testing.T) {
 				APIVersion:            "invalid",
 			},
 			expectedErr: "invalid API version: invalid",
+		},
+		{
+			desc: "Invalid collector ID",
+			config: &Config{
+				Creds:                 "creds_example",
+				DefaultLogType:        "log_type_example",
+				Compression:           noCompression,
+				API:                   backstoryAPI,
+				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
+				CollectorID:           []byte("not-a-uuid"),
+			},
+			expectedErr: "invalid collector ID",
 		},
 	}
 
