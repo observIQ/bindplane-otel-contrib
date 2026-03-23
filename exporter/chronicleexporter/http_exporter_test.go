@@ -618,7 +618,7 @@ func TestHTTPStatsEndpoint(t *testing.T) {
 			name: "default API version",
 			cfg: &Config{
 				Location:      "us",
-				BaseURL:       "chronicle.googleapis.com",
+				Hostname:      "chronicle.googleapis.com",
 				ProjectNumber: "my-project",
 				CustomerID:    "my-customer-id",
 			},
@@ -632,7 +632,7 @@ func TestHTTPStatsEndpoint(t *testing.T) {
 			name: "custom API version",
 			cfg: &Config{
 				Location:      "us",
-				BaseURL:       "chronicle.googleapis.com",
+				Hostname:      "chronicle.googleapis.com",
 				ProjectNumber: "my-project",
 				CustomerID:    "my-customer-id",
 				APIVersion:    "v1beta",
@@ -646,12 +646,12 @@ func TestHTTPStatsEndpoint(t *testing.T) {
 		{
 			name: "custom API version and ignore location",
 			cfg: &Config{
-				Location:        "us",
-				BaseURL:         "my-endpoint.com",
-				ProjectNumber:   "my-project",
-				CustomerID:      "my-customer-id",
-				APIVersion:      "v1beta",
-				OverrideBaseURL: true,
+				Location:         "us",
+				Hostname:         "my-endpoint.com",
+				ProjectNumber:    "my-project",
+				CustomerID:       "my-customer-id",
+				APIVersion:       "v1beta",
+				OverrideHostname: true,
 			},
 			statsEndpoint:    "https://my-endpoint.com/v1beta/projects/my-project/locations/us/instances/my-customer-id/forwarders/collector-123:importStatsEvents",
 			logTypesEndpoint: "https://my-endpoint.com/v1beta/projects/my-project/locations/us/instances/my-customer-id/logTypes",

@@ -15,7 +15,7 @@ func Test_createDefaultConfig(t *testing.T) {
 		QueueBatchConfig:      configoptional.Some(exporterhelper.NewDefaultQueueConfig()),
 		BackOffConfig:         configretry.NewDefaultBackOffConfig(),
 		OverrideLogType:       true,
-		BaseURL:               "malachiteingestion-pa.googleapis.com",
+		Hostname:              "malachiteingestion-pa.googleapis.com",
 		Compression:           "none",
 		CollectAgentMetrics:   true,
 		API:                   chronicleAPI,

@@ -81,7 +81,7 @@ func (exp *grpcExporter) Start(ctx context.Context, _ component.Host) error {
 	if err != nil {
 		return fmt.Errorf("load Google credentials: %w", err)
 	}
-	endpoint, dialOpts := grpcClientParams(exp.cfg.BaseURL, ts)
+	endpoint, dialOpts := grpcClientParams(exp.cfg.Hostname, ts)
 	conn, err := grpc.NewClient(endpoint, dialOpts...)
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)

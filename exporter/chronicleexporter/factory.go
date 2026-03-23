@@ -22,7 +22,7 @@ func NewFactory() exporter.Factory {
 }
 
 const (
-	defaultBaseURL               = "malachiteingestion-pa.googleapis.com"
+	defaultHost                  = "chronicle.googleapis.com"
 	defaultBatchRequestSizeLimit = 4000000
 )
 
@@ -32,7 +32,7 @@ var defaultCollectorID = uuid.MustParse("aaaa1111-aaaa-1111-aaaa-1111aaaa1111")
 func createDefaultConfig() component.Config {
 	return &Config{
 		API:                   chronicleAPI,
-		BaseURL:               defaultBaseURL,
+		Hostname:              defaultHost,
 		OverrideLogType:       true,
 		CollectAgentMetrics:   true,
 		LogErroredPayloads:    false,

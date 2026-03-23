@@ -93,7 +93,7 @@ func TestConfigValidate(t *testing.T) {
 		{
 			desc: "Protocol is https and forwarder is empty",
 			config: &Config{
-				BaseURL:               "myendpoint.com",
+				Hostname:              "myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
 				DefaultLogType:        "log_type_example",
 				API:                   chronicleAPI,
@@ -107,7 +107,7 @@ func TestConfigValidate(t *testing.T) {
 		{
 			desc: "Protocol is https and project is empty",
 			config: &Config{
-				BaseURL:               "myendpoint.com",
+				Hostname:              "myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
 				DefaultLogType:        "log_type_example",
 				API:                   chronicleAPI,
@@ -120,7 +120,7 @@ func TestConfigValidate(t *testing.T) {
 		{
 			desc: "Protocol is https and http batch request size limit is 0",
 			config: &Config{
-				BaseURL:               "myendpoint.com",
+				Hostname:              "myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
 				DefaultLogType:        "log_type_example",
 				API:                   chronicleAPI,
@@ -134,7 +134,7 @@ func TestConfigValidate(t *testing.T) {
 		{
 			desc: "Valid https config",
 			config: &Config{
-				BaseURL:               "myendpoint.com",
+				Hostname:              "myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
 				DefaultLogType:        "log_type_example",
 				API:                   chronicleAPI,
@@ -147,7 +147,7 @@ func TestConfigValidate(t *testing.T) {
 		{
 			desc: "Valid https config with custom API version",
 			config: &Config{
-				BaseURL:               "myendpoint.com",
+				Hostname:              "myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
 				DefaultLogType:        "log_type_example",
 				API:                   chronicleAPI,
@@ -161,7 +161,7 @@ func TestConfigValidate(t *testing.T) {
 		{
 			desc: "Invalid API version",
 			config: &Config{
-				BaseURL:               "myendpoint.com",
+				Hostname:              "myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
 				DefaultLogType:        "log_type_example",
 				API:                   chronicleAPI,

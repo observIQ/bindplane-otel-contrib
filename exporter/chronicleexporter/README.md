@@ -1,14 +1,18 @@
-# Chronicle Exporter
+# Google SecOps Exporter
 
-**Currently only v2 of the ingestion API is supported**
+This exporter facilitates the sending of logs to [Google SecOps](https://cloud.google.com/security/products/security-operations) (previously Chronicle), a security analytics platform provided by Google. It is designed to integrate with OpenTelemetry collectors to export logs Google SecOps.
 
-This exporter facilitates the sending of logs to Chronicle, which is a security analytics platform provided by Google. It is designed to integrate with OpenTelemetry collectors to export telemetry data such as logs to a Chronicle account.
+## Supported APIs
+
+This exporter supports sending logs to Google SecOps using either of the following APIs
+- [Chronicle API](https://docs.cloud.google.com/chronicle/docs/reference/ingestion-methods) (Preferred)
+- [(Backstory) Ingestion API](https://docs.cloud.google.com/chronicle/docs/reference/ingestion-api)
 
 ## How It Works
 
 1. The exporter uses the configured credentials to authenticate with the Google Cloud services.
-2. It marshals logs into the format expected by Chronicle.
-3. It sends the logs to the appropriate Chronicle endpoint.
+2. Logs are marshalled into the format expected by Google SecOps.
+3. Logs are imported into Google SecOps using the appropriate endpoint.
 
 ## Configuration
 
@@ -44,32 +48,43 @@ currently supported log types are:
 - windows_event.system
 - sql_server
 
-If the `attributes["chronicle_log_type"]` field is present in the log, we will use its value in the payload instead of the automatic detection or the `log_type` in the config.
+If the `attributes["secops_log_type"]` field is present in the log, its value will be used as the Log Type in the payload instead of the automatic detection or the `log_type` in the config.
 
 ### Namespace and Ingestion Labels
 
-If the `attributes["chronicle_namespace"]` field is present in the log, we will use its value in the payload instead of the `namespace` in the config.
+If the `attributes["secops_namespace"]` or `attributes["chronicle_namespace"]` field is present in the log, its value will be used as the Namespace in the payload instead of the `namespace` in the config.
 
 If there are nested fields in `attributes["chronicle_ingestion_label"]`, we will use the values in the payload instead of the `ingestion_labels` in the config.
 
 ## Credentials
 
-This exporter requires a Google Cloud service account with access to the Chronicle API. The service account must have access to the endpoint specfied in the config.
-Besides the default endpoint, there are also regional endpoints that can be used [here](https://cloud.google.com/chronicle/docs/reference/ingestion-api#regional_endpoints).
+This exporter requires a Google Cloud service account with access to the appropiate APIs. The service account must have access to the API specfied in the config.
 
-For additional information on accessing Chronicle, see the [Chronicle documentation](https://cloud.google.com/chronicle/docs/reference/ingestion-api#getting_api_authentication_credentials).
+The following IAM permissions required for the Chronicle API:
+- [chronicle.logs.import](https://docs.cloud.google.com/chronicle/docs/reference/rest/v1alpha/projects.locations.instances.logTypes.logs/import)
+- [chronicle.forwarders.importStatsEvents](https://docs.cloud.google.com/chronicle/docs/reference/rest/v1alpha/projects.locations.instances.forwarders/importStatsEvents) When running the exporter with `collect_agent_metrics` enabled.
+- [chronicle.logTypes.list](https://docs.cloud.google.com/chronicle/docs/reference/rest/v1alpha/projects.locations.instances.logTypes/list) When running the exporter with `validate_log_types` enabled.
+
+Besides the default base URL, there are also regional base URLs that can be used:
+- For the [Chronicle API](https://docs.cloud.google.com/chronicle/docs/reference/rest?rep_location=us#regional-service-endpoint)
+- For the [Backstory API](https://docs.cloud.google.com/chronicle/docs/reference/ingestion-api#regional_endpoints)
+
+For additional information on credentials, see the relevant documentation:
+- For the [Chronicle API](https://docs.cloud.google.com/chronicle/docs/reference/authentication)
+- For the [Backstory API](https://docs.cloud.google.com/chronicle/docs/reference/ingestion-api#getting_api_authentication_credentials).
 
 ## Log Batch Creation Request Limits
 
-`batch_request_size_limit_grpc` and `batch_request_size_limit_http` are used for ensuring log batch creation requests don't exceed Chronicle's backend limits - the former for Chronicle's gRPC endpoint, and the latter for Chronicle's HTTP endpoint. If a request exceeds the configured size limit, the request will be split into multiple requests that adhere to this limit, with each request containing a subset of the logs contained in the original request. Any single logs that result in the request exceeding the size limit will be dropped.
+`batch_request_size_limit` is used to ensure log batch creation requests don't exceed Google SecOps's backend limits. If a request exceeds the configured size limit, the request will be split into multiple requests that adhere to this limit, with each request containing a subset of the logs contained in the original request. Any single logs that result in the request exceeding the size limit will be dropped.
 
 ## Example Configuration
 
-### Basic Configuration
+### Basic Chronicle API Configuration
 
 ```yaml
-chronicle:
-  endpoint: malachiteingestion-pa.googleapis.com
+googlesecops:
+  api: "chronicle"
+  hostname: chronicle.googleapis.com
   creds_file_path: "/path/to/google/creds.json"
   log_type: "ONEPASSWORD"
   customer_id: "customer-123"

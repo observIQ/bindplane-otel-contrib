@@ -157,7 +157,7 @@ func TestGRPCExporter(t *testing.T) {
 			f := NewFactory()
 			cfg := f.CreateDefaultConfig().(*Config)
 			defaultCfgMod(cfg)
-			cfg.BaseURL = endpoint
+			cfg.Hostname = endpoint
 
 			require.NoError(t, cfg.Validate())
 
@@ -402,7 +402,7 @@ func TestGRPCExporterTelemetry(t *testing.T) {
 			f := NewFactory()
 			cfg := f.CreateDefaultConfig().(*Config)
 			defaultCfgMod(cfg)
-			cfg.BaseURL = endpoint
+			cfg.Hostname = endpoint
 			if tc.rawLogField != "" {
 				cfg.RawLogField = tc.rawLogField
 			}

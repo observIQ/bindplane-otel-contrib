@@ -29,15 +29,15 @@ type Config struct {
 	// Either chronicle or backstory.
 	API string `mapstructure:"api"`
 
-	// BaseURL is the base URL used to construct the API endpoints.
-	BaseURL string `mapstructure:"base_url"`
+	// Hostname is the hostname used to construct the base URL for the API endpoints.
+	Hostname string `mapstructure:"hostname"`
 
 	// CustomerID is the customer ID that will be used to send logs to Google SecOps.
 	CustomerID string `mapstructure:"customer_id"`
 
-	// OverrideBaseURL determines whether or not the Location field is used when constructing the base URL for the Chronicle API.
+	// OverrideHostname determines whether or not the Location field is used when constructing the base URL for the Chronicle API.
 	// Only applies to the Chronicle API.
-	OverrideBaseURL bool `mapstructure:"override_base_url"`
+	OverrideHostname bool `mapstructure:"override_hostname"`
 
 	// APIVersion is the version of the Chronicle API to use. Defaults to "v1alpha".
 	// Only used for the Chronicle API.
@@ -117,11 +117,19 @@ func (cfg *Config) Validate() error {
 		return fmt.Errorf("invalid compression type: %s", cfg.Compression)
 	}
 
+	if strings.HasPrefix(cfg.Hostname, "http://") || strings.HasPrefix(cfg.Hostname, "https://") {
+		return fmt.Errorf("host should not contain a protocol prefix: %s", cfg.Hostname)
+	}
+
+	if cfg.BatchRequestSizeLimit <= 0 {
+		return errors.New("positive batch request size limit is required")
+	}
+
 	if cfg.API == chronicleAPI {
 		if cfg.Location == "" {
 			return errors.New("location is required for the Chronicle API")
 		}
-		if cfg.BaseURL == "" {
+		if cfg.Hostname == "" {
 			return errors.New("base URL is required for the Chronicle API")
 		}
 		if cfg.ProjectNumber == "" {
@@ -134,18 +142,6 @@ func (cfg *Config) Validate() error {
 		}
 
 		return nil
-	}
-
-	if cfg.API == backstoryAPI {
-		if strings.HasPrefix(cfg.BaseURL, "http://") || strings.HasPrefix(cfg.BaseURL, "https://") {
-			return fmt.Errorf("base URL should not contain a protocol prefix for the Backstory API: %s", cfg.BaseURL)
-		}
-
-		return nil
-	}
-
-	if cfg.BatchRequestSizeLimit <= 0 {
-		return errors.New("positive batch request size limit is required")
 	}
 
 	if uuid.Validate(string(cfg.CollectorID[:])) != nil {
