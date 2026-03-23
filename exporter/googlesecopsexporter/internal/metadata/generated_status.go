@@ -7,10 +7,10 @@ import (
 )
 
 var (
-	Type      = component.MustNewType("chronicle")
+	Type      = component.MustNewType("googlesecops")
 	ScopeName = "github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter"
 )
 
 const (
-	LogsStability = component.StabilityLevelAlpha
+	LogsStability = component.StabilityLevelDevelopment
 )

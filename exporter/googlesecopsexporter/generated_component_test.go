@@ -19,7 +19,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
-var typ = component.MustNewType("chronicle")
+var typ = component.MustNewType("googlesecops")
 
 func TestComponentFactoryType(t *testing.T) {
 	require.Equal(t, typ, NewFactory().Type())
@@ -93,6 +93,8 @@ func TestComponentLifecycle(t *testing.T) {
 					err = e.ConsumeTraces(context.Background(), traces)
 				}
 			})
+
+			require.NoError(t, err)
 
 			err = c.Shutdown(context.Background())
 			require.NoError(t, err)
