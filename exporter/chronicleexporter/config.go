@@ -129,12 +129,13 @@ func (cfg *Config) Validate() error {
 		return errors.New("positive batch request size limit is required")
 	}
 
-	if cfg.API == chronicleAPI {
+	switch cfg.API {
+	case chronicleAPI:
 		if cfg.Location == "" {
 			return errors.New("location is required for the Chronicle API")
 		}
 		if cfg.Hostname == "" {
-			return errors.New("base URL is required for the Chronicle API")
+			return errors.New("hostname is required for the Chronicle API")
 		}
 		if cfg.ProjectNumber == "" {
 			return errors.New("project number is required for the Chronicle API")
@@ -144,13 +145,16 @@ func (cfg *Config) Validate() error {
 				return fmt.Errorf("invalid API version: %s", cfg.APIVersion)
 			}
 		}
-
-		return nil
+	case backstoryAPI:
+	default:
+		return fmt.Errorf("invalid API: %s", cfg.API)
 	}
 
-	if uuid.Validate(string(cfg.CollectorID[:])) != nil {
-		return errors.New("invalid collector ID")
+	if cfg.CollectorID == nil {
+		if uuid.Validate(string(cfg.CollectorID[:])) != nil {
+			return errors.New("invalid collector ID")
+		}
 	}
 
-	return fmt.Errorf("invalid API: %s", cfg.API)
+	return nil
 }
