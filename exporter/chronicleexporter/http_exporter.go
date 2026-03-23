@@ -56,7 +56,7 @@ type httpExporter struct {
 	marshaler  *protoMarshaler
 	client     *http.Client
 	transport  *http.Transport
-	metrics    *hostMetricsReporter
+	metrics    *metricsReporter
 
 	telemetry        *metadata.TelemetryBuilder
 	metricAttributes attribute.Set
@@ -128,7 +128,7 @@ func (exp *httpExporter) Start(ctx context.Context, _ component.Host) error {
 		f := func(ctx context.Context, request *api.BatchCreateEventsRequest) error {
 			return exp.uploadStatsHTTP(ctx, request, string(exp.cfg.CollectorID[:]))
 		}
-		metrics, err := newHostMetricsReporter(exp.cfg, exp.set, exp.exporterID, f)
+		metrics, err := newMetricsReporter(exp.cfg, exp.set, exp.exporterID, f)
 		if err != nil {
 			return fmt.Errorf("create metrics reporter: %w", err)
 		}

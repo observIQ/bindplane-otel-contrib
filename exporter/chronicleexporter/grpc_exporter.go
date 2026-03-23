@@ -36,7 +36,7 @@ type grpcExporter struct {
 
 	client  api.IngestionServiceV2Client
 	conn    *grpc.ClientConn
-	metrics *hostMetricsReporter
+	metrics *metricsReporter
 
 	telemetry        *metadata.TelemetryBuilder
 	metricAttributes attribute.Set
@@ -94,7 +94,7 @@ func (exp *grpcExporter) Start(ctx context.Context, _ component.Host) error {
 			_, err := exp.client.BatchCreateEvents(ctx, request, exp.buildOptions()...)
 			return err
 		}
-		metrics, err := newHostMetricsReporter(exp.cfg, exp.set, exp.exporterID, f)
+		metrics, err := newMetricsReporter(exp.cfg, exp.set, exp.exporterID, f)
 		if err != nil {
 			return fmt.Errorf("create metrics reporter: %w", err)
 		}
