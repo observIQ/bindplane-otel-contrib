@@ -964,6 +964,108 @@ func TestGatewayUpstreamReconnection(t *testing.T) {
 	require.Equal(t, uint64(99), resp.GetCapabilities())
 }
 
+func TestGatewayDownstreamSendFailureDoesNotKillUpstream(t *testing.T) {
+	t.Parallel()
+
+	h := newGatewayTestHarness(t, 1)
+
+	agent1 := h.NewAgent(t)
+	agent2 := h.NewAgent(t)
+
+	// Register both agents by sending an initial message each.
+	agent1.Send(&protobufs.AgentToServer{SequenceNum: 1})
+	agent2.Send(&protobufs.AgentToServer{SequenceNum: 2})
+	h.upstream.WaitForAgentMessage(t, agent1.ID(), 5*time.Second)
+	h.upstream.WaitForAgentMessage(t, agent2.ID(), 5*time.Second)
+
+	// Close agent1's downstream connection and wait for cleanup so that
+	// send() returns "downstream connection closed" immediately.
+	conn1, ok := h.gateway.server.getAgentConnection(agent1.ID())
+	require.True(t, ok, "agent1 downstream connection must be registered")
+	require.NoError(t, conn1.close())
+	require.Eventually(t, func() bool {
+		select {
+		case <-conn1.writerDone:
+			return true
+		default:
+			return false
+		}
+	}, 5*time.Second, 10*time.Millisecond, "downstream writer did not stop")
+
+	// Re-register agent1 so the gateway still has a mapping for it,
+	// even though the connection's writer is dead and send() will fail.
+	h.gateway.server.setAgentConnection(agent1.ID(), conn1)
+
+	// Send a message addressed to the dead agent1. The gateway should
+	// log a warning but NOT tear down the upstream connection.
+	require.NoError(t, h.upstream.Send(&protobufs.ServerToAgent{
+		InstanceUid:  agent1.RawID(),
+		Capabilities: 11,
+	}))
+
+	// Verify the upstream is still alive by sending to agent2 successfully.
+	require.NoError(t, h.upstream.Send(&protobufs.ServerToAgent{
+		InstanceUid:  agent2.RawID(),
+		Capabilities: 22,
+	}))
+	resp := agent2.WaitForMessage(t, 5*time.Second)
+	require.Equal(t, uint64(22), resp.GetCapabilities())
+}
+
+func TestGatewayInvalidInstanceUidDoesNotKillUpstream(t *testing.T) {
+	t.Parallel()
+
+	h := newGatewayTestHarness(t, 1)
+
+	// Connect an agent and verify the round-trip works.
+	agent := h.NewAgent(t)
+	agent.Send(&protobufs.AgentToServer{SequenceNum: 1})
+	h.upstream.WaitForAgentMessage(t, agent.ID(), 5*time.Second)
+
+	// Send a ServerToAgent message with an empty InstanceUid (0 bytes).
+	// This simulates the server sending an AgentIdentification reassignment
+	// without a routable InstanceUid. Previously this killed the upstream
+	// connection; now the gateway should drop the message and keep going.
+	require.NoError(t, h.upstream.Send(&protobufs.ServerToAgent{
+		AgentIdentification: &protobufs.AgentIdentification{
+			NewInstanceUid: uuid.New().NodeID(),
+		},
+	}))
+
+	// After the bad message, the upstream connection should still be alive.
+	// Verify by sending a valid message and getting a response.
+	require.NoError(t, h.upstream.Send(&protobufs.ServerToAgent{
+		InstanceUid:  agent.RawID(),
+		Capabilities: 77,
+	}))
+	resp := agent.WaitForMessage(t, 5*time.Second)
+	require.Equal(t, uint64(77), resp.GetCapabilities())
+}
+
+func TestGatewayInvalidInstanceUidWrongLength(t *testing.T) {
+	t.Parallel()
+
+	h := newGatewayTestHarness(t, 1)
+
+	agent := h.NewAgent(t)
+	agent.Send(&protobufs.AgentToServer{SequenceNum: 1})
+	h.upstream.WaitForAgentMessage(t, agent.ID(), 5*time.Second)
+
+	// Send a ServerToAgent with an InstanceUid of invalid length (not 16 or 26 bytes).
+	require.NoError(t, h.upstream.Send(&protobufs.ServerToAgent{
+		InstanceUid:  []byte("short"),
+		Capabilities: 99,
+	}))
+
+	// The upstream connection should survive. Verify with a valid round-trip.
+	require.NoError(t, h.upstream.Send(&protobufs.ServerToAgent{
+		InstanceUid:  agent.RawID(),
+		Capabilities: 88,
+	}))
+	resp := agent.WaitForMessage(t, 5*time.Second)
+	require.Equal(t, uint64(88), resp.GetCapabilities())
+}
+
 func TestGatewayTLSConnection(t *testing.T) {
 	t.Parallel()
 
