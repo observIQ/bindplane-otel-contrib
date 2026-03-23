@@ -3,6 +3,7 @@ package googlesecopsexporter
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/metadata"
@@ -24,6 +25,7 @@ func NewFactory() exporter.Factory {
 const (
 	defaultHost                  = "chronicle.googleapis.com"
 	defaultBatchRequestSizeLimit = 4000000
+	defaultMetricsInterval       = 1 * time.Minute
 )
 
 var defaultCollectorID = uuid.MustParse("aaaa1111-aaaa-1111-aaaa-1111aaaa1111")
@@ -35,6 +37,7 @@ func createDefaultConfig() component.Config {
 		Hostname:              defaultHost,
 		OverrideLogType:       true,
 		CollectAgentMetrics:   true,
+		MetricsInterval:       defaultMetricsInterval,
 		LogErroredPayloads:    false,
 		ValidateLogTypes:      false,
 		Compression:           noCompression,

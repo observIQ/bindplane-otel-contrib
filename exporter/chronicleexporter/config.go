@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/observiq/bindplane-otel-contrib/pkg/expr"
@@ -80,6 +81,9 @@ type Config struct {
 
 	// CollectAgentMetrics is a flag that determines whether or not to collect agent metrics.
 	CollectAgentMetrics bool `mapstructure:"collect_agent_metrics"`
+
+	// MetricsInterval is the interval at which to collect and send agent metrics.
+	MetricsInterval time.Duration `mapstructure:"metrics_interval"`
 
 	// BatchRequestSizeLimit is the maximum batch request size, in bytes, that can be sent to Google SecOps
 	// This field is defaulted to 4000000 as that is the default limit

@@ -23,6 +23,8 @@ type metricsReporter struct {
 	wg     sync.WaitGroup
 	send   sendMetricsFunc
 
+	interval time.Duration
+
 	agentID    []byte
 	exporterID string
 
@@ -53,6 +55,7 @@ func newMetricsReporter(cfg *Config, set component.TelemetrySettings, exporterID
 	mr := &metricsReporter{
 		set:        set,
 		send:       send,
+		interval:   cfg.MetricsInterval,
 		agentID:    agentID[:],
 		exporterID: exporterID,
 		source: &api.EventSource{
@@ -73,7 +76,7 @@ func (mr *metricsReporter) start() {
 	mr.wg.Add(1)
 
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(mr.interval)
 
 		defer func() {
 			mr.wg.Done()
