@@ -70,9 +70,21 @@ func New(logger *zap.Logger, settings Settings, t *metadata.TelemetryBuilder) *G
 		telemetry: t,
 	}
 	g.client = newClient(settings, g.telemetry, ConnectionCallbacks[*upstreamConnection]{
-		OnMessage: g.HandleUpstreamMessage,
-		OnError:   g.HandleUpstreamError,
-		OnClose:   g.HandleUpstreamClose,
+		OnMessage: func(ctx context.Context, conn *upstreamConnection, messageType int, msg *message) error {
+			// The upstream connection is shared by many agents. Per-message
+			// errors are logged and swallowed so that a single bad message
+			// cannot tear down the connection and disconnect every agent.
+			if err := g.HandleUpstreamMessage(ctx, conn, messageType, msg); err != nil {
+				g.logger.Warn("upstream message handling failed",
+					zap.Error(err),
+					zap.String("upstream_connection_id", conn.id),
+					zap.Int("message_number", msg.number),
+				)
+			}
+			return nil
+		},
+		OnError: g.HandleUpstreamError,
+		OnClose: g.HandleUpstreamClose,
 	}, logger)
 	g.server = newServer(settings.OpAMPServer, settings.AuthTimeout, g.telemetry, g.client, ConnectionCallbacks[*downstreamConnection]{
 		OnMessage: g.HandleDownstreamMessage,
@@ -151,13 +163,13 @@ func (g *Gateway) HandleDownstreamClose(_ context.Context, connection *downstrea
 // --------------------------------------------------------------------------------------
 // Upstream callbacks
 
-// HandleUpstreamMessage handles message sent from the upstream connection to a downstream connection.
+// HandleUpstreamMessage handles a message sent from the upstream connection to
+// a downstream connection. Errors are non-fatal — the caller is responsible
+// for logging and discarding them to protect the shared upstream connection.
 func (g *Gateway) HandleUpstreamMessage(_ context.Context, connection *upstreamConnection, messageType int, message *message) error {
 	g.logger.Debug("HandleUpstreamMessage", zap.String("upstream_connection_id", connection.id), zap.Int("message_number", message.number), zap.Int("message_type", messageType), zap.String("message_bytes", string(message.data)))
 	if messageType != websocket.BinaryMessage {
-		err := fmt.Errorf("unexpected message type: %v, must be binary message", messageType)
-		g.logger.Error("Cannot process a message from WebSocket", zap.Error(err), zap.Int("message_number", message.number), zap.Int("message_type", messageType), zap.String("message_bytes", string(message.data)))
-		return err
+		return fmt.Errorf("unexpected message type: %v, must be binary message", messageType)
 	}
 
 	m := protobufs.ServerToAgent{}
@@ -182,7 +194,8 @@ func (g *Gateway) HandleUpstreamMessage(_ context.Context, connection *upstreamC
 
 	agentID, err := parseAgentID(m.GetInstanceUid())
 	if err != nil {
-		return fmt.Errorf("parse agent id: %w, %s", err, m.String())
+		return fmt.Errorf("invalid instance_uid (length=%d, fields=%v): %w",
+			len(m.GetInstanceUid()), serverToAgentFields(&m), err)
 	}
 
 	// find the downstream connection from the server
@@ -213,12 +226,12 @@ func (g *Gateway) HandleUpstreamMessage(_ context.Context, connection *upstreamC
 	// forward the message to the downstream connection
 	msg := fmt.Sprintf("%s <= %s", conn.id, connection.id)
 	logDownstreamMessage(g.logger, msg, agentID, message.number, len(message.data), &m)
-	err = conn.send(message)
-	if err == nil {
-		g.telemetry.OpampgatewayMessages.Add(context.Background(), 1, directionDownstream)
-		g.telemetry.OpampgatewayMessagesBytes.Add(context.Background(), int64(len(message.data)), directionDownstream)
+	if err := conn.send(message); err != nil {
+		return fmt.Errorf("send to downstream agent %s (%s): %w", agentID, conn.id, err)
 	}
-	return err
+	g.telemetry.OpampgatewayMessages.Add(context.Background(), 1, directionDownstream)
+	g.telemetry.OpampgatewayMessagesBytes.Add(context.Background(), int64(len(message.data)), directionDownstream)
+	return nil
 }
 
 // HandleUpstreamError handles an error from an upstream connection.
@@ -257,6 +270,31 @@ func logUpstreamMessage(logger *zap.Logger, msg string, agentID string, messageN
 		zap.Uint64("sequenceNum", message.SequenceNum),
 		zap.Uint64("flags", message.Flags),
 	)
+}
+
+// serverToAgentFields returns the names of all top-level fields that are set
+// on the message. This is used for diagnostic logging so operators can identify
+// what the server sent without leaking message contents.
+func serverToAgentFields(m *protobufs.ServerToAgent) []string {
+	var fields []string
+	if len(m.GetInstanceUid()) > 0 {
+		fields = append(fields, "instance_uid")
+	}
+	fields = append(fields, includeComponent(nil, m.GetErrorResponse(), "error_response")...)
+	fields = append(fields, includeComponent(nil, m.GetRemoteConfig(), "remote_config")...)
+	fields = append(fields, includeComponent(nil, m.GetConnectionSettings(), "connection_settings")...)
+	fields = append(fields, includeComponent(nil, m.GetPackagesAvailable(), "packages_available")...)
+	fields = append(fields, includeComponent(nil, m.GetAgentIdentification(), "agent_identification")...)
+	fields = append(fields, includeComponent(nil, m.GetCommand(), "command")...)
+	fields = append(fields, includeComponent(nil, m.GetCustomCapabilities(), "custom_capabilities")...)
+	fields = append(fields, includeComponent(nil, m.GetCustomMessage(), "custom_message")...)
+	if m.GetFlags() != 0 {
+		fields = append(fields, "flags")
+	}
+	if m.GetCapabilities() != 0 {
+		fields = append(fields, "capabilities")
+	}
+	return fields
 }
 
 func downstreamMessageComponents(serverToAgent *protobufs.ServerToAgent) []string {
