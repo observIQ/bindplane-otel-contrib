@@ -395,8 +395,7 @@ func (exp *httpExporter) uploadToChronicleHTTP(ctx context.Context, logs *api.Im
 	}
 }
 
-// This uses the DataPlane URL for the request
-// URL for the request: https://{region}-chronicle.googleapis.com/{version}/projects/{project}/location/{region}/instances/{customerID}
+// The Chronicle API URL for the request: {baseEndpoint}/logTypes/{logType}/logs:import
 // Override for testing
 var httpEndpoint = func(cfg *Config, logType string) string {
 	formatString := "%s/logTypes/%s/logs:import"
@@ -415,6 +414,7 @@ var httpStatsEndpoint = func(cfg *Config, collectorID string) string {
 	return fmt.Sprintf(formatString, baseEndpoint(cfg), collectorID)
 }
 
+// The Chronicle API base URL: https://{region}-{hostname}/{version}/projects/{project}/location/{region}/instances/{customerID}
 func baseEndpoint(cfg *Config) string {
 	var hostname string
 	if cfg.OverrideHostname {

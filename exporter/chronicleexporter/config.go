@@ -44,11 +44,11 @@ type Config struct {
 	// Only used for the Chronicle API.
 	APIVersion string `mapstructure:"api_version"`
 
-	// Location is the location of the Google SecOps tenant to send logs to.
+	// Location is the location of the Google SecOps instance to send logs to.
 	// Only used for the Chronicle API.
 	Location string `mapstructure:"location"`
 
-	// ProjectNumber is the GCP project number of the Google SecOps tenant to send logs to.
+	// ProjectNumber is the GCP project number of the Google SecOps instance to send logs to.
 	// Only used for the Chronicle API.
 	ProjectNumber string `mapstructure:"project_number"`
 
