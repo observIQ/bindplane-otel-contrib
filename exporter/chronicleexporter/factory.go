@@ -23,7 +23,7 @@ func NewFactory() exporter.Factory {
 }
 
 const (
-	defaultHost                  = "chronicle.googleapis.com"
+	defaultHostname              = "chronicle.googleapis.com"
 	defaultBatchRequestSizeLimit = 4000000
 	defaultMetricsInterval       = 1 * time.Minute
 )
@@ -34,7 +34,7 @@ var defaultCollectorID = uuid.MustParse("aaaa1111-aaaa-1111-aaaa-1111aaaa1111")
 func createDefaultConfig() component.Config {
 	return &Config{
 		API:                   chronicleAPI,
-		Hostname:              defaultHost,
+		Hostname:              defaultHostname,
 		OverrideLogType:       true,
 		CollectAgentMetrics:   true,
 		MetricsInterval:       defaultMetricsInterval,
