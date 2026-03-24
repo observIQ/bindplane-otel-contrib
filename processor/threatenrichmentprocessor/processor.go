@@ -24,7 +24,6 @@ import (
 	"strings"
 
 	filter "github.com/observiq/bindplane-otel-contrib/internal/amqfilter"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/stanza/adapter"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/extension/xextension/storage"
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -60,14 +59,6 @@ func newProcessor(set processor.Settings, cfg *Config) *threatEnrichmentProcesso
 }
 
 func (p *threatEnrichmentProcessor) start(ctx context.Context, host component.Host) error {
-	if p.cfg.StorageID != nil {
-		storageClient, err := adapter.GetStorageClient(ctx, host, p.cfg.StorageID, p.id)
-		if err != nil {
-			return fmt.Errorf("failed to get storage client: %w", err)
-		}
-		p.storageClient = storageClient
-		p.logger.Info("storage extension enabled", zap.String("storage_id", p.cfg.StorageID.String()))
-	}
 
 	p.rules = make([]ruleState, 0, len(p.cfg.Rules))
 	for _, r := range p.cfg.Rules {
