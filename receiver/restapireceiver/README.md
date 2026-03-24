@@ -39,7 +39,7 @@ Alpha:
 | `basic`              | object    |         | `false`  | Basic Auth configuration (see below)                                                                                                                                                           |
 | `oauth2`             | object    |         | `false`  | OAuth2 Client Credentials configuration (see below)                                                                                                                                            |
 | `akamai_edgegrid`    | object    |         | `false`  | Akamai EdgeGrid configuration (see below)                                                                                                                                                      |
-| `headers`            | map       |         | `false`  | A map of custom headers to send with each request. These are applied after authentication and default headers, so they can override values like `Accept` or `Content-Type` if needed.          |
+| `headers`            | map       |         | `false`  | A map of custom headers to send with each request.                                                                                                                                             |
 | `pagination`         | object    |         | `false`  | Pagination configuration (see below)                                                                                                                                                           |
 | `min_poll_interval`  | duration  | `10s`   | `false`  | Minimum interval between API polls. The receiver resets to this interval when data is received. Increase this to prevent hitting API rate limits.                                              |
 | `max_poll_interval`  | duration  | `5m`    | `false`  | Maximum interval between API polls. The receiver uses adaptive polling that starts at `min_poll_interval` and backs off when no data is returned, up to this maximum.                          |
@@ -104,12 +104,12 @@ Use `auth_mode: none` for public APIs that don't require authentication. No addi
 
 #### Offset/Limit Pagination
 
-| Field | Type | Default | Required | Description |
-|-------|------|---------|----------|-------------|
-| `pagination.offset_limit.offset_field_name` | string | | `false` | Query parameter name for offset |
-| `pagination.offset_limit.limit_field_name` | string | | `false` | Query parameter name for limit |
-| `pagination.offset_limit.starting_offset` | int | `0` | `false` | Starting offset value |
-| `pagination.offset_limit.next_offset_field_name` | string | | `false` | Field name in the response containing the next offset token. When set, the receiver uses token-based (cursor) pagination instead of numeric offsets. Supports nested fields with dot notation (e.g., `pagination.next_cursor`) |
+| Field                                            | Type   | Default | Required | Description                                                                                                                                                                                                                    |
+| ------------------------------------------------ | ------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pagination.offset_limit.offset_field_name`      | string |         | `false`  | Query parameter name for offset                                                                                                                                                                                                |
+| `pagination.offset_limit.limit_field_name`       | string |         | `false`  | Query parameter name for limit                                                                                                                                                                                                 |
+| `pagination.offset_limit.starting_offset`        | int    | `0`     | `false`  | Starting offset value                                                                                                                                                                                                          |
+| `pagination.offset_limit.next_offset_field_name` | string |         | `false`  | Field name in the response containing the next offset token. When set, the receiver uses token-based (cursor) pagination instead of numeric offsets. Supports nested fields with dot notation (e.g., `pagination.next_cursor`) |
 
 #### Page/Size Pagination
 
@@ -290,11 +290,12 @@ receivers:
 ```
 
 This configuration would work with an API that returns responses like:
+
 ```json
 {
   "data": [
-    {"id": "1", "message": "event 1"},
-    {"id": "2", "message": "event 2"}
+    { "id": "1", "message": "event 1" },
+    { "id": "2", "message": "event 2" }
   ],
   "next_cursor": "eyJpZCI6Mn0="
 }
