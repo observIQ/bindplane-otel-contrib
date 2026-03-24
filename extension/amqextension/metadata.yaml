@@ -1,9 +1,0 @@
-type: amq
-
-status:
-  class: extension
-  stability:
-    alpha: [extension]
-
-tests:
-  config:
