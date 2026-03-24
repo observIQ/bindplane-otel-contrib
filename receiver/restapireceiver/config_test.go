@@ -794,6 +794,105 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectedErr: "",
 		},
+		{
+			name: "valid custom headers",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Custom-Header": "some-value",
+					"X-Tenant-ID":     "tenant-123",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "header value with CRLF injection",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Custom": "value\r\nInjected-Header: evil",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid header value for \"X-Custom\": contains carriage return",
+		},
+		{
+			name: "header value with newline",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Custom": "value\nevil",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid header value for \"X-Custom\": contains newline",
+		},
+		{
+			name: "header value with null byte",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Custom": "value\x00evil",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid header value for \"X-Custom\": contains null byte",
+		},
+		{
+			name: "header name with space",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"Bad Header": "value",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid header name \"Bad Header\": contains invalid character",
+		},
+		{
+			name: "empty header name",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"": "value",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid header name \"\": header name must not be empty",
+		},
+		{
+			name: "header name with colon",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Bad:Header": "value",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid header name \"X-Bad:Header\": contains invalid character",
+		},
 	}
 
 	for _, tc := range testCases {

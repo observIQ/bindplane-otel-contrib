@@ -116,6 +116,11 @@ type Config struct {
 	// Must be greater than 1.0. Defaults to 2.0.
 	BackoffMultiplier float64 `mapstructure:"backoff_multiplier"`
 
+	// Headers is an optional map of headers to send with each request.
+	// These headers are applied after authentication headers, so they can
+	// override default headers like Accept or Content-Type if needed.
+	Headers map[string]string `mapstructure:"headers"`
+
 	// ClientConfig defines HTTP client configuration.
 	ClientConfig confighttp.ClientConfig `mapstructure:",squash"`
 
@@ -340,6 +345,16 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Validate custom headers
+	for name, value := range c.Headers {
+		if err := validateHeaderName(name); err != nil {
+			return fmt.Errorf("invalid header name %q: %w", name, err)
+		}
+		if err := validateHeaderValue(value); err != nil {
+			return fmt.Errorf("invalid header value for %q: %w", name, err)
+		}
+	}
+
 	// Validate pagination mode
 	switch c.Pagination.Mode {
 	case paginationModeNone, paginationModeOffsetLimit, paginationModePageSize, paginationModeTimestamp:
@@ -436,6 +451,43 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("backoff_multiplier must be greater than 1.0")
 	}
 
+	return nil
+}
+
+// validateHeaderName checks that a header name is a valid HTTP token per RFC 7230.
+// Header names must be non-empty and contain only visible ASCII characters
+// excluding delimiters: A-Z, a-z, 0-9, and !#$%&'*+-.^_`|~
+func validateHeaderName(name string) error {
+	if name == "" {
+		return fmt.Errorf("header name must not be empty")
+	}
+	for i, c := range name {
+		if c < 0x21 || c > 0x7E {
+			return fmt.Errorf("contains invalid character at position %d", i)
+		}
+		// RFC 7230 delimiters that are not allowed in tokens
+		switch c {
+		case '(', ')', ',', '/', ':', ';', '<', '=', '>', '?', '@', '[', '\\', ']', '{', '}', '"':
+			return fmt.Errorf("contains invalid character %q at position %d", string(c), i)
+		}
+	}
+	return nil
+}
+
+// validateHeaderValue checks that a header value does not contain characters
+// that could enable CRLF injection or other HTTP header manipulation.
+// Values must not contain \r, \n, or \x00 (null byte).
+func validateHeaderValue(value string) error {
+	for i, c := range value {
+		switch c {
+		case '\r':
+			return fmt.Errorf("contains carriage return (\\r) at position %d", i)
+		case '\n':
+			return fmt.Errorf("contains newline (\\n) at position %d", i)
+		case 0x00:
+			return fmt.Errorf("contains null byte at position %d", i)
+		}
+	}
 	return nil
 }
 
