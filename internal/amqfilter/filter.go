@@ -51,7 +51,6 @@ const (
 	KindBloom          Kind = "bloom"
 	KindCuckoo         Kind = "cuckoo"
 	KindScalableCuckoo Kind = "scalable_cuckoo"
-	KindVacuum         Kind = "vacuum"
 )
 
 // BloomOptions configures a Bloom filter. Used with NewFilterFromConfig or
@@ -85,16 +84,6 @@ type ScalableCuckooOptions struct {
 // FilterKind implements FilterConfig.
 func (ScalableCuckooOptions) FilterKind() Kind { return KindScalableCuckoo }
 
-// VacuumOptions configures a Vacuum filter. Capacity is the expected number of
-// elements. FingerprintBits controls the fingerprint size (default 8, max 32).
-type VacuumOptions struct {
-	Capacity        uint
-	FingerprintBits uint // default 8
-}
-
-// FilterKind implements FilterConfig.
-func (VacuumOptions) FilterKind() Kind { return KindVacuum }
-
 // NewFilterFromConfig creates a filter from a config (dependency injection).
 // The concrete type of c determines the filter implementation.
 func NewFilterFromConfig(c FilterConfig) (Filter, error) {
@@ -117,12 +106,7 @@ func NewFilterFromConfig(c FilterConfig) (Filter, error) {
 			return nil, fmt.Errorf("filter: ScalableCuckoo requires ScalableCuckooOptions, got %T", c)
 		}
 		return NewScalableCuckooFilterFromOptions(o), nil
-	case KindVacuum:
-		o, ok := c.(VacuumOptions)
-		if !ok {
-			return nil, fmt.Errorf("filter: Vacuum requires VacuumOptions, got %T", c)
-		}
-		return NewVacuumFilterFromOptions(o), nil
+
 	default:
 		return nil, fmt.Errorf("filter: unknown kind %q", c.FilterKind())
 	}
@@ -149,12 +133,6 @@ func NewFilter(kind Kind, opts interface{}) (Filter, error) {
 		o, ok := opts.(ScalableCuckooOptions)
 		if !ok {
 			return nil, fmt.Errorf("filter: ScalableCuckoo requires ScalableCuckooOptions, got %T", opts)
-		}
-		return NewFilterFromConfig(o)
-	case KindVacuum:
-		o, ok := opts.(VacuumOptions)
-		if !ok {
-			return nil, fmt.Errorf("filter: Vacuum requires VacuumOptions, got %T", opts)
 		}
 		return NewFilterFromConfig(o)
 	default:
@@ -216,13 +194,6 @@ func (s *FilterSet) AddCuckooFilter(name string, capacity uint) Filter {
 // Zero opts use library defaults.
 func (s *FilterSet) AddScalableCuckooFilter(name string, opts ScalableCuckooOptions) Filter {
 	f := NewScalableCuckooFilterFromOptions(opts)
-	s.filters[name] = f
-	return f
-}
-
-// AddVacuumFilter adds a Vacuum filter with the given capacity.
-func (s *FilterSet) AddVacuumFilter(name string, capacity uint) Filter {
-	f := NewVacuumFilterFromOptions(VacuumOptions{Capacity: capacity})
 	s.filters[name] = f
 	return f
 }

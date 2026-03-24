@@ -23,7 +23,7 @@ import (
 )
 
 // FilterConfig is the configuration for which filter algorithm to use and its parameters.
-// Set Kind to one of: bloom, cuckoo, scalable_cuckoo, vacuum. Other fields apply per kind.
+// Set Kind to one of: bloom, cuckoo, scalable_cuckoo. Other fields apply per kind.
 type FilterConfig struct {
 	Kind string `mapstructure:"kind"`
 
@@ -32,15 +32,12 @@ type FilterConfig struct {
 	FalsePositiveRate float64 `mapstructure:"false_positive_rate"`
 	MaxEstimatedCount uint    `mapstructure:"max_estimated_count"`
 
-	// Cuckoo / Vacuum: capacity (expected number of elements).
+	// Cuckoo: capacity (expected number of elements).
 	Capacity uint `mapstructure:"capacity"`
 
 	// ScalableCuckoo: initial capacity and load factor (0 = use library defaults).
 	InitialCapacity uint    `mapstructure:"initial_capacity"`
 	LoadFactor      float32 `mapstructure:"load_factor"`
-
-	// Vacuum: fingerprint size in bits (default 8).
-	FingerprintBits uint `mapstructure:"fingerprint_bits"`
 }
 
 func filterKindOf(fc FilterConfig) filter.Kind {
@@ -64,13 +61,8 @@ func (c *FilterConfig) toFilterConfig() (filter.FilterConfig, error) {
 			InitialCapacity: c.InitialCapacity,
 			LoadFactor:      c.LoadFactor,
 		}, nil
-	case filter.KindVacuum:
-		return filter.VacuumOptions{
-			Capacity:        c.Capacity,
-			FingerprintBits: c.FingerprintBits,
-		}, nil
 	default:
-		return nil, fmt.Errorf("filter kind %q is not one of: bloom, cuckoo, scalable_cuckoo, vacuum", strings.TrimSpace(c.Kind))
+		return nil, fmt.Errorf("filter kind %q is not one of: bloom, cuckoo, scalable_cuckoo", strings.TrimSpace(c.Kind))
 	}
 }
 
@@ -143,7 +135,7 @@ func (cfg *Config) Validate() error {
 	}
 
 	if cfg.Filter.Kind == "" {
-		return fmt.Errorf("filter.kind is required (bloom, cuckoo, scalable_cuckoo, vacuum)")
+		return fmt.Errorf("filter.kind is required (bloom, cuckoo, scalable_cuckoo)")
 	}
 	if _, err := cfg.Filter.toFilterConfig(); err != nil {
 		return err
@@ -155,10 +147,6 @@ func (cfg *Config) Validate() error {
 		}
 		if cfg.Filter.FalsePositiveRate <= 0 || cfg.Filter.FalsePositiveRate >= 1 {
 			return fmt.Errorf("filter.false_positive_rate must be between 0 and 1 for bloom filter")
-		}
-	case filter.KindCuckoo, filter.KindVacuum:
-		if cfg.Filter.Capacity == 0 {
-			return fmt.Errorf("filter.capacity is required for %s filter", filterKindOf(cfg.Filter))
 		}
 	}
 	if len(cfg.Rules) == 0 {
@@ -190,10 +178,6 @@ func (cfg *Config) Validate() error {
 				}
 				if r.Filter.FalsePositiveRate <= 0 || r.Filter.FalsePositiveRate >= 1 {
 					return fmt.Errorf("rules[%d] (%q): filter.false_positive_rate must be in (0,1)", i, r.Name)
-				}
-			case filter.KindCuckoo, filter.KindVacuum:
-				if r.Filter.Capacity == 0 {
-					return fmt.Errorf("rules[%d] (%q): filter.capacity required for %s", i, r.Name, filterKindOf(*r.Filter))
 				}
 			}
 		}

@@ -310,10 +310,6 @@ func TestFilterKinds_Wiring(t *testing.T) {
 			name:   "scalable_cuckoo",
 			filter: FilterConfig{Kind: "scalable_cuckoo"},
 		},
-		{
-			name:   "vacuum",
-			filter: FilterConfig{Kind: "vacuum", Capacity: 500},
-		},
 	}
 
 	for _, tt := range tests {

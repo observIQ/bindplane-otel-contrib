@@ -90,12 +90,6 @@ func TestConfig_Validate_CuckooMissingCapacity(t *testing.T) {
 	require.ErrorContains(t, cfg.Validate(), "capacity")
 }
 
-func TestConfig_Validate_VacuumMissingCapacity(t *testing.T) {
-	cfg := validBloomConfig()
-	cfg.Filter = FilterConfig{Kind: "vacuum", Capacity: 0}
-	require.ErrorContains(t, cfg.Validate(), "capacity")
-}
-
 func TestConfig_Validate_CuckooOK(t *testing.T) {
 	cfg := validBloomConfig()
 	cfg.Filter = FilterConfig{Kind: "cuckoo", Capacity: 500}
@@ -150,10 +144,4 @@ func TestConfig_Validate_RuleFilterInvalid(t *testing.T) {
 	cfg := validBloomConfig()
 	cfg.Rules[0].Filter = &FilterConfig{Kind: "bloom", EstimatedCount: 0}
 	require.ErrorContains(t, cfg.Validate(), "estimated_count")
-}
-
-func TestConfig_Validate_RuleFilterVacuumNoCapacity(t *testing.T) {
-	cfg := validBloomConfig()
-	cfg.Rules[0].Filter = &FilterConfig{Kind: "vacuum", Capacity: 0}
-	require.ErrorContains(t, cfg.Validate(), "filter.capacity required")
 }
