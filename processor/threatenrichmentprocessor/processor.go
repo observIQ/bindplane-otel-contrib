@@ -178,12 +178,6 @@ func pcommonValueToString(v pcommon.Value) string {
 	switch v.Type() {
 	case pcommon.ValueTypeStr:
 		return v.Str()
-	case pcommon.ValueTypeInt:
-		return v.AsString()
-	case pcommon.ValueTypeDouble:
-		return v.AsString()
-	case pcommon.ValueTypeBool:
-		return v.AsString()
 	case pcommon.ValueTypeBytes:
 		return string(v.Bytes().AsRaw())
 	default:

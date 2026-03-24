@@ -19,7 +19,6 @@ import (
 	"strings"
 
 	filter "github.com/observiq/bindplane-otel-contrib/internal/amqfilter"
-	"go.opentelemetry.io/collector/component"
 )
 
 // FilterConfig is the configuration for which filter algorithm to use and its parameters.
@@ -85,8 +84,6 @@ type Rule struct {
 
 // Config is the configuration for the threat enrichment processor.
 type Config struct {
-	// StorageID is the ID of the storage extension to use for persisting state.
-	StorageID *component.ID `mapstructure:"storage"`
 
 	// Filter is the default filter algorithm and parameters. Each rule uses this unless it sets rule.filter.
 	Filter FilterConfig `mapstructure:"filter"`

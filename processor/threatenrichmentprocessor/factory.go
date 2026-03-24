@@ -24,7 +24,7 @@ import (
 	"go.opentelemetry.io/collector/processor/processorhelper"
 )
 
-var componentType = component.MustNewType("threatenrichment")
+var componentType = component.MustNewType("threat_enrichment")
 
 const stability = component.StabilityLevelAlpha
 
