@@ -1,7 +1,0 @@
-[
-  "[test:int = 5]",
-  "[test:string LIKE 'he%']",
-  "[test:int > 3]",
-  "[test:int IN (-4, 5, 6)]",
-  "[test:string = 'hello']"
-]
