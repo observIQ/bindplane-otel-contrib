@@ -10,6 +10,11 @@ go.work
 go.work.sum
 logging.yaml
 
+# Python bytecode (never commit)
+__pycache__/
+*.py[cod]
+*$py.class
+
 # Ignore generated credentials from google-github-actions/auth
 gha-creds-*.json
 
