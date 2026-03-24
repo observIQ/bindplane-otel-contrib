@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	filter "github.com/observiq/bindplane-otel-contrib/internal/amqfilter"
@@ -192,7 +193,7 @@ func pcommonValueToString(v pcommon.Value) string {
 
 // loadIndicatorFile reads indicator values from path. Supports: plain text (one value per line) or JSON array of strings.
 func loadIndicatorFile(path string) ([]string, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, err
 	}
