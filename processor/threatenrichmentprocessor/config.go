@@ -114,6 +114,26 @@ func normalizeLookupFields(ruleIdx int, ruleName string, fields []string) ([]str
 	return out, nil
 }
 
+// validateFilterKind validates kind-specific fields for a FilterConfig.
+func validateFilterKind(fc FilterConfig, prefix string) error {
+	switch filterKindOf(fc) {
+	case filter.KindBloom:
+		if fc.EstimatedCount == 0 {
+			return fmt.Errorf("%sfilter.estimated_count is required for bloom filter", prefix)
+		}
+		if fc.FalsePositiveRate <= 0 || fc.FalsePositiveRate >= 1 {
+			return fmt.Errorf("%sfilter.false_positive_rate must be between 0 and 1 for bloom filter", prefix)
+		}
+	case filter.KindCuckoo:
+		if fc.Capacity == 0 {
+			return fmt.Errorf("%sfilter.capacity is required for cuckoo filter", prefix)
+		}
+	case filter.KindScalableCuckoo:
+		// no extra required fields
+	}
+	return nil
+}
+
 // Validate validates the processor configuration and normalizes string fields (trim whitespace).
 func (cfg *Config) Validate() error {
 	cfg.Filter.Kind = strings.TrimSpace(cfg.Filter.Kind)
@@ -137,15 +157,10 @@ func (cfg *Config) Validate() error {
 	if _, err := cfg.Filter.toFilterConfig(); err != nil {
 		return err
 	}
-	switch filterKindOf(cfg.Filter) {
-	case filter.KindBloom:
-		if cfg.Filter.EstimatedCount == 0 {
-			return fmt.Errorf("filter.estimated_count is required for bloom filter")
-		}
-		if cfg.Filter.FalsePositiveRate <= 0 || cfg.Filter.FalsePositiveRate >= 1 {
-			return fmt.Errorf("filter.false_positive_rate must be between 0 and 1 for bloom filter")
-		}
+	if err := validateFilterKind(cfg.Filter, ""); err != nil {
+		return err
 	}
+
 	if len(cfg.Rules) == 0 {
 		return fmt.Errorf("at least one rule is required")
 	}
@@ -168,14 +183,9 @@ func (cfg *Config) Validate() error {
 			if _, err := r.Filter.toFilterConfig(); err != nil {
 				return fmt.Errorf("rules[%d] (%q): %w", i, r.Name, err)
 			}
-			switch filterKindOf(*r.Filter) {
-			case filter.KindBloom:
-				if r.Filter.EstimatedCount == 0 {
-					return fmt.Errorf("rules[%d] (%q): filter.estimated_count required for bloom", i, r.Name)
-				}
-				if r.Filter.FalsePositiveRate <= 0 || r.Filter.FalsePositiveRate >= 1 {
-					return fmt.Errorf("rules[%d] (%q): filter.false_positive_rate must be in (0,1)", i, r.Name)
-				}
+			prefix := fmt.Sprintf("rules[%d] (%q): ", i, r.Name)
+			if err := validateFilterKind(*r.Filter, prefix); err != nil {
+				return err
 			}
 		}
 	}
