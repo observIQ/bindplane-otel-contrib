@@ -119,6 +119,10 @@ type Config struct {
 	// Headers is an optional map of headers to send with each request.
 	// These headers are applied after authentication headers, so they can
 	// override default headers like Accept or Content-Type if needed.
+	//
+	// Note: Header values may appear in debug logs. For sensitive credentials,
+	// prefer the dedicated auth_mode options (apikey, bearer, basic, oauth2)
+	// which are designed for secret handling.
 	Headers map[string]string `mapstructure:"headers"`
 
 	// ClientConfig defines HTTP client configuration.
