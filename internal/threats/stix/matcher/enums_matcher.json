@@ -1,0 +1,29 @@
+{
+  "TYPES_V21": [
+    "attack-pattern",
+    "bundle",
+    "campaign",
+    "course-of-action",
+    "extension-definition",
+    "grouping",
+    "identity",
+    "incident",
+    "indicator",
+    "infrastructure",
+    "intrusion-set",
+    "language-content",
+    "location",
+    "malware",
+    "malware-analysis",
+    "marking-definition",
+    "note",
+    "observed-data",
+    "opinion",
+    "relationship",
+    "report",
+    "threat-actor",
+    "tool",
+    "sighting",
+    "vulnerability"
+  ]
+}

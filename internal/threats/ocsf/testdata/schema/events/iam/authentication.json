@@ -1,0 +1,9 @@
+{
+  "name": "authentication",
+  "attributes": {
+    "activity_id": {},
+    "user": {},
+    "dst_endpoint": {},
+    "actor": {}
+  }
+}
