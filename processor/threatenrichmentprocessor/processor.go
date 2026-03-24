@@ -58,7 +58,7 @@ func newProcessor(set processor.Settings, cfg *Config) *threatEnrichmentProcesso
 	}
 }
 
-func (p *threatEnrichmentProcessor) start(ctx context.Context, host component.Host) error {
+func (p *threatEnrichmentProcessor) start() error {
 
 	p.rules = make([]ruleState, 0, len(p.cfg.Rules))
 	for _, r := range p.cfg.Rules {
