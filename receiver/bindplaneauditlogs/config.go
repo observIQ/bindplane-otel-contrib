@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package bindplaneauditlogs provides a receiver that receives telemetry from an BindPlane audit logs.
+// Package bindplaneauditlogs provides a receiver that receives telemetry from an Bindplane audit logs.
 package bindplaneauditlogs // import "github.com/observiq/bindplane-otel-contrib/receiver/bindplaneauditlogs"
 
 import (
@@ -27,7 +27,7 @@ import (
 // Config defines the configuration for the Bindplane audit logs receiver
 type Config struct {
 
-	// APIKey is the authentication key for accessing BindPlane audit logs
+	// APIKey is the authentication key for accessing Bindplane audit logs
 	APIKey string `mapstructure:"api_key"`
 
 	// ClientConfig is the configuration for the HTTP client
@@ -40,7 +40,7 @@ type Config struct {
 	// and sets the body to the description. When false, the body is set to the raw JSON event.
 	ParseAttributes bool `mapstructure:"parse_attributes"`
 
-	// bindplaneURL is the URL to the BindPlane audit logs API. Taken from the client config endpoint.
+	// bindplaneURL is the URL to the Bindplane audit logs API. Taken from the client config endpoint.
 	bindplaneURL *url.URL
 }
 
