@@ -25,11 +25,19 @@ export
 COLLECTOR_PATH ?= ../bindplane-otel-collector
 COLLECTOR_ABS ?= $(abspath $(COLLECTOR_PATH))
 
-SNAPSHOT := $(shell git -C $(COLLECTOR_PATH) rev-parse --short HEAD)
+# Collector version tags are only resolved when COLLECTOR_PATH is a git checkout (local builds).
+# CI and contrib-only checkouts skip this so targets like lint/gosec do not require the collector repo.
+ifeq ($(wildcard $(COLLECTOR_PATH)/.git),)
+COLLECTOR_PREVIOUS_TAG :=
+COLLECTOR_CURRENT_TAG :=
+COLLECTOR_VERSION ?= 0.0.0-dev
+else
+COLLECTOR_SNAPSHOT := $(shell git -C $(COLLECTOR_PATH) rev-parse --short HEAD)
 COLLECTOR_PREVIOUS_TAG := $(shell git -C $(COLLECTOR_PATH) tag --sort=v:refname --no-contains HEAD | grep -E "[0-9]+\.[0-9]+\.[0-9]+$$" | grep -v 'version' | tail -n1)
 COLLECTOR_CURRENT_TAG := $(shell git -C $(COLLECTOR_PATH) tag --sort=v:refname --points-at HEAD | grep -E "v[0-9]+\.[0-9]+\.[0-9]+$$" | grep -v 'version' | tail -n1)
-# Version will be the tag pointing to the current commit, or the previous version tag if there is no such tag
-COLLECTOR_VERSION ?= $(if $(COLLECTOR_CURRENT_TAG),$(COLLECTOR_CURRENT_TAG),$(COLLECTOR_PREVIOUS_TAG)-SNAPSHOT-$(SNAPSHOT))
+# Version will be the tag pointing at the collector HEAD, or previous tag + SNAPSHOT
+COLLECTOR_VERSION ?= $(if $(COLLECTOR_CURRENT_TAG),$(COLLECTOR_CURRENT_TAG),$(COLLECTOR_PREVIOUS_TAG)-SNAPSHOT-$(COLLECTOR_SNAPSHOT))
+endif
 OUTDIR ?= build
 
 EXT = $(if $(filter windows,$(GOOS)),.exe,)

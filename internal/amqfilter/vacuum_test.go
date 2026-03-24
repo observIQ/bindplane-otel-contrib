@@ -1,3 +1,17 @@
+// Copyright observIQ, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package amqfilter
 
 import (
@@ -260,16 +274,16 @@ func benchmarkVacuumFilterSetup(b *testing.B, capacity uint) (f *VacuumFilter, a
 
 func BenchmarkVacuumFilter_MayContain(b *testing.B) {
 	capacities := []uint{1_000, 10_000, 100_000, 1_000_000}
-	for _, cap := range capacities {
-		cap := cap
-		f, absent, present := benchmarkVacuumFilterSetup(b, cap)
-		b.Run(fmt.Sprintf("N=%d_absent", cap), func(b *testing.B) {
+	for _, nElts := range capacities {
+		nElts := nElts
+		f, absent, present := benchmarkVacuumFilterSetup(b, nElts)
+		b.Run(fmt.Sprintf("N=%d_absent", nElts), func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				_ = f.MayContain(absent)
 			}
 		})
-		b.Run(fmt.Sprintf("N=%d_present", cap), func(b *testing.B) {
+		b.Run(fmt.Sprintf("N=%d_present", nElts), func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				_ = f.MayContain(present)
@@ -280,10 +294,10 @@ func BenchmarkVacuumFilter_MayContain(b *testing.B) {
 
 func BenchmarkVacuumFilter_Add(b *testing.B) {
 	capacities := []uint{10_000, 100_000, 1_000_000}
-	for _, cap := range capacities {
-		cap := cap
-		b.Run(fmt.Sprintf("N=%d", cap), func(b *testing.B) {
-			f := NewVacuumFilter(cap)
+	for _, nElts := range capacities {
+		nElts := nElts
+		b.Run(fmt.Sprintf("N=%d", nElts), func(b *testing.B) {
+			f := NewVacuumFilter(nElts)
 			keys := make([][]byte, b.N)
 			for i := range keys {
 				keys[i] = []byte(fmt.Sprintf("key-%d", i))
@@ -298,15 +312,15 @@ func BenchmarkVacuumFilter_Add(b *testing.B) {
 
 func BenchmarkVacuumFilter_Memory(b *testing.B) {
 	capacities := []uint{1_000, 10_000, 100_000, 1_000_000}
-	for _, cap := range capacities {
-		cap := cap
-		b.Run(fmt.Sprintf("N=%d", cap), func(b *testing.B) {
-			sample := NewVacuumFilter(cap)
+	for _, nElts := range capacities {
+		nElts := nElts
+		b.Run(fmt.Sprintf("N=%d", nElts), func(b *testing.B) {
+			sample := NewVacuumFilter(nElts)
 			b.ReportMetric(float64(sample.SizeInBytes()), "bytes")
 			b.ReportMetric(float64(sample.Cap()), "slots")
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_ = NewVacuumFilter(cap)
+				_ = NewVacuumFilter(nElts)
 			}
 		})
 	}

@@ -1,4 +1,18 @@
-// package amqfilter provides a pluggable abstraction for probabilistic (or exact)
+// Copyright observIQ, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Package amqfilter provides a pluggable abstraction for probabilistic (or exact)
 // set membership, used for threat intelligence and other filtering. Implementations
 // include Bloom, Cuckoo, and Scalable Cuckoo filters; create them via
 // NewFilterFromConfig with the appropriate options type.
@@ -32,6 +46,7 @@ type FilterConfig interface {
 // Kind identifies the filter algorithm (bloom, cuckoo, scalable cuckoo).
 type Kind string
 
+// FilterKind constants name the algorithm for NewFilterFromConfig / NewFilter.
 const (
 	KindBloom          Kind = "bloom"
 	KindCuckoo         Kind = "cuckoo"

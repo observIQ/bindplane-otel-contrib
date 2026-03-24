@@ -1,15 +1,22 @@
-// Vacuum filter implementation for the filter package. The Vacuum filter is an
-// improved cuckoo filter that achieves ~95% load factor (vs ~84% for standard
-// cuckoo) through variable alternate ranges computed using balls-in-bins analysis.
+// Copyright observIQ, Inc.
 //
-// Reference: "Vacuum Filters: More Space-Efficient and Faster Replacement for
-// Bloom and Cuckoo Filters" (VLDB 2020)
-// https://github.com/wuwuz/Vacuum-Filter
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package amqfilter
 
 import (
+	crand "crypto/rand"
 	"math"
-	"math/rand"
 
 	"github.com/twmb/murmur3"
 )
@@ -64,7 +71,10 @@ func (b *vacuumBucket) writeSlot(i int, fp uint32) {
 	b[i] = fp
 }
 
-// VacuumFilter is the Vacuum filter implementation of Filter.
+// VacuumFilter is the Vacuum filter implementation of Filter: an improved cuckoo
+// filter with ~95% load factor (vs ~84% standard cuckoo) via variable alternate ranges.
+// Reference: "Vacuum Filters: More Space-Efficient and Faster Replacement for
+// Bloom and Cuckoo Filters" (VLDB 2020), https://github.com/wuwuz/Vacuum-Filter
 type VacuumFilter struct {
 	buckets    []vacuumBucket
 	numBuckets uint
@@ -78,7 +88,6 @@ type VacuumFilter struct {
 		tag   uint32
 		used  bool
 	}
-	rng *rand.Rand
 }
 
 // ballsInBinsMaxLoad computes the expected maximum load when throwing balls
@@ -113,6 +122,16 @@ func roundUp(a, b int) int {
 	return ((a + b - 1) / b) * b
 }
 
+// randVacuumSlot returns a uniform index in [0, vacuumBucketSize) using crypto/rand
+// for eviction tie-breaking (non-security-sensitive but avoids weak PRNG lint).
+func randVacuumSlot() int {
+	var b [1]byte
+	if _, err := crand.Read(b[:]); err != nil {
+		return 0
+	}
+	return int(b[0]) % vacuumBucketSize
+}
+
 // NewVacuumFilterFromOptions creates a Vacuum filter from options.
 func NewVacuumFilterFromOptions(o VacuumOptions) *VacuumFilter {
 	capacity := o.Capacity
@@ -137,7 +156,6 @@ func NewVacuumFilterFromOptions(o VacuumOptions) *VacuumFilter {
 	f := &VacuumFilter{
 		fpBits: fpBits,
 		fpMask: (1 << fpBits) - 1,
-		rng:    rand.New(rand.NewSource(1)),
 	}
 
 	// Compute bigSeg and altLen array
@@ -239,7 +257,7 @@ func (f *VacuumFilter) addImpl(index uint, tag uint32) bool {
 
 		// No space found, randomly evict one slot
 		// Reference: cuckoofilter.h line 317-322
-		r := f.rng.Intn(vacuumBucketSize)
+		r := randVacuumSlot()
 		oldTag := tags[r]
 		f.buckets[curIndex].writeSlot(r, curTag)
 		curTag = oldTag
