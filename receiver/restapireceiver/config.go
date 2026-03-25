@@ -22,6 +22,7 @@ import (
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/confighttp"
+	"go.opentelemetry.io/collector/config/configopaque"
 )
 
 const (
@@ -168,35 +169,35 @@ type MetricsConfig struct {
 
 // APIKeyConfig defines API key authentication configuration.
 type APIKeyConfig struct {
-	HeaderName string `mapstructure:"header_name"`
-	Value      string `mapstructure:"value"`
+	HeaderName string              `mapstructure:"header_name"`
+	Value      configopaque.String `mapstructure:"value"`
 }
 
 // BearerConfig defines bearer token authentication configuration.
 type BearerConfig struct {
-	Token string `mapstructure:"token"`
+	Token configopaque.String `mapstructure:"token"`
 }
 
 // BasicConfig defines basic authentication configuration.
 type BasicConfig struct {
-	Username string `mapstructure:"username"`
-	Password string `mapstructure:"password"`
+	Username string              `mapstructure:"username"`
+	Password configopaque.String `mapstructure:"password"`
 }
 
 // OAuth2Config defines OAuth2 client credentials authentication configuration.
 type OAuth2Config struct {
-	ClientID       string            `mapstructure:"client_id"`
-	ClientSecret   string            `mapstructure:"client_secret"`
-	TokenURL       string            `mapstructure:"token_url"`
-	Scopes         []string          `mapstructure:"scopes"`
-	EndpointParams map[string]string `mapstructure:"endpoint_params"`
+	ClientID       string              `mapstructure:"client_id"`
+	ClientSecret   configopaque.String `mapstructure:"client_secret"`
+	TokenURL       string              `mapstructure:"token_url"`
+	Scopes         []string            `mapstructure:"scopes"`
+	EndpointParams map[string]string   `mapstructure:"endpoint_params"`
 }
 
 // AkamaiEdgeGridConfig defines Akamai EdgeGrid authentication configuration.
 type AkamaiEdgeGridConfig struct {
-	AccessToken  string `mapstructure:"access_token"`
-	ClientToken  string `mapstructure:"client_token"`
-	ClientSecret string `mapstructure:"client_secret"`
+	AccessToken  configopaque.String `mapstructure:"access_token"`
+	ClientToken  configopaque.String `mapstructure:"client_token"`
+	ClientSecret configopaque.String `mapstructure:"client_secret"`
 }
 
 // PaginationConfig defines pagination configuration.
@@ -313,38 +314,38 @@ func (c *Config) Validate() error {
 		if c.APIKeyConfig.HeaderName == "" {
 			return fmt.Errorf("header_name is required when auth_mode is apikey")
 		}
-		if c.APIKeyConfig.Value == "" {
+		if string(c.APIKeyConfig.Value) == "" {
 			return fmt.Errorf("value is required when auth_mode is apikey")
 		}
 	case authModeBearer:
-		if c.BearerConfig.Token == "" {
+		if string(c.BearerConfig.Token) == "" {
 			return fmt.Errorf("token is required when auth_mode is bearer")
 		}
 	case authModeBasic:
 		if c.BasicConfig.Username == "" {
 			return fmt.Errorf("username is required when auth_mode is basic")
 		}
-		if c.BasicConfig.Password == "" {
+		if string(c.BasicConfig.Password) == "" {
 			return fmt.Errorf("password is required when auth_mode is basic")
 		}
 	case authModeOAuth2:
 		if c.OAuth2Config.ClientID == "" {
 			return fmt.Errorf("client_id is required when auth_mode is oauth2")
 		}
-		if c.OAuth2Config.ClientSecret == "" {
+		if string(c.OAuth2Config.ClientSecret) == "" {
 			return fmt.Errorf("client_secret is required when auth_mode is oauth2")
 		}
 		if c.OAuth2Config.TokenURL == "" {
 			return fmt.Errorf("token_url is required when auth_mode is oauth2")
 		}
 	case authModeAkamaiEdgeGrid:
-		if c.AkamaiEdgeGridConfig.AccessToken == "" {
+		if string(c.AkamaiEdgeGridConfig.AccessToken) == "" {
 			return fmt.Errorf("access_token is required when auth_mode is akamai_edgegrid")
 		}
-		if c.AkamaiEdgeGridConfig.ClientToken == "" {
+		if string(c.AkamaiEdgeGridConfig.ClientToken) == "" {
 			return fmt.Errorf("client_token is required when auth_mode is akamai_edgegrid")
 		}
-		if c.AkamaiEdgeGridConfig.ClientSecret == "" {
+		if string(c.AkamaiEdgeGridConfig.ClientSecret) == "" {
 			return fmt.Errorf("client_secret is required when auth_mode is akamai_edgegrid")
 		}
 	}
