@@ -292,8 +292,7 @@ func (s *server) handleRequest(w http.ResponseWriter, r *http.Request) {
 // Returns true if the connection is accepted, along with the result containing status details.
 func (s *server) acceptOpAMPConnection(ctx context.Context, req *http.Request, upstreamConn *upstreamConnection, connectionID string) (bool, OpampGatewayConnectResult) {
 	sanitizedUA := strings.ReplaceAll(strings.ReplaceAll(req.UserAgent(), "\n", ""), "\r", "")
-	sanitizedAddr := strings.ReplaceAll(strings.ReplaceAll(req.RemoteAddr, "\n", ""), "\r", "")
-	s.logger.Info("connection request", zap.String("user-agent", sanitizedUA), zap.String("remote_addr", sanitizedAddr), zap.String("downstream_connection_id", connectionID), zap.String("upstream_connection_id", upstreamConn.id))
+	s.logger.Info("connection request", zap.String("user-agent", sanitizedUA), zap.String("remote_addr", req.RemoteAddr), zap.String("downstream_connection_id", connectionID), zap.String("upstream_connection_id", upstreamConn.id))
 
 	// Create a unique ID for this authentication request
 	requestUID := uuid.New().String()
