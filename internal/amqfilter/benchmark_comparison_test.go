@@ -39,7 +39,7 @@ func BenchmarkComparison_Memory(b *testing.B) {
 	for _, n := range sizes {
 		n := n
 		b.Run(fmt.Sprintf("Bloom_N=%d", n), func(b *testing.B) {
-			opts := BloomOptions{EstimatedCount: uint(n), FalsePositiveRate: 0.01}
+			opts := BloomOptions{MaxEstimatedCount: uint(n), FalsePositiveRate: 0.01}
 			sample := NewBloomFilterFromOptions(opts)
 			b.ReportMetric(float64(sample.Cap()), "bits")
 			b.ResetTimer()
@@ -69,7 +69,7 @@ func BenchmarkComparison_Memory(b *testing.B) {
 func BenchmarkComparison_MayContain_absent(b *testing.B) {
 	n := 10_000
 	b.Run("Bloom", func(b *testing.B) {
-		f := NewBloomFilterFromOptions(BloomOptions{EstimatedCount: uint(n), FalsePositiveRate: 0.01})
+		f := NewBloomFilterFromOptions(BloomOptions{MaxEstimatedCount: uint(n), FalsePositiveRate: 0.01})
 		absent, _ := benchmarkLookupSetupFilter(b, n, f)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -97,7 +97,7 @@ func BenchmarkComparison_MayContain_absent(b *testing.B) {
 func BenchmarkComparison_MayContain_present(b *testing.B) {
 	n := 10_000
 	b.Run("Bloom", func(b *testing.B) {
-		f := NewBloomFilterFromOptions(BloomOptions{EstimatedCount: uint(n), FalsePositiveRate: 0.01})
+		f := NewBloomFilterFromOptions(BloomOptions{MaxEstimatedCount: uint(n), FalsePositiveRate: 0.01})
 		_, present := benchmarkLookupSetupFilter(b, n, f)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -125,7 +125,7 @@ func BenchmarkComparison_MayContain_present(b *testing.B) {
 func BenchmarkComparison_MayContainString_absent(b *testing.B) {
 	n := 10_000
 	b.Run("Bloom", func(b *testing.B) {
-		f := NewBloomFilterFromOptions(BloomOptions{EstimatedCount: uint(n), FalsePositiveRate: 0.01})
+		f := NewBloomFilterFromOptions(BloomOptions{MaxEstimatedCount: uint(n), FalsePositiveRate: 0.01})
 		absent, _ := benchmarkLookupSetupFilter(b, n, f)
 		absentStr := string(absent)
 		b.ResetTimer()
@@ -156,7 +156,7 @@ func BenchmarkComparison_MayContainString_absent(b *testing.B) {
 func BenchmarkComparison_MayContainString_present(b *testing.B) {
 	n := 10_000
 	b.Run("Bloom", func(b *testing.B) {
-		f := NewBloomFilterFromOptions(BloomOptions{EstimatedCount: uint(n), FalsePositiveRate: 0.01})
+		f := NewBloomFilterFromOptions(BloomOptions{MaxEstimatedCount: uint(n), FalsePositiveRate: 0.01})
 		_, present := benchmarkLookupSetupFilter(b, n, f)
 		presentStr := string(present)
 		b.ResetTimer()

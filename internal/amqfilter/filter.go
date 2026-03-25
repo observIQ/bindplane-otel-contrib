@@ -68,11 +68,11 @@ var (
 )
 
 // BloomOptions configures a Bloom filter. Used with NewFilterFromConfig or
-// NewFilter(KindBloom, opts). MaxEstimatedCount caps sizing when set (0 = no cap).
+// NewFilter(KindBloom, opts). MaxEstimatedCount is the element count used for sizing
+// at the given false positive rate.
 type BloomOptions struct {
-	EstimatedCount    uint
+	MaxEstimatedCount uint
 	FalsePositiveRate float64
-	MaxEstimatedCount uint // 0 = no cap; filter is sized for at most this many elements when set
 }
 
 // FilterKind implements FilterConfig.
@@ -94,7 +94,7 @@ type ScalableCuckooOptions struct{}
 // FilterKind implements FilterConfig.
 func (ScalableCuckooOptions) FilterKind() Kind { return KindScalableCuckoo }
 
-// NewFilterFromConfig creates a filter from a config 
+// NewFilterFromConfig creates a filter from a config
 // The concrete type of c determines the filter implementation.
 func NewFilterFromConfig(c FilterConfig) (Filter, error) {
 	switch c.FilterKind() {

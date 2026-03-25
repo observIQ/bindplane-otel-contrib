@@ -20,6 +20,10 @@ import (
 	"testing"
 )
 
+func randomIPv4(rng *rand.Rand) string {
+	return fmt.Sprintf("%d.%d.%d.%d", rng.Intn(256), rng.Intn(256), rng.Intn(256), rng.Intn(256))
+}
+
 func TestFilter_Add_MayContain(t *testing.T) {
 	f := NewBloomFilter(1000, 0.01)
 
@@ -86,7 +90,7 @@ func TestFilter_FalsePositivePossible(t *testing.T) {
 }
 
 func TestNewFilter_KindBloom(t *testing.T) {
-	f, err := NewFilter(KindBloom, BloomOptions{EstimatedCount: 1000, FalsePositiveRate: 0.01})
+	f, err := NewFilter(KindBloom, BloomOptions{MaxEstimatedCount: 1000, FalsePositiveRate: 0.01})
 	if err != nil {
 		t.Fatalf("NewFilter(KindBloom, ...): %v", err)
 	}
@@ -107,7 +111,7 @@ func TestNewFilter_UnknownKind(t *testing.T) {
 }
 
 func TestNewFilterFromConfig_BloomOptions(t *testing.T) {
-	f, err := NewFilterFromConfig(BloomOptions{EstimatedCount: 1000, FalsePositiveRate: 0.01})
+	f, err := NewFilterFromConfig(BloomOptions{MaxEstimatedCount: 1000, FalsePositiveRate: 0.01})
 	if err != nil {
 		t.Fatalf("NewFilterFromConfig(BloomOptions): %v", err)
 	}
@@ -121,18 +125,10 @@ func TestNewFilterFromConfig_BloomOptions(t *testing.T) {
 }
 
 func TestNewBloomFilterFromOptions_MaxEstimatedCount(t *testing.T) {
-	// When EstimatedCount > MaxEstimatedCount, sizing should be capped
-	o := BloomOptions{
-		EstimatedCount:    100_000,
-		FalsePositiveRate: 0.01,
-		MaxEstimatedCount: 5_000,
-	}
-	f := NewBloomFilterFromOptions(o)
-	// Cap() is in bits; a 5k filter is smaller than a 100k filter
-	capBits := f.Cap()
-	// 100k at 1% would be much larger; 5k at 1% is ~ 47925 bits (approx)
-	if capBits > 100_000 {
-		t.Errorf("MaxEstimatedCount should cap size; Cap() = %d bits (expected smaller)", capBits)
+	small := NewBloomFilterFromOptions(BloomOptions{MaxEstimatedCount: 5_000, FalsePositiveRate: 0.01})
+	large := NewBloomFilterFromOptions(BloomOptions{MaxEstimatedCount: 100_000, FalsePositiveRate: 0.01})
+	if small.Cap() >= large.Cap() {
+		t.Errorf("larger MaxEstimatedCount should yield larger Cap(); small=%d large=%d", small.Cap(), large.Cap())
 	}
 }
 

@@ -27,13 +27,10 @@ type BloomFilter struct {
 	inner *bloom.BloomFilter
 }
 
-// NewBloomFilterFromOptions creates a Bloom filter from options. When
-// MaxEstimatedCount is > 0, sizing is capped to at most that many elements.
+// NewBloomFilterFromOptions creates a Bloom filter from options. MaxEstimatedCount
+// is the element count passed to sizing (callers should validate it is > 0).
 func NewBloomFilterFromOptions(o BloomOptions) *BloomFilter {
-	n := o.EstimatedCount
-	if o.MaxEstimatedCount > 0 && n > o.MaxEstimatedCount {
-		n = o.MaxEstimatedCount
-	}
+	n := o.MaxEstimatedCount
 	fpr := o.FalsePositiveRate
 	if fpr <= 0 {
 		fpr = 0.01
@@ -43,13 +40,13 @@ func NewBloomFilterFromOptions(o BloomOptions) *BloomFilter {
 	}
 }
 
-// NewBloomFilter creates a Bloom filter sized for approximately estimatedCount
+// NewBloomFilter creates a Bloom filter sized for approximately maxEstimatedCount
 // elements with the given falsePositiveRate (e.g. 0.01 for 1%). MayContain
 // returns false only when the value is definitely not in the set; true means
 // the value may be in the set (possibly a false positive).
-func NewBloomFilter(estimatedCount uint, falsePositiveRate float64) *BloomFilter {
+func NewBloomFilter(maxEstimatedCount uint, falsePositiveRate float64) *BloomFilter {
 	return NewBloomFilterFromOptions(BloomOptions{
-		EstimatedCount:    estimatedCount,
+		MaxEstimatedCount: maxEstimatedCount,
 		FalsePositiveRate: falsePositiveRate,
 	})
 }
