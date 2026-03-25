@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-This is `bindplane-otel-contrib`, a multi-module Go repository containing contrib components (receivers, processors, exporters, extensions) for the [BindPlane OpenTelemetry Collector](https://github.com/observIQ/bindplane-otel-collector). There is **no root go.mod** and **no main binary** — this repo is a library of components consumed by the collector repo.
+This is `bindplane-otel-contrib`, a multi-module Go repository containing contrib components (receivers, processors, exporters, extensions) for the [Bindplane OpenTelemetry Collector](https://github.com/observIQ/bindplane-otel-collector). There is **no root go.mod** and **no main binary** — this repo is a library of components consumed by the collector repo.
 
 ## Development Commands
 

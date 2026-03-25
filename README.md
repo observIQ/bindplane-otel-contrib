@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-Contrib components (receivers, processors, exporters, extensions) for the [BindPlane OpenTelemetry Collector](https://github.com/observIQ/bindplane-otel-collector).
+Contrib components (receivers, processors, exporters, extensions) for the [Bindplane OpenTelemetry Collector](https://github.com/observIQ/bindplane-otel-collector).
 
 ## Directory Structure
 
@@ -38,7 +38,7 @@ pkg/                Public utility packages
 | [awss3rehydrationreceiver](receiver/awss3rehydrationreceiver) | Rehydrates OTLP data from AWS S3 that was stored using the AWS S3 exporter |
 | [azureblobpollingreceiver](receiver/azureblobpollingreceiver) | Continuously polls Azure Blob Storage at configurable intervals for new data |
 | [azureblobrehydrationreceiver](receiver/azureblobrehydrationreceiver) | Rehydrates OTLP data from Azure Blob Storage that was stored using the Azure Blob exporter |
-| [bindplaneauditlogs](receiver/bindplaneauditlogs) | Collects audit logs from a BindPlane instance via API |
+| [bindplaneauditlogs](receiver/bindplaneauditlogs) | Collects audit logs from a Bindplane instance via API |
 | [gcspubsubeventreceiver](receiver/gcspubsubeventreceiver) | Consumes GCS event notifications via Google Cloud Pub/Sub and emits object contents as log records |
 | [googlecloudstoragerehydrationreceiver](receiver/googlecloudstoragerehydrationreceiver) | Rehydrates OTLP data from Google Cloud Storage that was stored using the GCS exporter |
 | [httpreceiver](receiver/httpreceiver) | Collects logs from services via HTTP |
@@ -71,7 +71,7 @@ pkg/                Public utility packages
 | [snapshotprocessor](processor/snapshotprocessor) | Stores telemetry temporarily in an internal buffer for snapshot functionality |
 | [spancountprocessor](processor/spancountprocessor) | Converts the number of spans received during an interval into a metric |
 | [throughputmeasurementprocessor](processor/throughputmeasurementprocessor) | Samples OTLP payloads and measures protobuf size and OTLP object counts |
-| [topologyprocessor](processor/topologyprocessor) | Utilizes request headers to provide extended topology functionality in BindPlane |
+| [topologyprocessor](processor/topologyprocessor) | Utilizes request headers to provide extended topology functionality in Bindplane |
 
 ### Exporters
 
@@ -95,7 +95,7 @@ pkg/                Public utility packages
 |---|---|
 | [awss3eventextension](extension/awss3eventextension) | Downloads newly created S3 objects to a specified directory by reading from an SQS queue |
 | [badgerextension](extension/badgerextension) | Provides persistent storage using BadgerDB |
-| [bindplaneextension](extension/bindplaneextension) | Stores BindPlane-specific information for custom collector distributions |
+| [bindplaneextension](extension/bindplaneextension) | Stores Bindplane-specific information for custom collector distributions |
 | [opampgateway](extension/opampgateway) | Relays OpAMP messages between downstream agents and an upstream OpAMP server *(alpha)* |
 | [pebbleextension](extension/pebbleextension) | Provides persistent storage using Pebble |
 
