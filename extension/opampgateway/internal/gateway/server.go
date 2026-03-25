@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -290,7 +291,8 @@ func (s *server) handleRequest(w http.ResponseWriter, r *http.Request) {
 // message to the upstream server and waiting for an OpampGatewayConnectResult response.
 // Returns true if the connection is accepted, along with the result containing status details.
 func (s *server) acceptOpAMPConnection(ctx context.Context, req *http.Request, upstreamConn *upstreamConnection, connectionID string) (bool, OpampGatewayConnectResult) {
-	s.logger.Info("connection request", zap.String("user-agent", req.UserAgent()), zap.String("remote_addr", req.RemoteAddr), zap.String("downstream_connection_id", connectionID), zap.String("upstream_connection_id", upstreamConn.id))
+	sanitizedUA := strings.ReplaceAll(strings.ReplaceAll(req.UserAgent(), "\n", ""), "\r", "")
+	s.logger.Info("connection request", zap.String("user-agent", sanitizedUA), zap.String("remote_addr", req.RemoteAddr), zap.String("downstream_connection_id", connectionID), zap.String("upstream_connection_id", upstreamConn.id))
 
 	// Create a unique ID for this authentication request
 	requestUID := uuid.New().String()

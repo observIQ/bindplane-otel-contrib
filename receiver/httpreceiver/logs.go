@@ -124,7 +124,8 @@ func (r *httpLogsReceiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) 
 	// path was configured && this req.URL does not match it
 	if r.path != "" && req.URL.Path != r.path {
 		rw.WriteHeader(http.StatusNotFound)
-		r.logger.Debug("received request to path that does not match the configured path", zap.String("request path", req.URL.Path))
+		sanitizedPath := strings.ReplaceAll(strings.ReplaceAll(req.URL.Path, "\n", ""), "\r", "")
+		r.logger.Debug("received request to path that does not match the configured path", zap.String("request path", sanitizedPath))
 		return
 	}
 
@@ -144,7 +145,11 @@ func (r *httpLogsReceiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) 
 	logs, err := r.parsePayloadForContentType(now, payload, contentType)
 	if err != nil {
 		rw.WriteHeader(http.StatusUnprocessableEntity)
-		r.logger.Error("failed to process log payload", zap.Error(err), zap.String("payload", string(payload)))
+		sanitizedPayload := strings.ReplaceAll(strings.ReplaceAll(string(payload), "\n", "\\n"), "\r", "\\r")
+		if len(sanitizedPayload) > 1024 {
+			sanitizedPayload = sanitizedPayload[:1024] + "...(truncated)"
+		}
+		r.logger.Error("failed to process log payload", zap.Error(err), zap.String("payload", sanitizedPayload))
 		return
 	}
 
