@@ -120,7 +120,7 @@ type Config struct {
 
 	// Headers is an optional map of headers to send with each request.
 	// These headers are applied after authentication headers, so they can
-	// override default headers like Accept or Content-Type if needed.
+	// override default headers like Accept if needed.
 	// Header values will appear in debug logs.
 	Headers map[string]string `mapstructure:"headers"`
 

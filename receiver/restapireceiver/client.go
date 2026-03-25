@@ -127,7 +127,6 @@ func (c *defaultRESTAPIClient) GetJSON(ctx context.Context, requestURL string, p
 
 	// Set default headers
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
 
 	// Apply custom headers (may override defaults)
 	c.applyHeaders(req)
@@ -228,7 +227,6 @@ func (c *defaultRESTAPIClient) GetFullResponse(ctx context.Context, requestURL s
 
 	// Set default headers
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
 
 	// Apply custom headers (may override defaults)
 	c.applyHeaders(req)
@@ -367,7 +365,7 @@ func (c *defaultRESTAPIClient) createOAuth2TokenSource(ctx context.Context) (oau
 }
 
 // applyHeaders applies custom headers from configuration to the request.
-// Custom headers are applied after default headers (Accept, Content-Type) and
+// Custom headers are applied after default headers (Accept) and
 // authentication headers, allowing them to override any previously set values.
 // Sensitive headers are applied last, so they take precedence over regular headers.
 func (c *defaultRESTAPIClient) applyHeaders(req *http.Request) {
