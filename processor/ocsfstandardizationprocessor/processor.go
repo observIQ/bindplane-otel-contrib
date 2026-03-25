@@ -151,6 +151,14 @@ func (osp *ocsfStandardizationProcessor) processLogRecord(log plog.LogRecord, re
 			"category_uid": eventMapping.categoryUID,
 		}
 
+		if len(eventMapping.profiles) > 0 {
+			profilesAny := make([]any, len(eventMapping.profiles))
+			for i, p := range eventMapping.profiles {
+				profilesAny[i] = p
+			}
+			newBody["metadata"].(map[string]any)["profiles"] = profilesAny
+		}
+
 		for _, fieldMapping := range eventMapping.fieldMappings {
 			var value any
 			if fieldMapping.from != nil {
