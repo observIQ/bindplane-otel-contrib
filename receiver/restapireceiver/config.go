@@ -160,8 +160,8 @@ type MetricsConfig struct {
 
 // APIKeyConfig defines API key authentication configuration.
 type APIKeyConfig struct {
-	HeaderName string                `mapstructure:"header_name"`
-	Value      configopaque.String   `mapstructure:"value"`
+	HeaderName string              `mapstructure:"header_name"`
+	Value      configopaque.String `mapstructure:"value"`
 }
 
 // BearerConfig defines bearer token authentication configuration.
@@ -171,7 +171,7 @@ type BearerConfig struct {
 
 // BasicConfig defines basic authentication configuration.
 type BasicConfig struct {
-	Username string             `mapstructure:"username"`
+	Username string              `mapstructure:"username"`
 	Password configopaque.String `mapstructure:"password"`
 }
 
