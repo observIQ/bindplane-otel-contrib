@@ -26,10 +26,9 @@ import (
 type FilterConfig struct {
 	Kind filter.Kind `mapstructure:"kind"`
 
-	// Bloom: estimated number of elements and target false positive rate.
-	EstimatedCount    uint    `mapstructure:"estimated_count"`
-	FalsePositiveRate float64 `mapstructure:"false_positive_rate"`
+	// Bloom: max element count for sizing and target false positive rate.
 	MaxEstimatedCount uint    `mapstructure:"max_estimated_count"`
+	FalsePositiveRate float64 `mapstructure:"false_positive_rate"`
 
 	// Cuckoo: capacity (expected number of elements).
 	Capacity uint `mapstructure:"capacity"`
@@ -45,9 +44,8 @@ func (c *FilterConfig) toFilterConfig() (filter.FilterConfig, error) {
 	switch kind {
 	case filter.KindBloom:
 		return filter.BloomOptions{
-			EstimatedCount:    c.EstimatedCount,
-			FalsePositiveRate: c.FalsePositiveRate,
 			MaxEstimatedCount: c.MaxEstimatedCount,
+			FalsePositiveRate: c.FalsePositiveRate,
 		}, nil
 	case filter.KindCuckoo:
 		return filter.CuckooOptions{Capacity: c.Capacity}, nil
@@ -111,8 +109,8 @@ func normalizeLookupFields(ruleIdx int, ruleName string, fields []string) ([]str
 func validateFilterKind(fc FilterConfig, prefix string) error {
 	switch filterKindOf(fc) {
 	case filter.KindBloom:
-		if fc.EstimatedCount == 0 {
-			return fmt.Errorf("%sfilter.estimated_count is required for bloom filter", prefix)
+		if fc.MaxEstimatedCount == 0 {
+			return fmt.Errorf("%sfilter.max_estimated_count is required for bloom filter", prefix)
 		}
 		if fc.FalsePositiveRate <= 0 || fc.FalsePositiveRate >= 1 {
 			return fmt.Errorf("%sfilter.false_positive_rate must be between 0 and 1 for bloom filter", prefix)

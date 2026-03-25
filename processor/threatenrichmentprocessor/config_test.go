@@ -17,6 +17,7 @@ package threatenrichmentprocessor
 import (
 	"testing"
 
+	filter "github.com/observiq/bindplane-otel-contrib/internal/amqfilter"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,7 +25,7 @@ func validBloomConfig() *Config {
 	return &Config{
 		Filter: FilterConfig{
 			Kind:              "bloom",
-			EstimatedCount:    1000,
+			MaxEstimatedCount: 1000,
 			FalsePositiveRate: 0.01,
 		},
 		Rules: []Rule{
@@ -40,7 +41,7 @@ func validBloomConfig() *Config {
 func TestConfig_Validate_ValidBloom(t *testing.T) {
 	cfg := validBloomConfig()
 	require.NoError(t, cfg.Validate())
-	require.Equal(t, "bloom", cfg.Filter.Kind)
+	require.Equal(t, filter.Kind("bloom"), cfg.Filter.Kind)
 	require.Equal(t, "ips", cfg.Rules[0].Name)
 }
 
@@ -51,7 +52,7 @@ func TestConfig_Validate_TrimsFields(t *testing.T) {
 	cfg.Rules[0].IndicatorFile = " /tmp/x "
 	cfg.Rules[0].LookupFields = []string{" body ", "attr"}
 	require.NoError(t, cfg.Validate())
-	require.Equal(t, "bloom", cfg.Filter.Kind)
+	require.Equal(t, filter.Kind("bloom"), cfg.Filter.Kind)
 	require.Equal(t, "ips", cfg.Rules[0].Name)
 	require.Equal(t, "/tmp/x", cfg.Rules[0].IndicatorFile)
 	require.Equal(t, []string{"body", "attr"}, cfg.Rules[0].LookupFields)
@@ -69,10 +70,10 @@ func TestConfig_Validate_MissingFilterKind(t *testing.T) {
 	require.ErrorContains(t, cfg.Validate(), "filter.kind is required")
 }
 
-func TestConfig_Validate_BloomMissingEstimatedCount(t *testing.T) {
+func TestConfig_Validate_BloomMissingMaxEstimatedCount(t *testing.T) {
 	cfg := validBloomConfig()
-	cfg.Filter.EstimatedCount = 0
-	require.ErrorContains(t, cfg.Validate(), "estimated_count")
+	cfg.Filter.MaxEstimatedCount = 0
+	require.ErrorContains(t, cfg.Validate(), "max_estimated_count")
 }
 
 func TestConfig_Validate_BloomBadFPR(t *testing.T) {
@@ -142,6 +143,6 @@ func TestConfig_Validate_DuplicateLookupFields(t *testing.T) {
 
 func TestConfig_Validate_RuleFilterInvalid(t *testing.T) {
 	cfg := validBloomConfig()
-	cfg.Rules[0].Filter = &FilterConfig{Kind: "bloom", EstimatedCount: 0}
-	require.ErrorContains(t, cfg.Validate(), "estimated_count")
+	cfg.Rules[0].Filter = &FilterConfig{Kind: "bloom", MaxEstimatedCount: 0}
+	require.ErrorContains(t, cfg.Validate(), "max_estimated_count")
 }

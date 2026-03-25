@@ -16,7 +16,6 @@ package threatenrichmentprocessor
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -240,31 +239,13 @@ func TestStart_MissingIndicatorFile(t *testing.T) {
 	require.Contains(t, err.Error(), "indicator_file")
 }
 
-func TestStart_InvalidIndicatorJSON(t *testing.T) {
+func TestConsumeLogs_IndicatorFile_MultiLine(t *testing.T) {
 	dir := t.TempDir()
-	bad := filepath.Join(dir, "bad.json")
-	require.NoError(t, os.WriteFile(bad, []byte(`[unclosed`), 0o644))
+	ind := filepath.Join(dir, "i.txt")
+	require.NoError(t, writeIndicatorFileText(ind, "alpha\n beta \n"))
 
 	cfg := validBloomConfig()
-	cfg.Rules[0].IndicatorFile = bad
-	require.NoError(t, cfg.Validate())
-
-	f := NewFactory()
-	set := newTestProcessorSettings()
-	p, err := f.CreateLogs(context.Background(), set, cfg, consumertest.NewNop())
-	require.NoError(t, err)
-	err = p.Start(context.Background(), nil)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "parse JSON array")
-}
-
-func TestConsumeLogs_JSONIndicatorFile(t *testing.T) {
-	dir := t.TempDir()
-	jf := filepath.Join(dir, "i.json")
-	require.NoError(t, os.WriteFile(jf, []byte(`[" alpha ", " beta "]`), 0o644))
-
-	cfg := validBloomConfig()
-	cfg.Rules[0].IndicatorFile = jf
+	cfg.Rules[0].IndicatorFile = ind
 	require.NoError(t, cfg.Validate())
 
 	lc := &logConsumer{ch: make(chan plog.Logs, 1)}
@@ -298,7 +279,7 @@ func TestFilterKinds_Wiring(t *testing.T) {
 			name: "bloom",
 			filter: FilterConfig{
 				Kind:              "bloom",
-				EstimatedCount:    500,
+				MaxEstimatedCount: 500,
 				FalsePositiveRate: 0.01,
 			},
 		},

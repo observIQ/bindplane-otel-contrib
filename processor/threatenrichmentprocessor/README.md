@@ -21,7 +21,7 @@ processors:
   threat_enrichment:
     filter:
       kind: bloom                # bloom | cuckoo | scalable_cuckoo
-      estimated_count: 100000    # bloom: expected number of indicators
+      max_estimated_count: 100000    # bloom: sizing (max elements at target FPR)
       false_positive_rate: 0.001 # bloom: target FP rate (0 < x < 1)
 
     rules:
@@ -53,9 +53,8 @@ processors:
 | Field                | Type    | Required | Description |
 |----------------------|---------|----------|-------------|
 | `kind`               | string  | Yes      | Filter algorithm: `bloom`, `cuckoo`, or `scalable_cuckoo`. |
-| `estimated_count`    | uint    | Bloom    | Expected number of elements in the filter. |
+| `max_estimated_count`| uint    | Bloom    | Element count used for Bloom sizing at the target FPR. |
 | `false_positive_rate`| float64 | Bloom    | Target false-positive rate, must be between 0 and 1 exclusive. |
-| `max_estimated_count`| uint    | No       | Bloom: upper bound on estimated count. |
 | `capacity`           | uint    | Cuckoo   | Expected number of elements for a standard cuckoo filter. |
 
 ### Choosing a Filter Kind
@@ -109,7 +108,7 @@ processors:
   threat_enrichment:
     filter:
       kind: bloom
-      estimated_count: 10000
+      max_estimated_count: 10000
       false_positive_rate: 0.01
     rules:
       - name: bad_ips

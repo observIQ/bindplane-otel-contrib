@@ -175,7 +175,7 @@ func pcommonValueToString(v pcommon.Value) string {
 	}
 }
 
-// loadIndicatorFile reads indicator values from path. Supports: plain text (one value per line) or JSON array of strings.
+// loadIndicatorFile reads indicator values from path as plain text (one value per line).
 func loadIndicatorFile(path string) ([]string, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
