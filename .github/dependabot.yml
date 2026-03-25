@@ -166,18 +166,6 @@ updates:
     commit-message:
       prefix: "deps"
       include: "scope"
-  ### EXTENSIONS ###
-  - package-ecosystem: "gomod"
-    directory: "/extension/amqextension"
-    schedule:
-      interval: "weekly"
-    ignore:
-      # Opentelemetry updates will be done manually
-      - dependency-name: "go.opentelemetry.io/*"
-      - dependency-name: "github.com/open-telemetry/opentelemetry-collector*"
-    commit-message:
-      prefix: "deps"
-      include: "scope"
   - package-ecosystem: "gomod"
     directory: "/extension/awss3eventextension"
     schedule:
