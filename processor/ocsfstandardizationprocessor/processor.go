@@ -34,6 +34,7 @@ type compiledEventMapping struct {
 	filter        *expr.Expression
 	classID       int
 	profiles      []string
+	profilesAny   []any // for serialization to the log body
 	fieldMappings []compiledFieldMapping
 	categoryUID   int
 }
@@ -69,9 +70,19 @@ func newOCSFStandardizationProcessor(logger *zap.Logger, config *Config) (*ocsfS
 			fieldMappings = append(fieldMappings, cfm)
 		}
 
+		// We need the profiles as a []any for serialization to the log body
+		var profilesAny []any
+		if len(eventMapping.Profiles) > 0 {
+			profilesAny = make([]any, len(eventMapping.Profiles))
+			for i, p := range eventMapping.Profiles {
+				profilesAny[i] = p
+			}
+		}
+
 		compiledEventMap := compiledEventMapping{
 			classID:       eventMapping.ClassID,
 			profiles:      eventMapping.Profiles,
+			profilesAny:   profilesAny,
 			fieldMappings: fieldMappings,
 			categoryUID:   categoryUID,
 		}
@@ -151,12 +162,8 @@ func (osp *ocsfStandardizationProcessor) processLogRecord(log plog.LogRecord, re
 			"category_uid": eventMapping.categoryUID,
 		}
 
-		if len(eventMapping.profiles) > 0 {
-			profilesAny := make([]any, len(eventMapping.profiles))
-			for i, p := range eventMapping.profiles {
-				profilesAny[i] = p
-			}
-			newBody["metadata"].(map[string]any)["profiles"] = profilesAny
+		if len(eventMapping.profilesAny) > 0 {
+			newBody["metadata"].(map[string]any)["profiles"] = eventMapping.profilesAny
 		}
 
 		for _, fieldMapping := range eventMapping.fieldMappings {
