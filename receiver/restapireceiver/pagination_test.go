@@ -1303,14 +1303,29 @@ func TestNewPaginationState_Timestamp_EpochSecondsFractional_WholeSeconds(t *tes
 
 func TestParseTimestampValue_FractionalFloat(t *testing.T) {
 	// Float64 seconds with fractional part
-	result := parseTimestampValue(1735689600.123)
+	result := parseTimestampValue(1735689600.123, "")
 	expected := time.Date(2025, 1, 1, 0, 0, 0, 123000000, time.UTC)
 	require.InDelta(t, expected.UnixNano(), result.UnixNano(), 1000, "expected %v, got %v", expected, result)
 
 	// Float64 milliseconds with fractional part
-	result = parseTimestampValue(1735689600123.456)
+	result = parseTimestampValue(1735689600123.456, "")
 	expected = time.Date(2025, 1, 1, 0, 0, 0, 123456000, time.UTC)
 	require.InDelta(t, expected.UnixNano(), result.UnixNano(), 1000, "expected %v, got %v", expected, result)
+}
+
+func TestParseTimestampValue_ConfiguredFormat(t *testing.T) {
+	// Timestamp with milliseconds and no-colon timezone offset.
+	// This format is not in the default timestampFormats list, so it
+	// only parses when the configured format is passed through.
+	const format = "2006-01-02T15:04:05.000-0700"
+
+	result := parseTimestampValue("2026-03-29T02:09:21.550+0000", format)
+	expected := time.Date(2026, 3, 29, 2, 9, 21, 550000000, time.UTC)
+	require.True(t, expected.Equal(result), "expected %v, got %v", expected, result)
+
+	// Verify the same string fails without the configured format
+	result = parseTimestampValue("2026-03-29T02:09:21.550+0000", "")
+	require.True(t, result.IsZero(), "expected zero time without configured format, got %v", result)
 }
 
 func TestParsePaginationResponse_WithDataArray(t *testing.T) {

@@ -352,9 +352,10 @@ func parseTimestampResponse(cfg *Config, dataArray []map[string]any, state *pagi
 	timestampField := cfg.Pagination.Timestamp.TimestampFieldName
 
 	if timestampField != "" {
+		configuredFormat := cfg.Pagination.Timestamp.TimestampFormat
 		for i, item := range dataArray {
 			if timestampVal, exists := item[timestampField]; exists {
-				parsedTime := parseTimestampValue(timestampVal)
+				parsedTime := parseTimestampValue(timestampVal, configuredFormat)
 				if !parsedTime.IsZero() && parsedTime.After(maxTimestamp) {
 					maxTimestamp = parsedTime
 					logger.Debug("parseTimestampResponse: found newer timestamp",
@@ -406,11 +407,25 @@ func parseTimestampResponse(cfg *Config, dataArray []map[string]any, state *pagi
 }
 
 // parseTimestampValue parses a timestamp value from various formats.
-func parseTimestampValue(timestampVal any) time.Time {
+// If configuredFormat is non-empty, it is tried first (for string values) or used
+// to select the correct epoch interpretation (for numeric values).
+func parseTimestampValue(timestampVal any, configuredFormat string) time.Time {
 	var parsedTime time.Time
 
 	if timestampStr, ok := timestampVal.(string); ok {
-		// Try multiple timestamp formats
+		// If the user configured an epoch format, try parsing the string as a numeric epoch value first.
+		if isEpochFormat(configuredFormat) {
+			if t, err := parseEpochTimestamp(timestampStr, configuredFormat); err == nil {
+				return t
+			}
+		}
+		// Try the user's configured format first, then fall back to common formats.
+		if configuredFormat != "" && !isEpochFormat(configuredFormat) {
+			if t, err := time.Parse(configuredFormat, timestampStr); err == nil {
+				return t
+			}
+		}
+		// Try multiple common timestamp formats
 		for _, format := range timestampFormats {
 			if t, err := time.Parse(format, timestampStr); err == nil {
 				parsedTime = t
