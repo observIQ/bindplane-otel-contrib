@@ -78,7 +78,9 @@ func (p *threatEnrichmentProcessor) start(_ context.Context, _ component.Host) e
 			return fmt.Errorf("rule %q indicator_file: %w", r.Name, err)
 		}
 		for _, v := range values {
-			f.AddString(v)
+			if err := f.AddString(v); err != nil {
+				return fmt.Errorf("rule %q add indicator %q: %w", r.Name, v, err)
+			}
 		}
 		p.logger.Info("loaded rule", zap.String("rule", r.Name), zap.String("indicator_file", r.IndicatorFile), zap.Int("count", len(values)), zap.Strings("lookup_fields", r.LookupFields))
 		p.rules = append(p.rules, ruleState{name: r.Name, f: f, lookupFields: r.LookupFields})
