@@ -62,14 +62,22 @@ const (
 )
 
 var (
-	ErrFilterAddStringFailed        = errors.New("failed to add string to filter")
-	ErrFilterAddFailed              = errors.New("failed to add value to filter")
-	ErrFilterMayContainFailed       = errors.New("failed to check if value may contain in filter")
+	// ErrFilterAddStringFailed is returned when AddString cannot insert into the filter.
+	ErrFilterAddStringFailed = errors.New("failed to add string to filter")
+	// ErrFilterAddFailed is returned when Add cannot insert into the filter.
+	ErrFilterAddFailed = errors.New("failed to add value to filter")
+	// ErrFilterMayContainFailed is returned when a byte-slice membership check cannot be completed.
+	ErrFilterMayContainFailed = errors.New("failed to check if value may contain in filter")
+	// ErrFilterMayContainStringFailed is returned when a string membership check cannot be completed.
 	ErrFilterMayContainStringFailed = errors.New("failed to check if string may contain in filter")
-	ErrFilterCapFailed              = errors.New("failed to get filter capacity")
-	ErrFilterKindFailed             = errors.New("failed to get filter kind")
-	ErrFilterNewFailed              = errors.New("failed to create filter")
-	ErrFilterUnknownKind            = errors.New("unknown filter kind")
+	// ErrFilterCapFailed is returned when the filter capacity cannot be read.
+	ErrFilterCapFailed = errors.New("failed to get filter capacity")
+	// ErrFilterKindFailed is returned when the filter kind cannot be determined.
+	ErrFilterKindFailed = errors.New("failed to get filter kind")
+	// ErrFilterNewFailed is returned when a filter instance cannot be constructed.
+	ErrFilterNewFailed = errors.New("failed to create filter")
+	// ErrFilterUnknownKind is returned when the requested filter kind is not recognized.
+	ErrFilterUnknownKind = errors.New("unknown filter kind")
 )
 
 // BloomOptions configures a Bloom filter. Used with NewFilterFromConfig or
