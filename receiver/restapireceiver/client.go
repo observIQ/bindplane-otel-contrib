@@ -369,9 +369,13 @@ func (c *defaultRESTAPIClient) createOAuth2TokenSource(ctx context.Context) (oau
 // applyHeaders applies custom headers from configuration to the request.
 // Custom headers are applied after default headers (Accept, Content-Type) and
 // authentication headers, allowing them to override any previously set values.
+// Sensitive headers are applied last, so they take precedence over regular headers.
 func (c *defaultRESTAPIClient) applyHeaders(req *http.Request) {
 	for key, value := range c.cfg.Headers {
 		req.Header.Set(key, value)
+	}
+	for key, value := range c.cfg.SensitiveHeaders {
+		req.Header.Set(key, string(value))
 	}
 }
 

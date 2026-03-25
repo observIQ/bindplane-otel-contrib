@@ -894,6 +894,82 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectedErr: "invalid header name \"X-Bad:Header\": contains invalid character",
 		},
+		{
+			name: "valid sensitive headers",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				SensitiveHeaders: map[string]configopaque.String{
+					"X-Auth-Token": "secret-token-value",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "sensitive header name with space",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				SensitiveHeaders: map[string]configopaque.String{
+					"Bad Header": "value",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid sensitive header name \"Bad Header\": contains invalid character",
+		},
+		{
+			name: "sensitive header value with newline",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				SensitiveHeaders: map[string]configopaque.String{
+					"X-Auth": "value\nevil",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid sensitive header value for \"X-Auth\": contains newline",
+		},
+		{
+			name: "duplicate header in headers and sensitive_headers",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Custom": "plain-value",
+				},
+				SensitiveHeaders: map[string]configopaque.String{
+					"X-Custom": "secret-value",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "header \"X-Custom\" is defined in both headers and sensitive_headers",
+		},
+		{
+			name: "valid mixed headers and sensitive_headers",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Tenant-ID": "tenant-123",
+				},
+				SensitiveHeaders: map[string]configopaque.String{
+					"X-Auth-Token": "secret-token",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
 	}
 
 	for _, tc := range testCases {

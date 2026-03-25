@@ -120,11 +120,14 @@ type Config struct {
 	// Headers is an optional map of headers to send with each request.
 	// These headers are applied after authentication headers, so they can
 	// override default headers like Accept or Content-Type if needed.
-	//
-	// Note: Header values may appear in debug logs. For sensitive credentials,
-	// prefer the dedicated auth_mode options (apikey, bearer, basic, oauth2)
-	// which are designed for secret handling.
+	// Header values will appear in debug logs.
 	Headers map[string]string `mapstructure:"headers"`
+
+	// SensitiveHeaders is an optional map of headers containing sensitive values
+	// (e.g., auth tokens, API keys). Values are masked in logs and debug output.
+	// These headers are applied after authentication and regular headers,
+	// so they can override any previously set values.
+	SensitiveHeaders map[string]configopaque.String `mapstructure:"sensitive_headers"`
 
 	// ClientConfig defines HTTP client configuration.
 	ClientConfig confighttp.ClientConfig `mapstructure:",squash"`
@@ -357,6 +360,23 @@ func (c *Config) Validate() error {
 		}
 		if err := validateHeaderValue(value); err != nil {
 			return fmt.Errorf("invalid header value for %q: %w", name, err)
+		}
+	}
+
+	// Validate sensitive headers
+	for name, value := range c.SensitiveHeaders {
+		if err := validateHeaderName(name); err != nil {
+			return fmt.Errorf("invalid sensitive header name %q: %w", name, err)
+		}
+		if err := validateHeaderValue(string(value)); err != nil {
+			return fmt.Errorf("invalid sensitive header value for %q: %w", name, err)
+		}
+	}
+
+	// Check for duplicate header names across headers and sensitive_headers
+	for name := range c.SensitiveHeaders {
+		if _, exists := c.Headers[name]; exists {
+			return fmt.Errorf("header %q is defined in both headers and sensitive_headers; use one or the other", name)
 		}
 	}
 

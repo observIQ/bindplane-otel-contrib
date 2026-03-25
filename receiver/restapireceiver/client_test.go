@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/confighttp"
+	"go.opentelemetry.io/collector/config/configopaque"
 )
 
 func TestNewRESTAPIClient(t *testing.T) {
@@ -644,6 +645,84 @@ func TestRESTAPIClient_GetFullResponse_CustomHeaders(t *testing.T) {
 		AuthMode: authModeNone,
 		Headers: map[string]string{
 			"X-Custom-Header": "custom-value",
+		},
+		ClientConfig: confighttp.ClientConfig{},
+	}
+
+	ctx := context.Background()
+	host := componenttest.NewNopHost()
+	settings := componenttest.NewNopTelemetrySettings()
+
+	client, err := newRESTAPIClient(ctx, settings, cfg, host)
+	require.NoError(t, err)
+
+	params := url.Values{}
+	data, err := client.GetFullResponse(ctx, server.URL, params)
+	require.NoError(t, err)
+	require.NotNil(t, data)
+}
+
+func TestRESTAPIClient_GetJSON_SensitiveHeaders(t *testing.T) {
+	// Create a test server that verifies sensitive headers are sent
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify sensitive header is set
+		require.Equal(t, "secret-token", r.Header.Get("X-Auth-Token"))
+		// Verify regular header is also set
+		require.Equal(t, "tenant-123", r.Header.Get("X-Tenant-ID"))
+
+		response := []map[string]any{
+			{"id": "1"},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:      server.URL,
+		AuthMode: authModeNone,
+		Headers: map[string]string{
+			"X-Tenant-ID": "tenant-123",
+		},
+		SensitiveHeaders: map[string]configopaque.String{
+			"X-Auth-Token": "secret-token",
+		},
+		ClientConfig: confighttp.ClientConfig{},
+	}
+
+	ctx := context.Background()
+	host := componenttest.NewNopHost()
+	settings := componenttest.NewNopTelemetrySettings()
+
+	client, err := newRESTAPIClient(ctx, settings, cfg, host)
+	require.NoError(t, err)
+
+	params := url.Values{}
+	data, err := client.GetJSON(ctx, server.URL, params)
+	require.NoError(t, err)
+	require.Len(t, data, 1)
+}
+
+func TestRESTAPIClient_GetFullResponse_SensitiveHeaders(t *testing.T) {
+	// Create a test server that verifies sensitive headers on GetFullResponse
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "secret-value", r.Header.Get("X-Secret"))
+
+		response := map[string]any{
+			"data": []map[string]any{
+				{"id": "1"},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:      server.URL,
+		AuthMode: authModeNone,
+		SensitiveHeaders: map[string]configopaque.String{
+			"X-Secret": "secret-value",
 		},
 		ClientConfig: confighttp.ClientConfig{},
 	}
