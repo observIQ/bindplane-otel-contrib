@@ -52,13 +52,15 @@ func NewBloomFilter(maxEstimatedCount uint, falsePositiveRate float64) *BloomFil
 }
 
 // Add adds value to the filter. It is idempotent.
-func (f *BloomFilter) Add(value []byte) {
+func (f *BloomFilter) Add(value []byte) error {
 	f.inner.Add(value)
+	return nil
 }
 
 // AddString adds the string to the filter. Convenient for IPs, domains, etc.
-func (f *BloomFilter) AddString(s string) {
+func (f *BloomFilter) AddString(s string) error {
 	f.inner.AddString(s)
+	return nil
 }
 
 // MayContain returns false if value is definitely not in the set, and true if

@@ -32,8 +32,13 @@ import (
 // (or strings via AddString/MayContainString) so any observable type (IPs,
 // domains, hashes, etc.) can be used.
 type Filter interface {
-	Add(value []byte)
-	AddString(s string)
+	// Add adds a value to the filter.
+	// For some probabilistic filters, insertion may fail (e.g. cuckoo filters
+	// when the structure cannot accommodate the fingerprint), so callers should
+	// handle returned errors.
+	Add(value []byte) error
+	// AddString adds a string to the filter.
+	AddString(s string) error
 	MayContain(value []byte) bool
 	MayContainString(s string) bool
 	Cap() uint

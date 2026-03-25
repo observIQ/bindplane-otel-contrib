@@ -40,13 +40,29 @@ func NewCuckooFilterFromOptions(o CuckooOptions) *CuckooFilter {
 }
 
 // Add adds value to the filter. Uses InsertUnique for idempotent set semantics.
-func (f *CuckooFilter) Add(value []byte) {
-	f.inner.InsertUnique(value)
+func (f *CuckooFilter) Add(value []byte) error {
+	// InsertUnique reports whether the insert succeeded. It can return false
+	// for "already present" elements, so we treat a subsequent positive lookup
+	// as success to preserve idempotent semantics.
+	if f.inner.InsertUnique(value) {
+		return nil
+	}
+	if f.inner.Lookup(value) {
+		return nil
+	}
+	return ErrFilterAddFailed
 }
 
 // AddString adds the string to the filter.
-func (f *CuckooFilter) AddString(s string) {
-	f.inner.InsertUnique([]byte(s))
+func (f *CuckooFilter) AddString(s string) error {
+	b := []byte(s)
+	if f.inner.InsertUnique(b) {
+		return nil
+	}
+	if f.inner.Lookup(b) {
+		return nil
+	}
+	return ErrFilterAddStringFailed
 }
 
 // MayContain returns false if value is definitely not in the set, and true if
