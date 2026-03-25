@@ -57,8 +57,6 @@ processors:
 | `false_positive_rate`| float64 | Bloom    | Target false-positive rate, must be between 0 and 1 exclusive. |
 | `max_estimated_count`| uint    | No       | Bloom: upper bound on estimated count. |
 | `capacity`           | uint    | Cuckoo   | Expected number of elements for a standard cuckoo filter. |
-| `initial_capacity`   | uint    | No       | Scalable cuckoo: initial capacity (0 = library default). |
-| `load_factor`        | float32 | No       | Scalable cuckoo: load factor (0 = library default). |
 
 ### Choosing a Filter Kind
 

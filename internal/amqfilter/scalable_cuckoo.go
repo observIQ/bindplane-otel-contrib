@@ -26,9 +26,10 @@ type ScalableCuckooFilter struct {
 	inner *cuckoolib.ScalableCuckooFilter
 }
 
-// NewScalableCuckooFilterFromOptions creates a Scalable Cuckoo filter. opts reserved for future use.
-func NewScalableCuckooFilterFromOptions(o ScalableCuckooOptions) *ScalableCuckooFilter {
-	_ = o
+// NewScalableCuckooFilterFromOptions creates a scalable cuckoo filter using
+// library defaults. The ScalableCuckooOptions parameter exists for symmetry with
+// other filter constructors and implements FilterConfig.
+func NewScalableCuckooFilterFromOptions(_ ScalableCuckooOptions) *ScalableCuckooFilter {
 	return &ScalableCuckooFilter{inner: cuckoolib.NewScalableCuckooFilter()}
 }
 

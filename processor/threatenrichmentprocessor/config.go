@@ -33,14 +33,10 @@ type FilterConfig struct {
 
 	// Cuckoo: capacity (expected number of elements).
 	Capacity uint `mapstructure:"capacity"`
-
-	// ScalableCuckoo: initial capacity and load factor (0 = use library defaults).
-	InitialCapacity uint    `mapstructure:"initial_capacity"`
-	LoadFactor      float32 `mapstructure:"load_factor"`
 }
 
 func filterKindOf(fc FilterConfig) filter.Kind {
-	return filter.Kind(strings.ToLower(strings.TrimSpace(fc.Kind)))
+	return filter.Kind(strings.ToLower(strings.TrimSpace(string(fc.Kind))))
 }
 
 // toFilterConfig returns the internal filter package config for the selected kind.
@@ -56,12 +52,9 @@ func (c *FilterConfig) toFilterConfig() (filter.FilterConfig, error) {
 	case filter.KindCuckoo:
 		return filter.CuckooOptions{Capacity: c.Capacity}, nil
 	case filter.KindScalableCuckoo:
-		return filter.ScalableCuckooOptions{
-			InitialCapacity: c.InitialCapacity,
-			LoadFactor:      c.LoadFactor,
-		}, nil
+		return filter.ScalableCuckooOptions{}, nil
 	default:
-		return nil, fmt.Errorf("filter kind %q is not one of: bloom, cuckoo, scalable_cuckoo", strings.TrimSpace(c.Kind))
+		return nil, fmt.Errorf("filter kind %q is not one of: bloom, cuckoo, scalable_cuckoo", strings.TrimSpace(string(c.Kind)))
 	}
 }
 
@@ -136,7 +129,7 @@ func validateFilterKind(fc FilterConfig, prefix string) error {
 
 // Validate validates the processor configuration and normalizes string fields (trim whitespace).
 func (cfg *Config) Validate() error {
-	cfg.Filter.Kind = strings.TrimSpace(cfg.Filter.Kind)
+	cfg.Filter.Kind = filter.Kind(strings.TrimSpace(string(cfg.Filter.Kind)))
 	for i := range cfg.Rules {
 		r := &cfg.Rules[i]
 		r.Name = strings.TrimSpace(r.Name)
@@ -147,7 +140,7 @@ func (cfg *Config) Validate() error {
 		}
 		r.LookupFields = lookup
 		if r.Filter != nil {
-			r.Filter.Kind = strings.TrimSpace(r.Filter.Kind)
+			r.Filter.Kind = filter.Kind(strings.TrimSpace(string(r.Filter.Kind)))
 		}
 	}
 

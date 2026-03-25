@@ -23,7 +23,10 @@
 // must not treat true as definitive membership.
 package amqfilter
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // Filter is the common interface for set-membership filters. Values are []byte
 // (or strings via AddString/MayContainString) so any observable type (IPs,
@@ -53,6 +56,17 @@ const (
 	KindScalableCuckoo Kind = "scalable_cuckoo"
 )
 
+var (
+	ErrFilterAddStringFailed        = errors.New("failed to add string to filter")
+	ErrFilterAddFailed              = errors.New("failed to add value to filter")
+	ErrFilterMayContainFailed       = errors.New("failed to check if value may contain in filter")
+	ErrFilterMayContainStringFailed = errors.New("failed to check if string may contain in filter")
+	ErrFilterCapFailed              = errors.New("failed to get filter capacity")
+	ErrFilterKindFailed             = errors.New("failed to get filter kind")
+	ErrFilterNewFailed              = errors.New("failed to create filter")
+	ErrFilterUnknownKind            = errors.New("unknown filter kind")
+)
+
 // BloomOptions configures a Bloom filter. Used with NewFilterFromConfig or
 // NewFilter(KindBloom, opts). MaxEstimatedCount caps sizing when set (0 = no cap).
 type BloomOptions struct {
@@ -72,19 +86,15 @@ type CuckooOptions struct {
 // FilterKind implements FilterConfig.
 func (CuckooOptions) FilterKind() Kind { return KindCuckoo }
 
-// ScalableCuckooOptions configures a Scalable Cuckoo filter. Zero values use
-// library defaults (InitialCapacity 10000, LoadFactor 0.9). The upstream
-// library does not export options; these fields are applied when using a
-// vendored copy with an extended constructor; otherwise defaults are used.
-type ScalableCuckooOptions struct {
-	InitialCapacity uint    // default 10000
-	LoadFactor      float32 // default 0.9
-}
+// ScalableCuckooOptions is an empty config type for scalable_cuckoo. The
+// github.com/seiflotfy/cuckoofilter scalable implementation does not expose
+// public tuning knobs; the filter always uses that package's defaults.
+type ScalableCuckooOptions struct{}
 
 // FilterKind implements FilterConfig.
 func (ScalableCuckooOptions) FilterKind() Kind { return KindScalableCuckoo }
 
-// NewFilterFromConfig creates a filter from a config (dependency injection).
+// NewFilterFromConfig creates a filter from a config 
 // The concrete type of c determines the filter implementation.
 func NewFilterFromConfig(c FilterConfig) (Filter, error) {
 	switch c.FilterKind() {
