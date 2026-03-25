@@ -24,7 +24,7 @@ import (
 // FilterConfig is the configuration for which filter algorithm to use and its parameters.
 // Set Kind to one of: bloom, cuckoo, scalable_cuckoo. Other fields apply per kind.
 type FilterConfig struct {
-	Kind string `mapstructure:"kind"`
+	Kind filter.Kind `mapstructure:"kind"`
 
 	// Bloom: estimated number of elements and target false positive rate.
 	EstimatedCount    uint    `mapstructure:"estimated_count"`

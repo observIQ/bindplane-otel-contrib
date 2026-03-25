@@ -75,13 +75,13 @@ In practice, most static threat-intel feeds (IP blocklists, domain blocklists) w
 | Field            | Type           | Required | Description |
 |------------------|----------------|----------|-------------|
 | `name`           | string         | Yes      | Unique identifier for this rule (e.g. `"ips"`, `"domains"`). Appears in the `threat.rule` attribute on match. |
-| `indicator_file` | string         | Yes      | Path to the indicator file. Supports plain text (one value per line) or a JSON array of strings. |
+| `indicator_file` | string         | Yes      | Path to the indicator file containing plain text IOC's (one value per line) |
 | `lookup_fields`  | `[]string`     | Yes      | Log attribute keys to check against this rule's filter. Use `"body"` to match on the log body. |
 | `filter`         | `*FilterConfig`| No       | Optional per-rule filter override. If omitted, the top-level `filter` config is used. |
 
 ## Indicator Files
 
-Indicator files can be in either of two formats:
+Indicator files are in this format:
 
 **Plain text** — one indicator per line (blank lines and leading/trailing whitespace are ignored):
 
@@ -89,12 +89,6 @@ Indicator files can be in either of two formats:
 10.0.0.1
 192.168.1.100
 evil.example.com
-```
-
-**JSON array** — a JSON array of strings:
-
-```json
-["10.0.0.1", "192.168.1.100", "evil.example.com"]
 ```
 
 ## Output Attributes

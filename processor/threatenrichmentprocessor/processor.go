@@ -17,7 +17,6 @@ package threatenrichmentprocessor
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -182,23 +181,8 @@ func loadIndicatorFile(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	trimmed := strings.TrimSpace(string(data))
-	if trimmed == "" {
+	if strings.TrimSpace(string(data)) == "" {
 		return nil, nil
-	}
-	if strings.HasPrefix(trimmed, "[") {
-		var arr []string
-		if err := json.Unmarshal(data, &arr); err != nil {
-			return nil, fmt.Errorf("parse JSON array: %w", err)
-		}
-		out := make([]string, 0, len(arr))
-		for _, s := range arr {
-			t := strings.TrimSpace(s)
-			if t != "" {
-				out = append(out, t)
-			}
-		}
-		return out, nil
 	}
 	var out []string
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
