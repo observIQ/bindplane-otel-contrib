@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/confmap/confmaptest"
 	"go.opentelemetry.io/collector/confmap/xconfmap"
 
@@ -851,6 +852,6 @@ func TestLoadConfigFromYAML(t *testing.T) {
 	require.Equal(t, 10*time.Second, restapiCfg.MinPollInterval)
 	require.Equal(t, 5*time.Minute, restapiCfg.MaxPollInterval)
 	require.Equal(t, authModeAPIKey, restapiCfg.AuthMode)
-	require.Equal(t, "test-key", restapiCfg.APIKeyConfig.Value)
+	require.Equal(t, configopaque.String("test-key"), restapiCfg.APIKeyConfig.Value)
 	require.Equal(t, "X-API-Key", restapiCfg.APIKeyConfig.HeaderName)
 }

@@ -297,7 +297,7 @@ func (c *defaultRESTAPIClient) generateEdgeGridAuth(req *http.Request) (string, 
 	}, "\t")
 
 	// Create signing key from client secret and timestamp
-	signingKey := makeSigningKey(timestamp, c.cfg.AkamaiEdgeGridConfig.ClientSecret)
+	signingKey := makeSigningKey(timestamp, string(c.cfg.AkamaiEdgeGridConfig.ClientSecret))
 
 	// Create the signature
 	signature := makeSignature(signingData, signingKey)
@@ -305,8 +305,8 @@ func (c *defaultRESTAPIClient) generateEdgeGridAuth(req *http.Request) (string, 
 	// Construct the authorization header
 	authHeader := fmt.Sprintf(
 		"EG1-HMAC-SHA256 client_token=%s;access_token=%s;timestamp=%s;nonce=%s;signature=%s",
-		c.cfg.AkamaiEdgeGridConfig.ClientToken,
-		c.cfg.AkamaiEdgeGridConfig.AccessToken,
+		string(c.cfg.AkamaiEdgeGridConfig.ClientToken),
+		string(c.cfg.AkamaiEdgeGridConfig.AccessToken),
 		timestamp,
 		nonce,
 		signature,
@@ -343,7 +343,7 @@ func makeSignature(data, key string) string {
 func (c *defaultRESTAPIClient) createOAuth2TokenSource(ctx context.Context) (oauth2.TokenSource, error) {
 	oauthConfig := clientcredentials.Config{
 		ClientID:       c.cfg.OAuth2Config.ClientID,
-		ClientSecret:   c.cfg.OAuth2Config.ClientSecret,
+		ClientSecret:   string(c.cfg.OAuth2Config.ClientSecret),
 		TokenURL:       c.cfg.OAuth2Config.TokenURL,
 		Scopes:         c.cfg.OAuth2Config.Scopes,
 		EndpointParams: url.Values{},
@@ -370,26 +370,26 @@ func (c *defaultRESTAPIClient) applyAuth(req *http.Request) error {
 
 	case authModeAPIKey:
 		// API key authentication
-		if c.cfg.APIKeyConfig.HeaderName == "" || c.cfg.APIKeyConfig.Value == "" {
+		if c.cfg.APIKeyConfig.HeaderName == "" || string(c.cfg.APIKeyConfig.Value) == "" {
 			return fmt.Errorf("API key header name and value are required")
 		}
-		req.Header.Set(c.cfg.APIKeyConfig.HeaderName, c.cfg.APIKeyConfig.Value)
+		req.Header.Set(c.cfg.APIKeyConfig.HeaderName, string(c.cfg.APIKeyConfig.Value))
 		return nil
 
 	case authModeBearer:
 		// Bearer token authentication
-		if c.cfg.BearerConfig.Token == "" {
+		if string(c.cfg.BearerConfig.Token) == "" {
 			return fmt.Errorf("bearer token is required")
 		}
-		req.Header.Set("Authorization", "Bearer "+c.cfg.BearerConfig.Token)
+		req.Header.Set("Authorization", "Bearer "+string(c.cfg.BearerConfig.Token))
 		return nil
 
 	case authModeBasic:
 		// Basic authentication
-		if c.cfg.BasicConfig.Username == "" || c.cfg.BasicConfig.Password == "" {
+		if c.cfg.BasicConfig.Username == "" || string(c.cfg.BasicConfig.Password) == "" {
 			return fmt.Errorf("basic auth username and password are required")
 		}
-		req.SetBasicAuth(c.cfg.BasicConfig.Username, c.cfg.BasicConfig.Password)
+		req.SetBasicAuth(c.cfg.BasicConfig.Username, string(c.cfg.BasicConfig.Password))
 		return nil
 
 	case authModeOAuth2:
@@ -406,7 +406,7 @@ func (c *defaultRESTAPIClient) applyAuth(req *http.Request) error {
 
 	case authModeAkamaiEdgeGrid:
 		// Akamai EdgeGrid authentication
-		if c.cfg.AkamaiEdgeGridConfig.AccessToken == "" || c.cfg.AkamaiEdgeGridConfig.ClientToken == "" || c.cfg.AkamaiEdgeGridConfig.ClientSecret == "" {
+		if string(c.cfg.AkamaiEdgeGridConfig.AccessToken) == "" || string(c.cfg.AkamaiEdgeGridConfig.ClientToken) == "" || string(c.cfg.AkamaiEdgeGridConfig.ClientSecret) == "" {
 			return fmt.Errorf("akamai edgegrid access token, client token, and client secret are required")
 		}
 		authHeader, err := c.generateEdgeGridAuth(req)
