@@ -166,7 +166,7 @@ updates:
     commit-message:
       prefix: "deps"
       include: "scope"
-  ### Extensions ###
+  ### EXTENSIONS ###
   - package-ecosystem: "gomod"
     directory: "/extension/awss3eventextension"
     schedule:
