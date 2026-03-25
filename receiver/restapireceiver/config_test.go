@@ -954,6 +954,23 @@ func TestConfig_Validate(t *testing.T) {
 			expectedErr: "header \"X-Custom\" is defined in both headers and sensitive_headers",
 		},
 		{
+			name: "duplicate header in headers and sensitive_headers case-insensitive",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"x-custom": "plain-value",
+				},
+				SensitiveHeaders: map[string]configopaque.String{
+					"X-Custom": "secret-value",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "header \"X-Custom\" is defined in both headers and sensitive_headers",
+		},
+		{
 			name: "valid mixed headers and sensitive_headers",
 			config: &Config{
 				URL:      "https://api.example.com/data",

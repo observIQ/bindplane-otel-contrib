@@ -16,6 +16,7 @@ package restapireceiver // import "github.com/observiq/bindplane-otel-contrib/re
 
 import (
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -373,10 +374,12 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// Check for duplicate header names across headers and sensitive_headers
+	// Check for duplicate header names across headers and sensitive_headers (case-insensitive)
 	for name := range c.SensitiveHeaders {
-		if _, exists := c.Headers[name]; exists {
-			return fmt.Errorf("header %q is defined in both headers and sensitive_headers; use one or the other", name)
+		for hName := range c.Headers {
+			if http.CanonicalHeaderKey(name) == http.CanonicalHeaderKey(hName) {
+				return fmt.Errorf("header %q is defined in both headers and sensitive_headers; use one or the other", name)
+			}
 		}
 	}
 
