@@ -1315,17 +1315,156 @@ func TestParseTimestampValue_FractionalFloat(t *testing.T) {
 
 func TestParseTimestampValue_ConfiguredFormat(t *testing.T) {
 	// Timestamp with milliseconds and no-colon timezone offset.
-	// This format is not in the default timestampFormats list, so it
-	// only parses when the configured format is passed through.
 	const format = "2006-01-02T15:04:05.000-0700"
 
 	result := parseTimestampValue("2026-03-29T02:09:21.550+0000", format)
 	expected := time.Date(2026, 3, 29, 2, 9, 21, 550000000, time.UTC)
 	require.True(t, expected.Equal(result), "expected %v, got %v", expected, result)
 
-	// Verify the same string fails without the configured format
+	// Regex-based fallback handles ±HHMM timezone offsets
 	result = parseTimestampValue("2026-03-29T02:09:21.550+0000", "")
-	require.True(t, result.IsZero(), "expected zero time without configured format, got %v", result)
+	require.True(t, expected.Equal(result), "expected regex fallback to parse ±HHMM timezone, got %v", result)
+}
+
+func TestParseTimestampString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantOK   bool
+		wantTime time.Time
+	}{
+		// RFC3339 / ISO8601 with T separator
+		{
+			name:     "RFC3339 with Z",
+			input:    "2024-06-15T10:30:00Z",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 0, time.UTC),
+		},
+		{
+			name:     "RFC3339 with positive offset",
+			input:    "2024-06-15T10:30:00+05:30",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 0, time.FixedZone("", 5*3600+30*60)),
+		},
+		{
+			name:     "RFC3339 with negative offset",
+			input:    "2024-06-15T10:30:00-04:00",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 0, time.FixedZone("", -4*3600)),
+		},
+		// Fractional seconds of varying precision
+		{
+			name:     "milliseconds with Z",
+			input:    "2024-06-15T10:30:00.123Z",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 123000000, time.UTC),
+		},
+		{
+			name:     "microseconds with Z",
+			input:    "2024-06-15T10:30:00.123456Z",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 123456000, time.UTC),
+		},
+		{
+			name:     "nanoseconds with Z",
+			input:    "2024-06-15T10:30:00.123456789Z",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 123456789, time.UTC),
+		},
+		{
+			name:     "single fractional digit",
+			input:    "2024-06-15T10:30:00.1Z",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 100000000, time.UTC),
+		},
+		// No-colon timezone offset (±HHMM)
+		{
+			name:     "no-colon tz offset with fractional",
+			input:    "2024-06-15T10:30:00.550+0000",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 550000000, time.UTC),
+		},
+		{
+			name:     "no-colon negative tz offset",
+			input:    "2024-06-15T10:30:00-0500",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 0, time.FixedZone("", -5*3600)),
+		},
+		// Short timezone (±HH)
+		{
+			name:     "short tz offset",
+			input:    "2024-06-15T10:30:00+05",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 0, time.FixedZone("", 5*3600)),
+		},
+		// Space separator instead of T
+		{
+			name:     "space separator with tz",
+			input:    "2024-06-15 10:30:00+00:00",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 0, time.UTC),
+		},
+		{
+			name:     "space separator with microseconds",
+			input:    "2024-06-15 10:30:00.123456-07:00",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 123456000, time.FixedZone("", -7*3600)),
+		},
+		// No timezone
+		{
+			name:     "no timezone",
+			input:    "2024-06-15T10:30:00",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 0, time.UTC),
+		},
+		{
+			name:     "space separator no timezone",
+			input:    "2024-06-15 10:30:00",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 0, time.UTC),
+		},
+		// Date only
+		{
+			name:     "date only",
+			input:    "2024-06-15",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC),
+		},
+		// Whitespace trimming
+		{
+			name:     "leading/trailing whitespace",
+			input:    "  2024-06-15T10:30:00Z  ",
+			wantOK:   true,
+			wantTime: time.Date(2024, 6, 15, 10, 30, 0, 0, time.UTC),
+		},
+		// Non-matching inputs
+		{
+			name:   "empty string",
+			input:  "",
+			wantOK: false,
+		},
+		{
+			name:   "plain text",
+			input:  "not-a-timestamp",
+			wantOK: false,
+		},
+		{
+			name:   "epoch number as string",
+			input:  "1735689600",
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseTimestampString(tt.input)
+			require.Equal(t, tt.wantOK, ok, "parseTimestampString(%q) ok", tt.input)
+			if tt.wantOK {
+				require.True(t, tt.wantTime.Equal(got),
+					"parseTimestampString(%q) = %v, want %v", tt.input, got, tt.wantTime)
+			}
+		})
+	}
 }
 
 func TestParsePaginationResponse_WithDataArray(t *testing.T) {

@@ -17,6 +17,8 @@ package restapireceiver
 import (
 	"fmt"
 	"net/url"
+	"regexp"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -318,18 +320,16 @@ func parsePageSizeResponse(cfg *Config, response any, extractedData []map[string
 	return false, nil // Partial page, no more
 }
 
-// Common timestamp formats to try when parsing response timestamps
-var timestampFormats = []string{
-	time.RFC3339,
-	time.RFC3339Nano,
-	"2006-01-02T15:04:05.000000-07:00", // RFC3339 with microseconds
-	"2006-01-02T15:04:05.000000Z",      // RFC3339 with microseconds, UTC
-	"2006-01-02T15:04:05-07:00",        // RFC3339 without fractional seconds
-	"2006-01-02 15:04:05.000000-07:00", // Space separator with microseconds
-	"2006-01-02 15:04:05-07:00",        // Space separator without fractional
-	"2006-01-02 15:04:05",              // Simple datetime
-	"2006-01-02",                       // Date only
-}
+var (
+	// datetimeRegex matches ISO 8601 / RFC 3339 style timestamps and captures:
+	//   1: separator (T or space)
+	//   2: fractional seconds including dot (e.g. ".123456")
+	//   3: timezone (Z, ±HH:MM, ±HHMM, or ±HH)
+	datetimeRegex = regexp.MustCompile(
+		`^\d{4}-\d{2}-\d{2}([T ])\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(?::?\d{2})?)?$`,
+	)
+	dateOnlyRegex = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+)
 
 // parseTimestampResponse parses the response for timestamp-based pagination.
 // The dataArray parameter contains the already-extracted data from extractDataFromResponse.
@@ -425,12 +425,9 @@ func parseTimestampValue(timestampVal any, configuredFormat string) time.Time {
 				return t
 			}
 		}
-		// Try multiple common timestamp formats
-		for _, format := range timestampFormats {
-			if t, err := time.Parse(format, timestampStr); err == nil {
-				parsedTime = t
-				break
-			}
+		// Detect format via regex and parse
+		if t, ok := parseTimestampString(timestampStr); ok {
+			parsedTime = t
 		}
 	} else if timestampFloat, ok := timestampVal.(float64); ok {
 		// Unix timestamp (seconds or milliseconds)
@@ -456,6 +453,48 @@ func parseTimestampValue(timestampVal any, configuredFormat string) time.Time {
 	}
 
 	return parsedTime
+}
+
+// parseTimestampString attempts to parse a timestamp string by detecting its
+// format via regex rather than iterating a fixed list of formats. This handles
+// any combination of T/space separator, fractional-second precision (1-9 digits),
+// and timezone style (Z, ±HH:MM, ±HHMM, ±HH, or absent).
+func parseTimestampString(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+
+	if m := datetimeRegex.FindStringSubmatch(s); m != nil {
+		format := "2006-01-02" + m[1] + "15:04:05"
+
+		if m[2] != "" {
+			// Build fractional format matching the exact digit count.
+			format += "." + strings.Repeat("0", len(m[2])-1)
+		}
+
+		if tz := m[3]; tz != "" {
+			switch {
+			case tz == "Z":
+				format += "Z07:00" // accepts literal Z
+			case strings.Contains(tz, ":"):
+				format += "-07:00" // ±HH:MM
+			case len(tz) == 5:
+				format += "-0700" // ±HHMM
+			case len(tz) == 3:
+				format += "-07" // ±HH
+			}
+		}
+
+		if t, err := time.Parse(format, s); err == nil {
+			return t, true
+		}
+	}
+
+	if dateOnlyRegex.MatchString(s) {
+		if t, err := time.Parse("2006-01-02", s); err == nil {
+			return t, true
+		}
+	}
+
+	return time.Time{}, false
 }
 
 // updatePaginationState updates the pagination state to the next page/offset.
