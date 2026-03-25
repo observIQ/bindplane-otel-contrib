@@ -136,44 +136,6 @@ func TestNewBloomFilterFromOptions_MaxEstimatedCount(t *testing.T) {
 	}
 }
 
-func TestFilterSet_AddFilter_Filter_Names(t *testing.T) {
-	s := NewFilterSet()
-	if len(s.Names()) != 0 {
-		t.Fatalf("new FilterSet had names: %v", s.Names())
-	}
-
-	ips := s.AddBloomFilter("ips", 10_000, 0.01)
-	ips.AddString("1.2.3.4")
-	domains := s.AddBloomFilter("domains", 5_000, 0.01)
-	domains.AddString("evil.com")
-
-	if s.Filter("none") != nil {
-		t.Error("Filter(\"none\") should be nil")
-	}
-	got := s.Filter("ips")
-	if got == nil {
-		t.Fatal("Filter(\"ips\") is nil")
-	}
-	if !got.MayContainString("1.2.3.4") {
-		t.Error("ips filter did not contain 1.2.3.4")
-	}
-	gotD := s.Filter("domains")
-	if gotD == nil || !gotD.MayContainString("evil.com") {
-		t.Error("domains filter missing or wrong")
-	}
-
-	names := s.Names()
-	if len(names) != 2 {
-		t.Errorf("Names() = %v", names)
-	}
-}
-
-// randomIPv4 returns a random IPv4 address string (e.g. "1.2.3.4").
-func randomIPv4(rng *rand.Rand) string {
-	return fmt.Sprintf("%d.%d.%d.%d",
-		rng.Intn(256), rng.Intn(256), rng.Intn(256), rng.Intn(256))
-}
-
 func TestFilter_HydrateWithRandomIPs(t *testing.T) {
 	// Simulate hydrating a Bloom filter with indicator-like values (e.g. from AbuseIPDB).
 	const n = 5000

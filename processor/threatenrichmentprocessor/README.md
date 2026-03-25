@@ -47,7 +47,6 @@ processors:
 |----------|----------------|----------|-------------|
 | `filter` | `FilterConfig` | Yes      | Default filter algorithm and parameters used by all rules unless overridden. |
 | `rules`  | `[]Rule`       | Yes      | One or more indicator rules. At least one rule is required. |
-| `storage`| `string`       | No       | Component ID of a storage extension for persistent state. |
 
 ### FilterConfig
 

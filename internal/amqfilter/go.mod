@@ -5,7 +5,6 @@ go 1.26.1
 require (
 	github.com/bits-and-blooms/bloom/v3 v3.7.1
 	github.com/seiflotfy/cuckoofilter v0.0.0-20240715131351-a2f2c23f1771
-	github.com/twmb/murmur3 v1.1.8
 )
 
 require (
