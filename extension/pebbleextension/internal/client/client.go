@@ -124,7 +124,7 @@ func (c *client) Get(_ context.Context, key string) ([]byte, error) {
 		return nil, nil
 	}
 
-	return val, nil
+	return append([]byte(nil), val...), nil
 }
 
 // Set sets a key in the pebble database
