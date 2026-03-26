@@ -374,12 +374,30 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Check for case-insensitive duplicate header names within each map
+	headersSeen := make(map[string]string, len(c.Headers))
+	for name := range c.Headers {
+		canonical := http.CanonicalHeaderKey(name)
+		if existing, ok := headersSeen[canonical]; ok {
+			return fmt.Errorf("header %q and %q are duplicates (HTTP headers are case-insensitive)", existing, name)
+		}
+		headersSeen[canonical] = name
+	}
+
+	sensitiveHeadersSeen := make(map[string]string, len(c.SensitiveHeaders))
+	for name := range c.SensitiveHeaders {
+		canonical := http.CanonicalHeaderKey(name)
+		if existing, ok := sensitiveHeadersSeen[canonical]; ok {
+			return fmt.Errorf("sensitive header %q and %q are duplicates (HTTP headers are case-insensitive)", existing, name)
+		}
+		sensitiveHeadersSeen[canonical] = name
+	}
+
 	// Check for duplicate header names across headers and sensitive_headers (case-insensitive)
 	for name := range c.SensitiveHeaders {
-		for hName := range c.Headers {
-			if http.CanonicalHeaderKey(name) == http.CanonicalHeaderKey(hName) {
-				return fmt.Errorf("header %q is defined in both headers and sensitive_headers; use one or the other", name)
-			}
+		canonical := http.CanonicalHeaderKey(name)
+		if existing, ok := headersSeen[canonical]; ok {
+			return fmt.Errorf("header %q is defined in both headers and sensitive_headers; use one or the other", existing)
 		}
 	}
 
