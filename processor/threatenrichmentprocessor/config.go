@@ -1,0 +1,184 @@
+// Copyright observIQ, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package threatenrichmentprocessor
+
+import (
+	"fmt"
+	"strings"
+
+	filter "github.com/observiq/bindplane-otel-contrib/internal/amqfilter"
+)
+
+// FilterConfig is the configuration for which filter algorithm to use and its parameters.
+// Set Kind to one of: bloom, cuckoo, scalable_cuckoo. Other fields apply per kind.
+type FilterConfig struct {
+	Kind filter.Kind `mapstructure:"kind"`
+
+	// Bloom: max element count for sizing and target false positive rate.
+	MaxEstimatedCount uint    `mapstructure:"max_estimated_count"`
+	FalsePositiveRate float64 `mapstructure:"false_positive_rate"`
+
+	// Cuckoo: capacity (expected number of elements).
+	Capacity uint `mapstructure:"capacity"`
+}
+
+func filterKindOf(fc FilterConfig) filter.Kind {
+	return filter.Kind(strings.ToLower(strings.TrimSpace(string(fc.Kind))))
+}
+
+// toFilterConfig returns the internal filter package config for the selected kind.
+func (c *FilterConfig) toFilterConfig() (filter.FilterConfig, error) {
+	kind := filterKindOf(*c)
+	switch kind {
+	case filter.KindBloom:
+		return filter.BloomOptions{
+			MaxEstimatedCount: c.MaxEstimatedCount,
+			FalsePositiveRate: c.FalsePositiveRate,
+		}, nil
+	case filter.KindCuckoo:
+		return filter.CuckooOptions{Capacity: c.Capacity}, nil
+	case filter.KindScalableCuckoo:
+		return filter.ScalableCuckooOptions{}, nil
+	default:
+		return nil, fmt.Errorf("filter kind %q is not one of: bloom, cuckoo, scalable_cuckoo", strings.TrimSpace(string(c.Kind)))
+	}
+}
+
+// Rule defines one indicator type: a named filter (lookup set) and the log fields to check against it.
+// Each rule has its own indicator file and list of attribute keys (or "body") to look up in that filter.
+type Rule struct {
+	// Name identifies this indicator type (e.g. "ips", "domains"); used in threat.rule when matched.
+	Name string `mapstructure:"name"`
+
+	// IndicatorFile is the path to values for this rule (e.g. malicious IPs), one per line or JSON array of strings.
+	IndicatorFile string `mapstructure:"indicator_file"`
+
+	// LookupFields are log attribute keys to check. The value of each field is looked up in this rule's filter.
+	// Use "body" to use the log body as the lookup value.
+	LookupFields []string `mapstructure:"lookup_fields"`
+
+	// Filter optionally overrides the default filter algorithm for this rule (e.g. different capacity per type).
+	Filter *FilterConfig `mapstructure:"filter"`
+}
+
+// Config is the configuration for the threat enrichment processor.
+type Config struct {
+
+	// Filter is the default filter algorithm and parameters. Each rule uses this unless it sets rule.filter.
+	Filter FilterConfig `mapstructure:"filter"`
+
+	// Rules defines multiple indicator types. Each rule has its own lookup set (indicator_file) and
+	// list of fields to check. For each log record, the processor gets the value from each lookup
+	// field and checks it in that rule's filter; if found, it adds threat.matched and threat.rule.
+	Rules []Rule `mapstructure:"rules"`
+}
+
+func normalizeLookupFields(ruleIdx int, ruleName string, fields []string) ([]string, error) {
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("rules[%d] (%q): at least one lookup_fields entry is required", ruleIdx, ruleName)
+	}
+	out := make([]string, 0, len(fields))
+	seen := make(map[string]struct{})
+	for _, raw := range fields {
+		t := strings.TrimSpace(raw)
+		if t == "" {
+			return nil, fmt.Errorf("rules[%d] (%q): lookup_fields entry is empty", ruleIdx, ruleName)
+		}
+		if _, dup := seen[t]; dup {
+			return nil, fmt.Errorf("rules[%d] (%q): duplicate lookup_fields entry %q", ruleIdx, ruleName, t)
+		}
+		seen[t] = struct{}{}
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// validateFilterKind validates kind-specific fields for a FilterConfig.
+func validateFilterKind(fc FilterConfig, prefix string) error {
+	switch filterKindOf(fc) {
+	case filter.KindBloom:
+		if fc.MaxEstimatedCount == 0 {
+			return fmt.Errorf("%sfilter.max_estimated_count is required for bloom filter", prefix)
+		}
+		if fc.FalsePositiveRate <= 0 || fc.FalsePositiveRate >= 1 {
+			return fmt.Errorf("%sfilter.false_positive_rate must be between 0 and 1 for bloom filter", prefix)
+		}
+	case filter.KindCuckoo:
+		if fc.Capacity == 0 {
+			return fmt.Errorf("%sfilter.capacity is required for cuckoo filter", prefix)
+		}
+	case filter.KindScalableCuckoo:
+		// no extra required fields
+	}
+	return nil
+}
+
+// Validate validates the processor configuration and normalizes string fields (trim whitespace).
+func (cfg *Config) Validate() error {
+	cfg.Filter.Kind = filter.Kind(strings.TrimSpace(string(cfg.Filter.Kind)))
+	for i := range cfg.Rules {
+		r := &cfg.Rules[i]
+		r.Name = strings.TrimSpace(r.Name)
+		r.IndicatorFile = strings.TrimSpace(r.IndicatorFile)
+		lookup, err := normalizeLookupFields(i, r.Name, r.LookupFields)
+		if err != nil {
+			return err
+		}
+		r.LookupFields = lookup
+		if r.Filter != nil {
+			r.Filter.Kind = filter.Kind(strings.TrimSpace(string(r.Filter.Kind)))
+		}
+	}
+
+	if cfg.Filter.Kind == "" {
+		return fmt.Errorf("filter.kind is required (bloom, cuckoo, scalable_cuckoo)")
+	}
+	if _, err := cfg.Filter.toFilterConfig(); err != nil {
+		return err
+	}
+	if err := validateFilterKind(cfg.Filter, ""); err != nil {
+		return err
+	}
+
+	if len(cfg.Rules) == 0 {
+		return fmt.Errorf("at least one rule is required")
+	}
+	seenNames := make(map[string]struct{})
+	for i, r := range cfg.Rules {
+		if r.Name == "" {
+			return fmt.Errorf("rules[%d]: name is required", i)
+		}
+		if _, dup := seenNames[r.Name]; dup {
+			return fmt.Errorf("rules[%d]: duplicate rule name %q", i, r.Name)
+		}
+		seenNames[r.Name] = struct{}{}
+		if r.IndicatorFile == "" {
+			return fmt.Errorf("rules[%d] (%q): indicator_file is required", i, r.Name)
+		}
+		if r.Filter != nil {
+			if r.Filter.Kind == "" {
+				return fmt.Errorf("rules[%d] (%q): filter.kind is required when filter is set", i, r.Name)
+			}
+			if _, err := r.Filter.toFilterConfig(); err != nil {
+				return fmt.Errorf("rules[%d] (%q): %w", i, r.Name, err)
+			}
+			prefix := fmt.Sprintf("rules[%d] (%q): ", i, r.Name)
+			if err := validateFilterKind(*r.Filter, prefix); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

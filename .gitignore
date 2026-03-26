@@ -10,8 +10,19 @@ go.work
 go.work.sum
 logging.yaml
 
+# Python bytecode (never commit)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local-only threats tooling (STIX/TAXII experiments, etc.); not shipped upstream
+internal/threats/
+
 # Ignore generated credentials from google-github-actions/auth
 gha-creds-*.json
 
 # Don't ignore the mdatagen generated config files
 !**/internal/metadata/testdata/config.yaml
+
+# Oh my claude code
+.omc

@@ -421,6 +421,84 @@ func TestProcessLogs(t *testing.T) {
 			expectedCount: 1,
 		},
 		{
+			name: "profiles emitted in metadata",
+			config: &Config{
+				OCSFVersion: OCSFVersion1_0_0,
+				EventMappings: []EventMapping{
+					{
+						ClassID:       3001,
+						Profiles:      []string{"datetime"},
+						FieldMappings: accountChangeFieldMappings,
+					},
+				},
+			},
+			inputLogs: func() plog.Logs {
+				ld := plog.NewLogs()
+				record := ld.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
+				err := record.Body().SetEmptyMap().FromRaw(accountChangeInputBody())
+				require.NoError(t, err)
+				return ld
+			},
+			expectedBody: func() map[string]any {
+				expected := accountChangeExpectedBody("1.0.0")
+				expected["metadata"].(map[string]any)["profiles"] = []any{"datetime"}
+				return expected
+			}(),
+			expectedCount: 1,
+		},
+		{
+			name: "multiple profiles emitted in metadata",
+			config: &Config{
+				OCSFVersion: OCSFVersion1_0_0,
+				EventMappings: []EventMapping{
+					{
+						ClassID:  3001,
+						Profiles: []string{"cloud", "datetime"},
+						FieldMappings: append(accountChangeFieldMappings,
+							FieldMapping{From: "body.cloud", To: "cloud"},
+						),
+					},
+				},
+			},
+			inputLogs: func() plog.Logs {
+				ld := plog.NewLogs()
+				record := ld.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
+				body := accountChangeInputBody()
+				body["cloud"] = map[string]any{"provider": "GCP"}
+				err := record.Body().SetEmptyMap().FromRaw(body)
+				require.NoError(t, err)
+				return ld
+			},
+			expectedBody: func() map[string]any {
+				expected := accountChangeExpectedBody("1.0.0")
+				expected["metadata"].(map[string]any)["profiles"] = []any{"cloud", "datetime"}
+				expected["cloud"] = map[string]any{"provider": "GCP"}
+				return expected
+			}(),
+			expectedCount: 1,
+		},
+		{
+			name: "no profiles omits profiles key from metadata",
+			config: &Config{
+				OCSFVersion: OCSFVersion1_0_0,
+				EventMappings: []EventMapping{
+					{
+						ClassID:       3001,
+						FieldMappings: accountChangeFieldMappings,
+					},
+				},
+			},
+			inputLogs: func() plog.Logs {
+				ld := plog.NewLogs()
+				record := ld.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
+				err := record.Body().SetEmptyMap().FromRaw(accountChangeInputBody())
+				require.NoError(t, err)
+				return ld
+			},
+			expectedBody:  accountChangeExpectedBody("1.0.0"),
+			expectedCount: 1,
+		},
+		{
 			name: "no event mappings drops all logs",
 			config: &Config{
 				OCSFVersion:   OCSFVersion1_0_0,

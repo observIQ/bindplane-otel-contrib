@@ -795,6 +795,228 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectedErr: "",
 		},
+		{
+			name: "valid custom headers",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Custom-Header": "some-value",
+					"X-Tenant-ID":     "tenant-123",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "header value with CRLF injection",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Custom": "value\r\nInjected-Header: evil",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid header value for \"X-Custom\": contains carriage return",
+		},
+		{
+			name: "header value with newline",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Custom": "value\nevil",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid header value for \"X-Custom\": contains newline",
+		},
+		{
+			name: "header value with null byte",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Custom": "value\x00evil",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid header value for \"X-Custom\": contains null byte",
+		},
+		{
+			name: "header name with space",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"Bad Header": "value",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid header name \"Bad Header\": contains invalid character",
+		},
+		{
+			name: "empty header name",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"": "value",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid header name \"\": header name must not be empty",
+		},
+		{
+			name: "header name with colon",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Bad:Header": "value",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid header name \"X-Bad:Header\": contains invalid character",
+		},
+		{
+			name: "valid sensitive headers",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				SensitiveHeaders: map[string]configopaque.String{
+					"X-Auth-Token": "secret-token-value",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "sensitive header name with space",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				SensitiveHeaders: map[string]configopaque.String{
+					"Bad Header": "value",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid sensitive header name \"Bad Header\": contains invalid character",
+		},
+		{
+			name: "sensitive header value with newline",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				SensitiveHeaders: map[string]configopaque.String{
+					"X-Auth": "value\nevil",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid sensitive header value for \"X-Auth\": contains newline",
+		},
+		{
+			name: "duplicate header in headers and sensitive_headers",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Custom": "plain-value",
+				},
+				SensitiveHeaders: map[string]configopaque.String{
+					"X-Custom": "secret-value",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "header \"X-Custom\" is defined in both headers and sensitive_headers",
+		},
+		{
+			name: "duplicate header in headers and sensitive_headers case-insensitive",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"x-custom": "plain-value",
+				},
+				SensitiveHeaders: map[string]configopaque.String{
+					"X-Custom": "secret-value",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "header \"x-custom\" is defined in both headers and sensitive_headers",
+		},
+		{
+			name: "duplicate headers within headers map case-insensitive",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Foo": "a",
+					"x-foo": "b",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "are duplicates (HTTP headers are case-insensitive)",
+		},
+		{
+			name: "duplicate headers within sensitive_headers map case-insensitive",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				SensitiveHeaders: map[string]configopaque.String{
+					"X-Secret": "a",
+					"x-secret": "b",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "are duplicates (HTTP headers are case-insensitive)",
+		},
+		{
+			name: "valid mixed headers and sensitive_headers",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Headers: map[string]string{
+					"X-Tenant-ID": "tenant-123",
+				},
+				SensitiveHeaders: map[string]configopaque.String{
+					"X-Auth-Token": "secret-token",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
 	}
 
 	for _, tc := range testCases {

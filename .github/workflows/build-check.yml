@@ -14,25 +14,25 @@ jobs:
         target: [build-linux, build-darwin, build-windows]
     steps:
       - name: Checkout Contrib
-        uses: namespacelabs/nscloud-checkout-action@v7
+        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
         with:
           path: contrib
 
       - name: Checkout Collector
-        uses: namespacelabs/nscloud-checkout-action@v7
+        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
         with:
           repository: observIQ/bindplane-otel-collector
           ref: main
           path: collector
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.25.7"
           cache: false
 
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           cache: go
 
