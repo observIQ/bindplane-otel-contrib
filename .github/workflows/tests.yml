@@ -2,6 +2,9 @@ name: Tests
 on:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   # Detect which files changed to skip irrelevant jobs on PRs.
   detect-changes:
@@ -14,9 +17,9 @@ jobs:
       go: ${{ steps.filter.outputs.go == 'true' || steps.filter.outputs.tests == 'true' || steps.filter.outputs.makefile == 'true' }}
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@v7
+        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
       - name: Detect changed files
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
         id: filter
         with:
           # These filters are based on picomatch syntax https://github.com/micromatch/picomatch#
@@ -55,39 +58,39 @@ jobs:
     steps:
       - name: Checkout Sources (Namespace)
         if: matrix.os != 'windows'
-        uses: namespacelabs/nscloud-checkout-action@v7
+        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
 
       - name: Checkout Sources (Windows)
         if: matrix.os == 'windows'
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.25.7"
           cache: false
 
       - name: Cache Go (Namespace)
         if: matrix.os != 'windows'
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           cache: go
 
       - name: Cache Go modules (Ubuntu)
         if: matrix.os == 'ubuntu'
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           path: /home/runner/go/pkg/mod
 
       - name: Cache Go modules (macOS)
         if: matrix.os == 'macos'
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           path: /Users/runner/go/pkg/mod
 
       - name: Cache Go modules (Windows)
         if: matrix.os == 'windows'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: C:\Users\runneradmin\go\pkg\mod
           key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
@@ -96,7 +99,7 @@ jobs:
 
       - name: Cache Go build cache (Windows)
         if: matrix.os == 'windows'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: C:\Users\runneradmin\AppData\Local\go-build
           key: ${{ runner.os }}-go-build-${{ hashFiles('**/*.go') }}
@@ -105,19 +108,19 @@ jobs:
 
       - name: Cache Tools (Ubuntu)
         if: matrix.os == 'ubuntu'
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           path: /home/runner/go/bin
 
       - name: Cache Tools (macOS)
         if: matrix.os == 'macos'
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           path: /Users/runner/go/bin
 
       - name: Cache Tools (Windows)
         if: matrix.os == 'windows'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: C:\Users\runneradmin\go\bin
           key: ${{ runner.os }}-go-tools-${{ hashFiles('internal/tools/go.sum') }}
