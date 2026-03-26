@@ -125,9 +125,11 @@ func (c *defaultRESTAPIClient) GetJSON(ctx context.Context, requestURL string, p
 		return nil, fmt.Errorf("failed to apply authentication: %w", err)
 	}
 
-	// Set headers
+	// Set default headers
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
+
+	// Apply custom headers (may override defaults)
+	c.applyHeaders(req)
 
 	// Make the request
 	resp, err := c.client.Do(req)
@@ -223,9 +225,11 @@ func (c *defaultRESTAPIClient) GetFullResponse(ctx context.Context, requestURL s
 		return nil, fmt.Errorf("failed to apply authentication: %w", err)
 	}
 
-	// Set headers
+	// Set default headers
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
+
+	// Apply custom headers (may override defaults)
+	c.applyHeaders(req)
 
 	// Make the request
 	resp, err := c.client.Do(req)
@@ -358,6 +362,19 @@ func (c *defaultRESTAPIClient) createOAuth2TokenSource(ctx context.Context) (oau
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, c.client)
 
 	return oauthConfig.TokenSource(ctx), nil
+}
+
+// applyHeaders applies custom headers from configuration to the request.
+// Custom headers are applied after default headers (Accept) and
+// authentication headers, allowing them to override any previously set values.
+// Sensitive headers are applied last, so they take precedence over regular headers.
+func (c *defaultRESTAPIClient) applyHeaders(req *http.Request) {
+	for key, value := range c.cfg.Headers {
+		req.Header.Set(key, value)
+	}
+	for key, value := range c.cfg.SensitiveHeaders {
+		req.Header.Set(key, string(value))
+	}
 }
 
 // applyAuth applies authentication headers to the request based on the configured auth mode.

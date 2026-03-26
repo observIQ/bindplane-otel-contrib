@@ -16,6 +16,7 @@ package restapireceiver // import "github.com/observiq/bindplane-otel-contrib/re
 
 import (
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -116,6 +117,18 @@ type Config struct {
 	// of 2.0 and a current interval of 10s, the next interval will be 20s.
 	// Must be greater than 1.0. Defaults to 2.0.
 	BackoffMultiplier float64 `mapstructure:"backoff_multiplier"`
+
+	// Headers is an optional map of headers to send with each request.
+	// These headers are applied after authentication headers, so they can
+	// override default headers like Accept if needed.
+	// Header values will appear in debug logs.
+	Headers map[string]string `mapstructure:"headers"`
+
+	// SensitiveHeaders is an optional map of headers containing sensitive values
+	// (e.g., auth tokens, API keys). Values are masked in logs and debug output.
+	// These headers are applied after authentication and regular headers,
+	// so they can override any previously set values.
+	SensitiveHeaders map[string]configopaque.String `mapstructure:"sensitive_headers"`
 
 	// ClientConfig defines HTTP client configuration.
 	ClientConfig confighttp.ClientConfig `mapstructure:",squash"`
@@ -341,6 +354,53 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Validate custom headers
+	for name, value := range c.Headers {
+		if err := validateHeaderName(name); err != nil {
+			return fmt.Errorf("invalid header name %q: %w", name, err)
+		}
+		if err := validateHeaderValue(value); err != nil {
+			return fmt.Errorf("invalid header value for %q: %w", name, err)
+		}
+	}
+
+	// Validate sensitive headers
+	for name, value := range c.SensitiveHeaders {
+		if err := validateHeaderName(name); err != nil {
+			return fmt.Errorf("invalid sensitive header name %q: %w", name, err)
+		}
+		if err := validateHeaderValue(string(value)); err != nil {
+			return fmt.Errorf("invalid sensitive header value for %q: %w", name, err)
+		}
+	}
+
+	// Check for case-insensitive duplicate header names within each map
+	headersSeen := make(map[string]string, len(c.Headers))
+	for name := range c.Headers {
+		canonical := http.CanonicalHeaderKey(name)
+		if existing, ok := headersSeen[canonical]; ok {
+			return fmt.Errorf("header %q and %q are duplicates (HTTP headers are case-insensitive)", existing, name)
+		}
+		headersSeen[canonical] = name
+	}
+
+	sensitiveHeadersSeen := make(map[string]string, len(c.SensitiveHeaders))
+	for name := range c.SensitiveHeaders {
+		canonical := http.CanonicalHeaderKey(name)
+		if existing, ok := sensitiveHeadersSeen[canonical]; ok {
+			return fmt.Errorf("sensitive header %q and %q are duplicates (HTTP headers are case-insensitive)", existing, name)
+		}
+		sensitiveHeadersSeen[canonical] = name
+	}
+
+	// Check for duplicate header names across headers and sensitive_headers (case-insensitive)
+	for name := range c.SensitiveHeaders {
+		canonical := http.CanonicalHeaderKey(name)
+		if existing, ok := headersSeen[canonical]; ok {
+			return fmt.Errorf("header %q is defined in both headers and sensitive_headers; use one or the other", existing)
+		}
+	}
+
 	// Validate pagination mode
 	switch c.Pagination.Mode {
 	case paginationModeNone, paginationModeOffsetLimit, paginationModePageSize, paginationModeTimestamp:
@@ -437,6 +497,43 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("backoff_multiplier must be greater than 1.0")
 	}
 
+	return nil
+}
+
+// validateHeaderName checks that a header name is a valid HTTP token per RFC 7230.
+// Header names must be non-empty and contain only visible ASCII characters
+// excluding delimiters: A-Z, a-z, 0-9, and !#$%&'*+-.^_`|~
+func validateHeaderName(name string) error {
+	if name == "" {
+		return fmt.Errorf("header name must not be empty")
+	}
+	for i, c := range name {
+		if c < 0x21 || c > 0x7E {
+			return fmt.Errorf("contains invalid character at position %d", i)
+		}
+		// RFC 7230 delimiters that are not allowed in tokens
+		switch c {
+		case '(', ')', ',', '/', ':', ';', '<', '=', '>', '?', '@', '[', '\\', ']', '{', '}', '"':
+			return fmt.Errorf("contains invalid character %q at position %d", string(c), i)
+		}
+	}
+	return nil
+}
+
+// validateHeaderValue checks that a header value does not contain characters
+// that could enable CRLF injection or other HTTP header manipulation.
+// Values must not contain \r, \n, or \x00 (null byte).
+func validateHeaderValue(value string) error {
+	for i, c := range value {
+		switch c {
+		case '\r':
+			return fmt.Errorf("contains carriage return (\\r) at position %d", i)
+		case '\n':
+			return fmt.Errorf("contains newline (\\n) at position %d", i)
+		case 0x00:
+			return fmt.Errorf("contains null byte at position %d", i)
+		}
+	}
 	return nil
 }
 
