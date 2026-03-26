@@ -35,6 +35,30 @@ func TestGet(t *testing.T) {
 	require.NoError(t, client.Close(t.Context()))
 }
 
+// TestGet_returnedBytesAreCallerOwned ensures Get returns a copy: Pebble only
+// guarantees its buffer until Close, so callers must not retain a slice into
+// Pebble-managed memory. Mutating the returned slice must not affect the DB.
+func TestGet_returnedBytesAreCallerOwned(t *testing.T) {
+	client, err := NewClient(t.TempDir(), zap.NewNop(), &Options{
+		Sync: true,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, client.Set(t.Context(), "k", []byte("hello")))
+
+	got, err := client.Get(t.Context(), "k")
+	require.NoError(t, err)
+	require.Equal(t, []byte("hello"), got)
+
+	got[0] = 'j'
+
+	again, err := client.Get(t.Context(), "k")
+	require.NoError(t, err)
+	require.Equal(t, []byte("hello"), again)
+
+	require.NoError(t, client.Close(t.Context()))
+}
+
 func TestSet(t *testing.T) {
 	client, err := NewClient(t.TempDir(), zap.NewNop(), &Options{
 		Sync: true,
