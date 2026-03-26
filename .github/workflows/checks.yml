@@ -18,9 +18,9 @@ jobs:
       dependabot: ${{ steps.filter.outputs.dependabot == 'true' || steps.filter.outputs.checks == 'true' || steps.filter.outputs.makefile == 'true' }}
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@v7
+        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
       - name: Detect changed files
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
         id: filter
         with:
           # These filters are based on picomatch syntax https://github.com/micromatch/picomatch#
@@ -48,19 +48,19 @@ jobs:
     runs-on: namespace-profile-bindplane-default-ubuntu-24-04
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@v7
+        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.25.7"
           cache: false # Use Namespace caching instead
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           cache: go
       - name: Cache Tools
         id: tool-cache
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           path: /home/runner/go/bin
       - name: Install Tools
@@ -74,19 +74,19 @@ jobs:
       - detect-changes
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@v7
+        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.25.7"
           cache: false # Use Namespace caching instead
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           cache: go
       - name: Cache Tools
         id: tool-cache
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           path: /home/runner/go/bin
       - name: Install Tools
@@ -102,19 +102,19 @@ jobs:
       - detect-changes
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@v7
+        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.25.7"
           cache: false # Use Namespace caching instead
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           cache: go
       - name: Cache Tools
         id: tool-cache
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           path: /home/runner/go/bin
       - name: Install Tools
@@ -130,19 +130,19 @@ jobs:
       - detect-changes
     steps:
       - name: Checkout Source
-        uses: namespacelabs/nscloud-checkout-action@v7
+        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.25.7"
           cache: false # Use Namespace caching instead
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           cache: go
       - name: Cache Tools
         id: tool-cache
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           path: /home/runner/go/bin
       - name: Install Tools
@@ -158,19 +158,19 @@ jobs:
       - detect-changes
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@v7
+        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.25.7"
           cache: false # Use Namespace caching instead
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           cache: go
       - name: Cache Tools
         id: tool-cache
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           path: /home/runner/go/bin
       - name: Install Tools
@@ -186,19 +186,19 @@ jobs:
       - detect-changes
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@v7
+        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.25.7"
           cache: false # Use Namespace caching instead
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           cache: go
       - name: Cache Tools
         id: tool-cache
-        uses: namespacelabs/nscloud-cache-action@v1
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
         with:
           path: /home/runner/go/bin
       - name: Install Tools
@@ -214,7 +214,7 @@ jobs:
       - detect-changes
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@v7
+        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
       - name: Check Module Paths
         run: make check-mod-paths
 
@@ -225,6 +225,6 @@ jobs:
       - detect-changes
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@v7
+        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
       - name: Check Dependabot
         run: make check-dependabot

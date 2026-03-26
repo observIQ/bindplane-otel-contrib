@@ -283,7 +283,12 @@ func (s *server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		defer s.connectionsWg.Done()
 		defer s.telemetry.OpampgatewayConnections.Add(context.Background(), -1, directionDownstream)
 
-		c.start(s.shutdownCtx, s.callbacks)
+		conn, ok := s.getDownstreamConnection(id)
+		if !ok {
+			s.logger.Error("downstream connection removed before it could be started", zap.String("downstream_connection_id", id))
+			return
+		}
+		conn.start(s.shutdownCtx, s.callbacks)
 	}()
 }
 
