@@ -1,0 +1,7 @@
+type: threat_enrichment
+
+status:
+  class: processor
+  stability:
+    alpha: [logs]
+  distributions: [observiq]

@@ -235,6 +235,17 @@ updates:
       prefix: "deps"
       include: "scope"
   - package-ecosystem: "gomod"
+    directory: "/internal/amqfilter"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # Opentelemetry updates will be done manually
+      - dependency-name: "github.com/open-telemetry/opentelemetry-collector*"
+      - dependency-name: "go.opentelemetry.io/*"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+  - package-ecosystem: "gomod"
     directory: "/internal/azureblob"
     schedule:
       interval: "weekly"
@@ -473,6 +484,17 @@ updates:
       include: "scope"
   - package-ecosystem: "gomod"
     directory: "/processor/throughputmeasurementprocessor"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # Opentelemetry updates will be done manually
+      - dependency-name: "github.com/open-telemetry/opentelemetry-collector*"
+      - dependency-name: "go.opentelemetry.io/*"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+  - package-ecosystem: "gomod"
+    directory: "/processor/threatenrichmentprocessor"
     schedule:
       interval: "weekly"
     ignore:
