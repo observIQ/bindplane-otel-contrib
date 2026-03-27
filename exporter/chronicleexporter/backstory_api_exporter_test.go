@@ -56,7 +56,7 @@ func (s *mockGRPCServer) BatchCreateLogs(_ context.Context, req *api.BatchCreate
 	return s.handler(req)
 }
 
-func TestGRPCExporter(t *testing.T) {
+func TestBackstoryAPIExporter(t *testing.T) {
 	// Override the token source so that we don't have to provide real credentials
 	secureTokenSource := tokenSource
 	defer func() {
@@ -118,7 +118,7 @@ func TestGRPCExporter(t *testing.T) {
 				return logs
 			}(),
 			expectedRequests: 1,
-			expectedErr:      "upload logs to chronicle: rpc error: code = Unavailable desc = Service Unavailable",
+			expectedErr:      "upload logs to backstory API: rpc error: code = Unavailable desc = Service Unavailable",
 			permanentErr:     false,
 		},
 		{
@@ -135,7 +135,7 @@ func TestGRPCExporter(t *testing.T) {
 				return logs
 			}(),
 			expectedRequests: 1,
-			expectedErr:      "Permanent error: upload logs to chronicle: rpc error: code = Unauthenticated desc = Unauthorized",
+			expectedErr:      "Permanent error: upload logs to backstory API: rpc error: code = Unauthenticated desc = Unauthorized",
 			permanentErr:     true,
 		},
 	}
@@ -182,8 +182,8 @@ func TestGRPCExporter(t *testing.T) {
 	}
 }
 
-// TestGRPCJSONCredentialsError tests that the GRPC exporter returns an error when the json credentials are invalid and does not panic during shutdown
-func TestGRPCJSONCredentialsError(t *testing.T) {
+// TestBackstoryAPIJSONCredentialsError tests that the Backstory API exporter returns an error when the json credentials are invalid and does not panic during shutdown
+func TestBackstoryAPIJSONCredentialsError(t *testing.T) {
 	defaultCfgMod := func(cfg *Config) {
 		cfg.API = backstoryAPI
 		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
@@ -212,8 +212,8 @@ func TestGRPCJSONCredentialsError(t *testing.T) {
 	require.NoError(t, exp.Shutdown(ctx))
 }
 
-// TestGRPCExporterTelemetry tests the telemetry metrics functionality of the GRPC exporter
-func TestGRPCExporterTelemetry(t *testing.T) {
+// TestBackstoryAPIExporterTelemetry tests the telemetry metrics functionality of the Backstory API exporter
+func TestBackstoryAPIExporterTelemetry(t *testing.T) {
 	// Override the token source so that we don't have to provide real credentials
 	secureTokenSource := tokenSource
 	defer func() {
@@ -425,7 +425,7 @@ func TestGRPCExporterTelemetry(t *testing.T) {
 			// Check error expectations based on test case
 			if tc.expectError {
 				require.Error(t, err)
-				require.Contains(t, err.Error(), "upload logs to chronicle")
+				require.Contains(t, err.Error(), "upload logs to backstory API")
 			} else {
 				require.NoError(t, err)
 			}

@@ -61,9 +61,9 @@ func createLogsExporter(
 
 	c := cfg.(*Config)
 	if c.API == chronicleAPI {
-		exp, err = newHTTPExporter(c, params, t)
+		exp, err = newChronicleAPIExporter(c, params, t)
 	} else {
-		exp, err = newGRPCExporter(c, params, t)
+		exp, err = newBackstoryAPIExporter(c, params, t)
 	}
 	if err != nil {
 		return nil, err

@@ -47,7 +47,7 @@ func (t *emptyTokenSource) Token() (*oauth2.Token, error) {
 	return &oauth2.Token{}, nil
 }
 
-func TestHTTPExporter(t *testing.T) {
+func TestChronicleAPIExporter(t *testing.T) {
 	// Override the token source so that we don't have to provide real credentials
 	secureTokenSource := tokenSource
 	defer func() {
@@ -105,7 +105,7 @@ func TestHTTPExporter(t *testing.T) {
 			serverStatusCode: http.StatusTooManyRequests,
 			input:            singleLog(),
 			expectedRequests: 1,
-			expectedErr:      "upload to chronicle: 429 Too Many Requests",
+			expectedErr:      "upload to chronicle API: 429 Too Many Requests",
 			permanentErr:     false,
 		},
 		{
@@ -113,7 +113,7 @@ func TestHTTPExporter(t *testing.T) {
 			serverStatusCode: http.StatusInternalServerError,
 			input:            singleLog(),
 			expectedRequests: 1,
-			expectedErr:      "upload to chronicle: 500 Internal Server Error",
+			expectedErr:      "upload to chronicle API: 500 Internal Server Error",
 			permanentErr:     false,
 		},
 		{
@@ -121,7 +121,7 @@ func TestHTTPExporter(t *testing.T) {
 			serverStatusCode: http.StatusBadGateway,
 			input:            singleLog(),
 			expectedRequests: 1,
-			expectedErr:      "upload to chronicle: 502 Bad Gateway",
+			expectedErr:      "upload to chronicle API: 502 Bad Gateway",
 			permanentErr:     false,
 		},
 		{
@@ -129,7 +129,7 @@ func TestHTTPExporter(t *testing.T) {
 			serverStatusCode: http.StatusServiceUnavailable,
 			input:            singleLog(),
 			expectedRequests: 1,
-			expectedErr:      "upload to chronicle: 503 Service Unavailable",
+			expectedErr:      "upload to chronicle API: 503 Service Unavailable",
 			permanentErr:     false,
 		},
 		{
@@ -137,7 +137,7 @@ func TestHTTPExporter(t *testing.T) {
 			serverStatusCode: http.StatusGatewayTimeout,
 			input:            singleLog(),
 			expectedRequests: 1,
-			expectedErr:      "upload to chronicle: 504 Gateway Timeout",
+			expectedErr:      "upload to chronicle API: 504 Gateway Timeout",
 			permanentErr:     false,
 		},
 		{
@@ -145,7 +145,7 @@ func TestHTTPExporter(t *testing.T) {
 			serverStatusCode: http.StatusUnauthorized,
 			input:            singleLog(),
 			expectedRequests: 1,
-			expectedErr:      "upload to chronicle: Permanent error: 401 Unauthorized",
+			expectedErr:      "upload to chronicle API: Permanent error: 401 Unauthorized",
 			permanentErr:     true,
 		},
 	}
@@ -206,11 +206,11 @@ func TestHTTPExporter(t *testing.T) {
 	}
 }
 
-// TestHTTPExporterRetrySequences tests multi-attempt retry scenarios using retryserver
+// TestChronicleAPIExporterRetrySequences tests multi-attempt retry scenarios using retryserver
 // to simulate real-world backend failure patterns. Each ConsumeLogs call maps to one
 // HTTP request; the retryserver advances through its sequence on every hit, allowing
 // us to assert correct error classification at each step.
-func TestHTTPExporterRetrySequences(t *testing.T) {
+func TestChronicleAPIExporterRetrySequences(t *testing.T) {
 	secureTokenSource := tokenSource
 	defer func() { tokenSource = secureTokenSource }()
 	tokenSource = func(context.Context, *Config) (oauth2.TokenSource, error) {
@@ -338,8 +338,8 @@ func TestHTTPExporterRetrySequences(t *testing.T) {
 	}
 }
 
-// TestHTTPJSONCredentialsError tests that the HTTP exporter returns an error when the json credentials are invalid and does not panic during shutdown
-func TestHTTPJSONCredentialsError(t *testing.T) {
+// TestChronicleAPIJSONCredentialsError tests that the Chronicle API exporter returns an error when the json credentials are invalid and does not panic during shutdown
+func TestChronicleAPIJSONCredentialsError(t *testing.T) {
 	defaultCfgMod := func(cfg *Config) {
 		cfg.API = chronicleAPI
 		cfg.Location = "us"
@@ -370,9 +370,9 @@ func TestHTTPJSONCredentialsError(t *testing.T) {
 	require.NoError(t, exp.Shutdown(ctx))
 }
 
-// TestHTTPExporterAgentMetrics tests that the HTTP exporter starts agent metrics collection
+// TestChronicleAPIExporterAgentMetrics tests that the Chronicle API exporter starts agent metrics collection
 // when CollectAgentMetrics is enabled and correctly sends stats to the importStatsEvents endpoint
-func TestHTTPExporterAgentMetrics(t *testing.T) {
+func TestChronicleAPIExporterAgentMetrics(t *testing.T) {
 	// Override the token source so that we don't have to provide real credentials
 	secureTokenSource := tokenSource
 	defer func() {
@@ -482,7 +482,7 @@ func TestHTTPExporterAgentMetrics(t *testing.T) {
 	})
 }
 
-func TestUploadStatsHTTP(t *testing.T) {
+func TestChronicleAPIExporterUploadStatsEvents(t *testing.T) {
 	// Override the token source so that we don't have to provide real credentials
 	secureTokenSource := tokenSource
 	defer func() {
@@ -518,7 +518,7 @@ func TestUploadStatsHTTP(t *testing.T) {
 			Compression:   noCompression,
 		}
 
-		exp := &httpExporter{
+		exp := &chronicleAPIExporter{
 			cfg: cfg,
 			set: componenttest.NewNopTelemetrySettings(),
 			client: &http.Client{
@@ -545,7 +545,7 @@ func TestUploadStatsHTTP(t *testing.T) {
 			},
 		}
 
-		err := exp.uploadStatsHTTP(context.Background(), request, "test-collector-id")
+		err := exp.uploadStatsEvents(context.Background(), request, "test-collector-id")
 		require.NoError(t, err)
 		require.NotEmpty(t, receivedBody)
 	})
@@ -571,7 +571,7 @@ func TestUploadStatsHTTP(t *testing.T) {
 			Compression:   noCompression,
 		}
 
-		exp := &httpExporter{
+		exp := &chronicleAPIExporter{
 			cfg: cfg,
 			set: componenttest.NewNopTelemetrySettings(),
 			client: &http.Client{
@@ -598,13 +598,13 @@ func TestUploadStatsHTTP(t *testing.T) {
 			},
 		}
 
-		err := exp.uploadStatsHTTP(context.Background(), request, "test-collector-id")
+		err := exp.uploadStatsEvents(context.Background(), request, "test-collector-id")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "upload stats to Chronicle")
 	})
 }
 
-func TestHTTPStatsEndpoint(t *testing.T) {
+func TestChronicleAPIExporterUploadStatsEventsEndpoint(t *testing.T) {
 	testCases := []struct {
 		name             string
 		cfg              *Config
@@ -673,8 +673,8 @@ func TestHTTPStatsEndpoint(t *testing.T) {
 	}
 }
 
-// TestHTTPExporterTelemetry tests the telemetry metrics functionality of the HTTP exporter
-func TestHTTPExporterTelemetry(t *testing.T) {
+// TestChronicleAPIExporterTelemetry tests the telemetry metrics functionality of the Chronicle API exporter
+func TestChronicleAPIExporterTelemetry(t *testing.T) {
 	// Override the token source so that we don't have to provide real credentials
 	secureTokenSource := tokenSource
 	defer func() {

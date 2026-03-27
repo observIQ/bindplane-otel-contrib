@@ -26,9 +26,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const grpcScope = "https://www.googleapis.com/auth/malachite-ingestion"
-
-type grpcExporter struct {
+type backstoryExporter struct {
 	cfg        *Config
 	set        component.TelemetrySettings
 	exporterID string
@@ -42,14 +40,14 @@ type grpcExporter struct {
 	metricAttributes attribute.Set
 }
 
-func newGRPCExporter(cfg *Config, params exporter.Settings, telemetry *metadata.TelemetryBuilder) (*grpcExporter, error) {
+func newBackstoryAPIExporter(cfg *Config, params exporter.Settings, telemetry *metadata.TelemetryBuilder) (*backstoryExporter, error) {
 	marshaler, err := newProtoMarshaler(*cfg, params.TelemetrySettings, telemetry, params.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("create proto marshaler: %w", err)
 	}
 	macAddress := osinfo.MACAddress()
-	params.Logger.Debug("Creating gRPC exporter", zap.String("exporter_id", params.ID.String()), zap.String("mac_address", macAddress))
-	return &grpcExporter{
+	params.Logger.Debug("Creating Backstory API exporter", zap.String("exporter_id", params.ID.String()), zap.String("mac_address", macAddress))
+	return &backstoryExporter{
 		cfg:        cfg,
 		set:        params.TelemetrySettings,
 		exporterID: params.ID.String(),
@@ -72,11 +70,11 @@ func newGRPCExporter(cfg *Config, params exporter.Settings, telemetry *metadata.
 	}, nil
 }
 
-func (exp *grpcExporter) Capabilities() consumer.Capabilities {
+func (exp *backstoryExporter) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: false}
 }
 
-func (exp *grpcExporter) Start(ctx context.Context, _ component.Host) error {
+func (exp *backstoryExporter) Start(ctx context.Context, _ component.Host) error {
 	ts, err := tokenSource(ctx, exp.cfg)
 	if err != nil {
 		return fmt.Errorf("load Google credentials: %w", err)
@@ -105,7 +103,7 @@ func (exp *grpcExporter) Start(ctx context.Context, _ component.Host) error {
 	return nil
 }
 
-func (exp *grpcExporter) Shutdown(context.Context) error {
+func (exp *backstoryExporter) Shutdown(context.Context) error {
 	defer http.DefaultTransport.(*http.Transport).CloseIdleConnections()
 	if exp.metrics != nil {
 		exp.metrics.shutdown()
@@ -118,25 +116,21 @@ func (exp *grpcExporter) Shutdown(context.Context) error {
 	return nil
 }
 
-// ConsumeLogs sends logs to Chronicle via gRPC.
+// ConsumeLogs sends logs to the Backstory API via gRPC.
 //
 // Retry behavior: When this function returns an error, the OTel collector's
 // exporterhelper will retry the entire batch (ld plog.Logs) from the beginning.
 // This means all payloads will be retried, including any that succeeded before
-// the error occurred. Chronicle is expected to handle duplicate requests
+// the error occurred. Google SecOps is expected to handle duplicate requests
 // idempotently to prevent duplicate log entries.
-//
-// Metrics: When retry is enabled, raw bytes are only counted on success to prevent
-// double-counting across retry attempts. When retry is disabled, bytes are counted
-// regardless of success/failure since this is the only attempt to send the data.
-func (exp *grpcExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
+func (exp *backstoryExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 	payloads, totalBytes, err := exp.marshaler.MarshalRawLogs(ctx, ld)
 	if err != nil {
 		return fmt.Errorf("marshal logs: %w", err)
 	}
 	successfulPayloads := []*api.BatchCreateLogsRequest{}
 	for _, payload := range payloads {
-		if err := exp.uploadToChronicle(ctx, payload); err != nil {
+		if err := exp.uploadToBackstoryAPI(ctx, payload); err != nil {
 			// Track the failure for observability
 			exp.telemetry.ExporterLogsSendFailed.Add(ctx, 1, metric.WithAttributeSet(exp.metricAttributes))
 
@@ -157,7 +151,7 @@ func (exp *grpcExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 	return nil
 }
 
-func (exp *grpcExporter) countAndReportBatchBytes(ctx context.Context, payloads []*api.BatchCreateLogsRequest) {
+func (exp *backstoryExporter) countAndReportBatchBytes(ctx context.Context, payloads []*api.BatchCreateLogsRequest) {
 	totalBytes := uint(0)
 	for _, payload := range payloads {
 		for _, entries := range payload.Batch.Entries {
@@ -173,7 +167,7 @@ func (exp *grpcExporter) countAndReportBatchBytes(ctx context.Context, payloads 
 	}
 }
 
-func (exp *grpcExporter) uploadToChronicle(ctx context.Context, request *api.BatchCreateLogsRequest) error {
+func (exp *backstoryExporter) uploadToBackstoryAPI(ctx context.Context, request *api.BatchCreateLogsRequest) error {
 	// Track request latency
 	start := time.Now()
 
@@ -197,7 +191,7 @@ func (exp *grpcExporter) uploadToChronicle(ctx context.Context, request *api.Bat
 			exp.telemetry.ExporterRequestCount.Add(ctx, 1,
 				metric.WithAttributeSet(attribute.NewSet(errAttr)))
 
-			return fmt.Errorf("upload logs to chronicle: %w", err)
+			return fmt.Errorf("upload logs to backstory API: %w", err)
 		default:
 			exp.telemetry.ExporterRequestCount.Add(ctx, 1,
 				metric.WithAttributeSet(attribute.NewSet(attrErrorUnknown)))
@@ -207,7 +201,7 @@ func (exp *grpcExporter) uploadToChronicle(ctx context.Context, request *api.Bat
 				exp.metrics.recordDropped(totalLogs)
 			}
 
-			return consumererror.NewPermanent(fmt.Errorf("upload logs to chronicle: %w", err))
+			return consumererror.NewPermanent(fmt.Errorf("upload logs to backstory API: %w", err))
 		}
 	}
 
@@ -223,7 +217,7 @@ func (exp *grpcExporter) uploadToChronicle(ctx context.Context, request *api.Bat
 	return nil
 }
 
-func (exp *grpcExporter) buildOptions() []grpc.CallOption {
+func (exp *backstoryExporter) buildOptions() []grpc.CallOption {
 	opts := make([]grpc.CallOption, 0)
 	if exp.cfg.Compression == grpcgzip.Name {
 		opts = append(opts, grpc.UseCompressor(grpcgzip.Name))
