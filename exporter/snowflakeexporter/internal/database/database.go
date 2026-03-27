@@ -20,7 +20,7 @@ import (
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
-	_ "github.com/snowflakedb/gosnowflake" // imports snowflake driver
+	_ "github.com/snowflakedb/gosnowflake/v2" // imports snowflake driver
 )
 
 // Database defines functions to use to interact with a database

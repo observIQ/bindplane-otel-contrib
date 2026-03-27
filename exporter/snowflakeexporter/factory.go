@@ -21,7 +21,7 @@ import (
 
 	"github.com/observiq/bindplane-otel-contrib/exporter/snowflakeexporter/internal/database"
 	"github.com/observiq/bindplane-otel-contrib/exporter/snowflakeexporter/internal/metadata"
-	"github.com/snowflakedb/gosnowflake"
+	"github.com/snowflakedb/gosnowflake/v2"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/config/configretry"
