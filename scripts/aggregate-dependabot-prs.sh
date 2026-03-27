@@ -74,7 +74,7 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 
 echo "Fetching open dependabot PRs..."
-PRS=$(gh pr list --author "app/dependabot" --state open --json number,title,headRefName --jq '.[] | "\(.number)\t\(.title)\t\(.headRefName)"')
+PRS=$(gh pr list --author "app/dependabot" --state open --limit 500 --json number,title,headRefName --jq '.[] | "\(.number)\t\(.title)\t\(.headRefName)"')
 
 if [ -z "$PRS" ]; then
     echo "No open dependabot PRs found."
