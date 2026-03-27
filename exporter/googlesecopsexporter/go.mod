@@ -105,5 +105,3 @@ require (
 )
 
 replace github.com/observiq/bindplane-otel-contrib/internal/testutils => ../../internal/testutils
-
-replace github.com/observiq/bindplane-otel-contrib/pkg/osinfo => ../../pkg/osinfo
