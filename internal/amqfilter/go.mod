@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/internal/amqfilter
 
-go 1.26.1
+go 1.25.7
 
 require (
 	github.com/bits-and-blooms/bloom/v3 v3.7.1
