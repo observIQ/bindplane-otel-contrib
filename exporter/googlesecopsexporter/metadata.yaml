@@ -1,9 +1,9 @@
-type: googlesecops
+type: google_secops
 
 status:
   class: exporter
   stability:
-    development: [logs]
+    alpha: [logs]
   codeowners:
     active: [braydonk, colelaven, dpaasman00, mrsillydog]
 
