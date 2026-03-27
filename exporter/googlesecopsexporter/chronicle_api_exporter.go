@@ -15,7 +15,6 @@ import (
 
 	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/metadata"
 	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/protos/api"
-	"github.com/observiq/bindplane-otel-contrib/pkg/osinfo"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/consumer/consumererror"
@@ -65,7 +64,7 @@ func newChronicleAPIExporter(cfg *Config, params exporter.Settings, telemetry *m
 	if err != nil {
 		return nil, fmt.Errorf("create proto marshaler: %w", err)
 	}
-	macAddress := osinfo.MACAddress()
+	macAddress := macAddress()
 	params.Logger.Debug("Creating Chronicle API exporter", zap.String("exporter_id", params.ID.String()), zap.String("mac_address", macAddress))
 	return &chronicleAPIExporter{
 		cfg:        cfg,

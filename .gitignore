@@ -9,6 +9,7 @@ local/
 go.work
 go.work.sum
 logging.yaml
+.claude/
 
 # Python bytecode (never commit)
 __pycache__/
