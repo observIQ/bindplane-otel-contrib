@@ -7,9 +7,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.13
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.10
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.3
-	github.com/observiq/bindplane-otel-contrib/internal/blobconsume v1.1.0
-	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.1.0
-	github.com/observiq/bindplane-otel-contrib/internal/testutils v1.1.0
+	github.com/observiq/bindplane-otel-contrib/internal/blobconsume v1.1.1
+	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.1.1
+	github.com/observiq/bindplane-otel-contrib/internal/testutils v1.1.1
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.54.0
 	go.opentelemetry.io/collector/component/componenttest v0.148.0
