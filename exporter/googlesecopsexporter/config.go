@@ -28,7 +28,7 @@ const (
 // Config defines configuration for the Google SecOps Exporter.
 type Config struct {
 	// API is the API that will be used to send logs to Google SecOps
-	// Either chronicle or backstory.
+	// Either "chronicle" or "backstory".
 	API string `mapstructure:"api"`
 
 	// Hostname is the hostname used to construct the base URL for the API endpoints.
