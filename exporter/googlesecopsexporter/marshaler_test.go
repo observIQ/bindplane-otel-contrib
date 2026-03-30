@@ -22,7 +22,7 @@ import (
 
 const windowsEventString = "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Service Control Manager' Guid='{555908d1-a6d7-4695-8e1e-26931d2012f4}' EventSourceName='Service Control Manager'/><EventID Qualifiers='16384'>7036</EventID><Version>0</Version><Level>4</Level><Task>0</Task><Opcode>0</Opcode><Keywords>0x8080000000000000</Keywords><TimeCreated SystemTime='2024-11-08T18:51:13.504187700Z'/><EventRecordID>3562</EventRecordID><Correlation/><Execution ProcessID='604' ThreadID='4792'/><Channel>System</Channel><Computer>WIN-L6PC55MPB98</Computer><Security/></System><EventData><Data Name='param1'>Print Spooler</Data><Data Name='param2'>stopped</Data><Binary>530070006F006F006C00650072002F0031000000</Binary></EventData></Event>"
 
-func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
+func TestProtoMarshaler_MarshalBackstoryRawLogs(t *testing.T) {
 	logger := zap.NewNop()
 	startTime := time.Now()
 
@@ -52,11 +52,10 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Test log message", map[string]any{"log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["env"]`: "prod"}))
+				return mockLogs(mockLogRecord("Test log message", map[string]any{"secops_log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["env"]`: "prod"}))
 			},
 			expectations: func(t *testing.T, requests []*api.BatchCreateLogsRequest) {
 				require.Len(t, requests, 1)
@@ -74,12 +73,11 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 			},
 		},
 		{
-			name: "Single log record with expected data, no log_type, namespace, or ingestion labels",
+			name: "Single log record with expected data, no log type, namespace, or ingestion labels",
 			cfg: Config{
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       true,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -108,7 +106,6 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -135,7 +132,6 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -185,11 +181,10 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "attributes",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
+				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "secops_log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
 			},
 			expectations: func(t *testing.T, requests []*api.BatchCreateLogsRequest) {
 				require.Len(t, requests, 1)
@@ -197,7 +192,7 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				require.Len(t, batch.Entries, 1)
 
 				// Assuming the attributes are marshaled into the Data field as a JSON string
-				expectedData := `{"key1":"value1", "log_type":"WINEVTLOG", "namespace":"test", "chronicle_ingestion_label[\"key1\"]": "value1", "chronicle_ingestion_label[\"key2\"]": "value2"}`
+				expectedData := `{"key1":"value1", "secops_log_type":"WINEVTLOG", "namespace":"test", "chronicle_ingestion_label[\"key1\"]": "value1", "chronicle_ingestion_label[\"key2\"]": "value2"}`
 				actualData := string(batch.Entries[0].Data)
 				require.JSONEq(t, expectedData, actualData, "Log attributes should match expected")
 			},
@@ -208,7 +203,6 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "DEFAULT",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -223,7 +217,6 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 			cfg: Config{
 				CustomerID:            uuid.New().String(),
 				RawLogField:           "body",
-				OverrideLogType:       true,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -241,7 +234,6 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -273,7 +265,6 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -325,21 +316,21 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 			},
 		},
 		{
-			name: "Override log type with attribute",
+			name: "Override log type with secops attribute",
 			cfg: Config{
 				CustomerID:            uuid.New().String(),
-				DefaultLogType:        "DEFAULT", // This should be overridden by the log_type attribute
+				DefaultLogType:        "DEFAULT",
 				RawLogField:           "body",
-				OverrideLogType:       true,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Log with overridden type", map[string]any{"log_type": "windows_event.application", "namespace": "test", `ingestion_label["realkey1"]`: "realvalue1", `ingestion_label["realkey2"]`: "realvalue2"}))
+				return mockLogs(mockLogRecord("Log with secops type", map[string]any{"secops_log_type": "OKTA", "secops_namespace": "secops_ns", `secops_ingestion_label["env"]`: "staging"}))
 			},
 			expectations: func(t *testing.T, requests []*api.BatchCreateLogsRequest) {
 				require.Len(t, requests, 1)
 				batch := requests[0].Batch
-				require.Equal(t, "WINEVTLOG", batch.LogType, "Expected log type to be overridden by attribute")
+				require.Equal(t, "OKTA", batch.LogType, "Expected log type to be set by secops_log_type attribute")
+				require.Equal(t, "secops_ns", batch.Source.Namespace, "Expected namespace to be set by secops_namespace attribute")
 			},
 		},
 		{
@@ -348,7 +339,6 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "DEFAULT", // This should be overridden by the chronicle_log_type attribute
 				RawLogField:           "body",
-				OverrideLogType:       true,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -369,12 +359,28 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 			},
 		},
 		{
+			name: "secops_log_type takes precedence over chronicle_log_type",
+			cfg: Config{
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT",
+				RawLogField:           "body",
+				BatchRequestSizeLimit: 5242880,
+			},
+			logRecords: func() plog.Logs {
+				return mockLogs(mockLogRecord("Log with both types", map[string]any{"secops_log_type": "OKTA", "chronicle_log_type": "ASOC_ALERT"}))
+			},
+			expectations: func(t *testing.T, requests []*api.BatchCreateLogsRequest) {
+				require.Len(t, requests, 1)
+				batch := requests[0].Batch
+				require.Equal(t, "OKTA", batch.LogType, "Expected secops_log_type to take precedence over chronicle_log_type")
+			},
+		},
+		{
 			name: "Multiple log records with duplicate data, log type in attributes",
 			cfg: Config{
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -412,7 +418,6 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -472,7 +477,6 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -512,7 +516,6 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -561,7 +564,6 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -633,7 +635,6 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -656,7 +657,6 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -696,7 +696,6 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -819,10 +818,9 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 		{
 			name: "Destination ingestion labels are merged with config ingestion labels",
 			cfg: Config{
-				CustomerID:      uuid.New().String(),
-				DefaultLogType:  "WINEVTLOG",
-				RawLogField:     "body",
-				OverrideLogType: false,
+				CustomerID:     uuid.New().String(),
+				DefaultLogType: "WINEVTLOG",
+				RawLogField:    "body",
 				IngestionLabels: map[string]string{
 					"key1": "value3",
 					"key2": "value4",
@@ -871,7 +869,7 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 	}
 }
 
-func BenchmarkProtoMarshaler_MarshalRawLogs(b *testing.B) {
+func BenchmarkProtoMarshaler_MarshalBackstoryRawLogs(b *testing.B) {
 	logger := zap.NewNop()
 	startTime := time.Now()
 
@@ -890,7 +888,6 @@ func BenchmarkProtoMarshaler_MarshalRawLogs(b *testing.B) {
 		CustomerID:            uuid.New().String(),
 		DefaultLogType:        "WINEVTLOG",
 		RawLogField:           "body",
-		OverrideLogType:       false,
 		BatchRequestSizeLimit: 5242880,
 	}
 
@@ -913,7 +910,7 @@ func BenchmarkProtoMarshaler_MarshalRawLogs(b *testing.B) {
 	}
 }
 
-func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
+func TestProtoMarshaler_MarshalChronicleAPIRawLogs(t *testing.T) {
 	logger := zap.NewNop()
 	startTime := time.Now()
 
@@ -941,7 +938,6 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				API:                   chronicleAPI,
 				ProjectNumber:         "test-project",
 				Location:              "us",
@@ -951,7 +947,7 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				{Key: "env", Value: "prod"},
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Test log message", map[string]any{"log_type": "WINEVTLOG", "namespace": "test"}))
+				return mockLogs(mockLogRecord("Test log message", map[string]any{"secops_log_type": "WINEVTLOG", "namespace": "test"}))
 			},
 			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
 				require.Len(t, requests, 1)
@@ -969,7 +965,6 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{
@@ -999,18 +994,17 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "attributes",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
+				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "secops_log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
 			},
 			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
 				require.Len(t, requests, 1)
 				logs := requests["WINEVTLOG"][0].GetInlineSource().Logs
 				// Assuming the attributes are marshaled into the Data field as a JSON string
-				expectedData := `{"key1":"value1", "log_type":"WINEVTLOG", "namespace":"test", "chronicle_ingestion_label[\"key1\"]": "value1", "chronicle_ingestion_label[\"key2\"]": "value2"}`
+				expectedData := `{"key1":"value1", "secops_log_type":"WINEVTLOG", "namespace":"test", "chronicle_ingestion_label[\"key1\"]": "value1", "chronicle_ingestion_label[\"key2\"]": "value2"}`
 				actualData := string(logs[0].Data)
 				require.JSONEq(t, expectedData, actualData, "Log attributes should match expected")
 			},
@@ -1021,7 +1015,6 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "DEFAULT",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{},
@@ -1038,18 +1031,17 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "attributes",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
+				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "secops_log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
 			},
 			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
 				require.Len(t, requests, 1)
 				logs := requests["WINEVTLOG"][0].GetInlineSource().Logs
 				// Assuming the attributes are marshaled into the Data field as a JSON string
-				expectedData := `{"key1":"value1", "log_type":"WINEVTLOG", "namespace":"test", "chronicle_ingestion_label[\"key1\"]": "value1", "chronicle_ingestion_label[\"key2\"]": "value2"}`
+				expectedData := `{"key1":"value1", "secops_log_type":"WINEVTLOG", "namespace":"test", "chronicle_ingestion_label[\"key1\"]": "value1", "chronicle_ingestion_label[\"key2\"]": "value2"}`
 				actualData := string(logs[0].Data)
 				require.JSONEq(t, expectedData, actualData, "Log attributes should match expected")
 			},
@@ -1060,7 +1052,6 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -1092,7 +1083,6 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -1121,21 +1111,21 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 			},
 		},
 		{
-			name: "Override log type with attribute",
+			name: "Override log type with secops attribute",
 			cfg: Config{
 				CustomerID:            uuid.New().String(),
-				DefaultLogType:        "DEFAULT", // This should be overridden by the log_type attribute
+				DefaultLogType:        "DEFAULT",
 				RawLogField:           "body",
-				OverrideLogType:       true,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Log with overridden type", map[string]any{"log_type": "windows_event.application", "namespace": "test", `ingestion_label["realkey1"]`: "realvalue1", `ingestion_label["realkey2"]`: "realvalue2"}))
+				return mockLogs(mockLogRecord("Log with secops type", map[string]any{"secops_log_type": "OKTA", "secops_namespace": "secops_ns", `secops_ingestion_label["env"]`: "staging"}))
 			},
 			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
 				require.Len(t, requests, 1)
-				logs := requests["WINEVTLOG"][0].GetInlineSource().Logs
-				require.NotEqual(t, len(logs), 0)
+				logs := requests["OKTA"][0].GetInlineSource().Logs
+				require.Len(t, logs, 1)
+				require.Equal(t, "secops_ns", logs[0].EnvironmentNamespace, "Expected namespace to be set by secops_namespace attribute")
 			},
 		},
 		{
@@ -1144,7 +1134,6 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "DEFAULT", // This should be overridden by the chronicle_log_type attribute
 				RawLogField:           "body",
-				OverrideLogType:       true,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -1164,12 +1153,29 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 			},
 		},
 		{
+			name: "secops_log_type takes precedence over chronicle_log_type",
+			cfg: Config{
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT",
+				RawLogField:           "body",
+				BatchRequestSizeLimit: 5242880,
+			},
+			logRecords: func() plog.Logs {
+				return mockLogs(mockLogRecord("Log with both types", map[string]any{"secops_log_type": "OKTA", "chronicle_log_type": "ASOC_ALERT"}))
+			},
+			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
+				require.Len(t, requests, 1)
+				logs := requests["OKTA"][0].GetInlineSource().Logs
+				require.Len(t, logs, 1)
+				require.Equal(t, "Log with both types", string(logs[0].Data))
+			},
+		},
+		{
 			name: "Multiple log records with duplicate data, log type in attributes",
 			cfg: Config{
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -1206,7 +1212,6 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -1256,7 +1261,6 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -1295,7 +1299,6 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -1347,7 +1350,6 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -1417,7 +1419,6 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 100000,
 			},
 			labels: []*api.Label{
@@ -1440,7 +1441,6 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 100000,
 			},
 			labels: []*api.Label{
@@ -1606,33 +1606,6 @@ var getRawFieldCases = []getRawFieldCase{
 		expect:   "",
 	},
 	{
-		name:  "Attribute log_type",
-		field: logTypeField,
-		logRecord: func() plog.LogRecord {
-			lr := plog.NewLogRecord()
-			lr.Attributes().PutStr("status", "200")
-			lr.Attributes().PutStr("log.file.name", "/var/log/containers/agent_agent_ns.log")
-			lr.Attributes().PutStr("log_type", "WINEVTLOG")
-			return lr
-		}(),
-		scope:    plog.NewScopeLogs(),
-		resource: plog.NewResourceLogs(),
-		expect:   "WINEVTLOG",
-	},
-	{
-		name:  "Attribute log_type missing",
-		field: logTypeField,
-		logRecord: func() plog.LogRecord {
-			lr := plog.NewLogRecord()
-			lr.Attributes().PutStr("status", "200")
-			lr.Attributes().PutStr("log.file.name", "/var/log/containers/agent_agent_ns.log")
-			return lr
-		}(),
-		scope:    plog.NewScopeLogs(),
-		resource: plog.NewResourceLogs(),
-		expect:   "",
-	},
-	{
 		name:  "Attribute chronicle_log_type",
 		field: chronicleLogTypeField,
 		logRecord: func() plog.LogRecord {
@@ -1652,7 +1625,7 @@ var getRawFieldCases = []getRawFieldCase{
 		logRecord: func() plog.LogRecord {
 			lr := plog.NewLogRecord()
 			lr.Attributes().PutStr("status", "200")
-			lr.Attributes().PutStr("log_type", "k8s-container")
+			lr.Attributes().PutStr("secops_log_type", "k8s-container")
 			lr.Attributes().PutStr("log.file.name", "/var/log/containers/agent_agent_ns.log")
 			lr.Attributes().PutStr("chronicle_log_type", "MICROSOFT_SQL")
 			lr.Attributes().PutStr("chronicle_namespace", "test")
@@ -1668,7 +1641,7 @@ var getRawFieldCases = []getRawFieldCase{
 		logRecord: func() plog.LogRecord {
 			lr := plog.NewLogRecord()
 			lr.Attributes().PutStr("status", "200")
-			lr.Attributes().PutStr("log_type", "k8s-container")
+			lr.Attributes().PutStr("secops_log_type", "k8s-container")
 			lr.Attributes().PutStr("log.file.name", "/var/log/containers/agent_agent_ns.log")
 			lr.Attributes().PutStr("chronicle_log_type", "MICROSOFT_SQL")
 			lr.Attributes().PutStr("chronicle_namespace", "test")
@@ -1685,7 +1658,7 @@ var getRawFieldCases = []getRawFieldCase{
 		logRecord: func() plog.LogRecord {
 			lr := plog.NewLogRecord()
 			lr.Attributes().PutStr("status", "200")
-			lr.Attributes().PutStr("log_type", "k8s-container")
+			lr.Attributes().PutStr("secops_log_type", "k8s-container")
 			lr.Attributes().PutStr("log.file.name", "/var/log/containers/agent_agent_ns.log")
 			lr.Attributes().PutStr("chronicle_log_type", "MICROSOFT_SQL")
 			lr.Attributes().PutStr("chronicle_namespace", "test")
@@ -1722,7 +1695,7 @@ var getRawFieldCases = []getRawFieldCase{
 		logRecord: func() plog.LogRecord {
 			lr := plog.NewLogRecord()
 			lr.Attributes().PutStr("status", "200")
-			lr.Attributes().PutStr("log_type", "k8s-container")
+			lr.Attributes().PutStr("secops_log_type", "k8s-container")
 			lr.Attributes().PutStr("log.file.name", "/var/log/containers/agent_agent_ns.log")
 			lr.Attributes().PutStr("chronicle_log_type", "MICROSOFT_SQL")
 			lr.Attributes().PutStr("chronicle_namespace", "test")
@@ -1994,7 +1967,6 @@ func Test_getLogType(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				API:                   chronicleAPI,
 				ProjectNumber:         "test-project",
 				Location:              "us",
@@ -2004,7 +1976,7 @@ func Test_getLogType(t *testing.T) {
 				{Key: "env", Value: "prod"},
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Test log message", map[string]any{"log_type": "WINEVTLOG", "namespace": "test"}))
+				return mockLogs(mockLogRecord("Test log message", map[string]any{"secops_log_type": "WINEVTLOG", "namespace": "test"}))
 			},
 			expectedType: "WINEVTLOG",
 		},
@@ -2014,7 +1986,6 @@ func Test_getLogType(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				API:                   chronicleAPI,
 				ProjectNumber:         "test-project",
 				Location:              "us",
@@ -2028,7 +1999,7 @@ func Test_getLogType(t *testing.T) {
 				{Key: "env", Value: "prod"},
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Test log message", map[string]any{"log_type": "WINEVTLOG", "namespace": "test"}))
+				return mockLogs(mockLogRecord("Test log message", map[string]any{"secops_log_type": "WINEVTLOG", "namespace": "test"}))
 			},
 			expectedType: "WINEVTLOG",
 		},
@@ -2037,7 +2008,6 @@ func Test_getLogType(t *testing.T) {
 			cfg: Config{
 				CustomerID:            uuid.New().String(),
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				API:                   chronicleAPI,
 				ProjectNumber:         "test-project",
 				Location:              "us",
@@ -2051,7 +2021,7 @@ func Test_getLogType(t *testing.T) {
 				{Key: "env", Value: "prod"},
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Test log message", map[string]any{"log_type": "WINEVTLOG", "namespace": "test"}))
+				return mockLogs(mockLogRecord("Test log message", map[string]any{"secops_log_type": "WINEVTLOG", "namespace": "test"}))
 			},
 			expectedType: "CATCH_ALL",
 		},
@@ -2061,12 +2031,11 @@ func Test_getLogType(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "attributes",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
+				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "secops_log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
 			},
 			expectedType: "WINEVTLOG",
 		},
@@ -2076,7 +2045,6 @@ func Test_getLogType(t *testing.T) {
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "DEFAULT",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{},
@@ -2085,112 +2053,11 @@ func Test_getLogType(t *testing.T) {
 			},
 		},
 		{
-			name: "Log type set in config, ignore log_type attribute (OverrideLogType false)",
-			cfg: Config{
-				CustomerID:            uuid.New().String(),
-				DefaultLogType:        "DEFAULT",
-				RawLogField:           "attributes",
-				OverrideLogType:       false,
-				BatchRequestSizeLimit: 5242880,
-			},
-			labels: []*api.Label{},
-			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
-			},
-			expectedType: "DEFAULT",
-		},
-		{
-			name: "Log type set in config, ignore log_type attribute (OverrideLogType false), validation",
-			cfg: Config{
-				CustomerID:            uuid.New().String(),
-				DefaultLogType:        "DEFAULT",
-				RawLogField:           "attributes",
-				OverrideLogType:       false,
-				BatchRequestSizeLimit: 5242880,
-				ValidateLogTypes:      true,
-			},
-			logTypes: map[string]exists{
-				"DEFAULT": {},
-			},
-			labels: []*api.Label{},
-			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
-			},
-			expectedType: "DEFAULT",
-		},
-
-		{
-			name: "Override log type with attribute",
-			cfg: Config{
-				CustomerID:            uuid.New().String(),
-				DefaultLogType:        "DEFAULT", // This should be overridden by the log_type attribute
-				RawLogField:           "body",
-				OverrideLogType:       true,
-				BatchRequestSizeLimit: 5242880,
-			},
-			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Log with overridden type", map[string]any{"log_type": "windows_event.application", "namespace": "test", `ingestion_label["realkey1"]`: "realvalue1", `ingestion_label["realkey2"]`: "realvalue2"}))
-			},
-			expectedType: "WINEVTLOG",
-		},
-		{
-			name: "Override log type with attribute, validation",
-			cfg: Config{
-				CustomerID:            uuid.New().String(),
-				DefaultLogType:        "DEFAULT", // This should be overridden by the log_type attribute
-				RawLogField:           "body",
-				OverrideLogType:       true,
-				BatchRequestSizeLimit: 5242880,
-				ValidateLogTypes:      true,
-			},
-			logTypes: map[string]exists{
-				"WINEVTLOG": {},
-			},
-			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Log with overridden type", map[string]any{"log_type": "windows_event.application", "namespace": "test", `ingestion_label["realkey1"]`: "realvalue1", `ingestion_label["realkey2"]`: "realvalue2"}))
-			},
-			expectedType: "WINEVTLOG",
-		},
-		{
-			name: "Override log type with attribute, fails validation",
-			cfg: Config{
-				CustomerID:            uuid.New().String(),
-				DefaultLogType:        "DEFAULT", // This should be overridden by the log_type attribute
-				RawLogField:           "body",
-				OverrideLogType:       true,
-				BatchRequestSizeLimit: 5242880,
-				ValidateLogTypes:      true,
-			},
-			logTypes: map[string]exists{
-				"CATCH_ALL": {},
-			},
-			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Log with overridden type", map[string]any{"log_type": "windows_event.application", "namespace": "test", `ingestion_label["realkey1"]`: "realvalue1", `ingestion_label["realkey2"]`: "realvalue2"}))
-			},
-			expectedType: "WINEVTLOG", // the log_type attribute is not validated
-		},
-		{
-			name: "Override log type with chronicle attribute",
-			cfg: Config{
-				CustomerID:            uuid.New().String(),
-				DefaultLogType:        "DEFAULT", // This should be overridden by the chronicle_log_type attribute
-				RawLogField:           "body",
-				OverrideLogType:       true,
-				BatchRequestSizeLimit: 5242880,
-			},
-			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Log with overridden type", map[string]any{"chronicle_log_type": "ASOC_ALERT", "chronicle_namespace": "test", `chronicle_ingestion_label["realkey1"]`: "realvalue1", `chronicle_ingestion_label["realkey2"]`: "realvalue2"}))
-			},
-			expectedType: "ASOC_ALERT",
-		},
-
-		{
-			name: "Log type in attributes",
+			name: "Log type in chronicle attribute",
 			cfg: Config{
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "WINEVTLOG",
 				RawLogField:           "body",
-				OverrideLogType:       false,
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
@@ -2201,6 +2068,19 @@ func Test_getLogType(t *testing.T) {
 				return logs
 			},
 			expectedType: "WINEVTLOGS1",
+		},
+		{
+			name: "secops_log_type takes precedence over chronicle_log_type",
+			cfg: Config{
+				CustomerID:            uuid.New().String(),
+				DefaultLogType:        "DEFAULT",
+				RawLogField:           "body",
+				BatchRequestSizeLimit: 5242880,
+			},
+			logRecords: func() plog.Logs {
+				return mockLogs(mockLogRecord("Log with both", map[string]any{"secops_log_type": "OKTA", "chronicle_log_type": "ASOC_ALERT"}))
+			},
+			expectedType: "OKTA",
 		},
 		{
 			name: "Log type unset",
@@ -2256,22 +2136,6 @@ func Test_getLogType(t *testing.T) {
 			},
 			logRecords: func() plog.Logs {
 				return mockLogs(mockLogRecord("Log with logtype", map[string]any{"chronicle_namespace": "test", `chronicle_ingestion_label["realkey1"]`: "realvalue1", `chronicle_ingestion_label["realkey2"]`: "realvalue2"}))
-			},
-			expectedType: "CATCH_ALL",
-		},
-		{
-			name: "Log type override, fails validation",
-			cfg: Config{
-				CustomerID:       uuid.New().String(),
-				RawLogField:      "body",
-				OverrideLogType:  true,
-				ValidateLogTypes: true,
-			},
-			logTypes: map[string]exists{
-				"CATCH_ALL": {},
-			},
-			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Log with logtype", map[string]any{"log_type": "MISSING_TYPE", "chronicle_namespace": "test", `chronicle_ingestion_label["realkey1"]`: "realvalue1", `chronicle_ingestion_label["realkey2"]`: "realvalue2"}))
 			},
 			expectedType: "CATCH_ALL",
 		},

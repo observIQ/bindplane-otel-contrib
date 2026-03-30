@@ -1,3 +1,4 @@
+// Package expr provides functions for creating and executing OTTL expressions for log records.
 package expr // import "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/googlesecopsexporter/internal/expr"
 
 import (

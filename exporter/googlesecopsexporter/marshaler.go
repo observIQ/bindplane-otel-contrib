@@ -24,7 +24,6 @@ import (
 const (
 	bodyField                      = `body`
 	attrExprPattern                = `attributes["%s"]`
-	logTypeAttribute               = `log_type`
 	chronicleNamespaceAttribute    = `chronicle_namespace`
 	chronicleLogTypeAttribute      = `chronicle_log_type`
 	chronicleIngestionLabelsPrefix = `chronicle_ingestion_label`
@@ -38,20 +37,12 @@ const (
 )
 
 var (
-	logTypeField            = fmt.Sprintf(attrExprPattern, logTypeAttribute)
 	chronicleLogTypeField   = fmt.Sprintf(attrExprPattern, chronicleLogTypeAttribute)
 	chronicleNamespaceField = fmt.Sprintf(attrExprPattern, chronicleNamespaceAttribute)
 	secopsLogTypeField      = fmt.Sprintf(attrExprPattern, secopsLogTypeAttribute)
 	secopsNamespaceField    = fmt.Sprintf(attrExprPattern, secopsNamespaceAttribute)
 	logRecordOriginalField  = fmt.Sprintf(attrExprPattern, logRecordOriginalAttribute)
 )
-
-var supportedLogTypes = map[string]string{
-	"windows_event.security":    "WINEVTLOG",
-	"windows_event.application": "WINEVTLOG",
-	"windows_event.system":      "WINEVTLOG",
-	"sql_server":                "MICROSOFT_SQL",
-}
 
 type protoMarshaler struct {
 	cfg          Config
@@ -119,7 +110,7 @@ func (m *protoMarshaler) extractBackstoryRawLogs(ctx context.Context, ld plog.Lo
 				}
 				totalBytes += uint(len(data))
 
-				ingestionLabels := make([]*api.Label, len(ingestionLabelsMap))
+				ingestionLabels := make([]*api.Label, 0, len(ingestionLabelsMap))
 				for key, value := range ingestionLabelsMap {
 					ingestionLabels = append(ingestionLabels, &api.Label{
 						Key:   key,
@@ -201,19 +192,6 @@ func (m *protoMarshaler) getLogType(ctx context.Context, logRecord plog.LogRecor
 		}
 	}
 
-	if m.cfg.OverrideLogType {
-		logType, err := m.getRawField(ctx, logTypeField, logRecord, scope, resource)
-
-		if err != nil {
-			return "", fmt.Errorf("get log type: %w", err)
-		}
-		if logType != "" {
-			if chronicleLogType, ok := supportedLogTypes[logType]; ok {
-				return chronicleLogType, nil
-			}
-		}
-	}
-
 	if m.cfg.DefaultLogType == "" {
 		return catchAllLogType, nil
 	}
@@ -292,14 +270,6 @@ func (m *protoMarshaler) getRawField(ctx context.Context, field string, logRecor
 			}
 			return string(bytes), nil
 		}
-	case logTypeField:
-		attributes := logRecord.Attributes().AsRaw()
-		if logType, ok := attributes[logTypeAttribute]; ok {
-			if v, ok := logType.(string); ok {
-				return v, nil
-			}
-		}
-		return "", nil
 	case chronicleLogTypeField:
 		attributes := logRecord.Attributes().AsRaw()
 		if logType, ok := attributes[chronicleLogTypeAttribute]; ok {

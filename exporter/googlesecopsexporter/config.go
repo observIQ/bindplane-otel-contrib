@@ -65,9 +65,6 @@ type Config struct {
 	// DefaultLogType is the type of log that will be sent to Google SecOps if not overridden by `attributes["log_type"]`, `attributes["chronicle_log_type"]`, or `attributes["secops_log_type"]`.
 	DefaultLogType string `mapstructure:"default_log_type"`
 
-	// OverrideLogType is a flag that determines whether or not to override the `default_log_type` in the config with `attributes["log_type"]`.
-	OverrideLogType bool `mapstructure:"override_log_type"`
-
 	// ValidateLogTypes is a flag that determines whether or not to validate the log types using an API call.
 	ValidateLogTypes bool `mapstructure:"validate_log_types"`
 
