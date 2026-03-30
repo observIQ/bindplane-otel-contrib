@@ -1959,7 +1959,7 @@ func Benchmark_processLogRecord(b *testing.B) {
 			}
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, _, _, _, _ = m.processBackstoryLogRecord(ctx, logRecord, scope, resource)
+				_, _, _, _, _ = m.processLogRecord(ctx, logRecord, scope, resource)
 			}
 		})
 	}
