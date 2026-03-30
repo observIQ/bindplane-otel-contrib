@@ -42,6 +42,13 @@ const (
 	defaultHTTPClientIdleConnTimeout       = 90 * time.Second
 	defaultHTTPClientTLSHandshakeTimeout   = 10 * time.Second
 	defaultHTTPClientExpectContinueTimeout = 1 * time.Second
+
+	attrError = "error"
+)
+
+var (
+	attrErrorNone    attribute.KeyValue = attribute.String(attrError, "none")
+	attrErrorUnknown attribute.KeyValue = attribute.String(attrError, "unknown")
 )
 
 type exists struct{}
@@ -372,7 +379,7 @@ func (exp *chronicleAPIExporter) uploadToChronicleAPI(ctx context.Context, logs 
 	resp, err := exp.client.Do(request)
 	if err != nil {
 		logTypeAttr := attribute.String("logType", logType)
-		errAttr := attribute.String(attrError, "unknown")
+		errAttr := attrErrorUnknown
 		if errors.Is(err, context.DeadlineExceeded) {
 			errAttr = attribute.String(attrError, "timeout")
 		}
