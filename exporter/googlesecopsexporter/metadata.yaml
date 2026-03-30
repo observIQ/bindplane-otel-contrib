@@ -66,7 +66,7 @@ tests:
     api: "chronicle"
     hostname: "chronicle.googleapis.com"
     default_log_type: "WINEVTLOG"
-    creds_file_path: "testdata/credentials.json"
+    creds_file_path: "testdata/fakeCredentials.json"
     customer_id: "123e4567-e89b-12d3-a456-426614174000"
     compression: none
     namespace: "myNamespace"

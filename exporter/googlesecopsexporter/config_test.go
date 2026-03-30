@@ -17,6 +17,7 @@ func TestConfigValidate(t *testing.T) {
 			config: &Config{
 				CredsFilePath:         "/path/to/creds_file",
 				Creds:                 "creds_example",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				Compression:           noCompression,
 				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
@@ -24,9 +25,21 @@ func TestConfigValidate(t *testing.T) {
 			expectedErr: "can only specify creds_file_path or creds",
 		},
 		{
+			desc: "Missing customer ID",
+			config: &Config{
+				Creds:                 "creds_example",
+				DefaultLogType:        "log_type_example",
+				Compression:           noCompression,
+				API:                   backstoryAPI,
+				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
+			},
+			expectedErr: "customer ID is required",
+		},
+		{
 			desc: "Valid backstory config with creds",
 			config: &Config{
 				Creds:                 "creds_example",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				Compression:           noCompression,
 				API:                   backstoryAPI,
@@ -38,6 +51,7 @@ func TestConfigValidate(t *testing.T) {
 			desc: "Valid backstory config with creds_file_path",
 			config: &Config{
 				CredsFilePath:         "/path/to/creds_file",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				Compression:           noCompression,
 				API:                   backstoryAPI,
@@ -49,6 +63,7 @@ func TestConfigValidate(t *testing.T) {
 			desc: "Valid backstory config with raw log field",
 			config: &Config{
 				CredsFilePath:         "/path/to/creds_file",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				RawLogField:           `body["field"]`,
 				Compression:           noCompression,
@@ -61,6 +76,7 @@ func TestConfigValidate(t *testing.T) {
 			desc: "Invalid batch request size limit",
 			config: &Config{
 				Creds:                 "creds_example",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				Compression:           noCompression,
 				API:                   backstoryAPI,
@@ -71,9 +87,11 @@ func TestConfigValidate(t *testing.T) {
 		{
 			desc: "Invalid compression type",
 			config: &Config{
-				CredsFilePath:  "/path/to/creds_file",
-				DefaultLogType: "log_type_example",
-				Compression:    "invalid",
+				CredsFilePath:         "/path/to/creds_file",
+				CustomerID:            "customer_example",
+				DefaultLogType:        "log_type_example",
+				Compression:           "invalid",
+				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
 			},
 			expectedErr: "invalid compression type",
 		},
@@ -82,6 +100,7 @@ func TestConfigValidate(t *testing.T) {
 			config: &Config{
 				Hostname:              "https://myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				Compression:           noCompression,
 				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
@@ -92,6 +111,7 @@ func TestConfigValidate(t *testing.T) {
 			desc: "Empty API",
 			config: &Config{
 				CredsFilePath:         "/path/to/creds_file",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				Compression:           noCompression,
 				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
@@ -102,6 +122,7 @@ func TestConfigValidate(t *testing.T) {
 			desc: "Invalid API",
 			config: &Config{
 				CredsFilePath:         "/path/to/creds_file",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				Compression:           noCompression,
 				API:                   "invalid",
@@ -114,6 +135,7 @@ func TestConfigValidate(t *testing.T) {
 			config: &Config{
 				Hostname:              "myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				API:                   chronicleAPI,
 				Compression:           noCompression,
@@ -126,6 +148,7 @@ func TestConfigValidate(t *testing.T) {
 			desc: "Chronicle API missing hostname",
 			config: &Config{
 				CredsFilePath:         "/path/to/creds_file",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				API:                   chronicleAPI,
 				Compression:           noCompression,
@@ -140,6 +163,7 @@ func TestConfigValidate(t *testing.T) {
 			config: &Config{
 				Hostname:              "myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				API:                   chronicleAPI,
 				Compression:           noCompression,
@@ -153,6 +177,7 @@ func TestConfigValidate(t *testing.T) {
 			config: &Config{
 				Hostname:              "myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				API:                   chronicleAPI,
 				Compression:           noCompression,
@@ -166,6 +191,7 @@ func TestConfigValidate(t *testing.T) {
 			config: &Config{
 				Hostname:              "myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				API:                   chronicleAPI,
 				Compression:           noCompression,
@@ -180,6 +206,7 @@ func TestConfigValidate(t *testing.T) {
 			config: &Config{
 				Hostname:              "myendpoint.com",
 				CredsFilePath:         "/path/to/creds_file",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				API:                   chronicleAPI,
 				Compression:           noCompression,
@@ -194,6 +221,7 @@ func TestConfigValidate(t *testing.T) {
 			desc: "Invalid collector ID",
 			config: &Config{
 				Creds:                 "creds_example",
+				CustomerID:            "customer_example",
 				DefaultLogType:        "log_type_example",
 				Compression:           noCompression,
 				API:                   backstoryAPI,
@@ -201,6 +229,31 @@ func TestConfigValidate(t *testing.T) {
 				CollectorID:           "not-a-uuid",
 			},
 			expectedErr: "invalid collector ID",
+		},
+		{
+			desc: "Valid collector ID",
+			config: &Config{
+				Creds:                 "creds_example",
+				CustomerID:            "customer_example",
+				DefaultLogType:        "log_type_example",
+				Compression:           noCompression,
+				API:                   backstoryAPI,
+				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
+				CollectorID:           "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+			},
+		},
+		{
+			desc: "Invalid raw log field",
+			config: &Config{
+				Creds:                 "creds_example",
+				CustomerID:            "customer_example",
+				DefaultLogType:        "log_type_example",
+				RawLogField:           "invalid{{{",
+				Compression:           noCompression,
+				API:                   backstoryAPI,
+				BatchRequestSizeLimit: defaultBatchRequestSizeLimit,
+			},
+			expectedErr: "invalid raw_log_field",
 		},
 	}
 
