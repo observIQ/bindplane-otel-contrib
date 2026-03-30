@@ -3,6 +3,7 @@ package googlesecopsexporter
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +17,6 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/otel/metric/noop"
 	"go.uber.org/zap"
-	"golang.org/x/exp/rand"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -1498,7 +1498,7 @@ func tokenWithLength(length int) []byte {
 	charset := "abcdefghijklmnopqrstuvwxyz"
 	b := make([]byte, length)
 	for i := range b {
-		b[i] = charset[rand.Intn(len(charset))]
+		b[i] = charset[rand.IntN(len(charset))]
 	}
 	return b
 }
