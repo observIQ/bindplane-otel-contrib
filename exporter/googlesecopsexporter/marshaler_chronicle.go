@@ -96,10 +96,6 @@ func (m *protoMarshaler) enforceMaximumsChronicleAPIRequest(request *api.ImportL
 
 func (m *protoMarshaler) buildChronicleAPIRequest(entries []*api.Log) *api.ImportLogsRequest {
 	return &api.ImportLogsRequest{
-		// TODO: Add hint?
-		// No solid guidance on what this should be
-		Hint: "",
-
 		Source: &api.ImportLogsRequest_InlineSource{
 			InlineSource: &api.ImportLogsRequest_LogsInlineSource{
 				Forwarder: m.buildForwarderString(),
