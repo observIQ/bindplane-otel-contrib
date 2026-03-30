@@ -10,7 +10,7 @@ import (
 
 	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/metadatatest"
 	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/protos/api"
-	"github.com/observiq/bindplane-otel-contrib/internal/testutils/retryserver"
+	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/retryserver"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/configoptional"
