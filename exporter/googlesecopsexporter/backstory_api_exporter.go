@@ -123,7 +123,7 @@ func (exp *backstoryExporter) Shutdown(context.Context) error {
 // the error occurred. Google SecOps is expected to handle duplicate requests
 // idempotently to prevent duplicate log entries.
 func (exp *backstoryExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
-	payloads, totalBytes, err := exp.marshaler.MarshalRawLogs(ctx, ld)
+	payloads, totalBytes, err := exp.marshaler.MarshalBackstoryRawLogs(ctx, ld)
 	if err != nil {
 		return fmt.Errorf("marshal logs: %w", err)
 	}

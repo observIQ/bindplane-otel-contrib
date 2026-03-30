@@ -863,7 +863,7 @@ func TestProtoMarshaler_MarshalRawLogs(t *testing.T) {
 			require.NoError(t, err)
 
 			logs := tt.logRecords()
-			requests, _, err := marshaler.MarshalRawLogs(context.Background(), logs)
+			requests, _, err := marshaler.MarshalBackstoryRawLogs(context.Background(), logs)
 			require.NoError(t, err)
 
 			tt.expectations(t, requests)
@@ -908,7 +908,7 @@ func BenchmarkProtoMarshaler_MarshalRawLogs(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		marshaler.startTime = startTime
-		_, _, err := marshaler.MarshalRawLogs(context.Background(), logs)
+		_, _, err := marshaler.MarshalBackstoryRawLogs(context.Background(), logs)
 		require.NoError(b, err)
 	}
 }
@@ -1486,7 +1486,7 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 			require.NoError(t, err)
 
 			logs := tt.logRecords()
-			requests, _, err := marshaler.MarshalRawLogsForHTTP(context.Background(), logs)
+			requests, _, err := marshaler.MarshalChronicleAPIRawLogs(context.Background(), logs)
 			require.NoError(t, err)
 
 			tt.expectations(t, requests)
@@ -1959,7 +1959,7 @@ func Benchmark_processLogRecord(b *testing.B) {
 			}
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, _, _, _, _ = m.processLogRecord(ctx, logRecord, scope, resource)
+				_, _, _, _, _ = m.processBackstoryLogRecord(ctx, logRecord, scope, resource)
 			}
 		})
 	}

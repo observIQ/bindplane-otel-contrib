@@ -279,7 +279,7 @@ func (exp *chronicleAPIExporter) Shutdown(context.Context) error {
 // double-counting across retry attempts. When retry is disabled, bytes are counted
 // regardless of success/failure since this is the only attempt to send the data.
 func (exp *chronicleAPIExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
-	payloads, totalBytes, err := exp.marshaler.MarshalRawLogsForHTTP(ctx, ld)
+	payloads, totalBytes, err := exp.marshaler.MarshalChronicleAPIRawLogs(ctx, ld)
 	if err != nil {
 		return fmt.Errorf("marshal logs: %w", err)
 	}

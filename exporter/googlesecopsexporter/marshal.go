@@ -25,10 +25,13 @@ const (
 	bodyField                      = `body`
 	attrExprPattern                = `attributes["%s"]`
 	logTypeAttribute               = `log_type`
-	namespaceAttribute             = `chronicle_namespace`
+	chronicleNamespaceAttribute    = `chronicle_namespace`
 	chronicleLogTypeAttribute      = `chronicle_log_type`
-	logRecordOriginalAttribute     = `log.record.original`
 	chronicleIngestionLabelsPrefix = `chronicle_ingestion_label`
+	secopsNamespaceAttribute       = `secops_namespace`
+	secopsLogTypeAttribute         = `secops_log_type`
+	secopsIngestionLabelsPrefix    = `secops_ingestion_label`
+	logRecordOriginalAttribute     = `log.record.original`
 
 	// catchAllLogType is the log type that is used when the log type is not found in the log types map
 	catchAllLogType = "CATCH_ALL"
@@ -37,7 +40,9 @@ const (
 var (
 	logTypeField            = fmt.Sprintf(attrExprPattern, logTypeAttribute)
 	chronicleLogTypeField   = fmt.Sprintf(attrExprPattern, chronicleLogTypeAttribute)
-	chronicleNamespaceField = fmt.Sprintf(attrExprPattern, namespaceAttribute)
+	chronicleNamespaceField = fmt.Sprintf(attrExprPattern, chronicleNamespaceAttribute)
+	secopsLogTypeField      = fmt.Sprintf(attrExprPattern, secopsLogTypeAttribute)
+	secopsNamespaceField    = fmt.Sprintf(attrExprPattern, secopsNamespaceAttribute)
 	logRecordOriginalField  = fmt.Sprintf(attrExprPattern, logRecordOriginalAttribute)
 )
 
@@ -75,15 +80,15 @@ func newProtoMarshaler(cfg Config, teleSettings component.TelemetrySettings, tel
 	}, nil
 }
 
-func (m *protoMarshaler) MarshalRawLogs(ctx context.Context, ld plog.Logs) ([]*api.BatchCreateLogsRequest, uint, error) {
-	logGrouper, totalBytes, err := m.extractRawLogs(ctx, ld)
+func (m *protoMarshaler) MarshalBackstoryRawLogs(ctx context.Context, ld plog.Logs) ([]*api.BatchCreateLogsRequest, uint, error) {
+	logGrouper, totalBytes, err := m.extractBackstoryRawLogs(ctx, ld)
 	if err != nil {
 		return nil, 0, fmt.Errorf("extract raw logs: %w", err)
 	}
-	return m.constructPayloads(logGrouper), totalBytes, nil
+	return m.constructBackstoryPayloads(logGrouper), totalBytes, nil
 }
 
-func (m *protoMarshaler) extractRawLogs(ctx context.Context, ld plog.Logs) (*logGrouper, uint, error) {
+func (m *protoMarshaler) extractBackstoryRawLogs(ctx context.Context, ld plog.Logs) (*logGrouper, uint, error) {
 	totalBytes := uint(0)
 	logGrouper := newLogGrouper()
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
@@ -93,7 +98,7 @@ func (m *protoMarshaler) extractRawLogs(ctx context.Context, ld plog.Logs) (*log
 			for k := 0; k < scopeLog.LogRecords().Len(); k++ {
 				logRecord := scopeLog.LogRecords().At(k)
 
-				rawLog, logType, namespace, ingestionLabels, err := m.processLogRecord(ctx, logRecord, scopeLog, resourceLog)
+				rawLog, logType, namespace, ingestionLabels, err := m.processBackstoryLogRecord(ctx, logRecord, scopeLog, resourceLog)
 
 				if err != nil {
 					m.teleSettings.Logger.Error("Error processing log record", zap.Error(err))
@@ -122,7 +127,7 @@ func (m *protoMarshaler) extractRawLogs(ctx context.Context, ld plog.Logs) (*log
 	return logGrouper, totalBytes, nil
 }
 
-func (m *protoMarshaler) processLogRecord(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (string, string, string, []*api.Label, error) {
+func (m *protoMarshaler) processBackstoryLogRecord(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (string, string, string, []*api.Label, error) {
 	rawLog, err := m.getRawLog(ctx, logRecord, scope, resource)
 	if err != nil {
 		return "", "", "", nil, err
@@ -135,14 +140,14 @@ func (m *protoMarshaler) processLogRecord(ctx context.Context, logRecord plog.Lo
 	if err != nil {
 		return "", "", "", nil, err
 	}
-	ingestionLabels, err := m.getIngestionLabels(logRecord)
+	ingestionLabels, err := m.getBackstoryIngestionLabels(logRecord)
 	if err != nil {
 		return "", "", "", nil, err
 	}
 	return rawLog, logType, namespace, ingestionLabels, nil
 }
 
-func (m *protoMarshaler) processHTTPLogRecord(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (string, string, string, map[string]*api.Log_LogLabel, error) {
+func (m *protoMarshaler) processChronicleAPILogRecord(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (string, string, string, map[string]*api.Log_LogLabel, error) {
 	rawLog, err := m.getRawLog(ctx, logRecord, scope, resource)
 	if err != nil {
 		return "", "", "", nil, err
@@ -156,7 +161,7 @@ func (m *protoMarshaler) processHTTPLogRecord(ctx context.Context, logRecord plo
 	if err != nil {
 		return "", "", "", nil, err
 	}
-	ingestionLabels, err := m.getHTTPIngestionLabels(logRecord)
+	ingestionLabels, err := m.getChronicleAPIIngestionLabels(logRecord)
 	if err != nil {
 		return "", "", "", nil, err
 	}
@@ -187,10 +192,17 @@ func (m *protoMarshaler) shouldValidateLogType() bool {
 }
 
 func (m *protoMarshaler) getLogType(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (string, error) {
-	// check for attributes in attributes["chronicle_log_type"]
-	logType, err := m.getRawField(ctx, chronicleLogTypeField, logRecord, scope, resource)
+	// check attributes["secops_log_type"]
+	logType, err := m.getRawField(ctx, secopsLogTypeField, logRecord, scope, resource)
 	if err != nil {
-		return "", fmt.Errorf("get chronicle log type: %w", err)
+		return "", fmt.Errorf("get secops log type: %w", err)
+	}
+	if logType == "" {
+		// check attributes["chronicle_log_type"]
+		logType, err = m.getRawField(ctx, chronicleLogTypeField, logRecord, scope, resource)
+		if err != nil {
+			return "", fmt.Errorf("get chronicle log type: %w", err)
+		}
 	}
 
 	if logType != "" {
@@ -231,46 +243,66 @@ func (m *protoMarshaler) getLogType(ctx context.Context, logRecord plog.LogRecor
 }
 
 func (m *protoMarshaler) getNamespace(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (string, error) {
-	// check for attributes in attributes["chronicle_namespace"]
-	namespace, err := m.getRawField(ctx, chronicleNamespaceField, logRecord, scope, resource)
+	// check attributes["secops_namespace"]
+	secopsNamespace, err := m.getRawField(ctx, secopsNamespaceField, logRecord, scope, resource)
+	if err != nil {
+		return "", fmt.Errorf("get secops namespace: %w", err)
+	}
+	if secopsNamespace != "" {
+		return secopsNamespace, nil
+	}
+
+	// check attributes["chronicle_namespace"]
+	chronicleNamespace, err := m.getRawField(ctx, chronicleNamespaceField, logRecord, scope, resource)
 	if err != nil {
 		return "", fmt.Errorf("get chronicle namespace: %w", err)
 	}
-	if namespace != "" {
-		return namespace, nil
+	if chronicleNamespace != "" {
+		return chronicleNamespace, nil
 	}
+
 	return m.cfg.Namespace, nil
 }
 
-func (m *protoMarshaler) getIngestionLabels(logRecord plog.LogRecord) ([]*api.Label, error) {
+func (m *protoMarshaler) getBackstoryIngestionLabels(logRecord plog.LogRecord) ([]*api.Label, error) {
+	// check for labels in attributes["secops_ingestion_labels"]
+	secopsIngestionLabels, err := m.getRawNestedFields(secopsIngestionLabelsPrefix, logRecord)
+	if err != nil {
+		return []*api.Label{}, fmt.Errorf("get secops ingestion labels: %w", err)
+	}
+
 	// check for labels in attributes["chronicle_ingestion_labels"]
-	ingestionLabels, err := m.getRawNestedFields(chronicleIngestionLabelsPrefix, logRecord)
+	chronicleIngestionLabels, err := m.getRawNestedFields(chronicleIngestionLabelsPrefix, logRecord)
 	if err != nil {
 		return []*api.Label{}, fmt.Errorf("get chronicle ingestion labels: %w", err)
 	}
 
-	// merge in labels defined in config, using the labels defined in the log record if they exist
-	configLabels := make([]*api.Label, 0)
-	for key, value := range m.cfg.IngestionLabels {
-		if _, exists := ingestionLabels[key]; !exists {
-			configLabels = append(configLabels, &api.Label{
-				Key:   key,
-				Value: value,
-			})
+	// merge labels prioritizing secops ingestion labels over chronicle ingestion labels over config ingestion labels
+	mergedLabels := secopsIngestionLabels
+	for key, value := range chronicleIngestionLabels {
+		if _, exists := mergedLabels[key]; !exists {
+			mergedLabels[key] = value
 		}
 	}
-	for key, value := range ingestionLabels {
-		configLabels = append(configLabels, &api.Label{
+	for key, value := range m.cfg.IngestionLabels {
+		if _, exists := chronicleIngestionLabels[key]; !exists {
+			mergedLabels[key] = value
+		}
+	}
+
+	labels := make([]*api.Label, 0)
+	for key, value := range mergedLabels {
+		labels = append(labels, &api.Label{
 			Key:   key,
 			Value: value,
 		})
 	}
-	return configLabels, nil
+	return labels, nil
 }
 
-func (m *protoMarshaler) getHTTPIngestionLabels(logRecord plog.LogRecord) (map[string]*api.Log_LogLabel, error) {
+func (m *protoMarshaler) getChronicleAPIIngestionLabels(logRecord plog.LogRecord) (map[string]*api.Log_LogLabel, error) {
 	// Check for labels in attributes["chronicle_ingestion_labels"]
-	ingestionLabels, err := m.getHTTPRawNestedFields(chronicleIngestionLabelsPrefix, logRecord)
+	ingestionLabels, err := m.getChronicleAPIRawNestedFields(chronicleIngestionLabelsPrefix, logRecord)
 	if err != nil {
 		return nil, fmt.Errorf("get chronicle ingestion labels: %w", err)
 	}
@@ -321,7 +353,7 @@ func (m *protoMarshaler) getRawField(ctx context.Context, field string, logRecor
 		return "", nil
 	case chronicleNamespaceField:
 		attributes := logRecord.Attributes().AsRaw()
-		if namespace, ok := attributes[namespaceAttribute]; ok {
+		if namespace, ok := attributes[chronicleNamespaceAttribute]; ok {
 			if v, ok := namespace.(string); ok {
 				return v, nil
 			}
@@ -398,7 +430,7 @@ func (m *protoMarshaler) getRawNestedFields(field string, logRecord plog.LogReco
 	return nestedFields, nil
 }
 
-func (m *protoMarshaler) getHTTPRawNestedFields(field string, logRecord plog.LogRecord) (map[string]*api.Log_LogLabel, error) {
+func (m *protoMarshaler) getChronicleAPIRawNestedFields(field string, logRecord plog.LogRecord) (map[string]*api.Log_LogLabel, error) {
 	nestedFields := make(map[string]*api.Log_LogLabel) // Map with key as string and value as Log_LogLabel
 	logRecord.Attributes().Range(func(key string, value pcommon.Value) bool {
 		if !strings.HasPrefix(key, field) {
@@ -426,7 +458,7 @@ func (m *protoMarshaler) getHTTPRawNestedFields(field string, logRecord plog.Log
 	return nestedFields, nil
 }
 
-func (m *protoMarshaler) constructPayloads(logGrouper *logGrouper) []*api.BatchCreateLogsRequest {
+func (m *protoMarshaler) constructBackstoryPayloads(logGrouper *logGrouper) []*api.BatchCreateLogsRequest {
 	payloads := make([]*api.BatchCreateLogsRequest, 0, len(logGrouper.groups))
 
 	metricCtx := context.Background()
@@ -436,9 +468,9 @@ func (m *protoMarshaler) constructPayloads(logGrouper *logGrouper) []*api.BatchC
 			namespace = m.cfg.Namespace
 		}
 
-		request := m.buildGRPCRequest(entries, logType, namespace, ingestionLabels)
+		request := m.buildBackstoryRequest(entries, logType, namespace, ingestionLabels)
 
-		payloads = append(payloads, m.enforceMaximumsGRPCRequest(request)...)
+		payloads = append(payloads, m.enforceMaximumsBackstoryRequest(request)...)
 		for _, payload := range payloads {
 			m.telemetry.GoogleSecopsExporterBatchSize.Record(metricCtx, int64(len(payload.Batch.Entries)))
 			m.telemetry.GoogleSecopsExporterPayloadSize.Record(metricCtx, int64(proto.Size(payload)))
@@ -447,7 +479,7 @@ func (m *protoMarshaler) constructPayloads(logGrouper *logGrouper) []*api.BatchC
 	return payloads
 }
 
-func (m *protoMarshaler) enforceMaximumsGRPCRequest(request *api.BatchCreateLogsRequest) []*api.BatchCreateLogsRequest {
+func (m *protoMarshaler) enforceMaximumsBackstoryRequest(request *api.BatchCreateLogsRequest) []*api.BatchCreateLogsRequest {
 	size := proto.Size(request)
 	entries := request.Batch.Entries
 	if size <= m.cfg.BatchRequestSizeLimit {
@@ -467,16 +499,16 @@ func (m *protoMarshaler) enforceMaximumsGRPCRequest(request *api.BatchCreateLogs
 	rightHalf := entries[mid:]
 
 	request.Batch.Entries = leftHalf
-	otherHalfRequest := m.buildGRPCRequest(rightHalf, request.Batch.LogType, request.Batch.Source.Namespace, request.Batch.Source.Labels)
+	otherHalfRequest := m.buildBackstoryRequest(rightHalf, request.Batch.LogType, request.Batch.Source.Namespace, request.Batch.Source.Labels)
 
 	// re-enforce max size restriction on each half
-	enforcedRequest := m.enforceMaximumsGRPCRequest(request)
-	enforcedOtherHalfRequest := m.enforceMaximumsGRPCRequest(otherHalfRequest)
+	enforcedRequest := m.enforceMaximumsBackstoryRequest(request)
+	enforcedOtherHalfRequest := m.enforceMaximumsBackstoryRequest(otherHalfRequest)
 
 	return append(enforcedRequest, enforcedOtherHalfRequest...)
 }
 
-func (m *protoMarshaler) buildGRPCRequest(entries []*api.LogEntry, logType, namespace string, ingestionLabels []*api.Label) *api.BatchCreateLogsRequest {
+func (m *protoMarshaler) buildBackstoryRequest(entries []*api.LogEntry, logType, namespace string, ingestionLabels []*api.Label) *api.BatchCreateLogsRequest {
 	return &api.BatchCreateLogsRequest{
 		Batch: &api.LogEntryBatch{
 			StartTime: timestamppb.New(m.startTime),
@@ -492,15 +524,15 @@ func (m *protoMarshaler) buildGRPCRequest(entries []*api.LogEntry, logType, name
 	}
 }
 
-func (m *protoMarshaler) MarshalRawLogsForHTTP(ctx context.Context, ld plog.Logs) (map[string][]*api.ImportLogsRequest, uint, error) {
-	rawLogs, totalBytes, err := m.extractRawHTTPLogs(ctx, ld)
+func (m *protoMarshaler) MarshalChronicleAPIRawLogs(ctx context.Context, ld plog.Logs) (map[string][]*api.ImportLogsRequest, uint, error) {
+	rawLogs, totalBytes, err := m.extractChronicleAPIRawLogs(ctx, ld)
 	if err != nil {
 		return nil, 0, fmt.Errorf("extract raw logs: %w", err)
 	}
-	return m.constructHTTPPayloads(rawLogs), totalBytes, nil
+	return m.constructChronicleAPIPayloads(rawLogs), totalBytes, nil
 }
 
-func (m *protoMarshaler) extractRawHTTPLogs(ctx context.Context, ld plog.Logs) (map[string][]*api.Log, uint, error) {
+func (m *protoMarshaler) extractChronicleAPIRawLogs(ctx context.Context, ld plog.Logs) (map[string][]*api.Log, uint, error) {
 	totalBytes := uint(0)
 	entries := make(map[string][]*api.Log)
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
@@ -509,7 +541,7 @@ func (m *protoMarshaler) extractRawHTTPLogs(ctx context.Context, ld plog.Logs) (
 			scopeLog := resourceLog.ScopeLogs().At(j)
 			for k := 0; k < scopeLog.LogRecords().Len(); k++ {
 				logRecord := scopeLog.LogRecords().At(k)
-				rawLog, logType, namespace, ingestionLabels, err := m.processHTTPLogRecord(ctx, logRecord, scopeLog, resourceLog)
+				rawLog, logType, namespace, ingestionLabels, err := m.processChronicleAPILogRecord(ctx, logRecord, scopeLog, resourceLog)
 				if err != nil {
 					m.teleSettings.Logger.Error("Error processing log record", zap.Error(err))
 					continue
@@ -558,16 +590,16 @@ func (m *protoMarshaler) buildForwarderString() string {
 	return fmt.Sprintf(format, m.cfg.ProjectNumber, m.cfg.Location, m.cfg.CustomerID, string(m.collectorID[:]))
 }
 
-func (m *protoMarshaler) constructHTTPPayloads(rawLogs map[string][]*api.Log) map[string][]*api.ImportLogsRequest {
+func (m *protoMarshaler) constructChronicleAPIPayloads(rawLogs map[string][]*api.Log) map[string][]*api.ImportLogsRequest {
 	payloads := make(map[string][]*api.ImportLogsRequest, len(rawLogs))
 
 	metricCtx := context.Background()
 
 	for logType, entries := range rawLogs {
 		if len(entries) > 0 {
-			request := m.buildHTTPRequest(entries)
+			request := m.buildChronicleAPIRequest(entries)
 
-			payloads[logType] = m.enforceMaximumsHTTPRequest(request)
+			payloads[logType] = m.enforceMaximumsChronicleAPIRequest(request)
 			for _, payload := range payloads[logType] {
 				m.telemetry.GoogleSecopsExporterBatchSize.Record(metricCtx, int64(len(payload.GetInlineSource().Logs)))
 				m.telemetry.GoogleSecopsExporterPayloadSize.Record(metricCtx, int64(proto.Size(payload)))
@@ -577,7 +609,7 @@ func (m *protoMarshaler) constructHTTPPayloads(rawLogs map[string][]*api.Log) ma
 	return payloads
 }
 
-func (m *protoMarshaler) enforceMaximumsHTTPRequest(request *api.ImportLogsRequest) []*api.ImportLogsRequest {
+func (m *protoMarshaler) enforceMaximumsChronicleAPIRequest(request *api.ImportLogsRequest) []*api.ImportLogsRequest {
 	size := proto.Size(request)
 	logs := request.GetInlineSource().Logs
 	if size <= m.cfg.BatchRequestSizeLimit {
@@ -597,16 +629,16 @@ func (m *protoMarshaler) enforceMaximumsHTTPRequest(request *api.ImportLogsReque
 	rightHalf := logs[mid:]
 
 	request.GetInlineSource().Logs = leftHalf
-	otherHalfRequest := m.buildHTTPRequest(rightHalf)
+	otherHalfRequest := m.buildChronicleAPIRequest(rightHalf)
 
 	// re-enforce max size restriction on each half
-	enforcedRequest := m.enforceMaximumsHTTPRequest(request)
-	enforcedOtherHalfRequest := m.enforceMaximumsHTTPRequest(otherHalfRequest)
+	enforcedRequest := m.enforceMaximumsChronicleAPIRequest(request)
+	enforcedOtherHalfRequest := m.enforceMaximumsChronicleAPIRequest(otherHalfRequest)
 
 	return append(enforcedRequest, enforcedOtherHalfRequest...)
 }
 
-func (m *protoMarshaler) buildHTTPRequest(entries []*api.Log) *api.ImportLogsRequest {
+func (m *protoMarshaler) buildChronicleAPIRequest(entries []*api.Log) *api.ImportLogsRequest {
 	return &api.ImportLogsRequest{
 		// TODO: Add hint?
 		// No solid guidance on what this should be
