@@ -130,9 +130,6 @@ func (exp *backstoryExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) err
 	successfulPayloads := []*api.BatchCreateLogsRequest{}
 	for _, payload := range payloads {
 		if err := exp.uploadToBackstoryAPI(ctx, payload); err != nil {
-			// Track the failure for observability
-			exp.telemetry.GoogleSecopsExporterLogsSendFailed.Add(ctx, 1, metric.WithAttributeSet(exp.metricAttributes))
-
 			// If retry is disabled, count bytes for payloads that succeeded before this failure
 			if !exp.cfg.BackOffConfig.Enabled {
 				exp.countAndReportBatchBytes(ctx, successfulPayloads)
@@ -142,7 +139,7 @@ func (exp *backstoryExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) err
 		successfulPayloads = append(successfulPayloads, payload)
 	}
 	// Count bytes on success (for both retry enabled and disabled cases)
-	exp.telemetry.GoogleSecopsExporterRawBytes.Add(
+	exp.telemetry.GoogleSecopsExporterBytesSent.Add(
 		ctx,
 		int64(totalBytes),
 		metric.WithAttributeSet(exp.metricAttributes),
@@ -158,7 +155,7 @@ func (exp *backstoryExporter) countAndReportBatchBytes(ctx context.Context, payl
 		}
 	}
 	if totalBytes > 0 {
-		exp.telemetry.GoogleSecopsExporterRawBytes.Add(
+		exp.telemetry.GoogleSecopsExporterBytesSent.Add(
 			ctx,
 			int64(totalBytes),
 			metric.WithAttributeSet(exp.metricAttributes),

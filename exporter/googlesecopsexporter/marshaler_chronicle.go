@@ -57,7 +57,6 @@ func (m *protoMarshaler) constructChronicleAPIPayloads(rawLogs map[string][]*api
 
 			payloads[logType] = m.enforceMaximumsChronicleAPIRequest(request)
 			for _, payload := range payloads[logType] {
-				m.telemetry.GoogleSecopsExporterBatchSize.Record(metricCtx, int64(len(payload.GetInlineSource().Logs)))
 				m.telemetry.GoogleSecopsExporterPayloadSize.Record(metricCtx, int64(proto.Size(payload)))
 			}
 		}

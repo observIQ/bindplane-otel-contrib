@@ -294,9 +294,6 @@ func (exp *chronicleAPIExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) 
 	for logType, logTypePayloads := range payloads {
 		for _, payload := range logTypePayloads {
 			if err := exp.uploadToChronicleAPI(ctx, payload, logType); err != nil {
-				// Track the failure for observability
-				exp.telemetry.GoogleSecopsExporterLogsSendFailed.Add(ctx, 1, metric.WithAttributeSet(exp.metricAttributes))
-
 				// If retry is disabled, count bytes for payloads that succeeded before this failure
 				if !exp.cfg.BackOffConfig.Enabled {
 					exp.countAndReportBatchBytes(ctx, successfulPayloads)
@@ -307,7 +304,7 @@ func (exp *chronicleAPIExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) 
 		}
 	}
 	// Count bytes on success (for both retry enabled and disabled cases)
-	exp.telemetry.GoogleSecopsExporterRawBytes.Add(
+	exp.telemetry.GoogleSecopsExporterBytesSent.Add(
 		ctx,
 		int64(totalBytes),
 		metric.WithAttributeSet(exp.metricAttributes),
@@ -328,7 +325,7 @@ func (exp *chronicleAPIExporter) countAndReportBatchBytes(ctx context.Context, p
 		}
 	}
 	if totalBytes > 0 {
-		exp.telemetry.GoogleSecopsExporterRawBytes.Add(
+		exp.telemetry.GoogleSecopsExporterBytesSent.Add(
 			ctx,
 			int64(totalBytes),
 			metric.WithAttributeSet(exp.metricAttributes),

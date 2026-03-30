@@ -59,7 +59,6 @@ func (m *protoMarshaler) constructBackstoryPayloads(logGrouper *logGrouper) []*a
 
 		payloads = append(payloads, m.enforceMaximumsBackstoryRequest(request)...)
 		for _, payload := range payloads {
-			m.telemetry.GoogleSecopsExporterBatchSize.Record(metricCtx, int64(len(payload.Batch.Entries)))
 			m.telemetry.GoogleSecopsExporterPayloadSize.Record(metricCtx, int64(proto.Size(payload)))
 		}
 	})
