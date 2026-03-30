@@ -12,17 +12,17 @@ import (
 )
 
 // MarshalChronicleAPIRawLogs marshals the logs into chronicle API request payloads.
-func (m *protoMarshaler) MarshalChronicleAPIRawLogs(ctx context.Context, ld plog.Logs) (map[string][]*api.ImportLogsRequest, error) {
-	rawLogs, err := m.extractChronicleAPIRawLogs(ctx, ld)
+func (m *protoMarshaler) MarshalChronicleAPIRawLogs(ctx context.Context, ld plog.Logs) (map[string][]*api.ImportLogsRequest, uint, error) {
+	rawLogs, totalBytes, err := m.extractChronicleAPIRawLogs(ctx, ld)
 	if err != nil {
-		return nil, fmt.Errorf("extract raw logs: %w", err)
+		return nil, 0, fmt.Errorf("extract raw logs: %w", err)
 	}
-	return m.constructChronicleAPIPayloads(rawLogs), nil
+	return m.constructChronicleAPIPayloads(rawLogs), totalBytes, nil
 }
 
-func (m *protoMarshaler) extractChronicleAPIRawLogs(ctx context.Context, ld plog.Logs) (map[string][]*api.Log, error) {
+func (m *protoMarshaler) extractChronicleAPIRawLogs(ctx context.Context, ld plog.Logs) (map[string][]*api.Log, uint, error) {
 	entries := make(map[string][]*api.Log)
-	err := m.forEachLogRecord(ctx, ld, func(p processedLog) {
+	totalBytes, err := m.forEachLogRecord(ctx, ld, func(p processedLog) {
 		ingestionLabels := make(map[string]*api.Log_LogLabel, len(p.ingestionLabels))
 		for key, value := range p.ingestionLabels {
 			ingestionLabels[key] = &api.Log_LogLabel{
@@ -40,10 +40,10 @@ func (m *protoMarshaler) extractChronicleAPIRawLogs(ctx context.Context, ld plog
 		entries[p.logType] = append(entries[p.logType], entry)
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return entries, nil
+	return entries, totalBytes, nil
 }
 
 func (m *protoMarshaler) constructChronicleAPIPayloads(rawLogs map[string][]*api.Log) map[string][]*api.ImportLogsRequest {
@@ -57,6 +57,7 @@ func (m *protoMarshaler) constructChronicleAPIPayloads(rawLogs map[string][]*api
 
 			payloads[logType] = m.enforceMaximumsChronicleAPIRequest(request)
 			for _, payload := range payloads[logType] {
+				m.telemetry.GoogleSecopsExporterBatchSize.Record(metricCtx, int64(len(payload.GetInlineSource().Logs)))
 				m.telemetry.GoogleSecopsExporterPayloadSize.Record(metricCtx, int64(proto.Size(payload)))
 			}
 		}

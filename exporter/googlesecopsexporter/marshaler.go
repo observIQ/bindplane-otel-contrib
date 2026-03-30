@@ -80,7 +80,8 @@ type processedLog struct {
 	data            []byte
 }
 
-func (m *protoMarshaler) forEachLogRecord(ctx context.Context, ld plog.Logs, fn func(p processedLog)) error {
+func (m *protoMarshaler) forEachLogRecord(ctx context.Context, ld plog.Logs, fn func(p processedLog)) (uint, error) {
+	totalBytes := uint(0)
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		resourceLog := ld.ResourceLogs().At(i)
 		for j := 0; j < resourceLog.ScopeLogs().Len(); j++ {
@@ -99,6 +100,7 @@ func (m *protoMarshaler) forEachLogRecord(ctx context.Context, ld plog.Logs, fn 
 				}
 
 				data := []byte(rawLog)
+				totalBytes += uint(len(data))
 				fn(processedLog{
 					rawLog:          rawLog,
 					logType:         logType,
@@ -111,7 +113,7 @@ func (m *protoMarshaler) forEachLogRecord(ctx context.Context, ld plog.Logs, fn 
 			}
 		}
 	}
-	return nil
+	return totalBytes, nil
 }
 
 func (m *protoMarshaler) processLogRecord(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (string, string, string, map[string]string, error) {

@@ -286,18 +286,54 @@ func (exp *chronicleAPIExporter) Shutdown(context.Context) error {
 // double-counting across retry attempts. When retry is disabled, bytes are counted
 // regardless of success/failure since this is the only attempt to send the data.
 func (exp *chronicleAPIExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
-	payloads, err := exp.marshaler.MarshalChronicleAPIRawLogs(ctx, ld)
+	payloads, totalBytes, err := exp.marshaler.MarshalChronicleAPIRawLogs(ctx, ld)
 	if err != nil {
 		return fmt.Errorf("marshal logs: %w", err)
 	}
+	successfulPayloads := []*api.ImportLogsRequest{}
 	for logType, logTypePayloads := range payloads {
 		for _, payload := range logTypePayloads {
 			if err := exp.uploadToChronicleAPI(ctx, payload, logType); err != nil {
+				// Track the failure for observability
+				exp.telemetry.GoogleSecopsExporterLogsSendFailed.Add(ctx, 1, metric.WithAttributeSet(exp.metricAttributes))
+
+				// If retry is disabled, count bytes for payloads that succeeded before this failure
+				if !exp.cfg.BackOffConfig.Enabled {
+					exp.countAndReportBatchBytes(ctx, successfulPayloads)
+				}
 				return fmt.Errorf("upload to chronicle API: %w", err)
 			}
+			successfulPayloads = append(successfulPayloads, payload)
 		}
 	}
+	// Count bytes on success (for both retry enabled and disabled cases)
+	exp.telemetry.GoogleSecopsExporterRawBytes.Add(
+		ctx,
+		int64(totalBytes),
+		metric.WithAttributeSet(exp.metricAttributes),
+	)
 	return nil
+}
+
+func (exp *chronicleAPIExporter) countAndReportBatchBytes(ctx context.Context, payloads []*api.ImportLogsRequest) {
+	totalBytes := uint(0)
+	for _, payload := range payloads {
+		inlineSource := payload.GetInlineSource()
+		if inlineSource == nil {
+			exp.set.Logger.Warn("Payload source is not InlineSource, skipping bytes calculation")
+			continue
+		}
+		for _, entry := range inlineSource.Logs {
+			totalBytes += uint(len(entry.Data))
+		}
+	}
+	if totalBytes > 0 {
+		exp.telemetry.GoogleSecopsExporterRawBytes.Add(
+			ctx,
+			int64(totalBytes),
+			metric.WithAttributeSet(exp.metricAttributes),
+		)
+	}
 }
 
 func (exp *chronicleAPIExporter) compressBody(data []byte) (io.Reader, error) {

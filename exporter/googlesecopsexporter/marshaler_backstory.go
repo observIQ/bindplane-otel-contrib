@@ -12,17 +12,17 @@ import (
 )
 
 // MarshalBackstoryRawLogs marshals the logs into backstory API request payloads.
-func (m *protoMarshaler) MarshalBackstoryRawLogs(ctx context.Context, ld plog.Logs) ([]*api.BatchCreateLogsRequest, error) {
-	logGrouper, err := m.extractBackstoryRawLogs(ctx, ld)
+func (m *protoMarshaler) MarshalBackstoryRawLogs(ctx context.Context, ld plog.Logs) ([]*api.BatchCreateLogsRequest, uint, error) {
+	logGrouper, totalBytes, err := m.extractBackstoryRawLogs(ctx, ld)
 	if err != nil {
-		return nil, fmt.Errorf("extract raw logs: %w", err)
+		return nil, 0, fmt.Errorf("extract raw logs: %w", err)
 	}
-	return m.constructBackstoryPayloads(logGrouper), nil
+	return m.constructBackstoryPayloads(logGrouper), totalBytes, nil
 }
 
-func (m *protoMarshaler) extractBackstoryRawLogs(ctx context.Context, ld plog.Logs) (*logGrouper, error) {
+func (m *protoMarshaler) extractBackstoryRawLogs(ctx context.Context, ld plog.Logs) (*logGrouper, uint, error) {
 	logGrouper := newLogGrouper()
-	err := m.forEachLogRecord(ctx, ld, func(p processedLog) {
+	totalBytes, err := m.forEachLogRecord(ctx, ld, func(p processedLog) {
 		entry := &api.LogEntry{
 			Timestamp:      timestamppb.New(p.timestamp),
 			CollectionTime: timestamppb.New(p.collectionTime),
@@ -39,10 +39,10 @@ func (m *protoMarshaler) extractBackstoryRawLogs(ctx context.Context, ld plog.Lo
 		logGrouper.Add(entry, p.namespace, p.logType, ingestionLabels)
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return logGrouper, nil
+	return logGrouper, totalBytes, nil
 }
 
 func (m *protoMarshaler) constructBackstoryPayloads(logGrouper *logGrouper) []*api.BatchCreateLogsRequest {
@@ -59,6 +59,7 @@ func (m *protoMarshaler) constructBackstoryPayloads(logGrouper *logGrouper) []*a
 
 		payloads = append(payloads, m.enforceMaximumsBackstoryRequest(request)...)
 		for _, payload := range payloads {
+			m.telemetry.GoogleSecopsExporterBatchSize.Record(metricCtx, int64(len(payload.Batch.Entries)))
 			m.telemetry.GoogleSecopsExporterPayloadSize.Record(metricCtx, int64(proto.Size(payload)))
 		}
 	})

@@ -856,7 +856,7 @@ func TestProtoMarshaler_MarshalBackstoryRawLogs(t *testing.T) {
 			require.NoError(t, err)
 
 			logs := tt.logRecords()
-			requests, err := marshaler.MarshalBackstoryRawLogs(context.Background(), logs)
+			requests, _, err := marshaler.MarshalBackstoryRawLogs(context.Background(), logs)
 			require.NoError(t, err)
 
 			tt.expectations(t, requests)
@@ -900,7 +900,7 @@ func BenchmarkProtoMarshaler_MarshalBackstoryRawLogs(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		marshaler.startTime = startTime
-		_, err := marshaler.MarshalBackstoryRawLogs(context.Background(), logs)
+		_, _, err := marshaler.MarshalBackstoryRawLogs(context.Background(), logs)
 		require.NoError(b, err)
 	}
 }
