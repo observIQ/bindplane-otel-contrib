@@ -62,7 +62,7 @@ type Config struct {
 	// CredsFilePath is the file path to the Google credentials JSON file.
 	CredsFilePath string `mapstructure:"creds_file_path"`
 
-	// DefaultLogType is the type of log that will be sent to Google SecOps if not overridden by `attributes["log_type"]`, `attributes["chronicle_log_type"]`, or `attributes["secops_log_type"]`.
+	// DefaultLogType is the type of log that will be sent to Google SecOps if not overridden by `attributes["log_type"]`, `attributes["chronicle_log_type"]`, or `attributes["google_secops.log.type"]`.
 	DefaultLogType string `mapstructure:"default_log_type"`
 
 	// ValidateLogTypes is a flag that determines whether or not to validate the log types using an API call.

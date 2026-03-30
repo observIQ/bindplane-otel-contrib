@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/metadatatest"
-	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/protos/api"
 	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/internal/retryserver"
+	"github.com/observiq/bindplane-otel-contrib/exporter/googlesecopsexporter/protos/api"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/configoptional"
@@ -923,7 +923,7 @@ func TestChronicleAPIExporterTelemetry(t *testing.T) {
 			// Test telemetry metrics - check that the metric exists and has the expected value
 			// When expectedBytes is 0 (failure case), the metric won't exist
 			if tc.expectedBytes > 0 {
-				metric, err := testTelemetry.GetMetric("otelcol_google_secops_exporter_raw_bytes")
+				metric, err := testTelemetry.GetMetric("otelcol_google_secops.exporter.bytes.sent")
 				require.NoError(t, err)
 				require.NotNil(t, metric)
 
@@ -935,7 +935,7 @@ func TestChronicleAPIExporterTelemetry(t *testing.T) {
 				require.Equal(t, int64(tc.expectedBytes), sumData.DataPoints[0].Value)
 			} else {
 				// For failure cases with 0 bytes, verify the metric doesn't exist
-				_, err := testTelemetry.GetMetric("otelcol_google_secops_exporter_raw_bytes")
+				_, err := testTelemetry.GetMetric("otelcol_google_secops.exporter.bytes.sent")
 				require.Error(t, err, "Metric should not exist when no bytes are counted")
 				require.Contains(t, err.Error(), "not found", "Error should indicate metric was not found")
 			}

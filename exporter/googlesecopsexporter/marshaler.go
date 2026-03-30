@@ -24,9 +24,9 @@ const (
 	chronicleNamespaceAttribute    = `chronicle_namespace`
 	chronicleLogTypeAttribute      = `chronicle_log_type`
 	chronicleIngestionLabelsPrefix = `chronicle_ingestion_label`
-	secopsNamespaceAttribute       = `secops_namespace`
-	secopsLogTypeAttribute         = `secops_log_type`
-	secopsIngestionLabelsPrefix    = `secops_ingestion_label`
+	secopsNamespaceAttribute       = `google_secops.namespace`
+	secopsLogTypeAttribute         = `google_secops.log.type`
+	secopsIngestionLabelsPrefix    = `google_secops.ingestion_label`
 	logRecordOriginalAttribute     = `log.record.original`
 
 	// catchAllLogType is the log type that is used when the log type is not found in the log types map
@@ -159,7 +159,7 @@ func (m *protoMarshaler) shouldValidateLogType() bool {
 }
 
 func (m *protoMarshaler) getLogType(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (string, error) {
-	// check attributes["secops_log_type"]
+	// check attributes["google_secops.log.type"]
 	logType, err := m.getRawField(ctx, secopsLogTypeField, logRecord, scope, resource)
 	if err != nil {
 		return "", fmt.Errorf("get secops log type: %w", err)
@@ -197,7 +197,7 @@ func (m *protoMarshaler) getLogType(ctx context.Context, logRecord plog.LogRecor
 }
 
 func (m *protoMarshaler) getNamespace(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (string, error) {
-	// check attributes["secops_namespace"]
+	// check attributes["google_secops.namespace"]
 	secopsNamespace, err := m.getRawField(ctx, secopsNamespaceField, logRecord, scope, resource)
 	if err != nil {
 		return "", fmt.Errorf("get secops namespace: %w", err)
@@ -219,7 +219,7 @@ func (m *protoMarshaler) getNamespace(ctx context.Context, logRecord plog.LogRec
 }
 
 func (m *protoMarshaler) getIngestionLabelsMap(logRecord plog.LogRecord) (map[string]string, error) {
-	// check for labels in attributes["secops_ingestion_labels"]
+	// check for labels in attributes["google_secops.ingestion_labels"]
 	secopsIngestionLabels, err := m.getRawNestedFields(secopsIngestionLabelsPrefix, logRecord)
 	if err != nil {
 		return nil, fmt.Errorf("get secops ingestion labels: %w", err)

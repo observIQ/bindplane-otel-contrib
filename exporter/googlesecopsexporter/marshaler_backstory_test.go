@@ -50,7 +50,7 @@ func TestProtoMarshaler_MarshalBackstoryRawLogs(t *testing.T) {
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Test log message", map[string]any{"secops_log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["env"]`: "prod"}))
+				return mockLogs(mockLogRecord("Test log message", map[string]any{"google_secops.log.type": "WINEVTLOG", "google_secops.namespace": "test", `google_secops.ingestion_label["env"]`: "prod"}))
 			},
 			expectations: func(t *testing.T, requests []*api.BatchCreateLogsRequest) {
 				require.Len(t, requests, 1)
@@ -179,7 +179,7 @@ func TestProtoMarshaler_MarshalBackstoryRawLogs(t *testing.T) {
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "secops_log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
+				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "google_secops.log.type": "WINEVTLOG", "google_secops.namespace": "test", `google_secops.ingestion_label["key1"]`: "value1", `google_secops.ingestion_label["key2"]`: "value2"}))
 			},
 			expectations: func(t *testing.T, requests []*api.BatchCreateLogsRequest) {
 				require.Len(t, requests, 1)
@@ -187,7 +187,7 @@ func TestProtoMarshaler_MarshalBackstoryRawLogs(t *testing.T) {
 				require.Len(t, batch.Entries, 1)
 
 				// Assuming the attributes are marshaled into the Data field as a JSON string
-				expectedData := `{"key1":"value1", "secops_log_type":"WINEVTLOG", "namespace":"test", "chronicle_ingestion_label[\"key1\"]": "value1", "chronicle_ingestion_label[\"key2\"]": "value2"}`
+				expectedData := `{"key1":"value1", "google_secops.log.type":"WINEVTLOG", "google_secops.namespace":"test", "google_secops.ingestion_label[\"key1\"]": "value1", "google_secops.ingestion_label[\"key2\"]": "value2"}`
 				actualData := string(batch.Entries[0].Data)
 				require.JSONEq(t, expectedData, actualData, "Log attributes should match expected")
 			},
@@ -215,7 +215,7 @@ func TestProtoMarshaler_MarshalBackstoryRawLogs(t *testing.T) {
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Log without logType", map[string]any{"namespace": "test", `ingestion_label["realkey1"]`: "realvalue1", `ingestion_label["realkey2"]`: "realvalue2"}))
+				return mockLogs(mockLogRecord("Log without logType", map[string]any{"google_secops.namespace": "test", `google_secops.ingestion_label["realkey1"]`: "realvalue1", `google_secops.ingestion_label["realkey2"]`: "realvalue2"}))
 			},
 			expectations: func(t *testing.T, requests []*api.BatchCreateLogsRequest) {
 				require.Len(t, requests, 1)
@@ -235,10 +235,10 @@ func TestProtoMarshaler_MarshalBackstoryRawLogs(t *testing.T) {
 				logs := plog.NewLogs()
 				record1 := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
 				record1.Body().SetStr("First log message")
-				record1.Attributes().FromRaw(map[string]any{"chronicle_namespace": "test1", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"})
+				record1.Attributes().FromRaw(map[string]any{"google_secops.namespace": "test1", `google_secops.ingestion_label["key1"]`: "value1", `google_secops.ingestion_label["key2"]`: "value2"})
 				record2 := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
 				record2.Body().SetStr("Second log message")
-				record2.Attributes().FromRaw(map[string]any{"chronicle_namespace": "test1", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"})
+				record2.Attributes().FromRaw(map[string]any{"google_secops.namespace": "test1", `google_secops.ingestion_label["key1"]`: "value1", `google_secops.ingestion_label["key2"]`: "value2"})
 				return logs
 			},
 			expectations: func(t *testing.T, requests []*api.BatchCreateLogsRequest) {
@@ -266,10 +266,10 @@ func TestProtoMarshaler_MarshalBackstoryRawLogs(t *testing.T) {
 				logs := plog.NewLogs()
 				record1 := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
 				record1.Body().SetStr("First log message")
-				record1.Attributes().FromRaw(map[string]any{`chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"})
+				record1.Attributes().FromRaw(map[string]any{`google_secops.ingestion_label["key1"]`: "value1", `google_secops.ingestion_label["key2"]`: "value2"})
 				record2 := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
 				record2.Body().SetStr("Second log message")
-				record2.Attributes().FromRaw(map[string]any{`chronicle_ingestion_label["key3"]`: "value3", `chronicle_ingestion_label["key4"]`: "value4"})
+				record2.Attributes().FromRaw(map[string]any{`google_secops.ingestion_label["key3"]`: "value3", `google_secops.ingestion_label["key4"]`: "value4"})
 				return logs
 			},
 			expectations: func(t *testing.T, requests []*api.BatchCreateLogsRequest) {
@@ -319,7 +319,7 @@ func TestProtoMarshaler_MarshalBackstoryRawLogs(t *testing.T) {
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Log with secops type", map[string]any{"secops_log_type": "OKTA", "secops_namespace": "secops_ns", `secops_ingestion_label["env"]`: "staging"}))
+				return mockLogs(mockLogRecord("Log with secops type", map[string]any{"google_secops.log.type": "OKTA", "google_secops.namespace": "secops_ns", `google_secops.ingestion_label["env"]`: "staging"}))
 			},
 			expectations: func(t *testing.T, requests []*api.BatchCreateLogsRequest) {
 				require.Len(t, requests, 1)
@@ -354,7 +354,7 @@ func TestProtoMarshaler_MarshalBackstoryRawLogs(t *testing.T) {
 			},
 		},
 		{
-			name: "secops_log_type takes precedence over chronicle_log_type",
+			name: "google_secops.log.type takes precedence over chronicle_log_type",
 			cfg: Config{
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "DEFAULT",
@@ -362,12 +362,12 @@ func TestProtoMarshaler_MarshalBackstoryRawLogs(t *testing.T) {
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Log with both types", map[string]any{"secops_log_type": "OKTA", "chronicle_log_type": "ASOC_ALERT"}))
+				return mockLogs(mockLogRecord("Log with both types", map[string]any{"google_secops.log.type": "OKTA", "chronicle_log_type": "ASOC_ALERT"}))
 			},
 			expectations: func(t *testing.T, requests []*api.BatchCreateLogsRequest) {
 				require.Len(t, requests, 1)
 				batch := requests[0].Batch
-				require.Equal(t, "OKTA", batch.LogType, "Expected secops_log_type to take precedence over chronicle_log_type")
+				require.Equal(t, "OKTA", batch.LogType, "Expected google_secops.log.type to take precedence over chronicle_log_type")
 			},
 		},
 		{

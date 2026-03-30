@@ -151,7 +151,7 @@ var getRawFieldCases = []getRawFieldCase{
 		logRecord: func() plog.LogRecord {
 			lr := plog.NewLogRecord()
 			lr.Attributes().PutStr("status", "200")
-			lr.Attributes().PutStr("secops_log_type", "k8s-container")
+			lr.Attributes().PutStr("google_secops.log.type", "k8s-container")
 			lr.Attributes().PutStr("log.file.name", "/var/log/containers/agent_agent_ns.log")
 			lr.Attributes().PutStr("chronicle_log_type", "MICROSOFT_SQL")
 			lr.Attributes().PutStr("chronicle_namespace", "test")
@@ -167,7 +167,7 @@ var getRawFieldCases = []getRawFieldCase{
 		logRecord: func() plog.LogRecord {
 			lr := plog.NewLogRecord()
 			lr.Attributes().PutStr("status", "200")
-			lr.Attributes().PutStr("secops_log_type", "k8s-container")
+			lr.Attributes().PutStr("google_secops.log.type", "k8s-container")
 			lr.Attributes().PutStr("log.file.name", "/var/log/containers/agent_agent_ns.log")
 			lr.Attributes().PutStr("chronicle_log_type", "MICROSOFT_SQL")
 			lr.Attributes().PutStr("chronicle_namespace", "test")
@@ -184,7 +184,7 @@ var getRawFieldCases = []getRawFieldCase{
 		logRecord: func() plog.LogRecord {
 			lr := plog.NewLogRecord()
 			lr.Attributes().PutStr("status", "200")
-			lr.Attributes().PutStr("secops_log_type", "k8s-container")
+			lr.Attributes().PutStr("google_secops.log.type", "k8s-container")
 			lr.Attributes().PutStr("log.file.name", "/var/log/containers/agent_agent_ns.log")
 			lr.Attributes().PutStr("chronicle_log_type", "MICROSOFT_SQL")
 			lr.Attributes().PutStr("chronicle_namespace", "test")
@@ -221,7 +221,7 @@ var getRawFieldCases = []getRawFieldCase{
 		logRecord: func() plog.LogRecord {
 			lr := plog.NewLogRecord()
 			lr.Attributes().PutStr("status", "200")
-			lr.Attributes().PutStr("secops_log_type", "k8s-container")
+			lr.Attributes().PutStr("google_secops.log.type", "k8s-container")
 			lr.Attributes().PutStr("log.file.name", "/var/log/containers/agent_agent_ns.log")
 			lr.Attributes().PutStr("chronicle_log_type", "MICROSOFT_SQL")
 			lr.Attributes().PutStr("chronicle_namespace", "test")
@@ -502,7 +502,7 @@ func Test_getLogType(t *testing.T) {
 				{Key: "env", Value: "prod"},
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Test log message", map[string]any{"secops_log_type": "WINEVTLOG", "namespace": "test"}))
+				return mockLogs(mockLogRecord("Test log message", map[string]any{"google_secops.log.type": "WINEVTLOG", "google_secops.namespace": "test"}))
 			},
 			expectedType: "WINEVTLOG",
 		},
@@ -525,7 +525,7 @@ func Test_getLogType(t *testing.T) {
 				{Key: "env", Value: "prod"},
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Test log message", map[string]any{"secops_log_type": "WINEVTLOG", "namespace": "test"}))
+				return mockLogs(mockLogRecord("Test log message", map[string]any{"google_secops.log.type": "WINEVTLOG", "google_secops.namespace": "test"}))
 			},
 			expectedType: "WINEVTLOG",
 		},
@@ -547,7 +547,7 @@ func Test_getLogType(t *testing.T) {
 				{Key: "env", Value: "prod"},
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Test log message", map[string]any{"secops_log_type": "WINEVTLOG", "namespace": "test"}))
+				return mockLogs(mockLogRecord("Test log message", map[string]any{"google_secops.log.type": "WINEVTLOG", "google_secops.namespace": "test"}))
 			},
 			expectedType: "CATCH_ALL",
 		},
@@ -561,7 +561,7 @@ func Test_getLogType(t *testing.T) {
 			},
 			labels: []*api.Label{},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "secops_log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
+				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "google_secops.log.type": "WINEVTLOG", "google_secops.namespace": "test", `google_secops.ingestion_label["key1"]`: "value1", `google_secops.ingestion_label["key2"]`: "value2"}))
 			},
 			expectedType: "WINEVTLOG",
 		},
@@ -590,13 +590,13 @@ func Test_getLogType(t *testing.T) {
 				logs := plog.NewLogs()
 				record1 := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
 				record1.Body().SetStr("First log message")
-				record1.Attributes().FromRaw(map[string]any{"chronicle_log_type": "WINEVTLOGS1", "chronicle_namespace": "test1", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"})
+				record1.Attributes().FromRaw(map[string]any{"chronicle_log_type": "WINEVTLOGS1", "chronicle_namespace": "test1", `google_secops.ingestion_label["key1"]`: "value1", `google_secops.ingestion_label["key2"]`: "value2"})
 				return logs
 			},
 			expectedType: "WINEVTLOGS1",
 		},
 		{
-			name: "secops_log_type takes precedence over chronicle_log_type",
+			name: "google_secops.log.type takes precedence over chronicle_log_type",
 			cfg: Config{
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "DEFAULT",
@@ -604,7 +604,7 @@ func Test_getLogType(t *testing.T) {
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Log with both", map[string]any{"secops_log_type": "OKTA", "chronicle_log_type": "ASOC_ALERT"}))
+				return mockLogs(mockLogRecord("Log with both", map[string]any{"google_secops.log.type": "OKTA", "chronicle_log_type": "ASOC_ALERT"}))
 			},
 			expectedType: "OKTA",
 		},

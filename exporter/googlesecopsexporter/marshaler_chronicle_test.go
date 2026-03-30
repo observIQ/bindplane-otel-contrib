@@ -52,7 +52,7 @@ func TestProtoMarshaler_MarshalChronicleAPIRawLogs(t *testing.T) {
 				{Key: "env", Value: "prod"},
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Test log message", map[string]any{"secops_log_type": "WINEVTLOG", "namespace": "test"}))
+				return mockLogs(mockLogRecord("Test log message", map[string]any{"google_secops.log.type": "WINEVTLOG", "google_secops.namespace": "test"}))
 			},
 			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
 				require.Len(t, requests, 1)
@@ -103,13 +103,13 @@ func TestProtoMarshaler_MarshalChronicleAPIRawLogs(t *testing.T) {
 			},
 			labels: []*api.Label{},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "secops_log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
+				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "google_secops.log.type": "WINEVTLOG", "google_secops.namespace": "test", `google_secops.ingestion_label["key1"]`: "value1", `google_secops.ingestion_label["key2"]`: "value2"}))
 			},
 			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
 				require.Len(t, requests, 1)
 				logs := requests["WINEVTLOG"][0].GetInlineSource().Logs
 				// Assuming the attributes are marshaled into the Data field as a JSON string
-				expectedData := `{"key1":"value1", "secops_log_type":"WINEVTLOG", "namespace":"test", "chronicle_ingestion_label[\"key1\"]": "value1", "chronicle_ingestion_label[\"key2\"]": "value2"}`
+				expectedData := `{"key1":"value1", "google_secops.log.type":"WINEVTLOG", "google_secops.namespace":"test", "google_secops.ingestion_label[\"key1\"]": "value1", "google_secops.ingestion_label[\"key2\"]": "value2"}`
 				actualData := string(logs[0].Data)
 				require.JSONEq(t, expectedData, actualData, "Log attributes should match expected")
 			},
@@ -140,13 +140,13 @@ func TestProtoMarshaler_MarshalChronicleAPIRawLogs(t *testing.T) {
 			},
 			labels: []*api.Label{},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "secops_log_type": "WINEVTLOG", "namespace": "test", `chronicle_ingestion_label["key1"]`: "value1", `chronicle_ingestion_label["key2"]`: "value2"}))
+				return mockLogs(mockLogRecord("", map[string]any{"key1": "value1", "google_secops.log.type": "WINEVTLOG", "google_secops.namespace": "test", `google_secops.ingestion_label["key1"]`: "value1", `google_secops.ingestion_label["key2"]`: "value2"}))
 			},
 			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
 				require.Len(t, requests, 1)
 				logs := requests["WINEVTLOG"][0].GetInlineSource().Logs
 				// Assuming the attributes are marshaled into the Data field as a JSON string
-				expectedData := `{"key1":"value1", "secops_log_type":"WINEVTLOG", "namespace":"test", "chronicle_ingestion_label[\"key1\"]": "value1", "chronicle_ingestion_label[\"key2\"]": "value2"}`
+				expectedData := `{"key1":"value1", "google_secops.log.type":"WINEVTLOG", "google_secops.namespace":"test", "google_secops.ingestion_label[\"key1\"]": "value1", "google_secops.ingestion_label[\"key2\"]": "value2"}`
 				actualData := string(logs[0].Data)
 				require.JSONEq(t, expectedData, actualData, "Log attributes should match expected")
 			},
@@ -224,7 +224,7 @@ func TestProtoMarshaler_MarshalChronicleAPIRawLogs(t *testing.T) {
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Log with secops type", map[string]any{"secops_log_type": "OKTA", "secops_namespace": "secops_ns", `secops_ingestion_label["env"]`: "staging"}))
+				return mockLogs(mockLogRecord("Log with secops type", map[string]any{"google_secops.log.type": "OKTA", "google_secops.namespace": "secops_ns", `google_secops.ingestion_label["env"]`: "staging"}))
 			},
 			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
 				require.Len(t, requests, 1)
@@ -258,7 +258,7 @@ func TestProtoMarshaler_MarshalChronicleAPIRawLogs(t *testing.T) {
 			},
 		},
 		{
-			name: "secops_log_type takes precedence over chronicle_log_type",
+			name: "google_secops.log.type takes precedence over chronicle_log_type",
 			cfg: Config{
 				CustomerID:            uuid.New().String(),
 				DefaultLogType:        "DEFAULT",
@@ -266,7 +266,7 @@ func TestProtoMarshaler_MarshalChronicleAPIRawLogs(t *testing.T) {
 				BatchRequestSizeLimit: 5242880,
 			},
 			logRecords: func() plog.Logs {
-				return mockLogs(mockLogRecord("Log with both types", map[string]any{"secops_log_type": "OKTA", "chronicle_log_type": "ASOC_ALERT"}))
+				return mockLogs(mockLogRecord("Log with both types", map[string]any{"google_secops.log.type": "OKTA", "chronicle_log_type": "ASOC_ALERT"}))
 			},
 			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
 				require.Len(t, requests, 1)
