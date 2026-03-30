@@ -329,25 +329,30 @@ func (exp *chronicleAPIExporter) countAndReportBatchBytes(ctx context.Context, p
 	}
 }
 
+func (exp *chronicleAPIExporter) compressBody(data []byte) (io.Reader, error) {
+	if exp.cfg.Compression != grpcgzip.Name {
+		return bytes.NewBuffer(data), nil
+	}
+	var b bytes.Buffer
+	gz := gzip.NewWriter(&b)
+	if _, err := gz.Write(data); err != nil {
+		return nil, fmt.Errorf("gzip write: %w", err)
+	}
+	if err := gz.Close(); err != nil {
+		return nil, fmt.Errorf("gzip close: %w", err)
+	}
+	return &b, nil
+}
+
 func (exp *chronicleAPIExporter) uploadToChronicleAPI(ctx context.Context, logs *api.ImportLogsRequest, logType string) error {
 	data, err := protojson.Marshal(logs)
 	if err != nil {
 		return fmt.Errorf("marshal protobuf logs to JSON: %w", err)
 	}
 
-	var body io.Reader
-	if exp.cfg.Compression == grpcgzip.Name {
-		var b bytes.Buffer
-		gz := gzip.NewWriter(&b)
-		if _, err := gz.Write(data); err != nil {
-			return fmt.Errorf("gzip write: %w", err)
-		}
-		if err := gz.Close(); err != nil {
-			return fmt.Errorf("gzip close: %w", err)
-		}
-		body = &b
-	} else {
-		body = bytes.NewBuffer(data)
+	body, err := exp.compressBody(data)
+	if err != nil {
+		return err
 	}
 
 	request, err := http.NewRequestWithContext(ctx, "POST", httpEndpoint(exp.cfg, logType), body)
@@ -453,19 +458,9 @@ func (exp *chronicleAPIExporter) uploadStatsEvents(ctx context.Context, request 
 		return fmt.Errorf("marshal stats event to JSON: %w", err)
 	}
 
-	var body io.Reader
-	if exp.cfg.Compression == grpcgzip.Name {
-		var b bytes.Buffer
-		gz := gzip.NewWriter(&b)
-		if _, err := gz.Write(data); err != nil {
-			return fmt.Errorf("gzip write: %w", err)
-		}
-		if err := gz.Close(); err != nil {
-			return fmt.Errorf("gzip close: %w", err)
-		}
-		body = &b
-	} else {
-		body = bytes.NewBuffer(data)
+	body, err := exp.compressBody(data)
+	if err != nil {
+		return err
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", httpStatsEndpoint(exp.cfg, collectorID), body)
