@@ -131,7 +131,7 @@ func (exp *backstoryExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) err
 	for _, payload := range payloads {
 		if err := exp.uploadToBackstoryAPI(ctx, payload); err != nil {
 			// Track the failure for observability
-			exp.telemetry.ExporterLogsSendFailed.Add(ctx, 1, metric.WithAttributeSet(exp.metricAttributes))
+			exp.telemetry.GoogleSecopsExporterLogsSendFailed.Add(ctx, 1, metric.WithAttributeSet(exp.metricAttributes))
 
 			// If retry is disabled, count bytes for payloads that succeeded before this failure
 			if !exp.cfg.BackOffConfig.Enabled {
@@ -142,7 +142,7 @@ func (exp *backstoryExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) err
 		successfulPayloads = append(successfulPayloads, payload)
 	}
 	// Count bytes on success (for both retry enabled and disabled cases)
-	exp.telemetry.ExporterRawBytes.Add(
+	exp.telemetry.GoogleSecopsExporterRawBytes.Add(
 		ctx,
 		int64(totalBytes),
 		metric.WithAttributeSet(exp.metricAttributes),
@@ -158,7 +158,7 @@ func (exp *backstoryExporter) countAndReportBatchBytes(ctx context.Context, payl
 		}
 	}
 	if totalBytes > 0 {
-		exp.telemetry.ExporterRawBytes.Add(
+		exp.telemetry.GoogleSecopsExporterRawBytes.Add(
 			ctx,
 			int64(totalBytes),
 			metric.WithAttributeSet(exp.metricAttributes),
@@ -183,16 +183,16 @@ func (exp *backstoryExporter) uploadToBackstoryAPI(ctx context.Context, request 
 			codes.Aborted:
 
 			errAttr := attribute.String(attrError, errCode.String())
-			exp.telemetry.ExporterRequestLatency.Record(
+			exp.telemetry.GoogleSecopsExporterRequestLatency.Record(
 				ctx, time.Since(start).Milliseconds(),
 				metric.WithAttributeSet(attribute.NewSet(errAttr)),
 			)
-			exp.telemetry.ExporterRequestCount.Add(ctx, 1,
+			exp.telemetry.GoogleSecopsExporterRequestCount.Add(ctx, 1,
 				metric.WithAttributeSet(attribute.NewSet(errAttr)))
 
 			return fmt.Errorf("upload logs to backstory API: %w", err)
 		default:
-			exp.telemetry.ExporterRequestCount.Add(ctx, 1,
+			exp.telemetry.GoogleSecopsExporterRequestCount.Add(ctx, 1,
 				metric.WithAttributeSet(attribute.NewSet(attrErrorUnknown)))
 
 			if exp.metrics != nil {
@@ -204,8 +204,8 @@ func (exp *backstoryExporter) uploadToBackstoryAPI(ctx context.Context, request 
 		}
 	}
 
-	exp.telemetry.ExporterRequestLatency.Record(ctx, time.Since(start).Milliseconds())
-	exp.telemetry.ExporterRequestCount.Add(ctx, 1,
+	exp.telemetry.GoogleSecopsExporterRequestLatency.Record(ctx, time.Since(start).Milliseconds())
+	exp.telemetry.GoogleSecopsExporterRequestCount.Add(ctx, 1,
 		metric.WithAttributeSet(attribute.NewSet(attrErrorNone)))
 
 	if exp.metrics != nil {

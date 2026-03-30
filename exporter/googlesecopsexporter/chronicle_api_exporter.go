@@ -288,7 +288,7 @@ func (exp *chronicleAPIExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) 
 		for _, payload := range logTypePayloads {
 			if err := exp.uploadToChronicleAPI(ctx, payload, logType); err != nil {
 				// Track the failure for observability
-				exp.telemetry.ExporterLogsSendFailed.Add(ctx, 1, metric.WithAttributeSet(exp.metricAttributes))
+				exp.telemetry.GoogleSecopsExporterLogsSendFailed.Add(ctx, 1, metric.WithAttributeSet(exp.metricAttributes))
 
 				// If retry is disabled, count bytes for payloads that succeeded before this failure
 				if !exp.cfg.BackOffConfig.Enabled {
@@ -300,7 +300,7 @@ func (exp *chronicleAPIExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) 
 		}
 	}
 	// Count bytes on success (for both retry enabled and disabled cases)
-	exp.telemetry.ExporterRawBytes.Add(
+	exp.telemetry.GoogleSecopsExporterRawBytes.Add(
 		ctx,
 		int64(totalBytes),
 		metric.WithAttributeSet(exp.metricAttributes),
@@ -321,7 +321,7 @@ func (exp *chronicleAPIExporter) countAndReportBatchBytes(ctx context.Context, p
 		}
 	}
 	if totalBytes > 0 {
-		exp.telemetry.ExporterRawBytes.Add(
+		exp.telemetry.GoogleSecopsExporterRawBytes.Add(
 			ctx,
 			int64(totalBytes),
 			metric.WithAttributeSet(exp.metricAttributes),
@@ -371,22 +371,22 @@ func (exp *chronicleAPIExporter) uploadToChronicleAPI(ctx context.Context, logs 
 		if errors.Is(err, context.DeadlineExceeded) {
 			errAttr = attribute.String(attrError, "timeout")
 		}
-		exp.telemetry.ExporterRequestLatency.Record(
+		exp.telemetry.GoogleSecopsExporterRequestLatency.Record(
 			ctx, time.Since(start).Milliseconds(),
 			metric.WithAttributeSet(attribute.NewSet(errAttr, logTypeAttr)),
 		)
-		exp.telemetry.ExporterRequestCount.Add(ctx, 1,
+		exp.telemetry.GoogleSecopsExporterRequestCount.Add(ctx, 1,
 			metric.WithAttributeSet(attribute.NewSet(errAttr, logTypeAttr)))
 		return fmt.Errorf("send request to Chronicle API: %w", err)
 	}
 	defer resp.Body.Close()
 
 	statusAttr := attribute.String("status", resp.Status)
-	exp.telemetry.ExporterRequestLatency.Record(
+	exp.telemetry.GoogleSecopsExporterRequestLatency.Record(
 		ctx, time.Since(start).Milliseconds(),
 		metric.WithAttributeSet(attribute.NewSet(statusAttr)),
 	)
-	exp.telemetry.ExporterRequestCount.Add(ctx, 1,
+	exp.telemetry.GoogleSecopsExporterRequestCount.Add(ctx, 1,
 		metric.WithAttributeSet(attribute.NewSet(attrErrorNone)))
 
 	if resp.StatusCode == http.StatusOK {
