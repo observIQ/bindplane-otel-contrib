@@ -591,7 +591,7 @@ func TestProtoMarshaler_MarshalChronicleAPIRawLogs(t *testing.T) {
 			require.NoError(t, err)
 
 			logs := tt.logRecords()
-			requests, _, err := marshaler.MarshalChronicleAPIRawLogs(context.Background(), logs)
+			requests, err := marshaler.MarshalChronicleAPIRawLogs(context.Background(), logs)
 			require.NoError(t, err)
 
 			tt.expectations(t, requests)

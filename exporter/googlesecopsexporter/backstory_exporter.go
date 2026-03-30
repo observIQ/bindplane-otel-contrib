@@ -123,47 +123,16 @@ func (exp *backstoryExporter) Shutdown(context.Context) error {
 // the error occurred. Google SecOps is expected to handle duplicate requests
 // idempotently to prevent duplicate log entries.
 func (exp *backstoryExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
-	payloads, totalBytes, err := exp.marshaler.MarshalBackstoryRawLogs(ctx, ld)
+	payloads, err := exp.marshaler.MarshalBackstoryRawLogs(ctx, ld)
 	if err != nil {
 		return fmt.Errorf("marshal logs: %w", err)
 	}
-	successfulPayloads := []*api.BatchCreateLogsRequest{}
 	for _, payload := range payloads {
 		if err := exp.uploadToBackstoryAPI(ctx, payload); err != nil {
-			// Track the failure for observability
-			exp.telemetry.GoogleSecopsExporterLogsSendFailed.Add(ctx, 1, metric.WithAttributeSet(exp.metricAttributes))
-
-			// If retry is disabled, count bytes for payloads that succeeded before this failure
-			if !exp.cfg.BackOffConfig.Enabled {
-				exp.countAndReportBatchBytes(ctx, successfulPayloads)
-			}
 			return err
 		}
-		successfulPayloads = append(successfulPayloads, payload)
 	}
-	// Count bytes on success (for both retry enabled and disabled cases)
-	exp.telemetry.GoogleSecopsExporterRawBytes.Add(
-		ctx,
-		int64(totalBytes),
-		metric.WithAttributeSet(exp.metricAttributes),
-	)
 	return nil
-}
-
-func (exp *backstoryExporter) countAndReportBatchBytes(ctx context.Context, payloads []*api.BatchCreateLogsRequest) {
-	totalBytes := uint(0)
-	for _, payload := range payloads {
-		for _, entries := range payload.Batch.Entries {
-			totalBytes += uint(len(entries.Data))
-		}
-	}
-	if totalBytes > 0 {
-		exp.telemetry.GoogleSecopsExporterRawBytes.Add(
-			ctx,
-			int64(totalBytes),
-			metric.WithAttributeSet(exp.metricAttributes),
-		)
-	}
 }
 
 func (exp *backstoryExporter) uploadToBackstoryAPI(ctx context.Context, request *api.BatchCreateLogsRequest) error {
