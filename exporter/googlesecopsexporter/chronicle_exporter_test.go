@@ -615,20 +615,6 @@ func TestChronicleAPIExporterUploadStatsEventsEndpoint(t *testing.T) {
 		logType          string
 	}{
 		{
-			name: "default API version",
-			cfg: &Config{
-				Location:      "us",
-				Hostname:      "chronicle.googleapis.com",
-				ProjectNumber: "my-project",
-				CustomerID:    "my-customer-id",
-			},
-			statsEndpoint:    "https://us-chronicle.googleapis.com/v1alpha/projects/my-project/locations/us/instances/my-customer-id/forwarders/collector-123:importStatsEvents",
-			logTypesEndpoint: "https://us-chronicle.googleapis.com/v1alpha/projects/my-project/locations/us/instances/my-customer-id/logTypes",
-			baseEndpoint:     "https://us-chronicle.googleapis.com/v1alpha/projects/my-project/locations/us/instances/my-customer-id",
-			httpEndpoint:     "https://us-chronicle.googleapis.com/v1alpha/projects/my-project/locations/us/instances/my-customer-id/logTypes/FAKE/logs:import",
-			logType:          "FAKE",
-		},
-		{
 			name: "custom API version",
 			cfg: &Config{
 				Location:      "us",

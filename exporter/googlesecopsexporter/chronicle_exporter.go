@@ -51,8 +51,6 @@ var (
 	attrErrorUnknown attribute.KeyValue = attribute.String(attrError, "unknown")
 )
 
-type exists struct{}
-
 type chronicleAPIExporter struct {
 	cfg        *Config
 	set        component.TelemetrySettings
@@ -123,9 +121,6 @@ func baseEndpoint(cfg *Config) string {
 	} else {
 		hostname = fmt.Sprintf("%s-%s", cfg.Location, cfg.Hostname)
 	}
-	if cfg.APIVersion == "" {
-		cfg.APIVersion = apiVersionV1Alpha
-	}
 	formatString := "https://%s/%s/projects/%s/locations/%s/instances/%s"
 	return fmt.Sprintf(formatString, hostname, cfg.APIVersion, cfg.ProjectNumber, cfg.Location, cfg.CustomerID)
 }
@@ -187,8 +182,8 @@ type logTypeResponse struct {
 	NextPageToken string    `json:"nextPageToken"`
 }
 
-func (exp *chronicleAPIExporter) loadLogTypes(ctx context.Context) map[string]exists {
-	logTypes := make(map[string]exists)
+func (exp *chronicleAPIExporter) loadLogTypes(ctx context.Context) map[string]struct{} {
+	logTypes := make(map[string]struct{})
 	endpoint := getLogTypesEndpoint(exp.cfg)
 
 	request, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
@@ -225,7 +220,7 @@ func (exp *chronicleAPIExporter) loadLogTypes(ctx context.Context) map[string]ex
 				return nil
 			}
 			for _, logType := range response.LogTypes {
-				logTypes[parseLogTypes(logType.Name)] = exists{}
+				logTypes[parseLogTypes(logType.Name)] = struct{}{}
 			}
 		}
 

@@ -48,7 +48,7 @@ type protoMarshaler struct {
 	customerID   []byte
 	collectorID  []byte
 	telemetry    *metadata.TelemetryBuilder
-	logTypes     map[string]exists
+	logTypes     map[string]struct{}
 	logger       *zap.Logger
 }
 

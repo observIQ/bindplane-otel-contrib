@@ -485,7 +485,7 @@ func Test_getLogType(t *testing.T) {
 		labels       []*api.Label
 		logRecords   func() plog.Logs
 		expectedType string
-		logTypes     map[string]exists
+		logTypes     map[string]struct{}
 	}{
 		{
 			name: "Single log record with expected data",
@@ -518,7 +518,7 @@ func Test_getLogType(t *testing.T) {
 				BatchRequestSizeLimit: 5242880,
 				ValidateLogTypes:      true,
 			},
-			logTypes: map[string]exists{
+			logTypes: map[string]struct{}{
 				"WINEVTLOG": {},
 			},
 			labels: []*api.Label{
@@ -540,7 +540,7 @@ func Test_getLogType(t *testing.T) {
 				BatchRequestSizeLimit: 5242880,
 				ValidateLogTypes:      true,
 			},
-			logTypes: map[string]exists{
+			logTypes: map[string]struct{}{
 				"CATCH_ALL": {},
 			},
 			labels: []*api.Label{
@@ -626,7 +626,7 @@ func Test_getLogType(t *testing.T) {
 				RawLogField:      "body",
 				ValidateLogTypes: true,
 			},
-			logTypes: map[string]exists{
+			logTypes: map[string]struct{}{
 				"CATCH_ALL": {},
 			},
 			logRecords: func() plog.Logs {
@@ -641,7 +641,7 @@ func Test_getLogType(t *testing.T) {
 				RawLogField:      "body",
 				ValidateLogTypes: true,
 			},
-			logTypes: map[string]exists{
+			logTypes: map[string]struct{}{
 				"CATCH_ALL": {},
 			},
 			logRecords: func() plog.Logs {
@@ -657,7 +657,7 @@ func Test_getLogType(t *testing.T) {
 				DefaultLogType:   "MISSING_TYPE",
 				ValidateLogTypes: true,
 			},
-			logTypes: map[string]exists{
+			logTypes: map[string]struct{}{
 				"CATCH_ALL": {},
 			},
 			logRecords: func() plog.Logs {
