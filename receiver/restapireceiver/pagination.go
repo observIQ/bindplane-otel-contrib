@@ -201,6 +201,20 @@ func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
 			}
 		}
 
+		// Add end timestamp parameter if configured (bounded time range)
+		if cfg.Pagination.Timestamp.EndParamName != "" {
+			now := time.Now().UTC()
+			format := cfg.Pagination.Timestamp.TimestampFormat
+			if isEpochFormat(format) {
+				params.Set(cfg.Pagination.Timestamp.EndParamName, formatTimestampEpoch(now, format))
+			} else {
+				if format == "" {
+					format = time.RFC3339
+				}
+				params.Set(cfg.Pagination.Timestamp.EndParamName, now.Format(format))
+			}
+		}
+
 	case paginationModeNone:
 		// No pagination parameters
 	}

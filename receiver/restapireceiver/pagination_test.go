@@ -16,6 +16,7 @@ package restapireceiver
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -1499,4 +1500,101 @@ func TestParsePaginationResponse_WithDataArray(t *testing.T) {
 	hasMore, err := parsePaginationResponse(cfg, responseMap, data, state, zap.NewNop())
 	require.NoError(t, err)
 	require.True(t, hasMore) // Full page of 10 items
+}
+
+func TestBuildPaginationParams_Timestamp_EndParam(t *testing.T) {
+	cfg := &Config{
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				ParamName:          "start_time",
+				EndParamName:       "end_time",
+				TimestampFieldName: "ts",
+				PageSizeFieldName:  "limit",
+				PageSize:           100,
+			},
+		},
+	}
+
+	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	state := &paginationState{
+		CurrentTimestamp: ts,
+		PageSize:         100,
+	}
+
+	before := time.Now().UTC()
+	params := buildPaginationParams(cfg, state)
+	after := time.Now().UTC()
+
+	// Start param should be the configured timestamp
+	require.Equal(t, "2025-01-01T00:00:00Z", params.Get("start_time"))
+
+	// End param should be approximately now
+	endStr := params.Get("end_time")
+	require.NotEmpty(t, endStr)
+	endTime, err := time.Parse(time.RFC3339, endStr)
+	require.NoError(t, err)
+	require.False(t, endTime.Before(before.Truncate(time.Second)))
+	require.False(t, endTime.After(after.Add(time.Second)))
+
+	require.Equal(t, "100", params.Get("limit"))
+}
+
+func TestBuildPaginationParams_Timestamp_EndParam_Epoch(t *testing.T) {
+	cfg := &Config{
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				ParamName:          "since",
+				EndParamName:       "until",
+				TimestampFieldName: "ts",
+				TimestampFormat:    "epoch_s",
+				PageSize:           50,
+			},
+		},
+	}
+
+	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	state := &paginationState{
+		CurrentTimestamp: ts,
+		PageSize:         50,
+	}
+
+	before := time.Now().UTC()
+	params := buildPaginationParams(cfg, state)
+
+	require.Equal(t, "1735689600", params.Get("since"))
+
+	endStr := params.Get("until")
+	require.NotEmpty(t, endStr)
+	// Parse the epoch value and verify it's close to now
+	var endEpoch int64
+	_, err := fmt.Sscanf(endStr, "%d", &endEpoch)
+	require.NoError(t, err)
+	require.InDelta(t, before.Unix(), endEpoch, 2)
+}
+
+func TestBuildPaginationParams_Timestamp_NoEndParam(t *testing.T) {
+	cfg := &Config{
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				ParamName:          "since",
+				TimestampFieldName: "ts",
+				TimestampFormat:    "epoch_s",
+				PageSize:           100,
+			},
+		},
+	}
+
+	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	state := &paginationState{
+		CurrentTimestamp: ts,
+		PageSize:         100,
+	}
+
+	params := buildPaginationParams(cfg, state)
+	require.Equal(t, "1735689600", params.Get("since"))
+	require.Empty(t, params.Get("end_time"))
+	require.Empty(t, params.Get("until"))
 }

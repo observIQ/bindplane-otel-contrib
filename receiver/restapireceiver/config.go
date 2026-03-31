@@ -347,6 +347,11 @@ type TimestampPagination struct {
 	// Accepts the configured timestamp_format or RFC3339 (e.g., "2025-01-01T00:00:00Z").
 	// For epoch formats, accepts a numeric string (e.g., "1704067200" for epoch_s).
 	InitialTimestamp string `mapstructure:"initial_timestamp"`
+
+	// EndParamName is the name of the query parameter for the end timestamp (e.g., "end_time", "to", "until").
+	// If set, the current time (time.Now()) will be sent as the upper bound of the time range on each request,
+	// using the same timestamp_format as the start parameter.
+	EndParamName string `mapstructure:"end_param_name"`
 }
 
 // Validate validates the configuration.

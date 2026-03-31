@@ -133,6 +133,7 @@ Use `auth_mode: none` for public APIs that don't require authentication. No addi
 | `pagination.timestamp.page_size_field_name` | string |         | `false`  | Query parameter name for page size (e.g., "perPage", "limit")                                                                                                                                                                        |
 | `pagination.timestamp.page_size`            | int    | `100`   | `false`  | Page size to use                                                                                                                                                                                                                     |
 | `pagination.timestamp.initial_timestamp`    | string |         | `false`  | Initial timestamp to start from. For string formats, use RFC3339 (e.g., `2025-01-01T00:00:00Z`) or the configured `timestamp_format`. For epoch formats, use a numeric value (e.g., `1704067200`). If not set, starts from beginning |
+| `pagination.timestamp.end_param_name`       | string |         | `false`  | Query parameter name for end timestamp (e.g., "end_time", "to", "until"). If set, the current time is sent as the upper bound on each request, using the same `timestamp_format`                                                    |
 
 Common timestamp formats:
 
@@ -428,6 +429,38 @@ extensions:
 ```
 
 The receiver can also parse epoch timestamps from API responses (both integer and float values) regardless of the configured `timestamp_format`, so this works with APIs that return numeric timestamps in their response data.
+
+### Timestamp Pagination with Bounded Time Range
+
+Some APIs require both a start and end timestamp to define a bounded query window. Use `end_param_name` to send the current time as the upper bound:
+
+```yaml
+receivers:
+  restapi:
+    url: "https://api.example.com/events"
+    response_field: "data"
+    max_poll_interval: 5m
+    auth_mode: bearer
+    bearer:
+      token: "token"
+    pagination:
+      mode: timestamp
+      timestamp:
+        param_name: "start_time"
+        end_param_name: "end_time"
+        timestamp_field_name: "created_at"
+        timestamp_format: "epoch_s"
+        page_size_field_name: "limit"
+        page_size: 100
+        initial_timestamp: "1704067200"
+    storage: file_storage
+
+extensions:
+  file_storage:
+    directory: /var/lib/otelcol/storage
+```
+
+This sends requests like `?start_time=1704067200&end_time=1711929600&limit=100`, where `end_time` is automatically set to the current time on each request.
 
 ### Metrics with Custom Field Mappings
 
