@@ -348,10 +348,17 @@ type TimestampPagination struct {
 	// For epoch formats, accepts a numeric string (e.g., "1704067200" for epoch_s).
 	InitialTimestamp string `mapstructure:"initial_timestamp"`
 
-	// EndParamName is the name of the query parameter for the end timestamp (e.g., "end_time", "to", "until").
+	// EndTimestampParamName is the name of the query parameter for the end timestamp (e.g., "end_time", "to", "until").
 	// If set, the current time (time.Now()) will be sent as the upper bound of the time range on each request,
 	// using the same timestamp_format as the start parameter.
-	EndParamName string `mapstructure:"end_param_name"`
+	EndTimestampParamName string `mapstructure:"end_timestampparam_name"`
+
+	// EndTimestampValue configures what value to send for the end timestamp parameter.
+	// Supported values:
+	//   - "now" (default): the current time at each request
+	//   - A fixed timestamp string in the configured timestamp_format or RFC3339
+	//   - For epoch formats, a numeric string (e.g., "1704067200")
+	EndTimestampValue string `mapstructure:"end_timestamp_value"`
 }
 
 // Validate validates the configuration.
@@ -553,6 +560,36 @@ func (c *Config) Validate() error {
 						formatHint = fmt.Sprintf("configured timestamp_format (%s) or RFC3339", c.Pagination.Timestamp.TimestampFormat)
 					}
 					return fmt.Errorf("initial_timestamp %q could not be parsed; must match %s", c.Pagination.Timestamp.InitialTimestamp, formatHint)
+				}
+			}
+		}
+		// Validate end_timestamp_value format if provided (and not "now")
+		if c.Pagination.Timestamp.EndTimestampValue != "" && c.Pagination.Timestamp.EndTimestampValue != "now" {
+			var parsed bool
+			if isEpochFormat(c.Pagination.Timestamp.TimestampFormat) {
+				if _, err := strconv.ParseFloat(c.Pagination.Timestamp.EndTimestampValue, 64); err == nil {
+					parsed = true
+				}
+				if !parsed {
+					return fmt.Errorf("end_timestamp_value %q must be a numeric value when using epoch timestamp_format (%s)", c.Pagination.Timestamp.EndTimestampValue, c.Pagination.Timestamp.TimestampFormat)
+				}
+			} else {
+				if c.Pagination.Timestamp.TimestampFormat != "" {
+					if _, err := time.Parse(c.Pagination.Timestamp.TimestampFormat, c.Pagination.Timestamp.EndTimestampValue); err == nil {
+						parsed = true
+					}
+				}
+				if !parsed {
+					if _, err := time.Parse(time.RFC3339, c.Pagination.Timestamp.EndTimestampValue); err == nil {
+						parsed = true
+					}
+				}
+				if !parsed {
+					formatHint := "RFC3339 (e.g., 2025-01-01T00:00:00Z)"
+					if c.Pagination.Timestamp.TimestampFormat != "" {
+						formatHint = fmt.Sprintf("configured timestamp_format (%s) or RFC3339", c.Pagination.Timestamp.TimestampFormat)
+					}
+					return fmt.Errorf("end_timestamp_value %q could not be parsed; must be \"now\" or match %s", c.Pagination.Timestamp.EndTimestampValue, formatHint)
 				}
 			}
 		}

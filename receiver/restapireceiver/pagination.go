@@ -202,16 +202,16 @@ func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
 		}
 
 		// Add end timestamp parameter if configured (bounded time range)
-		if cfg.Pagination.Timestamp.EndParamName != "" {
-			now := time.Now().UTC()
+		if cfg.Pagination.Timestamp.EndTimestampParamName != "" {
+			endTime := resolveEndTimestamp(cfg)
 			format := cfg.Pagination.Timestamp.TimestampFormat
 			if isEpochFormat(format) {
-				params.Set(cfg.Pagination.Timestamp.EndParamName, formatTimestampEpoch(now, format))
+				params.Set(cfg.Pagination.Timestamp.EndTimestampParamName, formatTimestampEpoch(endTime, format))
 			} else {
 				if format == "" {
 					format = time.RFC3339
 				}
-				params.Set(cfg.Pagination.Timestamp.EndParamName, now.Format(format))
+				params.Set(cfg.Pagination.Timestamp.EndTimestampParamName, endTime.Format(format))
 			}
 		}
 
@@ -522,6 +522,34 @@ func parseTimestampString(s string) (time.Time, bool) {
 	}
 
 	return time.Time{}, false
+}
+
+// resolveEndTimestamp returns the end timestamp to use based on the configuration.
+// If end_timestamp_value is empty or "now", returns the current time.
+// Otherwise, parses the configured value using the same format logic as initial_timestamp.
+func resolveEndTimestamp(cfg *Config) time.Time {
+	val := cfg.Pagination.Timestamp.EndTimestampValue
+	if val == "" || val == "now" {
+		return time.Now().UTC()
+	}
+
+	format := cfg.Pagination.Timestamp.TimestampFormat
+	if isEpochFormat(format) {
+		if t, err := parseEpochTimestamp(val, format); err == nil {
+			return t
+		}
+		return time.Now().UTC()
+	}
+
+	if format != "" {
+		if t, err := time.Parse(format, val); err == nil {
+			return t
+		}
+	}
+	if t, err := time.Parse(time.RFC3339, val); err == nil {
+		return t
+	}
+	return time.Now().UTC()
 }
 
 // updatePaginationState updates the pagination state to the next page/offset.

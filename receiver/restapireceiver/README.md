@@ -133,7 +133,8 @@ Use `auth_mode: none` for public APIs that don't require authentication. No addi
 | `pagination.timestamp.page_size_field_name` | string |         | `false`  | Query parameter name for page size (e.g., "perPage", "limit")                                                                                                                                                                        |
 | `pagination.timestamp.page_size`            | int    | `100`   | `false`  | Page size to use                                                                                                                                                                                                                     |
 | `pagination.timestamp.initial_timestamp`    | string |         | `false`  | Initial timestamp to start from. For string formats, use RFC3339 (e.g., `2025-01-01T00:00:00Z`) or the configured `timestamp_format`. For epoch formats, use a numeric value (e.g., `1704067200`). If not set, starts from beginning |
-| `pagination.timestamp.end_param_name`       | string |         | `false`  | Query parameter name for end timestamp (e.g., "end_time", "to", "until"). If set, the current time is sent as the upper bound on each request, using the same `timestamp_format`                                                    |
+| `pagination.timestamp.end_timestamp_param_name` | string |         | `false`  | Query parameter name for end timestamp (e.g., "end_time", "to", "until"). If set, sends an upper bound on each request using the same `timestamp_format`                                                                        |
+| `pagination.timestamp.end_timestamp_value`      | string | `now`   | `false`  | Value for the end timestamp: `"now"` (default) sends the current time, or a fixed timestamp in the configured format (e.g., `"2025-06-01T00:00:00Z"` or `"1748736000"` for epoch)                                                |
 
 Common timestamp formats:
 
@@ -432,7 +433,7 @@ The receiver can also parse epoch timestamps from API responses (both integer an
 
 ### Timestamp Pagination with Bounded Time Range
 
-Some APIs require both a start and end timestamp to define a bounded query window. Use `end_param_name` to send the current time as the upper bound:
+Some APIs require both a start and end timestamp to define a bounded query window. Use `end_timestamp_param_name` to send an upper bound. By default it sends the current time, or set `end_timestamp_value` to a fixed timestamp:
 
 ```yaml
 receivers:
@@ -447,7 +448,8 @@ receivers:
       mode: timestamp
       timestamp:
         param_name: "start_time"
-        end_param_name: "end_time"
+        end_timestamp_param_name: "end_time"
+        # end_timestamp_value: "now"  # default — sends current time; or set a fixed value
         timestamp_field_name: "created_at"
         timestamp_format: "epoch_s"
         page_size_field_name: "limit"
@@ -460,7 +462,7 @@ extensions:
     directory: /var/lib/otelcol/storage
 ```
 
-This sends requests like `?start_time=1704067200&end_time=1711929600&limit=100`, where `end_time` is automatically set to the current time on each request.
+This sends requests like `?start_time=1704067200&end_time=1711929600&limit=100`, where `end_time` is automatically set to the current time on each request (or a fixed value if configured).
 
 ### Metrics with Custom Field Mappings
 

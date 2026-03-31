@@ -1507,11 +1507,11 @@ func TestBuildPaginationParams_Timestamp_EndParam(t *testing.T) {
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "start_time",
-				EndParamName:       "end_time",
-				TimestampFieldName: "ts",
-				PageSizeFieldName:  "limit",
-				PageSize:           100,
+				ParamName:             "start_time",
+				EndTimestampParamName: "end_time",
+				TimestampFieldName:    "ts",
+				PageSizeFieldName:     "limit",
+				PageSize:              100,
 			},
 		},
 	}
@@ -1545,11 +1545,11 @@ func TestBuildPaginationParams_Timestamp_EndParam_Epoch(t *testing.T) {
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
-				EndParamName:       "until",
-				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_s",
-				PageSize:           50,
+				ParamName:             "since",
+				EndTimestampParamName: "until",
+				TimestampFieldName:    "ts",
+				TimestampFormat:       "epoch_s",
+				PageSize:              50,
 			},
 		},
 	}
@@ -1572,6 +1572,59 @@ func TestBuildPaginationParams_Timestamp_EndParam_Epoch(t *testing.T) {
 	_, err := fmt.Sscanf(endStr, "%d", &endEpoch)
 	require.NoError(t, err)
 	require.InDelta(t, before.Unix(), endEpoch, 2)
+}
+
+func TestBuildPaginationParams_Timestamp_EndParam_FixedValue(t *testing.T) {
+	cfg := &Config{
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				ParamName:             "start_time",
+				EndTimestampParamName: "end_time",
+				EndTimestampValue:     "2025-06-01T00:00:00Z",
+				TimestampFieldName:    "ts",
+				PageSizeFieldName:     "limit",
+				PageSize:              100,
+			},
+		},
+	}
+
+	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	state := &paginationState{
+		CurrentTimestamp: ts,
+		PageSize:         100,
+	}
+
+	params := buildPaginationParams(cfg, state)
+	require.Equal(t, "2025-01-01T00:00:00Z", params.Get("start_time"))
+	require.Equal(t, "2025-06-01T00:00:00Z", params.Get("end_time"))
+	require.Equal(t, "100", params.Get("limit"))
+}
+
+func TestBuildPaginationParams_Timestamp_EndParam_FixedEpoch(t *testing.T) {
+	cfg := &Config{
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				ParamName:             "since",
+				EndTimestampParamName: "until",
+				EndTimestampValue:     "1748736000",
+				TimestampFieldName:    "ts",
+				TimestampFormat:       "epoch_s",
+				PageSize:              50,
+			},
+		},
+	}
+
+	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	state := &paginationState{
+		CurrentTimestamp: ts,
+		PageSize:         50,
+	}
+
+	params := buildPaginationParams(cfg, state)
+	require.Equal(t, "1735689600", params.Get("since"))
+	require.Equal(t, "1748736000", params.Get("until"))
 }
 
 func TestBuildPaginationParams_Timestamp_NoEndParam(t *testing.T) {
