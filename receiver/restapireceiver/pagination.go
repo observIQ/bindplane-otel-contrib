@@ -527,6 +527,7 @@ func parseTimestampString(s string) (time.Time, bool) {
 // resolveEndTimestamp returns the end timestamp to use based on the configuration.
 // If end_timestamp_value is empty or "now", returns the current time.
 // Otherwise, parses the configured value using the same format logic as initial_timestamp.
+// The value is expected to have been validated by Config.Validate() before reaching this point.
 func resolveEndTimestamp(cfg *Config) time.Time {
 	val := cfg.Pagination.Timestamp.EndTimestampValue
 	if val == "" || val == "now" {
@@ -535,10 +536,12 @@ func resolveEndTimestamp(cfg *Config) time.Time {
 
 	format := cfg.Pagination.Timestamp.TimestampFormat
 	if isEpochFormat(format) {
-		if t, err := parseEpochTimestamp(val, format); err == nil {
-			return t
+		t, err := parseEpochTimestamp(val, format)
+		if err != nil {
+			// This should be unreachable — Validate() rejects invalid epoch values.
+			panic(fmt.Sprintf("end_timestamp_value %q failed to parse as epoch (format %s): %v", val, format, err))
 		}
-		return time.Now().UTC()
+		return t
 	}
 
 	if format != "" {
@@ -549,7 +552,8 @@ func resolveEndTimestamp(cfg *Config) time.Time {
 	if t, err := time.Parse(time.RFC3339, val); err == nil {
 		return t
 	}
-	return time.Now().UTC()
+	// This should be unreachable — Validate() rejects unparseable values.
+	panic(fmt.Sprintf("end_timestamp_value %q failed to parse with format %q or RFC3339", val, format))
 }
 
 // updatePaginationState updates the pagination state to the next page/offset.

@@ -1091,6 +1091,113 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectedErr: "",
 		},
+		{
+			name: "valid end_timestamp_value now",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeAPIKey,
+				APIKeyConfig: APIKeyConfig{
+					HeaderName: "X-API-Key",
+					Value:      "test-key",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeTimestamp,
+					Timestamp: TimestampPagination{
+						ParamName:             "start_time",
+						TimestampFieldName:    "timestamp",
+						EndTimestampParamName: "end_time",
+						EndTimestampValue:     "now",
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "valid end_timestamp_value RFC3339",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeAPIKey,
+				APIKeyConfig: APIKeyConfig{
+					HeaderName: "X-API-Key",
+					Value:      "test-key",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeTimestamp,
+					Timestamp: TimestampPagination{
+						ParamName:             "start_time",
+						TimestampFieldName:    "timestamp",
+						EndTimestampParamName: "end_time",
+						EndTimestampValue:     "2025-06-01T00:00:00Z",
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "valid end_timestamp_value epoch",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeAPIKey,
+				APIKeyConfig: APIKeyConfig{
+					HeaderName: "X-API-Key",
+					Value:      "test-key",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeTimestamp,
+					Timestamp: TimestampPagination{
+						ParamName:             "since",
+						TimestampFieldName:    "timestamp",
+						TimestampFormat:       "epoch_s",
+						EndTimestampParamName: "until",
+						EndTimestampValue:     "1748736000",
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "invalid end_timestamp_value string format",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeAPIKey,
+				APIKeyConfig: APIKeyConfig{
+					HeaderName: "X-API-Key",
+					Value:      "test-key",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeTimestamp,
+					Timestamp: TimestampPagination{
+						ParamName:             "start_time",
+						TimestampFieldName:    "timestamp",
+						EndTimestampParamName: "end_time",
+						EndTimestampValue:     "not-a-timestamp",
+					},
+				},
+			},
+			expectedErr: `end_timestamp_value "not-a-timestamp" could not be parsed`,
+		},
+		{
+			name: "invalid end_timestamp_value epoch format",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeAPIKey,
+				APIKeyConfig: APIKeyConfig{
+					HeaderName: "X-API-Key",
+					Value:      "test-key",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeTimestamp,
+					Timestamp: TimestampPagination{
+						ParamName:             "since",
+						TimestampFieldName:    "timestamp",
+						TimestampFormat:       "epoch_s",
+						EndTimestampParamName: "until",
+						EndTimestampValue:     "not-a-number",
+					},
+				},
+			},
+			expectedErr: `end_timestamp_value "not-a-number" must be a numeric value when using epoch timestamp_format`,
+		},
 	}
 
 	for _, tc := range testCases {
