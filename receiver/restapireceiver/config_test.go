@@ -367,6 +367,30 @@ func TestConfig_Validate(t *testing.T) {
 			expectedErr: "",
 		},
 		{
+			name: "valid ndjson response format",
+			config: &Config{
+				URL:            "https://api.example.com/data",
+				ResponseFormat: responseFormatNDJSON,
+				AuthMode:       authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "invalid response format",
+			config: &Config{
+				URL:            "https://api.example.com/data",
+				ResponseFormat: ResponseFormat("xml"),
+				AuthMode:       authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid response_format: xml, must be one of: json, ndjson",
+		},
+		{
 			name: "invalid pagination mode",
 			config: &Config{
 				URL:      "https://api.example.com/data",

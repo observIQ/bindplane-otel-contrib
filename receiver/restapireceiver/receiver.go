@@ -189,8 +189,18 @@ func (b *baseReceiver) saveCheckpoint(ctx context.Context) error {
 }
 
 // fetchDataPage fetches a single page of data from the API.
-// Returns the full response, extracted data, and any error.
+// Returns the response metadata (for pagination), extracted data, and any error.
+// For NDJSON format, the metadata is the last line of the response.
+// For JSON format, the metadata is the full response object.
 func (b *baseReceiver) fetchDataPage(ctx context.Context, requestURL string, params url.Values) (map[string]any, []map[string]any, error) {
+	if b.cfg.ResponseFormat == responseFormatNDJSON {
+		data, metadata, err := b.client.GetNDJSON(ctx, requestURL, params)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get NDJSON response: %w", err)
+		}
+		return metadata, data, nil
+	}
+
 	fullResponse, err := b.client.GetFullResponse(ctx, requestURL, params)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get full response: %w", err)

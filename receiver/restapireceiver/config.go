@@ -60,6 +60,26 @@ func (m *AuthMode) UnmarshalText(text []byte) error {
 	}
 }
 
+// ResponseFormat defines the response format for the REST API receiver.
+type ResponseFormat string
+
+const (
+	responseFormatJSON   ResponseFormat = "json"
+	responseFormatNDJSON ResponseFormat = "ndjson"
+)
+
+// UnmarshalText implements the encoding.TextUnmarshaler interface
+func (f *ResponseFormat) UnmarshalText(text []byte) error {
+	format := ResponseFormat(text)
+	switch format {
+	case responseFormatJSON, responseFormatNDJSON:
+		*f = format
+		return nil
+	default:
+		return fmt.Errorf("invalid response_format: %s, must be one of: json, ndjson", text)
+	}
+}
+
 // PaginationMode defines the pagination mode for the REST API receiver.
 type PaginationMode string
 
@@ -87,8 +107,16 @@ type Config struct {
 	// URL is the base URL for the REST API endpoint (required).
 	URL string `mapstructure:"url"`
 
+	// ResponseFormat defines the format of the API response body.
+	// "json" (default): standard JSON array or object with a data field.
+	// "ndjson": newline-delimited JSON where each line is a separate JSON object.
+	//   In NDJSON mode, the last line is treated as metadata (e.g., containing pagination cursors)
+	//   and is not included in the data output.
+	ResponseFormat ResponseFormat `mapstructure:"response_format"`
+
 	// ResponseField is the name of the field in the response that contains the array of items.
 	// If empty, the response is assumed to be a top-level array.
+	// Not used when response_format is "ndjson".
 	ResponseField string `mapstructure:"response_field"`
 
 	// Auth defines authentication configuration.
@@ -297,6 +325,19 @@ type TimestampPagination struct {
 func (c *Config) Validate() error {
 	if c.URL == "" {
 		return fmt.Errorf("url is required")
+	}
+
+	// Apply default response format
+	if c.ResponseFormat == "" {
+		c.ResponseFormat = responseFormatJSON
+	}
+
+	// Validate response format
+	switch c.ResponseFormat {
+	case responseFormatJSON, responseFormatNDJSON:
+		// Valid formats
+	default:
+		return fmt.Errorf("invalid response_format: %s, must be one of: json, ndjson", c.ResponseFormat)
 	}
 
 	// Validate auth

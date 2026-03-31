@@ -45,6 +45,10 @@ type restAPIClient interface {
 	// GetFullResponse fetches the full JSON response from the specified URL.
 	// Returns the full response as map[string]any for pagination parsing.
 	GetFullResponse(ctx context.Context, requestURL string, params url.Values) (map[string]any, error)
+	// GetNDJSON fetches an NDJSON response from the specified URL.
+	// Returns the data objects (all lines except the last) and the metadata object (last line).
+	// The metadata object typically contains pagination cursors (e.g., offset tokens).
+	GetNDJSON(ctx context.Context, requestURL string, params url.Values) (data []map[string]any, metadata map[string]any, err error)
 	// Shutdown shuts down the REST API client.
 	Shutdown() error
 }
@@ -267,6 +271,112 @@ func (c *defaultRESTAPIClient) GetFullResponse(ctx context.Context, requestURL s
 	}
 
 	return responseMap, nil
+}
+
+// GetNDJSON fetches an NDJSON response from the specified URL.
+// Each line of the response is a separate JSON object. The last line is treated
+// as metadata (e.g., containing pagination cursors like an offset token).
+// All other lines are returned as data objects.
+func (c *defaultRESTAPIClient) GetNDJSON(ctx context.Context, requestURL string, params url.Values) ([]map[string]any, map[string]any, error) {
+	// Build the request URL with query parameters
+	u, err := url.Parse(requestURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse URL: %w", err)
+	}
+
+	// Add query parameters
+	if len(params) > 0 {
+		existingParams := u.Query()
+		for key, values := range params {
+			for _, value := range values {
+				existingParams.Add(key, value)
+			}
+		}
+		u.RawQuery = existingParams.Encode()
+	}
+
+	// Create the HTTP request
+	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Apply authentication
+	if err := c.applyAuth(req); err != nil {
+		return nil, nil, fmt.Errorf("failed to apply authentication: %w", err)
+	}
+
+	// Set default headers
+	req.Header.Set("Accept", "application/json")
+
+	// Apply custom headers (may override defaults)
+	c.applyHeaders(req)
+
+	// Make the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check for HTTP errors
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return parseNDJSON(body, c.logger)
+}
+
+// parseNDJSON parses an NDJSON response body into data objects and a metadata object.
+// The last non-empty line is treated as metadata; all preceding lines are data objects.
+// Empty lines are skipped.
+func parseNDJSON(body []byte, logger *zap.Logger) ([]map[string]any, map[string]any, error) {
+	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+
+	// Filter out empty lines
+	var nonEmptyLines []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			nonEmptyLines = append(nonEmptyLines, trimmed)
+		}
+	}
+
+	if len(nonEmptyLines) == 0 {
+		return []map[string]any{}, map[string]any{}, nil
+	}
+
+	// Last line is metadata, everything else is data
+	metadataLine := nonEmptyLines[len(nonEmptyLines)-1]
+	dataLines := nonEmptyLines[:len(nonEmptyLines)-1]
+
+	// Parse metadata
+	var metadata map[string]any
+	if err := jsoniter.UnmarshalFromString(metadataLine, &metadata); err != nil {
+		return nil, nil, fmt.Errorf("failed to parse NDJSON metadata line: %w", err)
+	}
+
+	// Parse data lines
+	data := make([]map[string]any, 0, len(dataLines))
+	for i, line := range dataLines {
+		var obj map[string]any
+		if err := jsoniter.UnmarshalFromString(line, &obj); err != nil {
+			logger.Warn("skipping invalid NDJSON line",
+				zap.Int("line_number", i+1),
+				zap.Error(err))
+			continue
+		}
+		data = append(data, obj)
+	}
+
+	return data, metadata, nil
 }
 
 // generateEdgeGridAuth generates the Akamai EdgeGrid authentication header.

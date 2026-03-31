@@ -31,7 +31,8 @@ Alpha:
 | Field                | Type      | Default | Required | Description                                                                                                                                                                                    |
 | -------------------- | --------- | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `url`                | string    |         | `true`   | The base URL for the REST API endpoint                                                                                                                                                         |
-| `response_field`     | string    |         | `false`  | The name of the field in the response that contains the array of items. If empty, the response is assumed to be a top-level array. For nested fields, use dot notation (e.g., `response.data`) |
+| `response_format`    | string    | `json`  | `false`  | Response body format: `json` (standard JSON array/object) or `ndjson` (newline-delimited JSON). In NDJSON mode, each line is a separate JSON object; the last line is treated as metadata (e.g., containing pagination cursors) and is not emitted as data. |
+| `response_field`     | string    |         | `false`  | The name of the field in the response that contains the array of items. If empty, the response is assumed to be a top-level array. For nested fields, use dot notation (e.g., `response.data`). Not used when `response_format` is `ndjson`. |
 | `metrics`            | object    |         | `false`  | Metrics configuration (see below)                                                                                                                                                              |
 | `auth_mode`          | string    | `none`  | `false`  | Authentication mode: `none`, `apikey`, `bearer`, `basic`, `oauth2`, or `akamai_edgegrid`                                                                                                       |
 | `apikey`             | object    |         | `false`  | API Key configuration (see below)                                                                                                                                                              |
@@ -266,6 +267,29 @@ receivers:
       access_token: "your-access-token"
       client_token: "your-client-token"
       client_secret: "your-client-secret"
+```
+
+### Akamai SIEM API (NDJSON + Cursor Pagination)
+
+The Akamai SIEM API returns newline-delimited JSON (NDJSON), where each line is a security event and the last line is a metadata object containing the `offset` cursor for pagination. Use `response_format: ndjson` combined with `next_offset_field_name` to handle this.
+
+```yaml
+receivers:
+  restapi:
+    url: "https://{hostname}/siem/v1/configs/{configId}"
+    response_format: ndjson
+    max_poll_interval: 5m
+    auth_mode: akamai_edgegrid
+    akamai_edgegrid:
+      access_token: "your-access-token"
+      client_token: "your-client-token"
+      client_secret: "your-client-secret"
+    pagination:
+      mode: offset_limit
+      offset_limit:
+        offset_field_name: "offset"
+        limit_field_name: "limit"
+        next_offset_field_name: "offset"
 ```
 
 ### Token-Based (Cursor) Offset Pagination
