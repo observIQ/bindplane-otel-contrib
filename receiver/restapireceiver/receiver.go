@@ -191,8 +191,8 @@ func (b *baseReceiver) saveCheckpoint(ctx context.Context) error {
 
 // fetchDataPage fetches a single page of data from the API.
 // Returns the response metadata (for pagination), extracted data, and any error.
-// When next_offset_source is "header", the offset value is extracted from the
-// response header and injected into the metadata map for the pagination logic.
+// When response_source is "header", pagination attributes are extracted from
+// response headers and injected into the metadata map for the pagination logic.
 func (b *baseReceiver) fetchDataPage(ctx context.Context, requestURL string, params url.Values) (map[string]any, []map[string]any, error) {
 	var metadata map[string]any
 	var data []map[string]any
@@ -213,22 +213,47 @@ func (b *baseReceiver) fetchDataPage(ctx context.Context, requestURL string, par
 		data = extractDataFromResponse(metadata, b.cfg.ResponseField, b.logger)
 	}
 
-	// When the next offset is sourced from a response header, extract the header
-	// value and inject it into the metadata map so the pagination logic can find it
-	// via the standard next_offset_field_name path.
-	if b.cfg.Pagination.Mode == paginationModeOffsetLimit &&
-		b.cfg.Pagination.OffsetLimit.NextOffsetSource == offsetSourceHeader &&
-		b.cfg.Pagination.OffsetLimit.NextOffsetFieldName != "" {
-		headerVal := respHeaders.Get(b.cfg.Pagination.OffsetLimit.NextOffsetFieldName)
+	// When response_source is "header", extract configured pagination fields from
+	// response headers and inject them into the metadata map. This lets the
+	// pagination logic find them through the same field-name lookup it uses for body
+	// attributes — no changes needed downstream.
+	if b.cfg.Pagination.ResponseSource == responseSourceHeader {
 		if metadata == nil {
 			metadata = make(map[string]any)
 		}
-		if headerVal != "" {
-			metadata[b.cfg.Pagination.OffsetLimit.NextOffsetFieldName] = headerVal
+		for _, fieldName := range b.paginationResponseFields() {
+			if headerVal := respHeaders.Get(fieldName); headerVal != "" {
+				metadata[fieldName] = headerVal
+			}
 		}
 	}
 
 	return metadata, data, nil
+}
+
+// paginationResponseFields returns the names of all configured pagination fields
+// that are read from the response (body or header). These are the fields that
+// need to be injected when response_source is "header".
+func (b *baseReceiver) paginationResponseFields() []string {
+	var fields []string
+
+	// Fields used across multiple pagination modes
+	if b.cfg.Pagination.TotalRecordCountField != "" {
+		fields = append(fields, b.cfg.Pagination.TotalRecordCountField)
+	}
+
+	switch b.cfg.Pagination.Mode {
+	case paginationModeOffsetLimit:
+		if b.cfg.Pagination.OffsetLimit.NextOffsetFieldName != "" {
+			fields = append(fields, b.cfg.Pagination.OffsetLimit.NextOffsetFieldName)
+		}
+	case paginationModePageSize:
+		if b.cfg.Pagination.PageSize.TotalPagesFieldName != "" {
+			fields = append(fields, b.cfg.Pagination.PageSize.TotalPagesFieldName)
+		}
+	}
+
+	return fields
 }
 
 // handlePagination checks if there are more pages and updates pagination state.

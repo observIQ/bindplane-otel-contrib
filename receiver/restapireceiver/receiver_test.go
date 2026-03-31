@@ -777,12 +777,12 @@ func TestRESTAPILogsReceiver_HeaderBasedOffset(t *testing.T) {
 		URL:      server.URL,
 		AuthMode: authModeNone,
 		Pagination: PaginationConfig{
-			Mode: paginationModeOffsetLimit,
+			Mode:           paginationModeOffsetLimit,
+			ResponseSource: responseSourceHeader,
 			OffsetLimit: OffsetLimitPagination{
 				OffsetFieldName:     "cursor",
 				LimitFieldName:      "limit",
 				NextOffsetFieldName: "X-Next-Cursor",
-				NextOffsetSource:    offsetSourceHeader,
 			},
 		},
 		MaxPollInterval: 100 * time.Millisecond,
@@ -817,6 +817,78 @@ func TestRESTAPILogsReceiver_HeaderBasedOffset(t *testing.T) {
 
 	// Should have fetched at least 2 pages
 	require.GreaterOrEqual(t, int(requestCount.Load()), 2)
+}
+
+func TestRESTAPILogsReceiver_HeaderBasedTotalCount(t *testing.T) {
+	// Tests that total_record_count_field works when sourced from a header.
+	// The server returns the total count in a header, and the receiver uses it
+	// to know when to stop paginating.
+	var requestCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := requestCount.Add(1)
+		w.Header().Set("X-Total-Count", "4")
+		w.Header().Set("Content-Type", "application/json")
+
+		if page == 1 {
+			response := []map[string]any{
+				{"id": "1"},
+				{"id": "2"},
+			}
+			json.NewEncoder(w).Encode(response)
+		} else if page == 2 {
+			response := []map[string]any{
+				{"id": "3"},
+				{"id": "4"},
+			}
+			json.NewEncoder(w).Encode(response)
+		} else {
+			json.NewEncoder(w).Encode([]map[string]any{})
+		}
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:      server.URL,
+		AuthMode: authModeNone,
+		Pagination: PaginationConfig{
+			Mode:                  paginationModeOffsetLimit,
+			ResponseSource:        responseSourceHeader,
+			TotalRecordCountField: "X-Total-Count",
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName: "offset",
+				LimitFieldName:  "limit",
+				// No next_offset_field_name — using numeric offset + total count from header
+			},
+		},
+		MaxPollInterval: 100 * time.Millisecond,
+		ClientConfig:    confighttp.ClientConfig{},
+	}
+
+	sink := new(consumertest.LogsSink)
+	params := receivertest.NewNopSettings(metadata.Type)
+	receiver, err := newRESTAPILogsReceiver(params, cfg, sink)
+	require.NoError(t, err)
+
+	host := componenttest.NewNopHost()
+	ctx := context.Background()
+
+	err = receiver.Start(ctx, host)
+	require.NoError(t, err)
+
+	time.Sleep(300 * time.Millisecond)
+
+	err = receiver.Shutdown(ctx)
+	require.NoError(t, err)
+
+	allLogs := sink.AllLogs()
+	require.Greater(t, len(allLogs), 0)
+
+	totalRecords := 0
+	for _, logs := range allLogs {
+		totalRecords += logs.LogRecordCount()
+	}
+	// Should have 4 records from 2 pages
+	require.GreaterOrEqual(t, totalRecords, 4)
 }
 
 func TestGetNestedField(t *testing.T) {

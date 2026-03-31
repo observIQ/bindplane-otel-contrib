@@ -464,37 +464,54 @@ func TestConfig_Validate(t *testing.T) {
 			expectedErr: "",
 		},
 		{
-			name: "valid offset_limit with header source",
+			name: "valid offset_limit with header response_source",
 			config: &Config{
 				URL:      "https://api.example.com/data",
 				AuthMode: authModeNone,
 				Pagination: PaginationConfig{
-					Mode: paginationModeOffsetLimit,
+					Mode:           paginationModeOffsetLimit,
+					ResponseSource: responseSourceHeader,
 					OffsetLimit: OffsetLimitPagination{
 						OffsetFieldName:     "offset",
 						LimitFieldName:      "limit",
 						NextOffsetFieldName: "X-Next-Offset",
-						NextOffsetSource:    offsetSourceHeader,
 					},
 				},
 			},
 			expectedErr: "",
 		},
 		{
-			name: "header source requires next_offset_field_name",
+			name: "header response_source requires next_offset_field_name for offset_limit",
 			config: &Config{
 				URL:      "https://api.example.com/data",
 				AuthMode: authModeNone,
 				Pagination: PaginationConfig{
-					Mode: paginationModeOffsetLimit,
+					Mode:           paginationModeOffsetLimit,
+					ResponseSource: responseSourceHeader,
 					OffsetLimit: OffsetLimitPagination{
-						OffsetFieldName:  "offset",
-						LimitFieldName:   "limit",
-						NextOffsetSource: offsetSourceHeader,
+						OffsetFieldName: "offset",
+						LimitFieldName:  "limit",
 					},
 				},
 			},
-			expectedErr: "next_offset_field_name is required when next_offset_source is header",
+			expectedErr: "next_offset_field_name is required when response_source is header",
+		},
+		{
+			name: "valid page_size with header response_source",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode:           paginationModePageSize,
+					ResponseSource: responseSourceHeader,
+					PageSize: PageSizePagination{
+						PageNumFieldName:    "page",
+						PageSizeFieldName:   "per_page",
+						TotalPagesFieldName: "X-Total-Pages",
+					},
+				},
+			},
+			expectedErr: "",
 		},
 		{
 			name: "page_size pagination missing page num field name",
