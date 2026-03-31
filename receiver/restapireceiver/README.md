@@ -125,16 +125,16 @@ Use `auth_mode: none` for public APIs that don't require authentication. No addi
 
 #### Timestamp-Based Pagination
 
-| Field                                       | Type   | Default | Required | Description                                                                                                                                                                                                                          |
-| ------------------------------------------- | ------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pagination.timestamp.param_name`           | string |         | `true`   | Query parameter name for timestamp (e.g., "t0", "since", "after", "start_time")                                                                                                                                                      |
-| `pagination.timestamp.timestamp_field_name` | string |         | `true`   | Field name in each response item containing the timestamp (e.g., "ts", "timestamp")                                                                                                                                                  |
-| `pagination.timestamp.timestamp_format`     | string | RFC3339 | `false`  | Format for the timestamp query parameter. Accepts Go time format strings or epoch formats (see below)                                                                                                                                |
-| `pagination.timestamp.page_size_field_name` | string |         | `false`  | Query parameter name for page size (e.g., "perPage", "limit")                                                                                                                                                                        |
-| `pagination.timestamp.page_size`            | int    | `100`   | `false`  | Page size to use                                                                                                                                                                                                                     |
-| `pagination.timestamp.initial_timestamp`    | string |         | `false`  | Initial timestamp to start from. For string formats, use RFC3339 (e.g., `2025-01-01T00:00:00Z`) or the configured `timestamp_format`. For epoch formats, use a numeric value (e.g., `1704067200`). If not set, starts from beginning |
-| `pagination.timestamp.end_timestamp_param_name` | string |         | `false`  | Query parameter name for end timestamp (e.g., "end_time", "to", "until"). If set, sends an upper bound on each request using the same `timestamp_format`                                                                        |
-| `pagination.timestamp.end_timestamp_value`      | string | `now`   | `false`  | Value for the end timestamp: `"now"` (default) sends the current time, or a fixed timestamp in the configured format (e.g., `"2025-06-01T00:00:00Z"` or `"1748736000"` for epoch)                                                |
+| Field                                           | Type   | Default | Required | Description                                                                                                                                                                                                                          |
+| ----------------------------------------------- | ------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pagination.timestamp.param_name`               | string |         | `true`   | Query parameter name for timestamp (e.g., "t0", "since", "after", "start_time")                                                                                                                                                      |
+| `pagination.timestamp.timestamp_field_name`     | string |         | `true`   | Field name in each response item containing the timestamp (e.g., "ts", "timestamp")                                                                                                                                                  |
+| `pagination.timestamp.timestamp_format`         | string | RFC3339 | `false`  | Format for the timestamp query parameter. Accepts Go time format strings or epoch formats (see below)                                                                                                                                |
+| `pagination.timestamp.page_size_field_name`     | string |         | `false`  | Query parameter name for page size (e.g., "perPage", "limit")                                                                                                                                                                        |
+| `pagination.timestamp.page_size`                | int    | `100`   | `false`  | Page size to use                                                                                                                                                                                                                     |
+| `pagination.timestamp.initial_timestamp`        | string |         | `false`  | Initial timestamp to start from. For string formats, use RFC3339 (e.g., `2025-01-01T00:00:00Z`) or the configured `timestamp_format`. For epoch formats, use a numeric value (e.g., `1704067200`). If not set, starts from beginning |
+| `pagination.timestamp.end_timestamp_param_name` | string |         | `false`  | Query parameter name for end timestamp (e.g., "end_time", "to", "until"). If set, sends an upper bound on each request using the same `timestamp_format`                                                                             |
+| `pagination.timestamp.end_timestamp_value`      | string | `now`   | `false`  | Value for the end timestamp: `"now"` (default) sends the current time, or a fixed timestamp in the configured format (e.g., `"2025-06-01T00:00:00Z"` or `"1748736000"` for epoch)                                                    |
 
 Common timestamp formats:
 
@@ -430,39 +430,6 @@ extensions:
 ```
 
 The receiver can also parse epoch timestamps from API responses (both integer and float values) regardless of the configured `timestamp_format`, so this works with APIs that return numeric timestamps in their response data.
-
-### Timestamp Pagination with Bounded Time Range
-
-Some APIs require both a start and end timestamp to define a bounded query window. Use `end_timestamp_param_name` to send an upper bound. By default it sends the current time, or set `end_timestamp_value` to a fixed timestamp:
-
-```yaml
-receivers:
-  restapi:
-    url: "https://api.example.com/events"
-    response_field: "data"
-    max_poll_interval: 5m
-    auth_mode: bearer
-    bearer:
-      token: "token"
-    pagination:
-      mode: timestamp
-      timestamp:
-        param_name: "start_time"
-        end_timestamp_param_name: "end_time"
-        # end_timestamp_value: "now"  # default — sends current time; or set a fixed value
-        timestamp_field_name: "created_at"
-        timestamp_format: "epoch_s"
-        page_size_field_name: "limit"
-        page_size: 100
-        initial_timestamp: "1704067200"
-    storage: file_storage
-
-extensions:
-  file_storage:
-    directory: /var/lib/otelcol/storage
-```
-
-This sends requests like `?start_time=1704067200&end_time=1711929600&limit=100`, where `end_time` is automatically set to the current time on each request (or a fixed value if configured).
 
 ### Metrics with Custom Field Mappings
 

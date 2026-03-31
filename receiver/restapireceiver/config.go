@@ -351,7 +351,7 @@ type TimestampPagination struct {
 	// EndTimestampParamName is the name of the query parameter for the end timestamp (e.g., "end_time", "to", "until").
 	// If set, the current time (time.Now()) will be sent as the upper bound of the time range on each request,
 	// using the same timestamp_format as the start parameter.
-	EndTimestampParamName string `mapstructure:"end_timestampparam_name"`
+	EndTimestampParamName string `mapstructure:"end_timestamp_param_name"`
 
 	// EndTimestampValue configures what value to send for the end timestamp parameter.
 	// Supported values:
