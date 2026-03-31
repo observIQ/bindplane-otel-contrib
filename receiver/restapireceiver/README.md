@@ -111,7 +111,8 @@ Use `auth_mode: none` for public APIs that don't require authentication. No addi
 | `pagination.offset_limit.offset_field_name`      | string |         | `false`  | Query parameter name for offset                                                                                                                                                                                                |
 | `pagination.offset_limit.limit_field_name`       | string |         | `false`  | Query parameter name for limit                                                                                                                                                                                                 |
 | `pagination.offset_limit.starting_offset`        | int    | `0`     | `false`  | Starting offset value                                                                                                                                                                                                          |
-| `pagination.offset_limit.next_offset_field_name` | string |         | `false`  | Field name in the response containing the next offset token. When set, the receiver uses token-based (cursor) pagination instead of numeric offsets. Supports nested fields with dot notation (e.g., `pagination.next_cursor`) |
+| `pagination.offset_limit.next_offset_field_name` | string |         | `false`  | Name of the field (in the response body) or header that contains the next offset token. When set, the receiver uses token-based (cursor) pagination instead of numeric offsets. For body sources, supports nested fields with dot notation (e.g., `pagination.next_cursor`). |
+| `pagination.offset_limit.next_offset_source`     | string | `body`  | `false`  | Where to extract the next offset token from: `body` (response body or NDJSON metadata line) or `header` (HTTP response header). |
 
 #### Page/Size Pagination
 
@@ -327,6 +328,28 @@ This configuration would work with an API that returns responses like:
 ```
 
 When `next_cursor` is empty, null, or missing, the receiver treats it as the end of available data.
+
+### Header-Based Cursor Pagination
+
+Some APIs return the pagination cursor in a response header instead of the body. Set `next_offset_source: header` and use `next_offset_field_name` as the header name.
+
+```yaml
+receivers:
+  restapi:
+    url: "https://api.example.com/events"
+    max_poll_interval: 5m
+    auth_mode: bearer
+    bearer:
+      token: "your-bearer-token-here"
+    pagination:
+      mode: offset_limit
+      offset_limit:
+        offset_field_name: "cursor"
+        limit_field_name: "limit"
+        next_offset_field_name: "X-Next-Cursor"
+        next_offset_source: header
+    storage: file_storage
+```
 
 ### Timestamp Pagination
 

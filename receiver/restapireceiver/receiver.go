@@ -17,6 +17,7 @@ package restapireceiver
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -190,24 +191,44 @@ func (b *baseReceiver) saveCheckpoint(ctx context.Context) error {
 
 // fetchDataPage fetches a single page of data from the API.
 // Returns the response metadata (for pagination), extracted data, and any error.
-// For NDJSON format, the metadata is the last line of the response.
-// For JSON format, the metadata is the full response object.
+// When next_offset_source is "header", the offset value is extracted from the
+// response header and injected into the metadata map for the pagination logic.
 func (b *baseReceiver) fetchDataPage(ctx context.Context, requestURL string, params url.Values) (map[string]any, []map[string]any, error) {
+	var metadata map[string]any
+	var data []map[string]any
+	var respHeaders http.Header
+
 	if b.cfg.ResponseFormat == responseFormatNDJSON {
-		data, metadata, err := b.client.GetNDJSON(ctx, requestURL, params)
+		var err error
+		data, metadata, respHeaders, err = b.client.GetNDJSON(ctx, requestURL, params)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to get NDJSON response: %w", err)
 		}
-		return metadata, data, nil
+	} else {
+		var err error
+		metadata, respHeaders, err = b.client.GetFullResponse(ctx, requestURL, params)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get full response: %w", err)
+		}
+		data = extractDataFromResponse(metadata, b.cfg.ResponseField, b.logger)
 	}
 
-	fullResponse, err := b.client.GetFullResponse(ctx, requestURL, params)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get full response: %w", err)
+	// When the next offset is sourced from a response header, extract the header
+	// value and inject it into the metadata map so the pagination logic can find it
+	// via the standard next_offset_field_name path.
+	if b.cfg.Pagination.Mode == paginationModeOffsetLimit &&
+		b.cfg.Pagination.OffsetLimit.NextOffsetSource == offsetSourceHeader &&
+		b.cfg.Pagination.OffsetLimit.NextOffsetFieldName != "" {
+		headerVal := respHeaders.Get(b.cfg.Pagination.OffsetLimit.NextOffsetFieldName)
+		if metadata == nil {
+			metadata = make(map[string]any)
+		}
+		if headerVal != "" {
+			metadata[b.cfg.Pagination.OffsetLimit.NextOffsetFieldName] = headerVal
+		}
 	}
 
-	data := extractDataFromResponse(fullResponse, b.cfg.ResponseField, b.logger)
-	return fullResponse, data, nil
+	return metadata, data, nil
 }
 
 // handlePagination checks if there are more pages and updates pagination state.

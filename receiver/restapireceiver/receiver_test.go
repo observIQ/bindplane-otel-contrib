@@ -671,6 +671,154 @@ func TestRESTAPILogsReceiver_AdaptivePolling_PageLimitResetsInterval(t *testing.
 	require.Greater(t, int(requestCount.Load()), 4, "expected many polls when page limit is hit (interval should stay at min)")
 }
 
+func TestRESTAPILogsReceiver_NDJSONWithBodyOffset(t *testing.T) {
+	// Simulates an API like Akamai SIEM: NDJSON with offset in the last line (body).
+	var requestCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		offset := r.URL.Query().Get("offset")
+		w.Header().Set("Content-Type", "application/x-ndjson")
+
+		if offset == "" || offset == "0" {
+			// First page: 2 events + metadata with offset cursor
+			w.Write([]byte(`{"id":"1","message":"event1"}` + "\n"))
+			w.Write([]byte(`{"id":"2","message":"event2"}` + "\n"))
+			w.Write([]byte(`{"offset":"cursor-page2","total":2}` + "\n"))
+		} else {
+			// Second page: 0 events + metadata (no more data)
+			w.Write([]byte(`{"offset":"cursor-page2","total":0}` + "\n"))
+		}
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:            server.URL,
+		ResponseFormat: responseFormatNDJSON,
+		AuthMode:       authModeNone,
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "offset",
+				LimitFieldName:      "limit",
+				NextOffsetFieldName: "offset",
+			},
+		},
+		MaxPollInterval: 100 * time.Millisecond,
+		ClientConfig:    confighttp.ClientConfig{},
+	}
+
+	sink := new(consumertest.LogsSink)
+	params := receivertest.NewNopSettings(metadata.Type)
+	receiver, err := newRESTAPILogsReceiver(params, cfg, sink)
+	require.NoError(t, err)
+
+	host := componenttest.NewNopHost()
+	ctx := context.Background()
+
+	err = receiver.Start(ctx, host)
+	require.NoError(t, err)
+
+	time.Sleep(300 * time.Millisecond)
+
+	err = receiver.Shutdown(ctx)
+	require.NoError(t, err)
+
+	allLogs := sink.AllLogs()
+	require.Greater(t, len(allLogs), 0)
+
+	totalRecords := 0
+	for _, logs := range allLogs {
+		totalRecords += logs.LogRecordCount()
+	}
+	require.GreaterOrEqual(t, totalRecords, 2)
+}
+
+func TestRESTAPILogsReceiver_HeaderBasedOffset(t *testing.T) {
+	// Tests offset extraction from a response header instead of the body.
+	var requestCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := requestCount.Add(1)
+		offset := r.URL.Query().Get("cursor")
+
+		if offset == "" || offset == "0" {
+			// First page: return data with offset in header
+			w.Header().Set("X-Next-Cursor", "page2-token")
+			response := []map[string]any{
+				{"id": "1"},
+				{"id": "2"},
+				{"id": "3"},
+				{"id": "4"},
+				{"id": "5"},
+				{"id": "6"},
+				{"id": "7"},
+				{"id": "8"},
+				{"id": "9"},
+				{"id": "10"},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(response)
+		} else if offset == "page2-token" && page <= 3 {
+			// Second page: return partial page (fewer than limit), no next header
+			response := []map[string]any{
+				{"id": "11"},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(response)
+		} else {
+			// Empty
+			response := []map[string]any{}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(response)
+		}
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:      server.URL,
+		AuthMode: authModeNone,
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "cursor",
+				LimitFieldName:      "limit",
+				NextOffsetFieldName: "X-Next-Cursor",
+				NextOffsetSource:    offsetSourceHeader,
+			},
+		},
+		MaxPollInterval: 100 * time.Millisecond,
+		ClientConfig:    confighttp.ClientConfig{},
+	}
+
+	sink := new(consumertest.LogsSink)
+	params := receivertest.NewNopSettings(metadata.Type)
+	receiver, err := newRESTAPILogsReceiver(params, cfg, sink)
+	require.NoError(t, err)
+
+	host := componenttest.NewNopHost()
+	ctx := context.Background()
+
+	err = receiver.Start(ctx, host)
+	require.NoError(t, err)
+
+	time.Sleep(300 * time.Millisecond)
+
+	err = receiver.Shutdown(ctx)
+	require.NoError(t, err)
+
+	allLogs := sink.AllLogs()
+	require.Greater(t, len(allLogs), 0)
+
+	totalRecords := 0
+	for _, logs := range allLogs {
+		totalRecords += logs.LogRecordCount()
+	}
+	// Should have received at least 11 records (10 from page1 + 1 from page2)
+	require.GreaterOrEqual(t, totalRecords, 11)
+
+	// Should have fetched at least 2 pages
+	require.GreaterOrEqual(t, int(requestCount.Load()), 2)
+}
+
 func TestGetNestedField(t *testing.T) {
 	tests := []struct {
 		name     string

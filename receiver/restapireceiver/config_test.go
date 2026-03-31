@@ -464,6 +464,39 @@ func TestConfig_Validate(t *testing.T) {
 			expectedErr: "",
 		},
 		{
+			name: "valid offset_limit with header source",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName:     "offset",
+						LimitFieldName:      "limit",
+						NextOffsetFieldName: "X-Next-Offset",
+						NextOffsetSource:    offsetSourceHeader,
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "header source requires next_offset_field_name",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName:  "offset",
+						LimitFieldName:   "limit",
+						NextOffsetSource: offsetSourceHeader,
+					},
+				},
+			},
+			expectedErr: "next_offset_field_name is required when next_offset_source is header",
+		},
+		{
 			name: "page_size pagination missing page num field name",
 			config: &Config{
 				URL:      "https://api.example.com/data",

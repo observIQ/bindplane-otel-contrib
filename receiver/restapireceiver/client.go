@@ -43,12 +43,12 @@ type restAPIClient interface {
 	// Returns an array of map[string]any representing the JSON objects.
 	GetJSON(ctx context.Context, requestURL string, params url.Values) ([]map[string]any, error)
 	// GetFullResponse fetches the full JSON response from the specified URL.
-	// Returns the full response as map[string]any for pagination parsing.
-	GetFullResponse(ctx context.Context, requestURL string, params url.Values) (map[string]any, error)
+	// Returns the full response as map[string]any for pagination parsing, plus response headers.
+	GetFullResponse(ctx context.Context, requestURL string, params url.Values) (map[string]any, http.Header, error)
 	// GetNDJSON fetches an NDJSON response from the specified URL.
-	// Returns the data objects (all lines except the last) and the metadata object (last line).
-	// The metadata object typically contains pagination cursors (e.g., offset tokens).
-	GetNDJSON(ctx context.Context, requestURL string, params url.Values) (data []map[string]any, metadata map[string]any, err error)
+	// Returns the data objects (all lines except the last), the metadata object (last line),
+	// and the HTTP response headers.
+	GetNDJSON(ctx context.Context, requestURL string, params url.Values) (data []map[string]any, metadata map[string]any, headers http.Header, err error)
 	// Shutdown shuts down the REST API client.
 	Shutdown() error
 }
@@ -200,84 +200,7 @@ func (c *defaultRESTAPIClient) GetJSON(ctx context.Context, requestURL string, p
 }
 
 // GetFullResponse fetches the full JSON response from the specified URL.
-func (c *defaultRESTAPIClient) GetFullResponse(ctx context.Context, requestURL string, params url.Values) (map[string]any, error) {
-	// Build the request URL with query parameters
-	u, err := url.Parse(requestURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse URL: %w", err)
-	}
-
-	// Add query parameters
-	if len(params) > 0 {
-		existingParams := u.Query()
-		for key, values := range params {
-			for _, value := range values {
-				existingParams.Add(key, value)
-			}
-		}
-		u.RawQuery = existingParams.Encode()
-	}
-
-	// Create the HTTP request
-	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Apply authentication
-	if err := c.applyAuth(req); err != nil {
-		return nil, fmt.Errorf("failed to apply authentication: %w", err)
-	}
-
-	// Set default headers
-	req.Header.Set("Accept", "application/json")
-
-	// Apply custom headers (may override defaults)
-	c.applyHeaders(req)
-
-	// Make the request
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check for HTTP errors
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	// Parse JSON
-	var jsonData any
-	if err := jsoniter.Unmarshal(body, &jsonData); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
-	}
-
-	// Return as map
-	responseMap, ok := jsonData.(map[string]any)
-	if !ok {
-		// If response is an array, wrap it in a map
-		if arr, ok := jsonData.([]any); ok {
-			return map[string]any{"data": arr}, nil
-		}
-		return nil, fmt.Errorf("response is not a JSON object or array")
-	}
-
-	return responseMap, nil
-}
-
-// GetNDJSON fetches an NDJSON response from the specified URL.
-// Each line of the response is a separate JSON object. The last line is treated
-// as metadata (e.g., containing pagination cursors like an offset token).
-// All other lines are returned as data objects.
-func (c *defaultRESTAPIClient) GetNDJSON(ctx context.Context, requestURL string, params url.Values) ([]map[string]any, map[string]any, error) {
+func (c *defaultRESTAPIClient) GetFullResponse(ctx context.Context, requestURL string, params url.Values) (map[string]any, http.Header, error) {
 	// Build the request URL with query parameters
 	u, err := url.Parse(requestURL)
 	if err != nil {
@@ -331,7 +254,88 @@ func (c *defaultRESTAPIClient) GetNDJSON(ctx context.Context, requestURL string,
 		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	return parseNDJSON(body, c.logger)
+	// Parse JSON
+	var jsonData any
+	if err := jsoniter.Unmarshal(body, &jsonData); err != nil {
+		return nil, nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
+	}
+
+	// Return as map
+	responseMap, ok := jsonData.(map[string]any)
+	if !ok {
+		// If response is an array, wrap it in a map
+		if arr, ok := jsonData.([]any); ok {
+			return map[string]any{"data": arr}, resp.Header, nil
+		}
+		return nil, nil, fmt.Errorf("response is not a JSON object or array")
+	}
+
+	return responseMap, resp.Header, nil
+}
+
+// GetNDJSON fetches an NDJSON response from the specified URL.
+// Each line of the response is a separate JSON object. The last line is treated
+// as metadata (e.g., containing pagination cursors like an offset token).
+// All other lines are returned as data objects.
+func (c *defaultRESTAPIClient) GetNDJSON(ctx context.Context, requestURL string, params url.Values) ([]map[string]any, map[string]any, http.Header, error) {
+	// Build the request URL with query parameters
+	u, err := url.Parse(requestURL)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to parse URL: %w", err)
+	}
+
+	// Add query parameters
+	if len(params) > 0 {
+		existingParams := u.Query()
+		for key, values := range params {
+			for _, value := range values {
+				existingParams.Add(key, value)
+			}
+		}
+		u.RawQuery = existingParams.Encode()
+	}
+
+	// Create the HTTP request
+	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Apply authentication
+	if err := c.applyAuth(req); err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to apply authentication: %w", err)
+	}
+
+	// Set default headers
+	req.Header.Set("Accept", "application/json")
+
+	// Apply custom headers (may override defaults)
+	c.applyHeaders(req)
+
+	// Make the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check for HTTP errors
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, nil, nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	data, metadata, err := parseNDJSON(body, c.logger)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return data, metadata, resp.Header, nil
 }
 
 // parseNDJSON parses an NDJSON response body into data objects and a metadata object.

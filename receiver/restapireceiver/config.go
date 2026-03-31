@@ -80,6 +80,26 @@ func (f *ResponseFormat) UnmarshalText(text []byte) error {
 	}
 }
 
+// OffsetSource defines where the next offset value is extracted from.
+type OffsetSource string
+
+const (
+	offsetSourceBody   OffsetSource = "body"
+	offsetSourceHeader OffsetSource = "header"
+)
+
+// UnmarshalText implements the encoding.TextUnmarshaler interface
+func (s *OffsetSource) UnmarshalText(text []byte) error {
+	src := OffsetSource(text)
+	switch src {
+	case offsetSourceBody, offsetSourceHeader:
+		*s = src
+		return nil
+	default:
+		return fmt.Errorf("invalid next_offset_source: %s, must be one of: body, header", text)
+	}
+}
+
 // PaginationMode defines the pagination mode for the REST API receiver.
 type PaginationMode string
 
@@ -267,9 +287,15 @@ type OffsetLimitPagination struct {
 	// LimitFieldName is the name of the query parameter for limit.
 	LimitFieldName string `mapstructure:"limit_field_name"`
 
-	// NextOffsetFieldName is the name of the field in the response that contains the next offset token.
+	// NextOffsetFieldName is the name of the field or header that contains the next offset token.
 	// When set, the receiver uses token-based (cursor) pagination instead of numeric offsets.
+	// Where the value is extracted from depends on next_offset_source.
 	NextOffsetFieldName string `mapstructure:"next_offset_field_name"`
+
+	// NextOffsetSource controls where the next offset token is extracted from.
+	// "body" (default): extract from the response body (or NDJSON metadata line).
+	// "header": extract from an HTTP response header.
+	NextOffsetSource OffsetSource `mapstructure:"next_offset_source"`
 }
 
 // PageSizePagination defines page/size pagination configuration.
@@ -458,6 +484,21 @@ func (c *Config) Validate() error {
 		}
 		if c.Pagination.OffsetLimit.LimitFieldName == "" {
 			return fmt.Errorf("limit_field_name is required when pagination.mode is offset_limit")
+		}
+		// Default next_offset_source to body
+		if c.Pagination.OffsetLimit.NextOffsetSource == "" {
+			c.Pagination.OffsetLimit.NextOffsetSource = offsetSourceBody
+		}
+		// Validate next_offset_source
+		switch c.Pagination.OffsetLimit.NextOffsetSource {
+		case offsetSourceBody, offsetSourceHeader:
+			// Valid
+		default:
+			return fmt.Errorf("invalid next_offset_source: %s, must be one of: body, header", c.Pagination.OffsetLimit.NextOffsetSource)
+		}
+		// next_offset_field_name is required when next_offset_source is header
+		if c.Pagination.OffsetLimit.NextOffsetSource == offsetSourceHeader && c.Pagination.OffsetLimit.NextOffsetFieldName == "" {
+			return fmt.Errorf("next_offset_field_name is required when next_offset_source is header")
 		}
 	case paginationModePageSize:
 		if c.Pagination.PageSize.PageNumFieldName == "" {

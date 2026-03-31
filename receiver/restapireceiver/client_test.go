@@ -657,7 +657,7 @@ func TestRESTAPIClient_GetFullResponse_CustomHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetFullResponse(ctx, server.URL, params)
+	data, _, err := client.GetFullResponse(ctx, server.URL, params)
 	require.NoError(t, err)
 	require.NotNil(t, data)
 }
@@ -735,7 +735,7 @@ func TestRESTAPIClient_GetFullResponse_SensitiveHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetFullResponse(ctx, server.URL, params)
+	data, _, err := client.GetFullResponse(ctx, server.URL, params)
 	require.NoError(t, err)
 	require.NotNil(t, data)
 }
@@ -772,7 +772,7 @@ func TestRESTAPIClient_GetNDJSON(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, metadata, err := client.GetNDJSON(ctx, server.URL, params)
+	data, metadata, _, err := client.GetNDJSON(ctx, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 3)
 	require.Equal(t, "1", data[0]["id"])
@@ -803,7 +803,7 @@ func TestRESTAPIClient_GetNDJSON_EmptyResponse(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, metadata, err := client.GetNDJSON(ctx, server.URL, url.Values{})
+	data, metadata, _, err := client.GetNDJSON(ctx, server.URL, url.Values{})
 	require.NoError(t, err)
 	require.Len(t, data, 0)
 	require.Empty(t, metadata)
@@ -830,7 +830,7 @@ func TestRESTAPIClient_GetNDJSON_MetadataOnly(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, metadata, err := client.GetNDJSON(ctx, server.URL, url.Values{})
+	data, metadata, _, err := client.GetNDJSON(ctx, server.URL, url.Values{})
 	require.NoError(t, err)
 	require.Len(t, data, 0)
 	require.Equal(t, "xyz", metadata["offset"])
@@ -857,7 +857,7 @@ func TestRESTAPIClient_GetNDJSON_HTTPError(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, metadata, err := client.GetNDJSON(ctx, server.URL, url.Values{})
+	data, metadata, _, err := client.GetNDJSON(ctx, server.URL, url.Values{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "403")
 	require.Nil(t, data)
@@ -934,6 +934,67 @@ func TestParseNDJSON(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRESTAPIClient_GetNDJSON_ReturnsHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Next-Offset", "cursor-abc123")
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Write([]byte(`{"id":"1"}` + "\n"))
+		w.Write([]byte(`{"offset":"body-offset"}` + "\n"))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:          server.URL,
+		AuthMode:     authModeNone,
+		ClientConfig: confighttp.ClientConfig{},
+	}
+
+	ctx := context.Background()
+	host := componenttest.NewNopHost()
+	settings := componenttest.NewNopTelemetrySettings()
+
+	client, err := newRESTAPIClient(ctx, settings, cfg, host)
+	require.NoError(t, err)
+
+	data, metadata, headers, err := client.GetNDJSON(ctx, server.URL, url.Values{})
+	require.NoError(t, err)
+	require.Len(t, data, 1)
+	require.Equal(t, "body-offset", metadata["offset"])
+	require.Equal(t, "cursor-abc123", headers.Get("X-Next-Offset"))
+}
+
+func TestRESTAPIClient_GetFullResponse_ReturnsHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Next-Cursor", "page2")
+		w.Header().Set("Content-Type", "application/json")
+		response := map[string]any{
+			"data": []map[string]any{
+				{"id": "1"},
+			},
+		}
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:          server.URL,
+		AuthMode:     authModeNone,
+		ClientConfig: confighttp.ClientConfig{},
+	}
+
+	ctx := context.Background()
+	host := componenttest.NewNopHost()
+	settings := componenttest.NewNopTelemetrySettings()
+
+	client, err := newRESTAPIClient(ctx, settings, cfg, host)
+	require.NoError(t, err)
+
+	data, headers, err := client.GetFullResponse(ctx, server.URL, url.Values{})
+	require.NoError(t, err)
+	require.NotNil(t, data)
+	require.Equal(t, "page2", headers.Get("X-Next-Cursor"))
 }
 
 func TestRESTAPIClient_GetJSON_EmptyArray(t *testing.T) {
