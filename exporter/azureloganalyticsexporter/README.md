@@ -1,14 +1,10 @@
 # Azure Log Analytics Exporter
 
-This exporter allows you to export logs to Azure Log Analytics via the Log Analytics Ingestion API. Logs are exported in [OpenTelemetry Protocol JSON format](https://github.com/open-telemetry/opentelemetry-proto) if the raw_log_field is not supplied, otherwise they are supplied in the form
+This exporter sends logs to Azure Log Analytics via the [Log Analytics Ingestion API](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/logs-ingestion-api-overview). The output format depends on the log body type and the `raw_log_field` configuration:
 
-```json
-[
-  {
-    "RawData": "<log data from field specified in raw_log_field>"
-  }
-]
-```
+- **Structured (default, map body):** Each key in the log body becomes a top-level JSON field, mapping directly to a column in your Log Analytics table. No `RawData` wrapper. Metadata fields (`TimeGenerated`, `SeverityText`, `SeverityNumber`, `TraceId`, `SpanId`) are included automatically.
+- **Unstructured (default, string body):** String-body logs are wrapped in `{"RawData": "<string>", "TimeGenerated": "...", ...}` so ingestion works with tables that have a `RawData` column.
+- **Raw Log Mode (`raw_log_field` set):** Extracts the specified field via an OTTL expression and sends `{"RawData": "<extracted value>"}`.
 
 ## Minimum Agent Versions
 
@@ -22,32 +18,34 @@ This exporter allows you to export logs to Azure Log Analytics via the Log Analy
 
 This exporter sends logs to Azure Log Analytics using the [Log Analytics Ingestion API](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/logs-ingestion-api-overview). Before using the exporter, you must configure a Data Collection Rule (DCR) or Data Collection Endpoint (DCE) and a custom table within your Log Analytics workspace.
 
-The required schema for the custom table depends on the `raw_log_field` configuration option:
+The required schema for the custom table depends on the log body type and the `raw_log_field` configuration option:
 
-- **Default (OTLP JSON Format):** If `raw_log_field` is _not_ specified, the exporter sends logs in the standard [OpenTelemetry Protocol (OTLP) JSON format](https://github.com/open-telemetry/opentelemetry-proto). Your custom table must be configured with a schema compatible with this OTLP JSON structure (see the Setup section for an example).
-- **Raw Log Mode:** If `raw_log_field` _is_ specified, the exporter extracts the data from the designated field and sends logs in the following simple JSON format:
+- **Structured JSON (default, map body):** If `raw_log_field` is _not_ specified and the log body is a map, each key in the body is sent as a top-level JSON field. Your custom table columns should match the keys in your log data. For example, a log body `{"source_ip": "10.0.0.1", "action": "ALLOW"}` produces:
   ```json
-  [
-    {
-      "RawData": "<log data from field specified in raw_log_field>"
-    }
-  ]
+  [{"source_ip": "10.0.0.1", "action": "ALLOW", "TimeGenerated": "2025-01-01T00:00:00Z", "SeverityText": "INFO", "SeverityNumber": 9}]
   ```
-  In this case, your custom table must have a column named `RawData` to store the log content.
+- **Unstructured fallback (default, string body):** If `raw_log_field` is _not_ specified and the log body is a plain string, the exporter wraps it in a `RawData` field:
+  ```json
+  [{"RawData": "plain text log message", "TimeGenerated": "2025-01-01T00:00:00Z", "SeverityText": "INFO", "SeverityNumber": 9}]
+  ```
+- **Raw Log Mode:** If `raw_log_field` _is_ specified, the exporter extracts the designated field via an OTTL expression and wraps it in `RawData`:
+  ```json
+  [{"RawData": "<extracted field value>"}]
+  ```
 
-In both cases, a TimeGenerated field will automatically be added to the schema as it is required.
+In all cases, `TimeGenerated` is included automatically (required by Azure).
 
 ## Configuration
 
 | Field            | Type   | Default | Required | Description                                                                                                                  |
 | ---------------- | ------ | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| endpoint         | string |         | ✓        | Azure Log Analytics DCR or DCE endpoint                                                                                      |
+| endpoint         | string |         | ✓        | The DCR logs ingestion endpoint URL, or a DCE logs ingestion endpoint URL if your DCR does not expose one (see [Endpoint Configuration](#endpoint-configuration)) |
 | client_id        | string |         | ✓        | Azure client ID for authentication                                                                                           |
-| raw_log_field    | string | ""      |          | Name of the log field to specifically send to log analytics                                                                  |
+| raw_log_field    | string | ""      |          | OTTL expression for the log field to extract and send as RawData. When empty, structured JSON is sent for map bodies and RawData for string bodies |
 | client_secret    | string |         | ✓        | Azure client secret for authentication                                                                                       |
 | tenant_id        | string |         | ✓        | Azure tenant ID for authentication                                                                                           |
 | rule_id          | string |         | ✓        | Data Collection Rule (DCR) ID or immutableId                                                                                 |
-| stream_name      | string |         | ✓        | Name of the custom log table in Log Analytics                                                                                |
+| stream_name      | string |         | ✓        | The stream name as defined in your DCR. **Must be prefixed with `Custom-`** for custom tables (e.g., `Custom-MyTable_CL`)    |
 | timeout          | string |         |          | See [doc](https://github.com/open-telemetry/opentelemetry-collector/blob/main/exporter/exporterhelper/README.md) for details |
 | sending_queue    | map    |         |          | See [doc](https://github.com/open-telemetry/opentelemetry-collector/blob/main/exporter/exporterhelper/README.md) for details |
 | retry_on_failure | map    |         |          | See [doc](https://github.com/open-telemetry/opentelemetry-collector/blob/main/exporter/exporterhelper/README.md) for details |
@@ -130,68 +128,39 @@ Before configuring the exporter, you'll need to set up several components in the
 
     - Give it a name (this will be the display name in the Azure portal). **Important:** The actual `stream_name` value used in the exporter configuration must be prefixed with `Custom-`. For example, if you name the table `my_logs` in the portal, the `stream_name` configuration value should be `Custom-my_logs`.
     - Select "JSON" as the data format
-    - Provide an example schema based on your configuration: - **If `raw_log_field` is NOT set (Default):** Use the following OTLP log formatted schema:
-
-      ````json
-      {
-      "resourceLogs":[
-      {
-      "resource":{
-               },
-               "scopeLogs":[
-                  {
-                     "scope":{
-
-                     },
-                     "logRecords":[
-                        {
-                           "observedTimeUnixNano":"1744314249480007000",
-                           "body":{
-                              "stringValue":"Tue Mar 04 15:57:06 2020: \u003c14\u003eMar  4 15:53:03 BAR-NG-VF500 BAR-NG-VF500/box_Firewall_Activity:  Info     BAR-NG-VF500 Remove: type=FWD|proto=UDP|srcIF=eth1|srcIP=192.168.70.7|srcPort=35119|srcMAC=08:00:27:da:d7:9c|dstIP=8.8.8.8|dstPort=53|dstService=domain|dstIF=eth0|rule=InternetAccess/\u003cApp\u003e:RestrictTim|info=Balanced Session Idle Timeout|srcNAT=192.168.70.7|dstNAT=8.8.8.8|duration=21132|count=1|receivedBytes=130|sentBytes=62|receivedPackets=1|sentPackets=1|user=|protocol=|application=|target=|content=|urlcat"
-                           },
-                           "attributes":[
-                              {
-                                 "key":"log.file.name",
-                                 "value":{
-                                    "stringValue":"sample.log"
-                                 }
-                              }
-                           ],
-                           "traceId":"",
-                           "spanId":""
-                        },
-                        {
-                           "observedTimeUnixNano":"1744314249480014000",
-                           "body":{
-                              "stringValue":"Tue Mar 04 15:57:06 2020: \u003c14\u003eMar  4 15:53:04 BAR-NG-VF500 BAR-NG-VF500/box_Firewall_Activity:  Info     BAR-NG-VF500 Remove: type=FWD|proto=UDP|srcIF=eth1|srcIP=192.168.70.7|srcPort=38686|srcMAC=08:00:27:da:d7:9c|dstIP=8.8.8.8|dstPort=53|dstService=domain|dstIF=eth0|rule=InternetAccess/\u003cApp\u003e:RestrictTim|info=Session Idle Timeout|srcNAT=192.168.70.7|dstNAT=8.8.8.8|duration=60100|count=1|receivedBytes=0|sentBytes=62|receivedPackets=0|sentPackets=1|user=|protocol=|application=|target=|content=|urlcat="
-                           },
-                           "attributes":[
-                              {
-                                 "key":"log.file.name",
-                                 "value":{
-                                    "stringValue":"sample.log"
-                                 }
-                              }
-                           ],
-                           "traceId":"",
-                           "spanId":""
-                        }
-                     ]
-                  }
-               ]
-            }
-      ]
-      }
-             ```
-           - **If `raw_log_field` IS set:** Use the following simple schema with a `RawData` field:
-             ```json
-             [
-               {
-                 "RawData": "Sample log entry content"
-               }
-             ]
-             ```
-      ````
+    - Provide an example schema based on your log format:
+      - **Structured (map body, `raw_log_field` not set):** Your table columns should match the keys in your log body, plus metadata fields:
+        ```json
+        [
+          {
+            "source_ip": "10.0.0.1",
+            "action": "ALLOW",
+            "bytes": 1234,
+            "TimeGenerated": "2025-01-01T00:00:00Z",
+            "SeverityText": "INFO",
+            "SeverityNumber": 9
+          }
+        ]
+        ```
+      - **Unstructured (string body, `raw_log_field` not set):** Your table needs a `RawData` column:
+        ```json
+        [
+          {
+            "RawData": "Sample log entry content",
+            "TimeGenerated": "2025-01-01T00:00:00Z",
+            "SeverityText": "INFO",
+            "SeverityNumber": 9
+          }
+        ]
+        ```
+      - **Raw Log Mode (`raw_log_field` set):** Your table needs a `RawData` column:
+        ```json
+        [
+          {
+            "RawData": "Sample log entry content"
+          }
+        ]
+        ```
 
 5.  Click "Create"
 
@@ -206,8 +175,8 @@ Before configuring the exporter, you'll need to set up several components in the
    - Select the custom table you created
    - Set up any necessary transformations
 5. After creation, note down:
-   - The data collection rule (DCR) Endpoint URL (will be your `endpoint`), if you do not see an endpoint URL, try updating the API version on the json view of your DCR ruleset. If you still dont see it, you will need to set up a data collection endpoint (DCE). Additional information can be found here (https://learn.microsoft.com/en-us/azure/azure-monitor/logs/logs-ingestion-api-overview#data-collection-rule-dcr)
    - The Rule ID (will be your `rule_id`)
+   - The endpoint URL (see [Endpoint Configuration](#endpoint-configuration) below)
 
 ### 4. Set up Permissions
 
@@ -221,13 +190,25 @@ Before configuring the exporter, you'll need to set up several components in the
 
 Now you have all the required information to configure the exporter:
 
-- `endpoint`: The DCR Endpoint URL
+- `endpoint`: The logs ingestion endpoint URL (see below)
 - `client_id`: The Application (client) ID
 - `client_secret`: The secret value you created
 - `tenant_id`: The Directory (tenant) ID
 - `rule_id`: The DCR Rule ID
-- `stream_name`: The name of your custom table
+- `stream_name`: The stream name from your DCR (must be prefixed with `Custom-` for custom tables)
 
-## Important note
+### Endpoint Configuration
 
-The first export of logs, may take anywhere from 5-15 minutes on a freshly created table.
+The `endpoint` field requires a logs ingestion endpoint URL. There are two ways to obtain this:
+
+1. **From the DCR directly:** Open your DCR in the Azure portal, click "JSON View", and look for `properties.endpoints.logsIngestion`. If present, use this URL as the `endpoint` value. If the field is missing, try switching to a newer API version (e.g., `2023-03-11`) in the JSON view.
+
+2. **From a Data Collection Endpoint (DCE):** If your DCR does not expose a `logsIngestion` endpoint (common with older DCRs or certain configurations), you must create a separate [Data Collection Endpoint (DCE)](https://learn.microsoft.com/en-us/azure/azure-monitor/essentials/data-collection-endpoint-overview) and use its logs ingestion endpoint URL instead. After creating the DCE, associate it with your DCR.
+
+For more information, see the [Logs Ingestion API overview](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/logs-ingestion-api-overview).
+
+## Important Notes
+
+- The first export of logs may take anywhere from 5-15 minutes on a freshly created table.
+- The `stream_name` **must** be prefixed with `Custom-` for custom log tables (e.g., `Custom-MyTable_CL`). Omitting this prefix will cause silent ingestion failures.
+- Transient HTTP errors (429, 502, 503, 504) are automatically retried. Permanent errors (400, 401, 403) are not retried.
