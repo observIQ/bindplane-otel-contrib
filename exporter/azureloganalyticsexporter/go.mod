@@ -6,6 +6,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Azure/azure-sdk-for-go/sdk/monitor/ingestion/azlogs v1.1.0
+	github.com/observiq/bindplane-otel-contrib/internal/exporterutils v1.1.1
 	github.com/observiq/bindplane-otel-contrib/pkg/expr v1.1.1
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl v0.148.0
 	github.com/stretchr/testify v1.11.1
@@ -14,6 +15,7 @@ require (
 	go.opentelemetry.io/collector/config/configoptional v1.54.0
 	go.opentelemetry.io/collector/config/configretry v1.54.0
 	go.opentelemetry.io/collector/consumer v1.54.0
+	go.opentelemetry.io/collector/consumer/consumererror v0.148.0
 	go.opentelemetry.io/collector/exporter v1.54.0
 	go.opentelemetry.io/collector/exporter/exporterhelper v0.148.0
 	go.opentelemetry.io/collector/pdata v1.54.0
@@ -66,7 +68,6 @@ require (
 	go.opentelemetry.io/collector/client v1.54.0 // indirect
 	go.opentelemetry.io/collector/confmap v1.54.0 // indirect
 	go.opentelemetry.io/collector/confmap/xconfmap v0.148.0 // indirect
-	go.opentelemetry.io/collector/consumer/consumererror v0.148.0 // indirect
 	go.opentelemetry.io/collector/extension v1.54.0 // indirect
 	go.opentelemetry.io/collector/extension/xextension v0.148.0 // indirect
 	go.opentelemetry.io/collector/featuregate v1.54.0 // indirect
@@ -93,5 +94,7 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/observiq/bindplane-otel-contrib/internal/exporterutils => ../../internal/exporterutils
 
 replace github.com/observiq/bindplane-otel-contrib/pkg/expr => ../../pkg/expr
