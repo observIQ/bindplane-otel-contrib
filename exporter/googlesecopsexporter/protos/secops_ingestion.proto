@@ -1,13 +1,13 @@
 // Copyright 2021 Google LLC
 syntax = "proto3";
 
-package malachite.ingestion.v2;
+package googlesecopsexporter;
 
 option go_package = "github.com/exporter/googlesecopsexporter/proto/api";
 
 import "google/api/annotations.proto";
-import "events.proto";
-import "chronicle_log.proto";
+import "secops_events.proto";
+import "secops_log.proto";
 
 
 service IngestionServiceV2 {

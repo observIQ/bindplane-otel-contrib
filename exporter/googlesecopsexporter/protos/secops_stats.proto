@@ -4,7 +4,7 @@
 // to the Chronicle Server side proto definition
 syntax = "proto3";
 
-package malachite.ingestion.v2;
+package googlesecopsexporter;
 
 option go_package = "github.com/exporter/googlesecopsexporter/proto/api";
 

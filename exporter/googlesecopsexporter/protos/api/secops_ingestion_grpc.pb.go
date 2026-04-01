@@ -4,7 +4,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v7.34.1
-// source: ingestion.proto
+// source: secops_ingestion.proto
 
 package api
 
@@ -21,8 +21,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	IngestionServiceV2_BatchCreateEvents_FullMethodName = "/malachite.ingestion.v2.IngestionServiceV2/BatchCreateEvents"
-	IngestionServiceV2_BatchCreateLogs_FullMethodName   = "/malachite.ingestion.v2.IngestionServiceV2/BatchCreateLogs"
+	IngestionServiceV2_BatchCreateEvents_FullMethodName = "/googlesecopsexporter.IngestionServiceV2/BatchCreateEvents"
+	IngestionServiceV2_BatchCreateLogs_FullMethodName   = "/googlesecopsexporter.IngestionServiceV2/BatchCreateLogs"
 )
 
 // IngestionServiceV2Client is the client API for IngestionServiceV2 service.
@@ -148,7 +148,7 @@ func _IngestionServiceV2_BatchCreateLogs_Handler(srv interface{}, ctx context.Co
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var IngestionServiceV2_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "malachite.ingestion.v2.IngestionServiceV2",
+	ServiceName: "googlesecopsexporter.IngestionServiceV2",
 	HandlerType: (*IngestionServiceV2Server)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -161,5 +161,5 @@ var IngestionServiceV2_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "ingestion.proto",
+	Metadata: "secops_ingestion.proto",
 }

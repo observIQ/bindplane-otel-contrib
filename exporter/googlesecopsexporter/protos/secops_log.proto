@@ -2,11 +2,11 @@
 //
 syntax = "proto3";
 
-package malachite.ingestion.v2;
+package googlesecopsexporter;
 
 option go_package = "github.com/exporter/googlesecopsexporter/proto/api";
 
-import "source.proto";
+import "secops_source.proto";
 
 import "google/protobuf/timestamp.proto";
 
