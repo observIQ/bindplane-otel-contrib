@@ -139,31 +139,31 @@ _build-windows: _build-windows-amd64 _build-windows-arm64
 
 .PHONY: _build-linux-amd64
 _build-linux-amd64:
-	GOOS=linux GOARCH=amd64 $(MAKE) _build-collector -j2
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-linux-arm64
 _build-linux-arm64:
-	GOOS=linux GOARCH=arm64 $(MAKE) _build-collector -j2
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-linux-arm
 _build-linux-arm:
-	GOOS=linux GOARCH=arm $(MAKE) _build-collector -j2
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm $(MAKE) _build-collector -j2
 
 .PHONY: _build-linux-ppc64
 _build-linux-ppc64:
-	GOOS=linux GOARCH=ppc64 $(MAKE) _build-collector -j2
+	CGO_ENABLED=0 GOOS=linux GOARCH=ppc64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-linux-ppc64le
 _build-linux-ppc64le:
-	GOOS=linux GOARCH=ppc64le $(MAKE) _build-collector -j2
+	CGO_ENABLED=0 GOOS=linux GOARCH=ppc64le $(MAKE) _build-collector -j2
 
 .PHONY: _build-darwin-amd64
 _build-darwin-amd64:
-	GOOS=darwin GOARCH=amd64 $(MAKE) _build-collector -j2
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-darwin-arm64
 _build-darwin-arm64:
-	GOOS=darwin GOARCH=arm64 $(MAKE) _build-collector -j2
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(MAKE) _build-collector -j2
 
 .PHONY: _build-windows-amd64
 _build-windows-amd64:
