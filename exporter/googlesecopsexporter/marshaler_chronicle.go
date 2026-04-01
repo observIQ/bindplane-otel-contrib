@@ -106,5 +106,5 @@ func (m *protoMarshaler) buildChronicleAPIRequest(entries []*api.Log) *api.Impor
 
 func (m *protoMarshaler) buildForwarderString() string {
 	format := "projects/%s/locations/%s/instances/%s/forwarders/%s"
-	return fmt.Sprintf(format, m.cfg.ProjectNumber, m.cfg.Location, m.cfg.CustomerID, string(m.collectorID[:]))
+	return fmt.Sprintf(format, m.cfg.ProjectNumber, m.cfg.Region, m.cfg.CustomerID, string(m.collectorID[:]))
 }

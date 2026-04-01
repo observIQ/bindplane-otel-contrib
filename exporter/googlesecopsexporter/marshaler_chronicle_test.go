@@ -45,7 +45,7 @@ func TestProtoMarshaler_MarshalChronicleAPIRawLogs(t *testing.T) {
 				RawLogField:           "body",
 				API:                   chronicleAPI,
 				ProjectNumber:         "test-project",
-				Location:              "us",
+				Region:                "us",
 				BatchRequestSizeLimit: 5242880,
 			},
 			labels: []*api.Label{

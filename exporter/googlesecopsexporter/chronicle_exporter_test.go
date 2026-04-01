@@ -60,7 +60,7 @@ func TestChronicleAPIExporter(t *testing.T) {
 	// By default, tests will apply the following changes to NewFactory.CreateDefaultConfig()
 	defaultCfgMod := func(cfg *Config) {
 		cfg.API = chronicleAPI
-		cfg.Location = "us"
+		cfg.Region = "us"
 		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
 		cfg.ProjectNumber = "fake"
 		cfg.DefaultLogType = "FAKE"
@@ -307,7 +307,7 @@ func TestChronicleAPIExporterRetrySequences(t *testing.T) {
 			f := NewFactory()
 			cfg := f.CreateDefaultConfig().(*Config)
 			cfg.API = chronicleAPI
-			cfg.Location = "us"
+			cfg.Region = "us"
 			cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
 			cfg.ProjectNumber = "fake"
 			cfg.DefaultLogType = "FAKE"
@@ -342,7 +342,7 @@ func TestChronicleAPIExporterRetrySequences(t *testing.T) {
 func TestChronicleAPIJSONCredentialsError(t *testing.T) {
 	defaultCfgMod := func(cfg *Config) {
 		cfg.API = chronicleAPI
-		cfg.Location = "us"
+		cfg.Region = "us"
 		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
 		cfg.ProjectNumber = "fake"
 		cfg.DefaultLogType = "FAKE"
@@ -423,7 +423,7 @@ func TestChronicleAPIExporterAgentMetrics(t *testing.T) {
 		f := NewFactory()
 		cfg := f.CreateDefaultConfig().(*Config)
 		cfg.API = chronicleAPI
-		cfg.Location = "us"
+		cfg.Region = "us"
 		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
 		cfg.ProjectNumber = "fake"
 		cfg.DefaultLogType = "FAKE"
@@ -463,7 +463,7 @@ func TestChronicleAPIExporterAgentMetrics(t *testing.T) {
 		f := NewFactory()
 		cfg := f.CreateDefaultConfig().(*Config)
 		cfg.API = chronicleAPI
-		cfg.Location = "us"
+		cfg.Region = "us"
 		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
 		cfg.ProjectNumber = "fake"
 		cfg.DefaultLogType = "FAKE"
@@ -512,7 +512,7 @@ func TestChronicleAPIExporterUploadStatsEvents(t *testing.T) {
 
 		cfg := &Config{
 			API:           chronicleAPI,
-			Location:      "us",
+			Region:        "us",
 			CustomerID:    "00000000-1111-2222-3333-444444444444",
 			ProjectNumber: "fake",
 			Compression:   noCompression,
@@ -565,7 +565,7 @@ func TestChronicleAPIExporterUploadStatsEvents(t *testing.T) {
 
 		cfg := &Config{
 			API:           chronicleAPI,
-			Location:      "us",
+			Region:        "us",
 			CustomerID:    "00000000-1111-2222-3333-444444444444",
 			ProjectNumber: "fake",
 			Compression:   noCompression,
@@ -617,7 +617,7 @@ func TestChronicleAPIExporterUploadStatsEventsEndpoint(t *testing.T) {
 		{
 			name: "custom API version",
 			cfg: &Config{
-				Location:      "us",
+				Region:        "us",
 				Hostname:      "chronicle.googleapis.com",
 				ProjectNumber: "my-project",
 				CustomerID:    "my-customer-id",
@@ -632,7 +632,7 @@ func TestChronicleAPIExporterUploadStatsEventsEndpoint(t *testing.T) {
 		{
 			name: "custom API version and ignore location",
 			cfg: &Config{
-				Location:         "us",
+				Region:           "us",
 				Hostname:         "my-endpoint.com",
 				ProjectNumber:    "my-project",
 				CustomerID:       "my-customer-id",
@@ -673,7 +673,7 @@ func TestChronicleAPIExporterTelemetry(t *testing.T) {
 	// By default, tests will apply the following changes to NewFactory.CreateDefaultConfig()
 	defaultCfgMod := func(cfg *Config) {
 		cfg.API = chronicleAPI
-		cfg.Location = "us"
+		cfg.Region = "us"
 		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
 		cfg.ProjectNumber = "fake"
 		cfg.DefaultLogType = "FAKE"

@@ -119,10 +119,10 @@ func baseEndpoint(cfg *Config) string {
 	if cfg.OverrideHostname {
 		hostname = cfg.Hostname
 	} else {
-		hostname = fmt.Sprintf("%s-%s", cfg.Location, cfg.Hostname)
+		hostname = fmt.Sprintf("%s-%s", cfg.Region, cfg.Hostname)
 	}
 	formatString := "https://%s/%s/projects/%s/locations/%s/instances/%s"
-	return fmt.Sprintf(formatString, hostname, cfg.APIVersion, cfg.ProjectNumber, cfg.Location, cfg.CustomerID)
+	return fmt.Sprintf(formatString, hostname, cfg.APIVersion, cfg.ProjectNumber, cfg.Region, cfg.CustomerID)
 }
 
 func (exp *chronicleAPIExporter) Capabilities() consumer.Capabilities {

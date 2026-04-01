@@ -35,10 +35,10 @@ The exporter can be configured using the following fields:
 | `metrics_interval`         | duration          | `1m`                          | `false`  | The interval at which to collect and send agent metrics.                                                                             |
 | `batch_request_size_limit` | int               | `4000000`                     | `false`  | The maximum batch request size, in bytes, that can be sent to Google SecOps. Must be a positive value.                               |
 | `log_errored_payloads`     | bool              | `false`                       | `false`  | Whether or not to log errored payloads.                                                                                              |
-| `location`                 | string            |                               | `true`*  | The location of the Google SecOps instance. Required for the Chronicle API.                                                          |
+| `region`                   | string            |                               | `true`*  | The region of the Google SecOps instance. Required for the Chronicle API.                                                            |
 | `project_number`           | string            |                               | `true`*  | The GCP project number of the Google SecOps instance. Required for the Chronicle API.                                                |
 | `api_version`              | string            | `v1alpha`                     | `false`  | The API version to use. Valid values are `v1alpha` and `v1beta`. Only applies to the Chronicle API.                                  |
-| `override_hostname`        | bool              | `false`                       | `false`  | Whether or not to ignore the Location field when constructing the base URL. Only applies to the Chronicle API.                       |
+| `override_hostname`        | bool              | `false`                       | `false`  | Whether or not to ignore the region field when constructing the base URL. Only applies to the Chronicle API.                         |
 
 ### Log Type
 
@@ -79,7 +79,7 @@ Besides the default hostnames, there are also regional hostnames which can be us
 google_secops:
   api: "chronicle"
   hostname: chronicle.googleapis.com
-  location: "us"
+  region: "us"
   project_number: "123456789"
   customer_id: "customer-123"
   creds_file_path: "/path/to/google/creds.json"
@@ -116,7 +116,7 @@ google_secops:
   api: "chronicle"
   hostname: chronicle.eu.rep.googleapis.com
   override_hostname: true
-  location: "eu"
+  region: "eu"
   project_number: "123456789"
   customer_id: "customer-123"
   creds_file_path: "/path/to/google/creds.json"
@@ -130,7 +130,7 @@ google_secops:
   api: "chronicle"
   hostname: chronicle.googleapis.com
   api_version: "v1beta"
-  location: "us"
+  region: "us"
   project_number: "123456789"
   customer_id: "customer-123"
   creds_file_path: "/path/to/google/creds.json"
@@ -143,7 +143,7 @@ google_secops:
 google_secops:
   api: "chronicle"
   hostname: chronicle.googleapis.com
-  location: "us"
+  region: "us"
   project_number: "123456789"
   customer_id: "customer-123"
   creds_file_path: "/path/to/google/creds.json"
@@ -161,7 +161,7 @@ google_secops:
 google_secops:
   api: "chronicle"
   hostname: chronicle.googleapis.com
-  location: "us"
+  region: "us"
   project_number: "123456789"
   customer_id: "customer-123"
   creds: '{"type":"service_account","project_id":"my-project", ...}'
@@ -174,7 +174,7 @@ google_secops:
 google_secops:
   api: "chronicle"
   hostname: chronicle.googleapis.com
-  location: "us"
+  region: "us"
   project_number: "123456789"
   customer_id: "customer-123"
   creds_file_path: "/path/to/google/creds.json"
@@ -188,7 +188,7 @@ google_secops:
 google_secops:
   api: "chronicle"
   hostname: chronicle.googleapis.com
-  location: "us"
+  region: "us"
   project_number: "123456789"
   customer_id: "customer-123"
   creds_file_path: "/path/to/google/creds.json"
@@ -202,7 +202,7 @@ google_secops:
 google_secops:
   api: "chronicle"
   hostname: chronicle.googleapis.com
-  location: "us"
+  region: "us"
   project_number: "123456789"
   customer_id: "customer-123"
   creds_file_path: "/path/to/google/creds.json"
@@ -218,7 +218,7 @@ google_secops:
 google_secops:
   api: "chronicle"
   hostname: chronicle.googleapis.com
-  location: "us"
+  region: "us"
   project_number: "123456789"
   customer_id: "customer-123"
   creds_file_path: "/path/to/google/creds.json"
