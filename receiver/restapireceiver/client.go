@@ -46,9 +46,9 @@ type restAPIClient interface {
 	// Returns the full response as map[string]any for pagination parsing, plus response headers.
 	GetFullResponse(ctx context.Context, requestURL string, params url.Values) (map[string]any, http.Header, error)
 	// GetNDJSON fetches an NDJSON response from the specified URL.
-	// Returns the data objects (all lines except the last), the metadata object (last line),
-	// and the HTTP response headers.
-	GetNDJSON(ctx context.Context, requestURL string, params url.Values) (data []map[string]any, metadata map[string]any, headers http.Header, err error)
+	// When metadataInBody is true the last line is treated as pagination metadata;
+	// when false all lines are treated as data (metadata comes from headers instead).
+	GetNDJSON(ctx context.Context, requestURL string, params url.Values, metadataInBody bool) (data []map[string]any, metadata map[string]any, headers http.Header, err error)
 	// Shutdown shuts down the REST API client.
 	Shutdown() error
 }
@@ -277,7 +277,7 @@ func (c *defaultRESTAPIClient) GetFullResponse(ctx context.Context, requestURL s
 // Each line of the response is a separate JSON object. The last line is treated
 // as metadata (e.g., containing pagination cursors like an offset token).
 // All other lines are returned as data objects.
-func (c *defaultRESTAPIClient) GetNDJSON(ctx context.Context, requestURL string, params url.Values) ([]map[string]any, map[string]any, http.Header, error) {
+func (c *defaultRESTAPIClient) GetNDJSON(ctx context.Context, requestURL string, params url.Values, metadataInBody bool) ([]map[string]any, map[string]any, http.Header, error) {
 	// Build the request URL with query parameters
 	u, err := url.Parse(requestURL)
 	if err != nil {
@@ -331,7 +331,7 @@ func (c *defaultRESTAPIClient) GetNDJSON(ctx context.Context, requestURL string,
 		return nil, nil, nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	data, metadata, err := parseNDJSON(body, c.logger)
+	data, metadata, err := parseNDJSON(body, metadataInBody, c.logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -339,9 +339,12 @@ func (c *defaultRESTAPIClient) GetNDJSON(ctx context.Context, requestURL string,
 }
 
 // parseNDJSON parses an NDJSON response body into data objects and a metadata object.
-// The last non-empty line is treated as metadata; all preceding lines are data objects.
+// When metadataInBody is true, the last non-empty line is treated as metadata and all
+// preceding lines are data objects. When false, all lines are treated as data and
+// metadata is returned as nil (the caller is expected to source metadata elsewhere,
+// e.g. from response headers).
 // Empty lines are skipped.
-func parseNDJSON(body []byte, logger *zap.Logger) ([]map[string]any, map[string]any, error) {
+func parseNDJSON(body []byte, metadataInBody bool, logger *zap.Logger) ([]map[string]any, map[string]any, error) {
 	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
 
 	// Filter out empty lines
@@ -357,14 +360,21 @@ func parseNDJSON(body []byte, logger *zap.Logger) ([]map[string]any, map[string]
 		return []map[string]any{}, map[string]any{}, nil
 	}
 
-	// Last line is metadata, everything else is data
-	metadataLine := nonEmptyLines[len(nonEmptyLines)-1]
-	dataLines := nonEmptyLines[:len(nonEmptyLines)-1]
+	var metadataLine string
+	dataLines := nonEmptyLines
+
+	if metadataInBody {
+		// Last line is metadata, everything else is data
+		metadataLine = nonEmptyLines[len(nonEmptyLines)-1]
+		dataLines = nonEmptyLines[:len(nonEmptyLines)-1]
+	}
 
 	// Parse metadata
 	var metadata map[string]any
-	if err := jsoniter.UnmarshalFromString(metadataLine, &metadata); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse NDJSON metadata line: %w", err)
+	if metadataLine != "" {
+		if err := jsoniter.UnmarshalFromString(metadataLine, &metadata); err != nil {
+			return nil, nil, fmt.Errorf("failed to parse NDJSON metadata line: %w", err)
+		}
 	}
 
 	// Parse data lines

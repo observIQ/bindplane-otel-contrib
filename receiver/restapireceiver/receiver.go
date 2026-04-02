@@ -200,7 +200,8 @@ func (b *baseReceiver) fetchDataPage(ctx context.Context, requestURL string, par
 
 	if b.cfg.ResponseFormat == responseFormatNDJSON {
 		var err error
-		data, metadata, respHeaders, err = b.client.GetNDJSON(ctx, requestURL, params)
+		metadataInBody := b.cfg.Pagination.ResponseSource != responseSourceHeader
+		data, metadata, respHeaders, err = b.client.GetNDJSON(ctx, requestURL, params, metadataInBody)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to get NDJSON response: %w", err)
 		}
