@@ -32,12 +32,13 @@ import (
 const oktaLogLimit int32 = 1000
 
 type oktaLogsReceiver struct {
-	cfg      Config
-	client   *okta.APIClient
-	consumer consumer.Logs
-	logger   *zap.Logger
-	cancel   context.CancelFunc
-	wg       *sync.WaitGroup
+	cfg          Config
+	client       *okta.APIClient
+	consumer     consumer.Logs
+	logger       *zap.Logger
+	lastPollTime time.Time
+	cancel       context.CancelFunc
+	wg           *sync.WaitGroup
 }
 
 func newOktaLogsReceiver(cfg *Config, logger *zap.Logger, consumer consumer.Logs, client *okta.APIClient) *oktaLogsReceiver {
@@ -96,13 +97,20 @@ func (r *oktaLogsReceiver) poll(ctx context.Context) error {
 
 func (r *oktaLogsReceiver) getLogs(ctx context.Context) ([]okta.LogEvent, error) {
 	now := time.Now().UTC()
-	since := now.Add(-r.cfg.PollInterval).Format(oktaTimeFormat)
+
+	if r.lastPollTime.IsZero() {
+		r.lastPollTime = now.Add(-r.cfg.PollInterval)
+	}
+
+	since := r.lastPollTime.Format(oktaTimeFormat)
 	until := now.Format(oktaTimeFormat)
 
 	events, err := r.getLogEvents(ctx, since, until)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching okta log events: %w", err)
 	}
+
+	r.lastPollTime = now
 	return events, nil
 }
 

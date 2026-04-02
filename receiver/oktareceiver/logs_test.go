@@ -42,8 +42,13 @@ func newTestClient(t *testing.T, handler http.Handler) *okta.APIClient {
 		okta.WithCache(false),
 	)
 	require.NoError(t, err)
-	// WithOrgUrl strips the port via url.Hostname(); restore full host:port for test server
+
+	// NewConfiguration parses OrgUrl via url.Hostname(), which strips the
+	// port. The SDK uses cfg.Host and cfg.Scheme to build request URLs
+	// (see client.go prepareRequest), so we must restore the full
+	// host:port from the test server's listener address.
 	cfg.Host = server.Listener.Addr().String()
+	cfg.Scheme = "http"
 	return okta.NewAPIClient(cfg)
 }
 
@@ -164,4 +169,59 @@ func TestPollLargeResponse(t *testing.T) {
 
 	logs := sink.AllLogs()
 	require.Equal(t, 1000, logs[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().Len())
+}
+
+func TestPollPagination(t *testing.T) {
+	page1, err := os.ReadFile("testdata/oktaResponseBasic.json")
+	require.NoError(t, err)
+	page2 := []byte(`[{"actor":{"id":"page2actor","type":"User","alternateId":"page2@observiq.com","displayName":"Page Two"},"client":{},"eventType":"user.session.start","displayMessage":"Page 2 event","outcome":{"result":"SUCCESS"},"published":"2024-08-19T18:50:00.000Z","uuid":"page2-uuid","version":"0"}]`)
+
+	requestCount := 0
+	var serverURL string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount == 1 {
+			// First page: include a Link header pointing to the next page
+			w.Header().Add("Link", `<`+serverURL+`/api/v1/logs?after=cursor123>; rel="next"`)
+			w.Header().Add("Link", `<`+serverURL+`/api/v1/logs>; rel="self"`)
+			_, _ = w.Write(page1)
+		} else {
+			// Second page: no next link
+			w.Header().Add("Link", `<`+serverURL+`/api/v1/logs?after=cursor123>; rel="self"`)
+			_, _ = w.Write(page2)
+		}
+	})
+
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	serverURL = server.URL
+
+	cfg, err := okta.NewConfiguration(
+		okta.WithOrgUrl(server.URL),
+		okta.WithToken("test-token"),
+		okta.WithTestingDisableHttpsCheck(true),
+		okta.WithCache(false),
+	)
+	require.NoError(t, err)
+	cfg.Host = server.Listener.Addr().String()
+	cfg.Scheme = "http"
+	client := okta.NewAPIClient(cfg)
+
+	recvCfg := createDefaultConfig().(*Config)
+	recvCfg.Domain = "observiq.okta.com"
+
+	sink := &consumertest.LogsSink{}
+	recv := newOktaLogsReceiver(recvCfg, zap.NewNop(), sink, client)
+
+	err = recv.poll(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 2, requestCount, "expected two requests (initial + paginated)")
+
+	logs := sink.AllLogs()
+	require.Len(t, logs, 1)
+	// 2 from page 1 + 1 from page 2
+	require.Equal(t, 3, logs[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().Len())
 }

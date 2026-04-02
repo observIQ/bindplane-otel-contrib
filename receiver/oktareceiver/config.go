@@ -23,7 +23,7 @@ import (
 	"go.opentelemetry.io/collector/config/configopaque"
 )
 
-var (
+const (
 	defaultPollInterval = time.Minute
 
 	// oktaTimeFormat ISO 8601 Format
