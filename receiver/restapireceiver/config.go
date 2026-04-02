@@ -150,6 +150,41 @@ type Config struct {
 	// Pagination defines pagination configuration.
 	Pagination PaginationConfig `mapstructure:"pagination"`
 
+	// StartTimeParamName is the query parameter name for the start time (e.g., "since", "from", "start_time").
+	// When used with timestamp pagination, this parameter's value advances through response data.
+	// With any other pagination mode, it is sent as a static parameter on every request.
+	StartTimeParamName string `mapstructure:"start_time_param_name"`
+
+	// StartTimeValue is the initial value for the start time parameter.
+	// Accepts a timestamp in the configured timestamp_format or RFC3339 (e.g., "2025-01-01T00:00:00Z").
+	// For epoch formats, accepts a numeric string (e.g., "1704067200").
+	// Use "now" to send the current time.
+	StartTimeValue string `mapstructure:"start_time_value"`
+
+	// EndTimeParamName is the query parameter name for the end time (e.g., "until", "to", "end_time").
+	// If set, the end time value is sent on every request regardless of pagination mode.
+	EndTimeParamName string `mapstructure:"end_time_param_name"`
+
+	// EndTimeValue configures what value to send for the end time parameter.
+	// Supported values:
+	//   - "now" (default): the current time at each request
+	//   - A fixed timestamp string in the configured timestamp_format or RFC3339
+	//   - For epoch formats, a numeric string (e.g., "1704067200")
+	EndTimeValue string `mapstructure:"end_time_value"`
+
+	// TimestampFormat is the format for the start/end time query parameters.
+	// Common formats:
+	//   - "2006-01-02T15:04:05Z07:00" (RFC3339, default)
+	//   - "20060102150405" (YYYYMMDDHHMMSS)
+	//   - "2006-01-02 15:04:05"
+	//   - "epoch_s" (Unix epoch seconds)
+	//   - "epoch_ms" (Unix epoch milliseconds)
+	//   - "epoch_us" (Unix epoch microseconds)
+	//   - "epoch_ns" (Unix epoch nanoseconds)
+	//   - "epoch_s_frac" (Unix epoch fractional seconds)
+	// If not set, defaults to RFC3339.
+	TimestampFormat string `mapstructure:"timestamp_format"`
+
 	// MinPollInterval is the minimum interval between API polls.
 	// The receiver uses adaptive polling that resets to this interval when data
 	// is received, and backs off when no data is returned.
@@ -316,49 +351,19 @@ type PageSizePagination struct {
 }
 
 // TimestampPagination defines timestamp-based pagination configuration.
+// The start/end time parameter names, values, and format are configured at the
+// top level of the receiver config (start_time_param_name, end_time_param_name, etc.).
+// Timestamp pagination advances the start time through response data.
 type TimestampPagination struct {
-	// ParamName is the name of the query parameter for the timestamp (e.g., "t0", "since", "after", "start_time").
-	ParamName string `mapstructure:"param_name"`
-
 	// TimestampFieldName is the name of the field in each response item that contains the timestamp value.
 	// This is used to extract the timestamp from the last item for the next page.
 	TimestampFieldName string `mapstructure:"timestamp_field_name"`
-
-	// TimestampFormat is the format for the timestamp query parameter.
-	// Common formats:
-	//   - "2006-01-02T15:04:05Z07:00" (RFC3339, default)
-	//   - "20060102150405" (YYYYMMDDHHMMSS)
-	//   - "2006-01-02 15:04:05"
-	//   - "epoch_s" (Unix epoch seconds)
-	//   - "epoch_ms" (Unix epoch milliseconds)
-	//   - "epoch_us" (Unix epoch microseconds)
-	//   - "epoch_ns" (Unix epoch nanoseconds)
-	// If not set, defaults to RFC3339.
-	TimestampFormat string `mapstructure:"timestamp_format"`
 
 	// PageSizeFieldName is the name of the query parameter for page size (e.g., "perPage", "limit").
 	PageSizeFieldName string `mapstructure:"page_size_field_name"`
 
 	// PageSize is the page size to use.
 	PageSize int `mapstructure:"page_size"`
-
-	// InitialTimestamp is the initial timestamp to start from (optional).
-	// If not set, will start from the beginning.
-	// Accepts the configured timestamp_format or RFC3339 (e.g., "2025-01-01T00:00:00Z").
-	// For epoch formats, accepts a numeric string (e.g., "1704067200" for epoch_s).
-	InitialTimestamp string `mapstructure:"initial_timestamp"`
-
-	// EndTimestampParamName is the name of the query parameter for the end timestamp (e.g., "end_time", "to", "until").
-	// If set, the current time (time.Now()) will be sent as the upper bound of the time range on each request,
-	// using the same timestamp_format as the start parameter.
-	EndTimestampParamName string `mapstructure:"end_timestamp_param_name"`
-
-	// EndTimestampValue configures what value to send for the end timestamp parameter.
-	// Supported values:
-	//   - "now" (default): the current time at each request
-	//   - A fixed timestamp string in the configured timestamp_format or RFC3339
-	//   - For epoch formats, a numeric string (e.g., "1704067200")
-	EndTimestampValue string `mapstructure:"end_timestamp_value"`
 }
 
 // Validate validates the configuration.
@@ -524,75 +529,22 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("page_size_field_name is required when pagination.mode is page_size")
 		}
 	case paginationModeTimestamp:
-		if c.Pagination.Timestamp.ParamName == "" {
-			return fmt.Errorf("param_name is required when pagination.mode is timestamp")
+		if c.StartTimeParamName == "" {
+			return fmt.Errorf("start_time_param_name is required when pagination.mode is timestamp")
 		}
 		if c.Pagination.Timestamp.TimestampFieldName == "" {
 			return fmt.Errorf("timestamp_field_name is required when pagination.mode is timestamp")
 		}
-		// Validate initial_timestamp format if provided
-		if c.Pagination.Timestamp.InitialTimestamp != "" {
-			var parsed bool
-			// For epoch formats, validate that initial_timestamp is a numeric value
-			if isEpochFormat(c.Pagination.Timestamp.TimestampFormat) {
-				if _, err := strconv.ParseFloat(c.Pagination.Timestamp.InitialTimestamp, 64); err == nil {
-					parsed = true
-				}
-				if !parsed {
-					return fmt.Errorf("initial_timestamp %q must be a numeric value when using epoch timestamp_format (%s)", c.Pagination.Timestamp.InitialTimestamp, c.Pagination.Timestamp.TimestampFormat)
-				}
-			} else {
-				// First try the user's configured format (they likely copied the timestamp from the API)
-				if c.Pagination.Timestamp.TimestampFormat != "" {
-					if _, err := time.Parse(c.Pagination.Timestamp.TimestampFormat, c.Pagination.Timestamp.InitialTimestamp); err == nil {
-						parsed = true
-					}
-				}
-				// Fall back to RFC3339 (the default format)
-				if !parsed {
-					if _, err := time.Parse(time.RFC3339, c.Pagination.Timestamp.InitialTimestamp); err == nil {
-						parsed = true
-					}
-				}
-				if !parsed {
-					formatHint := "RFC3339 (e.g., 2025-01-01T00:00:00Z)"
-					if c.Pagination.Timestamp.TimestampFormat != "" {
-						formatHint = fmt.Sprintf("configured timestamp_format (%s) or RFC3339", c.Pagination.Timestamp.TimestampFormat)
-					}
-					return fmt.Errorf("initial_timestamp %q could not be parsed; must match %s", c.Pagination.Timestamp.InitialTimestamp, formatHint)
-				}
-			}
-		}
-		// Validate end_timestamp_value format if provided (and not "now")
-		if c.Pagination.Timestamp.EndTimestampValue != "" && c.Pagination.Timestamp.EndTimestampValue != "now" {
-			var parsed bool
-			if isEpochFormat(c.Pagination.Timestamp.TimestampFormat) {
-				if _, err := strconv.ParseFloat(c.Pagination.Timestamp.EndTimestampValue, 64); err == nil {
-					parsed = true
-				}
-				if !parsed {
-					return fmt.Errorf("end_timestamp_value %q must be a numeric value when using epoch timestamp_format (%s)", c.Pagination.Timestamp.EndTimestampValue, c.Pagination.Timestamp.TimestampFormat)
-				}
-			} else {
-				if c.Pagination.Timestamp.TimestampFormat != "" {
-					if _, err := time.Parse(c.Pagination.Timestamp.TimestampFormat, c.Pagination.Timestamp.EndTimestampValue); err == nil {
-						parsed = true
-					}
-				}
-				if !parsed {
-					if _, err := time.Parse(time.RFC3339, c.Pagination.Timestamp.EndTimestampValue); err == nil {
-						parsed = true
-					}
-				}
-				if !parsed {
-					formatHint := "RFC3339 (e.g., 2025-01-01T00:00:00Z)"
-					if c.Pagination.Timestamp.TimestampFormat != "" {
-						formatHint = fmt.Sprintf("configured timestamp_format (%s) or RFC3339", c.Pagination.Timestamp.TimestampFormat)
-					}
-					return fmt.Errorf("end_timestamp_value %q could not be parsed; must be \"now\" or match %s", c.Pagination.Timestamp.EndTimestampValue, formatHint)
-				}
-			}
-		}
+	}
+
+	// Validate start_time_value format if provided
+	if err := c.validateTimestampValue(c.StartTimeValue, "start_time_value"); err != nil {
+		return err
+	}
+
+	// Validate end_time_value format if provided (and not "now")
+	if err := c.validateTimestampValue(c.EndTimeValue, "end_time_value"); err != nil {
+		return err
 	}
 
 	// Apply defaults if not configured (zero value means not set)
@@ -625,6 +577,43 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("backoff_multiplier must be greater than 1.0")
 	}
 
+	return nil
+}
+
+// validateTimestampValue validates that a timestamp value string can be parsed
+// using the configured timestamp_format. Returns nil if the value is empty or "now".
+func (c *Config) validateTimestampValue(value, fieldName string) error {
+	if value == "" || value == "now" {
+		return nil
+	}
+
+	var parsed bool
+	if isEpochFormat(c.TimestampFormat) {
+		if _, err := strconv.ParseFloat(value, 64); err == nil {
+			parsed = true
+		}
+		if !parsed {
+			return fmt.Errorf("%s %q must be a numeric value when using epoch timestamp_format (%s)", fieldName, value, c.TimestampFormat)
+		}
+	} else {
+		if c.TimestampFormat != "" {
+			if _, err := time.Parse(c.TimestampFormat, value); err == nil {
+				parsed = true
+			}
+		}
+		if !parsed {
+			if _, err := time.Parse(time.RFC3339, value); err == nil {
+				parsed = true
+			}
+		}
+		if !parsed {
+			formatHint := "RFC3339 (e.g., 2025-01-01T00:00:00Z)"
+			if c.TimestampFormat != "" {
+				formatHint = fmt.Sprintf("configured timestamp_format (%s) or RFC3339", c.TimestampFormat)
+			}
+			return fmt.Errorf("%s %q could not be parsed; must be \"now\" or match %s", fieldName, value, formatHint)
+		}
+	}
 	return nil
 }
 

@@ -88,24 +88,24 @@ func newPaginationState(cfg *Config) *paginationState {
 		}
 
 	case paginationModeTimestamp:
-		// Set initial timestamp if provided, otherwise start from zero time.
+		// Set initial timestamp from the top-level start_time_value if provided.
 		// Config validation ensures the timestamp is parseable.
-		if cfg.Pagination.Timestamp.InitialTimestamp != "" {
-			if isEpochFormat(cfg.Pagination.Timestamp.TimestampFormat) {
+		if cfg.StartTimeValue != "" && cfg.StartTimeValue != "now" {
+			if isEpochFormat(cfg.TimestampFormat) {
 				// Parse epoch numeric value
-				if t, err := parseEpochTimestamp(cfg.Pagination.Timestamp.InitialTimestamp, cfg.Pagination.Timestamp.TimestampFormat); err == nil {
+				if t, err := parseEpochTimestamp(cfg.StartTimeValue, cfg.TimestampFormat); err == nil {
 					state.CurrentTimestamp = t
 				}
 			} else {
 				// First try the user's configured format (they likely copied the timestamp from the API)
-				if cfg.Pagination.Timestamp.TimestampFormat != "" {
-					if t, err := time.Parse(cfg.Pagination.Timestamp.TimestampFormat, cfg.Pagination.Timestamp.InitialTimestamp); err == nil {
+				if cfg.TimestampFormat != "" {
+					if t, err := time.Parse(cfg.TimestampFormat, cfg.StartTimeValue); err == nil {
 						state.CurrentTimestamp = t
 					}
 				}
 				// Fall back to RFC3339 (the default format)
 				if state.CurrentTimestamp.IsZero() {
-					if t, err := time.Parse(time.RFC3339, cfg.Pagination.Timestamp.InitialTimestamp); err == nil {
+					if t, err := time.Parse(time.RFC3339, cfg.StartTimeValue); err == nil {
 						state.CurrentTimestamp = t
 					}
 				}
@@ -158,65 +158,68 @@ func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
 		if cfg.Pagination.Timestamp.PageSizeFieldName != "" {
 			params.Set(cfg.Pagination.Timestamp.PageSizeFieldName, fmt.Sprintf("%d", state.PageSize))
 		}
-		// Add timestamp parameter if we have one
-		if !state.CurrentTimestamp.IsZero() {
-			if cfg.Pagination.Timestamp.ParamName != "" {
-				timestampForRequest := state.CurrentTimestamp
-				// Check if we should add an offset to avoid re-fetching the same record.
-				// We add the offset when:
-				// 1. pagesFetched > 0: Within a poll cycle, after the first page
-				// 2. timestampFromData is true: The timestamp came from response data (not initial config),
-				//    meaning we've already fetched records up to this timestamp in a previous cycle
-				if state.PagesFetched > 0 || state.TimestampFromData {
-					// Increment by the minimum resolution of the configured format to avoid
-					// re-fetching the same record.
-					switch cfg.Pagination.Timestamp.TimestampFormat {
-					case epochSeconds:
-						timestampForRequest = timestampForRequest.Add(time.Second)
-					case epochMilliseconds:
-						timestampForRequest = timestampForRequest.Add(time.Millisecond)
-					case epochMicroseconds:
-						timestampForRequest = timestampForRequest.Add(time.Microsecond)
-					case epochNanoseconds:
-						timestampForRequest = timestampForRequest.Add(time.Nanosecond)
-					case epochSecondsFractional:
-						// Fractional seconds — increment by 1 microsecond as a reasonable default.
-						timestampForRequest = timestampForRequest.Add(time.Microsecond)
-					default:
-						// For string formats, increment by 1 microsecond since most formats
-						// preserve microsecond precision at best.
-						timestampForRequest = timestampForRequest.Add(time.Microsecond)
-					}
-				}
-				// Use configured format or default to RFC3339
-				format := cfg.Pagination.Timestamp.TimestampFormat
-				if isEpochFormat(format) {
-					params.Set(cfg.Pagination.Timestamp.ParamName, formatTimestampEpoch(timestampForRequest, format))
-				} else {
-					if format == "" {
-						format = time.RFC3339
-					}
-					params.Set(cfg.Pagination.Timestamp.ParamName, timestampForRequest.Format(format))
+		// For timestamp pagination, the start time advances through response data.
+		// The start_time_param_name and advancing logic are handled below in the
+		// shared time-bound section via the pagination state's CurrentTimestamp.
+		if !state.CurrentTimestamp.IsZero() && cfg.StartTimeParamName != "" {
+			timestampForRequest := state.CurrentTimestamp
+			// Check if we should add an offset to avoid re-fetching the same record.
+			// We add the offset when:
+			// 1. pagesFetched > 0: Within a poll cycle, after the first page
+			// 2. timestampFromData is true: The timestamp came from response data (not initial config),
+			//    meaning we've already fetched records up to this timestamp in a previous cycle
+			if state.PagesFetched > 0 || state.TimestampFromData {
+				// Increment by the minimum resolution of the configured format to avoid
+				// re-fetching the same record.
+				switch cfg.TimestampFormat {
+				case epochSeconds:
+					timestampForRequest = timestampForRequest.Add(time.Second)
+				case epochMilliseconds:
+					timestampForRequest = timestampForRequest.Add(time.Millisecond)
+				case epochMicroseconds:
+					timestampForRequest = timestampForRequest.Add(time.Microsecond)
+				case epochNanoseconds:
+					timestampForRequest = timestampForRequest.Add(time.Nanosecond)
+				case epochSecondsFractional:
+					// Fractional seconds — increment by 1 microsecond as a reasonable default.
+					timestampForRequest = timestampForRequest.Add(time.Microsecond)
+				default:
+					// For string formats, increment by 1 microsecond since most formats
+					// preserve microsecond precision at best.
+					timestampForRequest = timestampForRequest.Add(time.Microsecond)
 				}
 			}
-		}
-
-		// Add end timestamp parameter if configured (bounded time range)
-		if cfg.Pagination.Timestamp.EndTimestampParamName != "" {
-			endTime := resolveEndTimestamp(cfg)
-			format := cfg.Pagination.Timestamp.TimestampFormat
+			// Use configured format or default to RFC3339
+			format := cfg.TimestampFormat
 			if isEpochFormat(format) {
-				params.Set(cfg.Pagination.Timestamp.EndTimestampParamName, formatTimestampEpoch(endTime, format))
+				params.Set(cfg.StartTimeParamName, formatTimestampEpoch(timestampForRequest, format))
 			} else {
 				if format == "" {
 					format = time.RFC3339
 				}
-				params.Set(cfg.Pagination.Timestamp.EndTimestampParamName, endTime.Format(format))
+				params.Set(cfg.StartTimeParamName, timestampForRequest.Format(format))
 			}
 		}
 
 	case paginationModeNone:
 		// No pagination parameters
+	}
+
+	// Add time-bound parameters for non-timestamp pagination modes.
+	// For timestamp pagination, start time is handled above (it advances through data).
+	if cfg.Pagination.Mode != paginationModeTimestamp {
+		if cfg.StartTimeParamName != "" && cfg.StartTimeValue != "" {
+			params.Set(cfg.StartTimeParamName, formatTimeBoundValue(cfg.StartTimeValue, cfg.TimestampFormat))
+		}
+	}
+
+	// End time is always applied as a static value regardless of pagination mode.
+	if cfg.EndTimeParamName != "" {
+		endValue := cfg.EndTimeValue
+		if endValue == "" {
+			endValue = "now"
+		}
+		params.Set(cfg.EndTimeParamName, formatTimeBoundValue(endValue, cfg.TimestampFormat))
 	}
 
 	return params
@@ -379,7 +382,7 @@ func parseTimestampResponse(cfg *Config, dataArray []map[string]any, state *pagi
 	timestampField := cfg.Pagination.Timestamp.TimestampFieldName
 
 	if timestampField != "" {
-		configuredFormat := cfg.Pagination.Timestamp.TimestampFormat
+		configuredFormat := cfg.TimestampFormat
 		for i, item := range dataArray {
 			if timestampVal, exists := item[timestampField]; exists {
 				parsedTime := parseTimestampValue(timestampVal, configuredFormat)
@@ -524,36 +527,22 @@ func parseTimestampString(s string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// resolveEndTimestamp returns the end timestamp to use based on the configuration.
-// If end_timestamp_value is empty or "now", returns the current time.
-// Otherwise, parses the configured value using the same format logic as initial_timestamp.
-// The value is expected to have been validated by Config.Validate() before reaching this point.
-func resolveEndTimestamp(cfg *Config) time.Time {
-	val := cfg.Pagination.Timestamp.EndTimestampValue
-	if val == "" || val == "now" {
-		return time.Now().UTC()
-	}
-
-	format := cfg.Pagination.Timestamp.TimestampFormat
-	if isEpochFormat(format) {
-		t, err := parseEpochTimestamp(val, format)
-		if err != nil {
-			// This should be unreachable — Validate() rejects invalid epoch values.
-			panic(fmt.Sprintf("end_timestamp_value %q failed to parse as epoch (format %s): %v", val, format, err))
+// formatTimeBoundValue formats a time-bound value string for use as a query parameter.
+// If value is "now", returns the current time formatted per the given format.
+// Otherwise, returns the value as-is (it was already validated by Config.Validate()).
+func formatTimeBoundValue(value, format string) string {
+	if value == "now" {
+		now := time.Now().UTC()
+		if isEpochFormat(format) {
+			return formatTimestampEpoch(now, format)
 		}
-		return t
-	}
-
-	if format != "" {
-		if t, err := time.Parse(format, val); err == nil {
-			return t
+		if format == "" {
+			format = time.RFC3339
 		}
+		return now.Format(format)
 	}
-	if t, err := time.Parse(time.RFC3339, val); err == nil {
-		return t
-	}
-	// This should be unreachable — Validate() rejects unparseable values.
-	panic(fmt.Sprintf("end_timestamp_value %q failed to parse with format %q or RFC3339", val, format))
+	// Fixed value — already validated, pass through as-is.
+	return value
 }
 
 // updatePaginationState updates the pagination state to the next page/offset.
