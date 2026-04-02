@@ -24,5 +24,8 @@ gha-creds-*.json
 # Don't ignore the mdatagen generated config files
 !**/internal/metadata/testdata/config.yaml
 
+# Claude local settings
+.claude/settings.local.json
+
 # Oh my claude code
 .omc
