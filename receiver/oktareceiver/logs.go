@@ -17,14 +17,11 @@ package oktareceiver
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
-	"strconv"
-	"strings"
+	"fmt"
 	"sync"
 	"time"
 
-	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v6/okta"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -32,37 +29,29 @@ import (
 	"go.uber.org/zap"
 )
 
-// oktaMaxLimit maximum number of log objects returned in one call to Okta API
-var oktaMaxLimit = 1000
+const oktaLogLimit int32 = 1000
 
 type oktaLogsReceiver struct {
 	cfg      Config
-	client   httpClient
+	client   *okta.APIClient
 	consumer consumer.Logs
 	logger   *zap.Logger
-	nextURL  string
 	cancel   context.CancelFunc
 	wg       *sync.WaitGroup
 }
 
-type httpClient interface {
-	Do(req *http.Request) (*http.Response, error)
-	CloseIdleConnections()
-}
-
-// newOktaLogsReceiver returns a newly configured oktaLogsReceiver
-func newOktaLogsReceiver(cfg *Config, logger *zap.Logger, consumer consumer.Logs) (*oktaLogsReceiver, error) {
+func newOktaLogsReceiver(cfg *Config, logger *zap.Logger, consumer consumer.Logs, client *okta.APIClient) *oktaLogsReceiver {
 	return &oktaLogsReceiver{
 		cfg:      *cfg,
-		client:   http.DefaultClient,
+		client:   client,
 		consumer: consumer,
 		logger:   logger,
 		wg:       &sync.WaitGroup{},
-	}, nil
+	}
 }
 
-func (r *oktaLogsReceiver) Start(_ context.Context, _ component.Host) error {
-	ctx, cancel := context.WithCancel(context.Background())
+func (r *oktaLogsReceiver) Start(ctx context.Context, _ component.Host) error {
+	ctx, cancel := context.WithCancel(ctx)
 	r.cancel = cancel
 	r.wg.Add(1)
 	go r.startPolling(ctx)
@@ -91,7 +80,10 @@ func (r *oktaLogsReceiver) startPolling(ctx context.Context) {
 }
 
 func (r *oktaLogsReceiver) poll(ctx context.Context) error {
-	logEvents := r.getLogs(ctx)
+	logEvents, err := r.getLogs(ctx)
+	if err != nil {
+		return err
+	}
 	observedTime := pcommon.NewTimestampFromTime(time.Now())
 	logs := r.processLogEvents(observedTime, logEvents)
 	if logs.LogRecordCount() > 0 {
@@ -102,71 +94,39 @@ func (r *oktaLogsReceiver) poll(ctx context.Context) error {
 	return nil
 }
 
-func (r *oktaLogsReceiver) getLogs(ctx context.Context) []okta.LogEvent {
-	var logs []okta.LogEvent
-	var reqURL string
-	pollTime := time.Now().UTC()
+func (r *oktaLogsReceiver) getLogs(ctx context.Context) ([]okta.LogEvent, error) {
+	now := time.Now().UTC()
+	since := now.Add(-r.cfg.PollInterval).Format(oktaTimeFormat)
+	until := now.Format(oktaTimeFormat)
 
-	// get logs until there isn't any overflow OR we get logs published after initial pollTime
-	for {
-		if r.nextURL == "" {
-			reqURL = "https://" + r.cfg.Domain + "/api/v1/logs"
-		} else {
-			reqURL = r.nextURL
-		}
+	events, err := r.getLogEvents(ctx, since, until)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching okta log events: %w", err)
+	}
+	return events, nil
+}
 
-		req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
-		if err != nil {
-			r.logger.Error("error creating okta api request", zap.Error(err))
-			break
-		}
-
-		// add query params to the first polling request
-		if r.nextURL == "" {
-			query := req.URL.Query()
-			query.Add("since", pollTime.Add(-r.cfg.PollInterval).Format(OktaTimeFormat))
-			query.Add("limit", strconv.Itoa(oktaMaxLimit))
-			req.URL.RawQuery = query.Encode()
-		}
-
-		req.Header.Add("Authorization", "SSWS "+string(r.cfg.APIToken))
-
-		res, err := r.client.Do(req)
-		if err != nil {
-			r.logger.Error("error performing okta api request", zap.Error(err))
-			break
-		}
-
-		defer res.Body.Close()
-
-		if res.StatusCode != http.StatusOK {
-			r.logger.Error("okta logs endpoint returned non-200 statuscode: " + res.Status)
-			break
-		}
-
-		r.setNextLink(res)
-
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			r.logger.Error("error reading response body", zap.Error(err))
-			break
-		}
-
-		var curLogs []okta.LogEvent
-		err = json.Unmarshal(body, &curLogs)
-		if err != nil {
-			r.logger.Error("unable to unmarshal log events", zap.Error(err))
-			break
-		}
-
-		logs = append(logs, curLogs...)
-
-		if len(curLogs) < oktaMaxLimit || curLogs[len(curLogs)-1].Published.After(pollTime) {
-			break
-		}
+func (r *oktaLogsReceiver) getLogEvents(ctx context.Context, since, until string) ([]okta.LogEvent, error) {
+	events, resp, err := r.client.SystemLogAPI.ListLogEvents(ctx).
+		Since(since).
+		Until(until).
+		Limit(oktaLogLimit).
+		Execute()
+	if err != nil {
+		return nil, err
 	}
 
-	return logs
+	allEvents := events
+	for resp.HasNextPage() {
+		var nextEvents []okta.LogEvent
+		resp, err = resp.Next(&nextEvents)
+		if err != nil {
+			return allEvents, err
+		}
+		allEvents = append(allEvents, nextEvents...)
+	}
+
+	return allEvents, nil
 }
 
 func (r *oktaLogsReceiver) processLogEvents(observedTime pcommon.Timestamp, logEvents []okta.LogEvent) plog.Logs {
@@ -183,8 +143,9 @@ func (r *oktaLogsReceiver) processLogEvents(observedTime pcommon.Timestamp, logE
 
 		// timestamps
 		logRecord.SetObservedTimestamp(observedTime)
-		timestamp := time.UnixMilli(logEvent.Published.UnixMilli())
-		logRecord.SetTimestamp(pcommon.NewTimestampFromTime(timestamp))
+		if logEvent.Published != nil {
+			logRecord.SetTimestamp(pcommon.NewTimestampFromTime(*logEvent.Published))
+		}
 
 		// body
 		logEventBytes, err := json.Marshal(logEvent)
@@ -195,20 +156,27 @@ func (r *oktaLogsReceiver) processLogEvents(observedTime pcommon.Timestamp, logE
 		}
 
 		// attributes
-		logRecord.Attributes().PutStr("uuid", logEvent.Uuid)
-		logRecord.Attributes().PutStr("eventType", logEvent.EventType)
-		logRecord.Attributes().PutStr("displayMessage", logEvent.DisplayMessage)
+		logRecord.Attributes().PutStr("uuid", derefStr(logEvent.Uuid))
+		logRecord.Attributes().PutStr("eventType", derefStr(logEvent.EventType))
+		logRecord.Attributes().PutStr("displayMessage", derefStr(logEvent.DisplayMessage))
 		if logEvent.Outcome != nil {
-			logRecord.Attributes().PutStr("outcome.result", logEvent.Outcome.Result)
+			logRecord.Attributes().PutStr("outcome.result", derefStr(logEvent.Outcome.Result))
 		}
 		if logEvent.Actor != nil {
-			logRecord.Attributes().PutStr("actor.id", logEvent.Actor.Id)
-			logRecord.Attributes().PutStr("actor.alternateId", logEvent.Actor.AlternateId)
-			logRecord.Attributes().PutStr("actor.displayName", logEvent.Actor.DisplayName)
+			logRecord.Attributes().PutStr("actor.id", derefStr(logEvent.Actor.Id))
+			logRecord.Attributes().PutStr("actor.alternateId", derefStr(logEvent.Actor.AlternateId))
+			logRecord.Attributes().PutStr("actor.displayName", derefStr(logEvent.Actor.DisplayName))
 		}
 	}
 
 	return logs
+}
+
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func (r *oktaLogsReceiver) Shutdown(_ context.Context) error {
@@ -216,25 +184,6 @@ func (r *oktaLogsReceiver) Shutdown(_ context.Context) error {
 	if r.cancel != nil {
 		r.cancel()
 	}
-	r.client.CloseIdleConnections()
 	r.wg.Wait()
 	return nil
-}
-
-func (r *oktaLogsReceiver) setNextLink(res *http.Response) {
-	for _, link := range res.Header["Link"] {
-		// Split the link into URL and parameters
-		parts := strings.Split(strings.TrimSpace(link), ";")
-		if len(parts) < 2 {
-			continue
-		}
-
-		// Check if the "rel" parameter is "next"
-		if strings.TrimSpace(parts[1]) == `rel="next"` {
-			// Extract and return the URL
-			r.nextURL = strings.Trim(parts[0], "<>")
-			return
-		}
-	}
-	r.logger.Error("unable to get next link")
 }
