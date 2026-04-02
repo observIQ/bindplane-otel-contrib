@@ -129,7 +129,7 @@ func (r *oktaLogsReceiver) getLogEvents(ctx context.Context, since, until string
 		var nextEvents []okta.LogEvent
 		resp, err = resp.Next(&nextEvents)
 		if err != nil {
-			return allEvents, err
+			return nil, err
 		}
 		allEvents = append(allEvents, nextEvents...)
 	}
