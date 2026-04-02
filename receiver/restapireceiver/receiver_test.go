@@ -824,7 +824,7 @@ func TestRESTAPILogsReceiver_HeaderBasedTotalCount(t *testing.T) {
 	// The server returns the total count in a header, and the receiver uses it
 	// to know when to stop paginating.
 	var requestCount atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		page := requestCount.Add(1)
 		w.Header().Set("X-Total-Count", "4")
 		w.Header().Set("Content-Type", "application/json")
