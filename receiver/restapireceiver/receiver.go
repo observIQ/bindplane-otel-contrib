@@ -83,10 +83,48 @@ func (b *baseReceiver) initializeStorage(ctx context.Context, host component.Hos
 }
 
 // initializePagination sets up pagination state.
-// Only creates a new state if one wasn't already loaded from checkpoint.
+// If no checkpoint was loaded, creates a fresh state from config.
+// If a checkpoint was loaded, reconciles it with the current config to handle
+// cases where the checkpoint is stale or incomplete (e.g., a zero timestamp
+// that would silently override a configured initial_timestamp).
 func (b *baseReceiver) initializePagination() {
 	if b.paginationState == nil {
 		b.paginationState = newPaginationState(b.cfg)
+		return
+	}
+
+	// A checkpoint was loaded — reconcile it with the current config.
+	b.reconcileCheckpointWithConfig()
+}
+
+// reconcileCheckpointWithConfig merges a loaded checkpoint with the current config.
+// This handles cases where a stale or incomplete checkpoint would silently override
+// meaningful config values. Specifically for timestamp pagination:
+//   - If the checkpoint has a zero CurrentTimestamp (e.g., from a prior run that never
+//     successfully polled, or from a different pagination mode) AND the config specifies
+//     an initial_timestamp, the config value is used instead. Without this, a zero
+//     timestamp causes the timestamp query parameter to be omitted entirely, which can
+//     cause the API to return all historical data.
+//   - If the checkpoint has a valid (non-zero) timestamp, it is preserved because it
+//     represents real progress. A warning is logged so operators know that initial_timestamp
+//     from config will not apply.
+func (b *baseReceiver) reconcileCheckpointWithConfig() {
+	if b.cfg.Pagination.Mode == paginationModeTimestamp {
+		configState := newPaginationState(b.cfg)
+
+		if b.paginationState.CurrentTimestamp.IsZero() && !configState.CurrentTimestamp.IsZero() {
+			// The checkpoint has a zero timestamp but the config specifies an initial_timestamp.
+			// Prefer the config value to avoid fetching all historical data.
+			b.logger.Warn("loaded checkpoint has zero timestamp; using configured initial_timestamp instead",
+				zap.String("initial_timestamp", b.cfg.Pagination.Timestamp.InitialTimestamp))
+			b.paginationState.CurrentTimestamp = configState.CurrentTimestamp
+		} else if !b.paginationState.CurrentTimestamp.IsZero() && !configState.CurrentTimestamp.IsZero() {
+			// Checkpoint has a valid timestamp — it represents real polling progress.
+			// Log so operators know the config value is not being used.
+			b.logger.Info("using timestamp from storage checkpoint; configured initial_timestamp will not apply",
+				zap.Time("checkpoint_timestamp", b.paginationState.CurrentTimestamp),
+				zap.String("configured_initial_timestamp", b.cfg.Pagination.Timestamp.InitialTimestamp))
+		}
 	}
 }
 

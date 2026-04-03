@@ -29,8 +29,202 @@ import (
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/confighttp"
 	"go.opentelemetry.io/collector/consumer/consumertest"
+	"go.opentelemetry.io/collector/extension/xextension/storage"
 	"go.opentelemetry.io/collector/receiver/receivertest"
+	"go.uber.org/zap"
 )
+
+func TestInitializePagination_NoCheckpoint_UsesConfig(t *testing.T) {
+	// When no checkpoint is loaded (paginationState is nil), initializePagination
+	// should create a fresh state from config, including the initial_timestamp.
+	b := &baseReceiver{
+		logger: zap.NewNop(),
+		cfg: &Config{
+			Pagination: PaginationConfig{
+				Mode: paginationModeTimestamp,
+				Timestamp: TimestampPagination{
+					InitialTimestamp: "2026-03-31T12:00:00Z",
+					ParamName:        "since",
+					PageSize:         50,
+				},
+			},
+		},
+	}
+
+	b.initializePagination()
+
+	require.NotNil(t, b.paginationState)
+	expectedTime, _ := time.Parse(time.RFC3339, "2026-03-31T12:00:00Z")
+	require.Equal(t, expectedTime, b.paginationState.CurrentTimestamp)
+	require.Equal(t, 50, b.paginationState.PageSize)
+}
+
+func TestInitializePagination_CheckpointWithZeroTimestamp_PrefersConfig(t *testing.T) {
+	// When a checkpoint exists but has a zero CurrentTimestamp (e.g., from a prior run
+	// that never completed a poll or used a different pagination mode), and the config
+	// specifies an initial_timestamp, the config value should be used. This prevents
+	// the zero timestamp from causing the receiver to fetch all historical data.
+	b := &baseReceiver{
+		logger: zap.NewNop(),
+		cfg: &Config{
+			Pagination: PaginationConfig{
+				Mode: paginationModeTimestamp,
+				Timestamp: TimestampPagination{
+					InitialTimestamp: "2026-03-31T12:00:00Z",
+					ParamName:        "since",
+					PageSize:         50,
+				},
+			},
+		},
+		// Simulate a loaded checkpoint with zero timestamp
+		paginationState: &paginationState{
+			PageSize: 100,
+		},
+	}
+
+	b.initializePagination()
+
+	expectedTime, _ := time.Parse(time.RFC3339, "2026-03-31T12:00:00Z")
+	require.Equal(t, expectedTime, b.paginationState.CurrentTimestamp,
+		"zero checkpoint timestamp should be replaced by configured initial_timestamp")
+	// Other checkpoint fields should be preserved
+	require.Equal(t, 100, b.paginationState.PageSize,
+		"non-timestamp checkpoint fields should be preserved")
+}
+
+func TestInitializePagination_CheckpointWithValidTimestamp_PreservesCheckpoint(t *testing.T) {
+	// When a checkpoint has a valid (non-zero) timestamp, it represents real polling
+	// progress and should be preserved, even if initial_timestamp is configured.
+	checkpointTime := time.Date(2026, 4, 1, 8, 0, 0, 0, time.UTC)
+	b := &baseReceiver{
+		logger: zap.NewNop(),
+		cfg: &Config{
+			Pagination: PaginationConfig{
+				Mode: paginationModeTimestamp,
+				Timestamp: TimestampPagination{
+					InitialTimestamp: "2026-03-31T12:00:00Z",
+					ParamName:        "since",
+				},
+			},
+		},
+		// Simulate a loaded checkpoint with a valid timestamp from a prior successful poll
+		paginationState: &paginationState{
+			CurrentTimestamp:  checkpointTime,
+			TimestampFromData: true,
+			PageSize:          100,
+		},
+	}
+
+	b.initializePagination()
+
+	require.Equal(t, checkpointTime, b.paginationState.CurrentTimestamp,
+		"valid checkpoint timestamp should be preserved over configured initial_timestamp")
+	require.True(t, b.paginationState.TimestampFromData,
+		"TimestampFromData flag should be preserved")
+}
+
+func TestInitializePagination_CheckpointWithZeroTimestamp_NoInitialTimestamp(t *testing.T) {
+	// When a checkpoint has a zero timestamp and no initial_timestamp is configured,
+	// the zero timestamp should remain — this is the "fetch from beginning" behavior.
+	b := &baseReceiver{
+		logger: zap.NewNop(),
+		cfg: &Config{
+			Pagination: PaginationConfig{
+				Mode: paginationModeTimestamp,
+				Timestamp: TimestampPagination{
+					ParamName: "since",
+					PageSize:  50,
+				},
+			},
+		},
+		paginationState: &paginationState{
+			PageSize: 100,
+		},
+	}
+
+	b.initializePagination()
+
+	require.True(t, b.paginationState.CurrentTimestamp.IsZero(),
+		"zero timestamp should remain when no initial_timestamp is configured")
+}
+
+func TestInitializePagination_NonTimestampMode_SkipsReconciliation(t *testing.T) {
+	// For non-timestamp pagination modes, reconciliation should not modify the checkpoint.
+	b := &baseReceiver{
+		logger: zap.NewNop(),
+		cfg: &Config{
+			Pagination: PaginationConfig{
+				Mode: paginationModeOffsetLimit,
+				OffsetLimit: OffsetLimitPagination{
+					OffsetFieldName: "offset",
+					LimitFieldName:  "limit",
+				},
+			},
+		},
+		paginationState: &paginationState{
+			CurrentOffset: 42,
+			Limit:         10,
+		},
+	}
+
+	b.initializePagination()
+
+	require.Equal(t, 42, b.paginationState.CurrentOffset,
+		"offset/limit checkpoint should not be modified by reconciliation")
+}
+
+func TestCheckpointRoundTrip_TimestampPagination(t *testing.T) {
+	// Verify that a checkpoint saved after successful polling can be loaded and
+	// used without reconciliation overriding it.
+	ctx := context.Background()
+	originalTime := time.Date(2026, 4, 2, 15, 30, 0, 0, time.UTC)
+
+	// Simulate saving a checkpoint
+	saveReceiver := &baseReceiver{
+		logger:        zap.NewNop(),
+		storageClient: storage.NewNopClient(),
+		paginationState: &paginationState{
+			CurrentTimestamp:  originalTime,
+			TimestampFromData: true,
+			PageSize:          100,
+			PagesFetched:      5,
+		},
+	}
+	// NopClient discards data, so we'll test the serialization logic directly
+	checkpoint := checkpointData{PaginationState: saveReceiver.paginationState}
+	bytes, err := json.Marshal(checkpoint)
+	require.NoError(t, err)
+
+	// Simulate loading the checkpoint
+	var loaded checkpointData
+	err = json.Unmarshal(bytes, &loaded)
+	require.NoError(t, err)
+
+	loadReceiver := &baseReceiver{
+		logger: zap.NewNop(),
+		cfg: &Config{
+			Pagination: PaginationConfig{
+				Mode: paginationModeTimestamp,
+				Timestamp: TimestampPagination{
+					InitialTimestamp: "2026-01-01T00:00:00Z",
+					ParamName:        "since",
+				},
+			},
+		},
+		paginationState: loaded.PaginationState,
+		storageClient:   storage.NewNopClient(),
+	}
+
+	loadReceiver.initializePagination()
+
+	require.Equal(t, originalTime, loadReceiver.paginationState.CurrentTimestamp,
+		"checkpoint timestamp from successful prior polling should survive round-trip and reconciliation")
+	require.True(t, loadReceiver.paginationState.TimestampFromData)
+
+	// Verify saveCheckpoint doesn't error
+	err = loadReceiver.saveCheckpoint(ctx)
+	require.NoError(t, err)
+}
 
 func TestRESTAPILogsReceiver_StartShutdown(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
