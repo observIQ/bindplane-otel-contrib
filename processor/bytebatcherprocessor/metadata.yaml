@@ -1,0 +1,36 @@
+type: bytebatcher
+
+status:
+  class: processor
+  stability:
+    alpha: [logs, metrics, traces]
+  distributions: [observiq]
+
+telemetry:
+  metrics:
+    processor_batch_send_size_logs:
+      enabled: true
+      description: "The size of the last logs batch sent in bytes."
+      stability:
+        level: alpha
+      unit: "B"
+      gauge:
+        value_type: int
+
+    processor_batch_send_size_metrics:
+      enabled: true
+      description: "The size of the last metrics batch sent in bytes."
+      stability:
+        level: alpha
+      unit: "B"
+      gauge:
+        value_type: int
+
+    processor_batch_send_size_traces:
+      enabled: true
+      description: "The size of the last traces batch sent in bytes."
+      stability:
+        level: alpha
+      unit: "B"
+      gauge:
+        value_type: int
