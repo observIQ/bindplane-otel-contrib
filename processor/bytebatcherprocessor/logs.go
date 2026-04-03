@@ -73,7 +73,7 @@ func (b *batchLogs) flush(ctx context.Context) error {
 		b.lastFlush = now
 	}
 
-	// Send to the next consumer
+	// Send to the next consumer (single attempt; failures are logged and the batch is dropped upstream).
 	return b.next.ConsumeLogs(ctx, merged)
 }
 

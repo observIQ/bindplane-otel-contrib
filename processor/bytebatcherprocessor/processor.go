@@ -53,6 +53,11 @@ type queue[T any] struct {
 	cancel   context.CancelFunc
 	doneChan chan struct{}
 	wg       sync.WaitGroup
+
+	// shutdownFlushCtx, when non-nil, is used for flush operations so final
+	// deliveries respect the processor shutdown deadline.
+	flushCtxMu       sync.RWMutex
+	shutdownFlushCtx context.Context
 }
 
 // newQueue creates a new queue for batching telemetry.
@@ -77,6 +82,10 @@ func (q *queue[T]) start() {
 
 // shutdown gracefully stops the queue and flushes remaining items.
 func (q *queue[T]) shutdown(ctx context.Context) error {
+	q.flushCtxMu.Lock()
+	q.shutdownFlushCtx = ctx
+	q.flushCtxMu.Unlock()
+
 	close(q.doneChan)
 
 	waitCh := make(chan struct{})
@@ -85,12 +94,30 @@ func (q *queue[T]) shutdown(ctx context.Context) error {
 		close(waitCh)
 	}()
 
+	defer func() {
+		q.flushCtxMu.Lock()
+		q.shutdownFlushCtx = nil
+		q.flushCtxMu.Unlock()
+		q.cancel()
+	}()
+
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-waitCh:
 		return nil
 	}
+}
+
+// contextForFlush returns the shutdown context while draining, otherwise the
+// queue's long-lived context (used for bounded retries during normal operation).
+func (q *queue[T]) contextForFlush() context.Context {
+	q.flushCtxMu.RLock()
+	defer q.flushCtxMu.RUnlock()
+	if q.shutdownFlushCtx != nil {
+		return q.shutdownFlushCtx
+	}
+	return q.ctx
 }
 
 // add appends an item to the queue. If the accumulated size exceeds the threshold,
@@ -126,8 +153,12 @@ func (q *queue[T]) doFlush(items []T, b batch[T]) {
 		b.add(item)
 	}
 
-	if err := b.flush(q.ctx); err != nil {
-		q.logger.Error("failed to flush batch", zap.Error(err))
+	if err := b.flush(q.contextForFlush()); err != nil {
+		q.logger.Error(
+			"next consumer did not accept batched telemetry; dropping this batch (no retry to avoid duplicate export)",
+			zap.Error(err),
+			zap.Int("queued_items", len(items)),
+		)
 	}
 
 	b.reset()
@@ -145,7 +176,17 @@ func (q *queue[T]) flushLoop() {
 		case <-ticker.C:
 			q.flushOnInterval()
 		case <-q.doneChan:
-			q.flushOnInterval() // Final flush on shutdown
+			// Drain until empty so telemetry queued during the last flush or
+			// shutdown race still reaches the next consumer.
+			for {
+				q.flushOnInterval()
+				q.mu.Lock()
+				empty := len(q.items) == 0
+				q.mu.Unlock()
+				if empty {
+					break
+				}
+			}
 			return
 		}
 	}

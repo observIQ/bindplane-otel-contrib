@@ -56,7 +56,7 @@ func NewFactory() processor.Factory {
 func createDefaultConfig() component.Config {
 	return &Config{
 		FlushInterval: 1 * time.Second,
-		Bytes:         1024,
+		Bytes:         1024 * 1024, // 1 MiB — comfortable under typical OTLP/gRPC limits (~4 MiB)
 	}
 }
 
