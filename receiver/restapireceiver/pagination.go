@@ -18,11 +18,28 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"go.uber.org/zap"
 )
+
+// toInt coerces a value to int, handling float64, int, and string.
+// Returns (value, true) on success, (0, false) if the value cannot be converted.
+func toInt(v any) (int, bool) {
+	switch val := v.(type) {
+	case float64:
+		return int(val), true
+	case int:
+		return val, true
+	case string:
+		n, err := strconv.Atoi(val)
+		return n, err == nil
+	default:
+		return 0, false
+	}
+}
 
 // paginationState tracks the current state of pagination.
 type paginationState struct {
@@ -260,9 +277,7 @@ func parseOffsetLimitResponse(cfg *Config, response any, extractedData []map[str
 	if cfg.Pagination.TotalRecordCountField != "" {
 		if responseMap, ok := response.(map[string]any); ok {
 			if totalVal, exists := responseMap[cfg.Pagination.TotalRecordCountField]; exists {
-				if total, ok := totalVal.(float64); ok {
-					state.TotalRecords = int(total)
-				} else if total, ok := totalVal.(int); ok {
+				if total, ok := toInt(totalVal); ok {
 					state.TotalRecords = total
 				}
 			}
@@ -294,9 +309,7 @@ func parsePageSizeResponse(cfg *Config, response any, extractedData []map[string
 	if cfg.Pagination.PageSize.TotalPagesFieldName != "" {
 		if responseMap, ok := response.(map[string]any); ok {
 			if totalPagesVal, exists := responseMap[cfg.Pagination.PageSize.TotalPagesFieldName]; exists {
-				if totalPages, ok := totalPagesVal.(float64); ok {
-					state.TotalPages = int(totalPages)
-				} else if totalPages, ok := totalPagesVal.(int); ok {
+				if totalPages, ok := toInt(totalPagesVal); ok {
 					state.TotalPages = totalPages
 				}
 			}
