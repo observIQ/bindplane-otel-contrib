@@ -221,20 +221,23 @@ func newTracesProcessor(cfg *Config, logger *zap.Logger, telemetry *metadata.Tel
 	}
 }
 
+// Capabilities returns the traces processor's capabilities.
 func (p *tracesProcessor) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: true}
 }
 
+// Start starts the traces processor.
 func (p *tracesProcessor) Start(context.Context, component.Host) error {
 	p.q.start()
 	return nil
 }
 
+// Shutdown shuts down the traces processor.
 func (p *tracesProcessor) Shutdown(ctx context.Context) error {
 	return p.q.shutdown(ctx)
 }
 
-func (p *tracesProcessor) processTraces(ctx context.Context, td ptrace.Traces) (ptrace.Traces, error) {
+func (p *tracesProcessor) processTraces(_ context.Context, td ptrace.Traces) (ptrace.Traces, error) {
 	b := p.q.newBatch()
 	p.q.add(td, b)
 	return td, processorhelper.ErrSkipProcessingData
@@ -251,20 +254,23 @@ func newLogsProcessor(cfg *Config, logger *zap.Logger, telemetry *metadata.Telem
 	}
 }
 
+// Capabilities returns the log processor's capabilities.
 func (p *logsProcessor) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: true}
 }
 
+// Start starts the logs processor.
 func (p *logsProcessor) Start(context.Context, component.Host) error {
 	p.q.start()
 	return nil
 }
 
+// Shutdown shuts down the logs processor.
 func (p *logsProcessor) Shutdown(ctx context.Context) error {
 	return p.q.shutdown(ctx)
 }
 
-func (p *logsProcessor) processLogs(ctx context.Context, ld plog.Logs) (plog.Logs, error) {
+func (p *logsProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.Logs, error) {
 	b := p.q.newBatch()
 	p.q.add(ld, b)
 	return ld, processorhelper.ErrSkipProcessingData
@@ -281,20 +287,23 @@ func newMetricsProcessor(cfg *Config, logger *zap.Logger, telemetry *metadata.Te
 	}
 }
 
+// Capabilities returns the processor's capabilities.
 func (p *metricsProcessor) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: true}
 }
 
+// Start starts the metrics processor.
 func (p *metricsProcessor) Start(context.Context, component.Host) error {
 	p.q.start()
 	return nil
 }
 
+// Shutdown shuts down the metrics processor.
 func (p *metricsProcessor) Shutdown(ctx context.Context) error {
 	return p.q.shutdown(ctx)
 }
 
-func (p *metricsProcessor) processMetrics(ctx context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
+func (p *metricsProcessor) processMetrics(_ context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
 	b := p.q.newBatch()
 	p.q.add(md, b)
 	return md, processorhelper.ErrSkipProcessingData

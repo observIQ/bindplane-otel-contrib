@@ -43,6 +43,7 @@ var (
 	errInvalidConfigType = errors.New("config is not of type bytebatcher")
 )
 
+// NewFactory creates a new factory for the bytebatcher processor.
 func NewFactory() processor.Factory {
 	return processor.NewFactory(
 		componentType,

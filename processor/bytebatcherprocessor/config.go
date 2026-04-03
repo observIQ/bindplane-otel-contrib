@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//	http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package bytebatcherprocessor provides a processor that batches telemetry based on byte size or time interval.
 package bytebatcherprocessor
 
 import (
@@ -19,11 +20,13 @@ import (
 	"time"
 )
 
+// Config is the configuration for the bytebatcher processor.
 type Config struct {
 	FlushInterval time.Duration `mapstructure:"flush_interval"`
 	Bytes         int           `mapstructure:"bytes"`
 }
 
+// Validate validates the configuration.
 func (c *Config) Validate() error {
 	if c.FlushInterval <= 0 {
 		return errors.New("flush_interval must be greater than 0")
