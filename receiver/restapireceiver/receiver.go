@@ -16,6 +16,7 @@ package restapireceiver
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -39,6 +40,13 @@ const (
 // checkpointData represents the data stored in the checkpoint.
 type checkpointData struct {
 	PaginationState *paginationState `json:"pagination_state"`
+
+	// ConfigFingerprint is a hash of the query-defining config fields (URL, pagination settings).
+	// When the fingerprint changes between runs, the checkpoint is considered stale and is
+	// discarded. This prevents a checkpoint from one receiver configuration from silently
+	// applying to a different configuration (e.g., different URL, changed initial_timestamp,
+	// or switched pagination mode).
+	ConfigFingerprint string `json:"config_fingerprint,omitempty"`
 }
 
 // baseReceiver contains shared functionality for REST API receivers.
@@ -97,17 +105,15 @@ func (b *baseReceiver) initializePagination() {
 	b.reconcileCheckpointWithConfig()
 }
 
-// reconcileCheckpointWithConfig merges a loaded checkpoint with the current config.
-// This handles cases where a stale or incomplete checkpoint would silently override
-// meaningful config values. Specifically for timestamp pagination:
-//   - If the checkpoint has a zero CurrentTimestamp (e.g., from a prior run that never
-//     successfully polled, or from a different pagination mode) AND the config specifies
-//     an initial_timestamp, the config value is used instead. Without this, a zero
-//     timestamp causes the timestamp query parameter to be omitted entirely, which can
-//     cause the API to return all historical data.
-//   - If the checkpoint has a valid (non-zero) timestamp, it is preserved because it
-//     represents real progress. A warning is logged so operators know that initial_timestamp
-//     from config will not apply.
+// reconcileCheckpointWithConfig handles edge cases for checkpoints that passed fingerprint
+// validation (i.e., the config hasn't changed) but still have incomplete state.
+// This covers the scenario where the receiver crashed or was stopped before completing
+// its first poll — the checkpoint exists with a zero timestamp even though initial_timestamp
+// is configured. Without this fix, the zero timestamp would cause the timestamp query
+// parameter to be omitted, making the API return all historical data.
+//
+// For checkpoints from a *different* config, fingerprint-based invalidation in loadCheckpoint
+// handles discarding them before we reach this point.
 func (b *baseReceiver) reconcileCheckpointWithConfig() {
 	if b.cfg.Pagination.Mode == paginationModeTimestamp {
 		configState := newPaginationState(b.cfg)
@@ -185,7 +191,33 @@ func (b *baseReceiver) adjustPollInterval(result pollResult) {
 	}
 }
 
-// loadCheckpoint loads the checkpoint from storage.
+// configFingerprint computes a hash of the config fields that define what data the
+// receiver fetches. When any of these fields change between runs, a stored checkpoint
+// is no longer valid because it tracks pagination state for a different query.
+//
+// Included fields: URL, and the full pagination config (mode, field names, initial_timestamp, etc.).
+// Excluded fields: auth credentials (same query, different creds), poll intervals (timing only),
+// headers, storage ID, response format/field, and metrics config.
+func configFingerprint(cfg *Config) string {
+	// Marshal the pagination config to get a stable representation of all its fields.
+	// This automatically captures any new fields added to PaginationConfig in the future.
+	paginationBytes, err := jsoniter.Marshal(cfg.Pagination)
+	if err != nil {
+		// Should never happen with a valid config struct, but fall back to
+		// an empty hash so we don't crash — the checkpoint will just be treated as new.
+		paginationBytes = []byte("{}")
+	}
+
+	h := sha256.New()
+	h.Write([]byte(cfg.URL))
+	h.Write([]byte{0}) // separator to avoid URL+pagination collisions
+	h.Write(paginationBytes)
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+// loadCheckpoint loads the checkpoint from storage and validates it against the current config.
+// If the stored checkpoint's config fingerprint doesn't match the current config, the checkpoint
+// is discarded because it was created for a different receiver configuration.
 func (b *baseReceiver) loadCheckpoint(ctx context.Context) {
 	bytes, err := b.storageClient.Get(ctx, checkpointStorageKey)
 	if err != nil {
@@ -203,6 +235,25 @@ func (b *baseReceiver) loadCheckpoint(ctx context.Context) {
 		return
 	}
 
+	// Validate the checkpoint against the current config. If the config has changed
+	// (different URL, pagination settings, initial_timestamp, etc.), the checkpoint
+	// is stale and must be discarded to avoid applying pagination state from a
+	// different query configuration.
+	currentFingerprint := configFingerprint(b.cfg)
+	if checkpoint.ConfigFingerprint != "" && checkpoint.ConfigFingerprint != currentFingerprint {
+		b.logger.Warn("discarding stored checkpoint because receiver configuration has changed",
+			zap.String("stored_fingerprint", checkpoint.ConfigFingerprint),
+			zap.String("current_fingerprint", currentFingerprint))
+		return
+	}
+
+	// If the checkpoint has no fingerprint, it was created before this feature was added.
+	// Accept it but log a notice — it will get a fingerprint on the next save.
+	if checkpoint.ConfigFingerprint == "" && checkpoint.PaginationState != nil {
+		b.logger.Info("loaded checkpoint from before config fingerprinting was added; " +
+			"it will be fingerprinted on the next save")
+	}
+
 	if checkpoint.PaginationState != nil {
 		b.paginationState = checkpoint.PaginationState
 	}
@@ -216,7 +267,8 @@ func (b *baseReceiver) saveCheckpoint(ctx context.Context) error {
 	}
 
 	checkpoint := checkpointData{
-		PaginationState: b.paginationState,
+		PaginationState:   b.paginationState,
+		ConfigFingerprint: configFingerprint(b.cfg),
 	}
 
 	bytes, err := jsoniter.Marshal(checkpoint)
