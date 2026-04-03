@@ -17,6 +17,7 @@ package restapireceiver
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -189,15 +190,71 @@ func (b *baseReceiver) saveCheckpoint(ctx context.Context) error {
 }
 
 // fetchDataPage fetches a single page of data from the API.
-// Returns the full response, extracted data, and any error.
+// Returns the response metadata (for pagination), extracted data, and any error.
+// When response_source is "header", pagination attributes are extracted from
+// response headers and injected into the metadata map for the pagination logic.
 func (b *baseReceiver) fetchDataPage(ctx context.Context, requestURL string, params url.Values) (map[string]any, []map[string]any, error) {
-	fullResponse, err := b.client.GetFullResponse(ctx, requestURL, params)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get full response: %w", err)
+	var metadata map[string]any
+	var data []map[string]any
+	var respHeaders http.Header
+
+	if b.cfg.ResponseFormat == responseFormatNDJSON {
+		var err error
+		metadataInBody := b.cfg.Pagination.ResponseSource != responseSourceHeader
+		data, metadata, respHeaders, err = b.client.GetNDJSON(ctx, requestURL, params, metadataInBody)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get NDJSON response: %w", err)
+		}
+	} else {
+		var err error
+		metadata, respHeaders, err = b.client.GetFullResponse(ctx, requestURL, params)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get full response: %w", err)
+		}
+		data = extractDataFromResponse(metadata, b.cfg.ResponseField, b.logger)
 	}
 
-	data := extractDataFromResponse(fullResponse, b.cfg.ResponseField, b.logger)
-	return fullResponse, data, nil
+	// When response_source is "header", extract configured pagination fields from
+	// response headers and inject them into the metadata map. This lets the
+	// pagination logic find them through the same field-name lookup it uses for body
+	// attributes — no changes needed downstream.
+	if b.cfg.Pagination.ResponseSource == responseSourceHeader {
+		if metadata == nil {
+			metadata = make(map[string]any)
+		}
+		for _, fieldName := range b.paginationResponseFields() {
+			if headerVal := respHeaders.Get(fieldName); headerVal != "" {
+				metadata[fieldName] = headerVal
+			}
+		}
+	}
+
+	return metadata, data, nil
+}
+
+// paginationResponseFields returns the names of all configured pagination fields
+// that are read from the response (body or header). These are the fields that
+// need to be injected when response_source is "header".
+func (b *baseReceiver) paginationResponseFields() []string {
+	var fields []string
+
+	// Fields used across multiple pagination modes
+	if b.cfg.Pagination.TotalRecordCountField != "" {
+		fields = append(fields, b.cfg.Pagination.TotalRecordCountField)
+	}
+
+	switch b.cfg.Pagination.Mode {
+	case paginationModeOffsetLimit:
+		if b.cfg.Pagination.OffsetLimit.NextOffsetFieldName != "" {
+			fields = append(fields, b.cfg.Pagination.OffsetLimit.NextOffsetFieldName)
+		}
+	case paginationModePageSize:
+		if b.cfg.Pagination.PageSize.TotalPagesFieldName != "" {
+			fields = append(fields, b.cfg.Pagination.PageSize.TotalPagesFieldName)
+		}
+	}
+
+	return fields
 }
 
 // handlePagination checks if there are more pages and updates pagination state.
