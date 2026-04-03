@@ -33,7 +33,7 @@ import (
 func TestSizeTriggeredFlush(t *testing.T) {
 	cfg := &Config{
 		FlushInterval: 10 * time.Second, // Long interval
-		Bytes:         500,                // Small threshold (~72 bytes per metric, need 7-8 to trigger)
+		Bytes:         500,              // Small threshold (~72 bytes per metric, need 7-8 to trigger)
 	}
 	logger := zap.NewNop()
 	sink := &consumertest.MetricsSink{}
@@ -112,7 +112,7 @@ func TestIntervalTriggeredFlush(t *testing.T) {
 func TestShutdownFlushesRemaining(t *testing.T) {
 	cfg := &Config{
 		FlushInterval: 10 * time.Second, // Long interval
-		Bytes:         10 * 1024 * 1024,  // Large threshold
+		Bytes:         10 * 1024 * 1024, // Large threshold
 	}
 	logger := zap.NewNop()
 	sink := &consumertest.TracesSink{}

@@ -150,7 +150,7 @@ func BenchmarkTracesProcessorHotPath(b *testing.B) {
 func BenchmarkSizeTriggeredFlush(b *testing.B) {
 	cfg := &Config{
 		FlushInterval: 1 * time.Hour, // High interval so only size triggers
-		Bytes:         1024,            // Small threshold for quick flush
+		Bytes:         1024,          // Small threshold for quick flush
 	}
 	logger := zap.NewNop()
 	sink := &consumertest.MetricsSink{}
