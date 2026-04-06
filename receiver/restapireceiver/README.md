@@ -526,11 +526,21 @@ To poll at a fixed interval, set `min_poll_interval` and `max_poll_interval` to 
 
 ## Checkpointing
 
-When a storage extension is configured, the receiver saves its pagination state to storage. This allows the receiver to resume from where it left off after a restart, preventing duplicate data collection.
+When a storage extension is configured, the receiver saves its pagination state to storage after each page fetch. This allows the receiver to resume from where it left off after a restart, preventing duplicate data collection.
 
 The checkpoint includes:
 
-- Current pagination state (offset/page number/timestamp)
-- Number of pages fetched
+- Current pagination state (offset/page number/timestamp depending on mode)
+- A config fingerprint used to detect when the receiver configuration has changed
 
-For timestamp-based pagination, the timestamp is reset after each poll cycle to the initial timestamp, ensuring each poll starts fresh and only collects new data based on the time filter.
+### Config change detection
+
+Each checkpoint is tagged with a fingerprint derived from the URL and pagination settings. If any of these fields change between restarts (e.g., a different `url`, `initial_timestamp`, or pagination `mode`), the stored checkpoint is discarded and the receiver starts fresh from the new configuration. This prevents a checkpoint from one query configuration from silently applying to a different one.
+
+Non-query fields like `min_poll_interval`, authentication credentials, and `headers` do not affect the fingerprint.
+
+### Timestamp pagination and checkpointing
+
+For timestamp-based pagination, the checkpoint preserves the most recent timestamp extracted from API response data. On restart, polling resumes from that timestamp rather than re-fetching historical data. The configured `initial_timestamp` only applies when no valid checkpoint exists (first run, or after the checkpoint is invalidated by a config change).
+
+If the receiver is stopped before completing its first successful poll (resulting in a checkpoint with a zero timestamp), and `initial_timestamp` is configured, the configured value is used instead of the zero timestamp.
