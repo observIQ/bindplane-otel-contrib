@@ -211,4 +211,4 @@ For more information, see the [Logs Ingestion API overview](https://learn.micros
 
 - The first export of logs may take anywhere from 5-15 minutes on a freshly created table.
 - The `stream_name` **must** be prefixed with `Custom-` for custom log tables (e.g., `Custom-MyTable_CL`). Omitting this prefix will cause silent ingestion failures.
-- Transient HTTP errors (429, 502, 503, 504) are automatically retried. Permanent errors (400, 401, 403) are not retried.
+- Transient HTTP errors (429, 502, 503, 504) are automatically retried. Permanent errors (400, 401, 403, 500) are not retried. For more details on response codes, see the [Logs Ingestion API overview](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/logs-ingestion-api-overview).
