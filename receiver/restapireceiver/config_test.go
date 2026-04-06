@@ -16,11 +16,14 @@ package restapireceiver
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/confmap/confmaptest"
 	"go.opentelemetry.io/collector/confmap/xconfmap"
@@ -1372,4 +1375,121 @@ func TestLoadConfigFromYAML(t *testing.T) {
 	require.Equal(t, authModeAPIKey, restapiCfg.AuthMode)
 	require.Equal(t, configopaque.String("test-key"), restapiCfg.APIKeyConfig.Value)
 	require.Equal(t, "X-API-Key", restapiCfg.APIKeyConfig.HeaderName)
+}
+
+func TestConfig_DeprecatedTimestampMigration(t *testing.T) {
+	testCases := []struct {
+		name                string
+		rawConfig           map[string]any
+		expectedStartParam  string
+		expectedStartValue  string
+		expectedEndParam    string
+		expectedEndValue    string
+		expectedFormat      string
+		expectedWarnings    int
+		warnContains        string
+	}{
+		{
+			name: "migrates old pagination.timestamp fields to top-level",
+			rawConfig: map[string]any{
+				"url":       "https://api.example.com/data",
+				"auth_mode": "none",
+				"pagination": map[string]any{
+					"mode": "timestamp",
+					"timestamp": map[string]any{
+						"param_name":       "since",
+						"initial_timestamp": "2025-01-01T00:00:00Z",
+						"timestamp_format":  "2006-01-02T15:04:05Z07:00",
+						"timestamp_field_name": "updated_at",
+						"end_timestamp_param_name": "until",
+						"end_timestamp_value":      "now",
+					},
+				},
+			},
+			expectedStartParam: "since",
+			expectedStartValue: "2025-01-01T00:00:00Z",
+			expectedEndParam:   "until",
+			expectedEndValue:   "now",
+			expectedFormat:     "2006-01-02T15:04:05Z07:00",
+			expectedWarnings:   5,
+			warnContains:       "is deprecated",
+		},
+		{
+			name: "new fields take precedence over old fields",
+			rawConfig: map[string]any{
+				"url":                  "https://api.example.com/data",
+				"auth_mode":           "none",
+				"start_time_param_name": "from",
+				"start_time_value":     "2025-06-01T00:00:00Z",
+				"pagination": map[string]any{
+					"mode": "timestamp",
+					"timestamp": map[string]any{
+						"param_name":         "since",
+						"initial_timestamp":  "2025-01-01T00:00:00Z",
+						"timestamp_field_name": "updated_at",
+					},
+				},
+			},
+			expectedStartParam: "from",
+			expectedStartValue: "2025-06-01T00:00:00Z",
+			expectedWarnings:   2,
+			warnContains:       "both deprecated",
+		},
+		{
+			name: "no warnings when only new fields are used",
+			rawConfig: map[string]any{
+				"url":                  "https://api.example.com/data",
+				"auth_mode":           "none",
+				"start_time_param_name": "since",
+				"start_time_value":     "2025-01-01T00:00:00Z",
+				"pagination": map[string]any{
+					"mode": "timestamp",
+					"timestamp": map[string]any{
+						"timestamp_field_name": "updated_at",
+					},
+				},
+			},
+			expectedStartParam: "since",
+			expectedStartValue: "2025-01-01T00:00:00Z",
+			expectedWarnings:   0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			conf := confmap.NewFromStringMap(tc.rawConfig)
+
+			cfg := &Config{}
+			err := cfg.Unmarshal(conf)
+			require.NoError(t, err)
+
+			if tc.expectedStartParam != "" {
+				assert.Equal(t, tc.expectedStartParam, cfg.StartTimeParamName)
+			}
+			if tc.expectedStartValue != "" {
+				assert.Equal(t, tc.expectedStartValue, cfg.StartTimeValue)
+			}
+			if tc.expectedEndParam != "" {
+				assert.Equal(t, tc.expectedEndParam, cfg.EndTimeParamName)
+			}
+			if tc.expectedEndValue != "" {
+				assert.Equal(t, tc.expectedEndValue, cfg.EndTimeValue)
+			}
+			if tc.expectedFormat != "" {
+				assert.Equal(t, tc.expectedFormat, cfg.TimestampFormat)
+			}
+
+			assert.Len(t, cfg.deprecationWarnings, tc.expectedWarnings)
+			if tc.warnContains != "" {
+				found := false
+				for _, w := range cfg.deprecationWarnings {
+					if strings.Contains(w, tc.warnContains) {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "expected warning containing %q, got %v", tc.warnContains, cfg.deprecationWarnings)
+			}
+		})
+	}
 }

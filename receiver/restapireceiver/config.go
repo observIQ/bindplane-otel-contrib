@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/confighttp"
 	"go.opentelemetry.io/collector/config/configopaque"
+	"go.opentelemetry.io/collector/confmap"
 )
 
 const (
@@ -213,6 +214,10 @@ type Config struct {
 	// so they can override any previously set values.
 	SensitiveHeaders map[string]configopaque.String `mapstructure:"sensitive_headers"`
 
+	// deprecationWarnings collects warnings about deprecated config fields
+	// that were automatically migrated. Logged at receiver start time.
+	deprecationWarnings []string
+
 	// ClientConfig defines HTTP client configuration.
 	ClientConfig confighttp.ClientConfig `mapstructure:",squash"`
 
@@ -364,6 +369,61 @@ type TimestampPagination struct {
 
 	// PageSize is the page size to use.
 	PageSize int `mapstructure:"page_size"`
+}
+
+// deprecatedTimestampKeys maps old pagination.timestamp.* keys to their new top-level equivalents.
+var deprecatedTimestampKeys = map[string]string{
+	"pagination::timestamp::param_name":        "start_time_param_name",
+	"pagination::timestamp::initial_timestamp": "start_time_value",
+	"pagination::timestamp::timestamp_format":  "timestamp_format",
+}
+
+// Unmarshal implements confmap.Unmarshaler to migrate deprecated pagination.timestamp fields
+// to their new top-level equivalents.
+func (c *Config) Unmarshal(conf *confmap.Conf) error {
+	if conf == nil {
+		return nil
+	}
+
+	// Only run migration once — the confmap decoder may invoke Unmarshal
+	// multiple times (once from the hook, once from conf.Unmarshal below).
+	// On the second call the merged keys from the first pass would cause
+	// false "both set" warnings, so skip migration if already done.
+	if c.deprecationWarnings == nil {
+		var warnings []string
+		for oldKey, newKey := range deprecatedTimestampKeys {
+			if !conf.IsSet(oldKey) {
+				continue
+			}
+			if conf.IsSet(newKey) {
+				warnings = append(warnings,
+					fmt.Sprintf("both deprecated %q and new %q are set; using %q",
+						oldKeyDisplay(oldKey), newKey, newKey))
+				continue
+			}
+			val := conf.Get(oldKey)
+			merged := confmap.NewFromStringMap(map[string]any{newKey: val})
+			if err := conf.Merge(merged); err != nil {
+				return fmt.Errorf("failed to migrate deprecated key %q: %w", oldKeyDisplay(oldKey), err)
+			}
+			warnings = append(warnings,
+				fmt.Sprintf("%q is deprecated; use %q instead", oldKeyDisplay(oldKey), newKey))
+		}
+		// Use empty (non-nil) slice to mark migration as done even when
+		// there are no warnings, so subsequent calls skip the block.
+		if warnings == nil {
+			warnings = []string{}
+		}
+		c.deprecationWarnings = warnings
+	}
+
+	// Perform the default unmarshal.
+	return conf.Unmarshal(c, confmap.WithIgnoreUnused())
+}
+
+// oldKeyDisplay converts the internal "::" delimited key to the user-facing "." delimited form.
+func oldKeyDisplay(key string) string {
+	return strings.ReplaceAll(key, "::", ".")
 }
 
 // Validate validates the configuration.
