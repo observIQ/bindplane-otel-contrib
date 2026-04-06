@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 var testTime = time.Date(2023, 1, 2, 3, 4, 5, 6, time.UTC)
@@ -313,6 +314,64 @@ func TestTransformLogsToSentinelFormat(t *testing.T) {
 
 		assert.Len(t, result, 1)
 		assert.Equal(t, "", result[0]["RawData"])
+	})
+
+	t.Run("Map body with conflicting metadata keys logs warning and overwrites", func(t *testing.T) {
+		mapLogs := plog.NewLogs()
+		mrl := mapLogs.ResourceLogs().AppendEmpty()
+		msl := mrl.ScopeLogs().AppendEmpty()
+		mlr := msl.LogRecords().AppendEmpty()
+		mlr.SetTimestamp(pcommon.NewTimestampFromTime(testTime))
+		mlr.SetSeverityText("WARN")
+		mlr.SetSeverityNumber(plog.SeverityNumberWarn)
+		body := mlr.Body().SetEmptyMap()
+		body.PutStr("SeverityText", "body-severity")
+		body.PutStr("TimeGenerated", "body-time")
+		body.PutStr("safe_field", "no-conflict")
+
+		cfg := &Config{}
+		core, observed := observer.New(zap.WarnLevel)
+		telemetrySettings := component.TelemetrySettings{Logger: zap.New(core)}
+		marshaler := newMarshaler(cfg, telemetrySettings)
+
+		jsonBytes, err := marshaler.transformLogsToSentinelFormat(context.Background(), mapLogs)
+		assert.NoError(t, err)
+
+		var result []map[string]interface{}
+		err = json.Unmarshal(jsonBytes, &result)
+		assert.NoError(t, err)
+
+		assert.Len(t, result, 1)
+		entry := result[0]
+
+		// Metadata fields overwrite body values
+		assert.Equal(t, "WARN", entry["SeverityText"])
+		assert.Equal(t, "2023-01-02T03:04:05Z", entry["TimeGenerated"])
+
+		// Non-conflicting field is untouched
+		assert.Equal(t, "no-conflict", entry["safe_field"])
+
+		// Verify warnings were logged for the two conflicting keys
+		warnings := observed.FilterMessage("log body map field will be overwritten by metadata").All()
+		assert.Len(t, warnings, 2)
+		warnKeys := make([]string, len(warnings))
+		for i, w := range warnings {
+			warnKeys[i] = w.ContextMap()["key"].(string)
+		}
+		assert.Contains(t, warnKeys, "SeverityText")
+		assert.Contains(t, warnKeys, "TimeGenerated")
+	})
+
+	t.Run("Empty logs produce empty JSON array not null", func(t *testing.T) {
+		emptyLogs := plog.NewLogs()
+
+		cfg := &Config{}
+		telemetrySettings := component.TelemetrySettings{Logger: logger}
+		marshaler := newMarshaler(cfg, telemetrySettings)
+
+		jsonBytes, err := marshaler.transformLogsToSentinelFormat(context.Background(), emptyLogs)
+		assert.NoError(t, err)
+		assert.Equal(t, "[]", string(jsonBytes))
 	})
 
 	t.Run("Metadata fields present", func(t *testing.T) {

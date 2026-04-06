@@ -84,7 +84,12 @@ func (m *azureLogAnalyticsMarshaler) transformLogsToSentinelFormat(ctx context.C
 	if m.cfg.RawLogField != "" {
 		return m.transformRawLogsToAzureLogAnalyticsFormat(ctx, ld)
 	}
-	var outputSlice []map[string]interface{}
+	outputSlice := make([]map[string]interface{}, 0)
+
+	// reservedKeys are metadata fields set by the exporter. If a map body
+	// contains any of these keys, the body value will be overwritten by
+	// the metadata value.
+	reservedKeys := []string{"TimeGenerated", "SeverityText", "SeverityNumber", "TraceId", "SpanId"}
 
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		resourceLog := ld.ResourceLogs().At(i)
@@ -99,6 +104,13 @@ func (m *azureLogAnalyticsMarshaler) transformLogsToSentinelFormat(ctx context.C
 
 				if logRecord.Body().Type() == pcommon.ValueTypeMap {
 					entry = logRecord.Body().Map().AsRaw()
+					// Warn if any body fields will be overwritten by metadata
+					for _, rk := range reservedKeys {
+						if _, ok := entry[rk]; ok {
+							m.logger.Warn("log body map field will be overwritten by metadata",
+								zap.String("key", rk))
+						}
+					}
 				} else {
 					entry = map[string]interface{}{
 						"RawData": logRecord.Body().AsString(),
@@ -141,7 +153,7 @@ func (m *azureLogAnalyticsMarshaler) transformLogsToSentinelFormat(ctx context.C
 
 // transformRawLogsToAzureLogAnalyticsFormat transforms logs to Azure Log Analytics format using the raw log approach
 func (m *azureLogAnalyticsMarshaler) transformRawLogsToAzureLogAnalyticsFormat(ctx context.Context, ld plog.Logs) ([]byte, error) {
-	var azureLogAnalyticsLogs []map[string]interface{}
+	azureLogAnalyticsLogs := make([]map[string]interface{}, 0)
 
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		resourceLog := ld.ResourceLogs().At(i)
