@@ -1517,14 +1517,12 @@ func TestBuildPaginationParams_Timestamp_EndParam(t *testing.T) {
 	}
 
 	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	state := &paginationState{
-		CurrentTimestamp: ts,
-		PageSize:         100,
-	}
-
 	before := time.Now().UTC()
-	params := buildPaginationParams(cfg, state)
+	state := newPaginationState(cfg)
 	after := time.Now().UTC()
+	state.CurrentTimestamp = ts
+
+	params := buildPaginationParams(cfg, state)
 
 	// Start param should be the configured timestamp
 	require.Equal(t, "2025-01-01T00:00:00Z", params.Get("start_time"))
@@ -1555,12 +1553,10 @@ func TestBuildPaginationParams_Timestamp_EndParam_Epoch(t *testing.T) {
 	}
 
 	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	state := &paginationState{
-		CurrentTimestamp: ts,
-		PageSize:         50,
-	}
-
 	before := time.Now().UTC()
+	state := newPaginationState(cfg)
+	state.CurrentTimestamp = ts
+
 	params := buildPaginationParams(cfg, state)
 
 	require.Equal(t, "1735689600", params.Get("since"))
@@ -1590,10 +1586,8 @@ func TestBuildPaginationParams_Timestamp_EndParam_FixedValue(t *testing.T) {
 	}
 
 	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	state := &paginationState{
-		CurrentTimestamp: ts,
-		PageSize:         100,
-	}
+	state := newPaginationState(cfg)
+	state.CurrentTimestamp = ts
 
 	params := buildPaginationParams(cfg, state)
 	require.Equal(t, "2025-01-01T00:00:00Z", params.Get("start_time"))
@@ -1617,10 +1611,8 @@ func TestBuildPaginationParams_Timestamp_EndParam_FixedEpoch(t *testing.T) {
 	}
 
 	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	state := &paginationState{
-		CurrentTimestamp: ts,
-		PageSize:         50,
-	}
+	state := newPaginationState(cfg)
+	state.CurrentTimestamp = ts
 
 	params := buildPaginationParams(cfg, state)
 	require.Equal(t, "1735689600", params.Get("since"))
@@ -1667,10 +1659,7 @@ func TestBuildPaginationParams_TimeBound_OffsetLimit(t *testing.T) {
 		},
 	}
 
-	state := &paginationState{
-		CurrentOffset: 0,
-		Limit:         10,
-	}
+	state := newPaginationState(cfg)
 
 	params := buildPaginationParams(cfg, state)
 	require.Equal(t, "0", params.Get("offset"))
@@ -1691,14 +1680,12 @@ func TestBuildPaginationParams_TimeBound_PageSize(t *testing.T) {
 			PageSize: PageSizePagination{
 				PageNumFieldName:  "page",
 				PageSizeFieldName: "size",
+				StartingPage:      1,
 			},
 		},
 	}
 
-	state := &paginationState{
-		CurrentPage: 1,
-		PageSize:    20,
-	}
+	state := newPaginationState(cfg)
 
 	params := buildPaginationParams(cfg, state)
 	require.Equal(t, "1", params.Get("page"))
@@ -1718,11 +1705,11 @@ func TestBuildPaginationParams_TimeBound_NoPagination(t *testing.T) {
 		},
 	}
 
-	state := &paginationState{}
-
 	before := time.Now().UTC()
-	params := buildPaginationParams(cfg, state)
+	state := newPaginationState(cfg)
 	after := time.Now().UTC()
+
+	params := buildPaginationParams(cfg, state)
 
 	require.Equal(t, "2025-03-01T00:00:00Z", params.Get("start_date"))
 
@@ -1748,10 +1735,7 @@ func TestBuildPaginationParams_TimeBound_EndTimeOnly(t *testing.T) {
 		},
 	}
 
-	state := &paginationState{
-		CurrentOffset: 0,
-		Limit:         10,
-	}
+	state := newPaginationState(cfg)
 
 	params := buildPaginationParams(cfg, state)
 	require.Equal(t, "0", params.Get("offset"))
@@ -1770,9 +1754,9 @@ func TestBuildPaginationParams_TimeBound_StartTimeNow(t *testing.T) {
 		},
 	}
 
-	state := &paginationState{}
-
 	before := time.Now().UTC()
+	state := newPaginationState(cfg)
+
 	params := buildPaginationParams(cfg, state)
 
 	fromStr := params.Get("from")

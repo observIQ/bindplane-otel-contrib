@@ -56,6 +56,11 @@ type paginationState struct {
 	CurrentTimestamp  time.Time `json:"current_timestamp,omitempty"`
 	TimestampFromData bool      `json:"timestamp_from_data,omitempty"` // true if CurrentTimestamp was set from response data (vs initial config)
 
+	// Resolved time-bound values. "now" is resolved once per polling cycle
+	// so that all pages within a single pagination run share the same value.
+	ResolvedStartTime string `json:"resolved_start_time,omitempty"`
+	ResolvedEndTime   string `json:"resolved_end_time,omitempty"`
+
 	// Metadata
 	TotalRecords int `json:"total_records,omitempty"`
 	TotalPages   int `json:"total_pages,omitempty"`
@@ -124,6 +129,18 @@ func newPaginationState(cfg *Config) *paginationState {
 	if cfg.Pagination.Mode == paginationModeOffsetLimit &&
 		cfg.Pagination.OffsetLimit.LimitFieldName != "" {
 		state.Limit = 10 // reasonable default
+	}
+
+	// Resolve "now" once so all pages in a pagination run share the same value.
+	if cfg.StartTimeParamName != "" && cfg.StartTimeValue != "" {
+		state.ResolvedStartTime = formatTimeBoundValue(cfg.StartTimeValue, cfg.TimestampFormat)
+	}
+	if cfg.EndTimeParamName != "" {
+		endValue := cfg.EndTimeValue
+		if endValue == "" {
+			endValue = "now"
+		}
+		state.ResolvedEndTime = formatTimeBoundValue(endValue, cfg.TimestampFormat)
 	}
 
 	return state
@@ -210,18 +227,15 @@ func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
 	// Add time-bound parameters for non-timestamp pagination modes.
 	// For timestamp pagination, start time is handled above (it advances through data).
 	if cfg.Pagination.Mode != paginationModeTimestamp {
-		if cfg.StartTimeParamName != "" && cfg.StartTimeValue != "" {
-			params.Set(cfg.StartTimeParamName, formatTimeBoundValue(cfg.StartTimeValue, cfg.TimestampFormat))
+		if cfg.StartTimeParamName != "" && state.ResolvedStartTime != "" {
+			params.Set(cfg.StartTimeParamName, state.ResolvedStartTime)
 		}
 	}
 
 	// End time is always applied as a static value regardless of pagination mode.
-	if cfg.EndTimeParamName != "" {
-		endValue := cfg.EndTimeValue
-		if endValue == "" {
-			endValue = "now"
-		}
-		params.Set(cfg.EndTimeParamName, formatTimeBoundValue(endValue, cfg.TimestampFormat))
+	// Uses the value resolved once in newPaginationState so all pages share the same time.
+	if cfg.EndTimeParamName != "" && state.ResolvedEndTime != "" {
+		params.Set(cfg.EndTimeParamName, state.ResolvedEndTime)
 	}
 
 	return params
