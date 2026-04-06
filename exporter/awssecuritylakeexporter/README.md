@@ -74,7 +74,7 @@ aws_security_lake:
 
 ```yaml
 receivers:
-  filelog:
+  file_log:
     include:
       - /var/log/*.log
 
@@ -102,7 +102,7 @@ exporters:
 service:
   pipelines:
     logs:
-      receivers: [filelog]
+      receivers: [file_log]
       processors: [ocsf]
       exporters: [aws_security_lake]
 ```
