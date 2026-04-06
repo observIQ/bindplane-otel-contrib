@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/confighttp"
 	"go.opentelemetry.io/collector/config/configopaque"
+	"go.opentelemetry.io/collector/confmap"
 )
 
 const (
@@ -150,6 +151,41 @@ type Config struct {
 	// Pagination defines pagination configuration.
 	Pagination PaginationConfig `mapstructure:"pagination"`
 
+	// StartTimeParamName is the query parameter name for the start time (e.g., "since", "from", "start_time").
+	// When used with timestamp pagination, this parameter's value advances through response data.
+	// With any other pagination mode, it is sent as a static parameter on every request.
+	StartTimeParamName string `mapstructure:"start_time_param_name"`
+
+	// StartTimeValue is the initial value for the start time parameter.
+	// Accepts a timestamp in the configured timestamp_format or RFC3339 (e.g., "2025-01-01T00:00:00Z").
+	// For epoch formats, accepts a numeric string (e.g., "1704067200").
+	// Use "now" to send the current time.
+	StartTimeValue string `mapstructure:"start_time_value"`
+
+	// EndTimeParamName is the query parameter name for the end time (e.g., "until", "to", "end_time").
+	// If set, the end time value is sent on every request regardless of pagination mode.
+	EndTimeParamName string `mapstructure:"end_time_param_name"`
+
+	// EndTimeValue configures what value to send for the end time parameter.
+	// Supported values:
+	//   - "now" (default): the current time at each request
+	//   - A fixed timestamp string in the configured timestamp_format or RFC3339
+	//   - For epoch formats, a numeric string (e.g., "1704067200")
+	EndTimeValue string `mapstructure:"end_time_value"`
+
+	// TimestampFormat is the format for the start/end time query parameters.
+	// Common formats:
+	//   - "2006-01-02T15:04:05Z07:00" (RFC3339, default)
+	//   - "20060102150405" (YYYYMMDDHHMMSS)
+	//   - "2006-01-02 15:04:05"
+	//   - "epoch_s" (Unix epoch seconds)
+	//   - "epoch_ms" (Unix epoch milliseconds)
+	//   - "epoch_us" (Unix epoch microseconds)
+	//   - "epoch_ns" (Unix epoch nanoseconds)
+	//   - "epoch_s_frac" (Unix epoch fractional seconds)
+	// If not set, defaults to RFC3339.
+	TimestampFormat string `mapstructure:"timestamp_format"`
+
 	// MinPollInterval is the minimum interval between API polls.
 	// The receiver uses adaptive polling that resets to this interval when data
 	// is received, and backs off when no data is returned.
@@ -177,6 +213,10 @@ type Config struct {
 	// These headers are applied after authentication and regular headers,
 	// so they can override any previously set values.
 	SensitiveHeaders map[string]configopaque.String `mapstructure:"sensitive_headers"`
+
+	// deprecationWarnings collects warnings about deprecated config fields
+	// that were automatically migrated. Logged at receiver start time.
+	deprecationWarnings []string
 
 	// ClientConfig defines HTTP client configuration.
 	ClientConfig confighttp.ClientConfig `mapstructure:",squash"`
@@ -316,37 +356,74 @@ type PageSizePagination struct {
 }
 
 // TimestampPagination defines timestamp-based pagination configuration.
+// The start/end time parameter names, values, and format are configured at the
+// top level of the receiver config (start_time_param_name, end_time_param_name, etc.).
+// Timestamp pagination advances the start time through response data.
 type TimestampPagination struct {
-	// ParamName is the name of the query parameter for the timestamp (e.g., "t0", "since", "after", "start_time").
-	ParamName string `mapstructure:"param_name"`
-
 	// TimestampFieldName is the name of the field in each response item that contains the timestamp value.
 	// This is used to extract the timestamp from the last item for the next page.
 	TimestampFieldName string `mapstructure:"timestamp_field_name"`
-
-	// TimestampFormat is the format for the timestamp query parameter.
-	// Common formats:
-	//   - "2006-01-02T15:04:05Z07:00" (RFC3339, default)
-	//   - "20060102150405" (YYYYMMDDHHMMSS)
-	//   - "2006-01-02 15:04:05"
-	//   - "epoch_s" (Unix epoch seconds)
-	//   - "epoch_ms" (Unix epoch milliseconds)
-	//   - "epoch_us" (Unix epoch microseconds)
-	//   - "epoch_ns" (Unix epoch nanoseconds)
-	// If not set, defaults to RFC3339.
-	TimestampFormat string `mapstructure:"timestamp_format"`
 
 	// PageSizeFieldName is the name of the query parameter for page size (e.g., "perPage", "limit").
 	PageSizeFieldName string `mapstructure:"page_size_field_name"`
 
 	// PageSize is the page size to use.
 	PageSize int `mapstructure:"page_size"`
+}
 
-	// InitialTimestamp is the initial timestamp to start from (optional).
-	// If not set, will start from the beginning.
-	// Accepts the configured timestamp_format or RFC3339 (e.g., "2025-01-01T00:00:00Z").
-	// For epoch formats, accepts a numeric string (e.g., "1704067200" for epoch_s).
-	InitialTimestamp string `mapstructure:"initial_timestamp"`
+// deprecatedTimestampKeys maps old pagination.timestamp.* keys to their new top-level equivalents.
+var deprecatedTimestampKeys = map[string]string{
+	"pagination::timestamp::param_name":        "start_time_param_name",
+	"pagination::timestamp::initial_timestamp": "start_time_value",
+	"pagination::timestamp::timestamp_format":  "timestamp_format",
+}
+
+// Unmarshal implements confmap.Unmarshaler to migrate deprecated pagination.timestamp fields
+// to their new top-level equivalents.
+func (c *Config) Unmarshal(conf *confmap.Conf) error {
+	if conf == nil {
+		return nil
+	}
+
+	// Only run migration once — the confmap decoder may invoke Unmarshal
+	// multiple times (once from the hook, once from conf.Unmarshal below).
+	// On the second call the merged keys from the first pass would cause
+	// false "both set" warnings, so skip migration if already done.
+	if c.deprecationWarnings == nil {
+		var warnings []string
+		for oldKey, newKey := range deprecatedTimestampKeys {
+			if !conf.IsSet(oldKey) {
+				continue
+			}
+			if conf.IsSet(newKey) {
+				warnings = append(warnings,
+					fmt.Sprintf("both deprecated %q and new %q are set; using %q",
+						oldKeyDisplay(oldKey), newKey, newKey))
+				continue
+			}
+			val := conf.Get(oldKey)
+			merged := confmap.NewFromStringMap(map[string]any{newKey: val})
+			if err := conf.Merge(merged); err != nil {
+				return fmt.Errorf("failed to migrate deprecated key %q: %w", oldKeyDisplay(oldKey), err)
+			}
+			warnings = append(warnings,
+				fmt.Sprintf("%q is deprecated; use %q instead", oldKeyDisplay(oldKey), newKey))
+		}
+		// Use empty (non-nil) slice to mark migration as done even when
+		// there are no warnings, so subsequent calls skip the block.
+		if warnings == nil {
+			warnings = []string{}
+		}
+		c.deprecationWarnings = warnings
+	}
+
+	// Perform the default unmarshal.
+	return conf.Unmarshal(c, confmap.WithIgnoreUnused())
+}
+
+// oldKeyDisplay converts the internal "::" delimited key to the user-facing "." delimited form.
+func oldKeyDisplay(key string) string {
+	return strings.ReplaceAll(key, "::", ".")
 }
 
 // Validate validates the configuration.
@@ -512,43 +589,31 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("page_size_field_name is required when pagination.mode is page_size")
 		}
 	case paginationModeTimestamp:
-		if c.Pagination.Timestamp.ParamName == "" {
-			return fmt.Errorf("param_name is required when pagination.mode is timestamp")
+		if c.StartTimeParamName == "" {
+			return fmt.Errorf("start_time_param_name is required when pagination.mode is timestamp")
 		}
 		if c.Pagination.Timestamp.TimestampFieldName == "" {
 			return fmt.Errorf("timestamp_field_name is required when pagination.mode is timestamp")
 		}
-		// Validate initial_timestamp format if provided
-		if c.Pagination.Timestamp.InitialTimestamp != "" {
-			var parsed bool
-			// For epoch formats, validate that initial_timestamp is a numeric value
-			if isEpochFormat(c.Pagination.Timestamp.TimestampFormat) {
-				if _, err := strconv.ParseFloat(c.Pagination.Timestamp.InitialTimestamp, 64); err == nil {
-					parsed = true
-				}
-				if !parsed {
-					return fmt.Errorf("initial_timestamp %q must be a numeric value when using epoch timestamp_format (%s)", c.Pagination.Timestamp.InitialTimestamp, c.Pagination.Timestamp.TimestampFormat)
-				}
-			} else {
-				// First try the user's configured format (they likely copied the timestamp from the API)
-				if c.Pagination.Timestamp.TimestampFormat != "" {
-					if _, err := time.Parse(c.Pagination.Timestamp.TimestampFormat, c.Pagination.Timestamp.InitialTimestamp); err == nil {
-						parsed = true
-					}
-				}
-				// Fall back to RFC3339 (the default format)
-				if !parsed {
-					if _, err := time.Parse(time.RFC3339, c.Pagination.Timestamp.InitialTimestamp); err == nil {
-						parsed = true
-					}
-				}
-				if !parsed {
-					formatHint := "RFC3339 (e.g., 2025-01-01T00:00:00Z)"
-					if c.Pagination.Timestamp.TimestampFormat != "" {
-						formatHint = fmt.Sprintf("configured timestamp_format (%s) or RFC3339", c.Pagination.Timestamp.TimestampFormat)
-					}
-					return fmt.Errorf("initial_timestamp %q could not be parsed; must match %s", c.Pagination.Timestamp.InitialTimestamp, formatHint)
-				}
+	}
+
+	// Validate start_time_value format if provided
+	if err := c.validateTimestampValue(c.StartTimeValue, "start_time_value"); err != nil {
+		return err
+	}
+
+	// Validate end_time_value format if provided (and not "now")
+	if err := c.validateTimestampValue(c.EndTimeValue, "end_time_value"); err != nil {
+		return err
+	}
+
+	// Validate start_time is before end_time
+	if c.StartTimeValue != "" && c.StartTimeValue != "now" && c.EndTimeValue != "" && c.EndTimeValue != "now" {
+		startTime, err := c.parseConfigTimestamp(c.StartTimeValue)
+		if err == nil {
+			endTime, err := c.parseConfigTimestamp(c.EndTimeValue)
+			if err == nil && !startTime.Before(endTime) {
+				return fmt.Errorf("start_time_value (%s) must be before end_time_value (%s)", c.StartTimeValue, c.EndTimeValue)
 			}
 		}
 	}
@@ -584,6 +649,43 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// validateTimestampValue validates that a timestamp value string can be parsed
+// using the configured timestamp_format. Returns nil if the value is empty or "now".
+func (c *Config) validateTimestampValue(value, fieldName string) error {
+	if value == "" || value == "now" {
+		return nil
+	}
+
+	if _, err := c.parseConfigTimestamp(value); err != nil {
+		formatHint := "RFC3339 (e.g., 2025-01-01T00:00:00Z)"
+		if isEpochFormat(c.TimestampFormat) {
+			return fmt.Errorf("%s %q must be a numeric value when using epoch timestamp_format (%s)", fieldName, value, c.TimestampFormat)
+		}
+		if c.TimestampFormat != "" {
+			formatHint = fmt.Sprintf("configured timestamp_format (%s) or RFC3339", c.TimestampFormat)
+		}
+		return fmt.Errorf("%s %q could not be parsed; must be \"now\" or match %s", fieldName, value, formatHint)
+	}
+	return nil
+}
+
+// parseConfigTimestamp parses a user-configured timestamp value into a time.Time
+// using the same logic as validateTimestampValue.
+func (c *Config) parseConfigTimestamp(value string) (time.Time, error) {
+	if isEpochFormat(c.TimestampFormat) {
+		return parseEpochTimestamp(value, c.TimestampFormat)
+	}
+	if c.TimestampFormat != "" {
+		if t, err := time.Parse(c.TimestampFormat, value); err == nil {
+			return t, nil
+		}
+	}
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("could not parse timestamp %q", value)
 }
 
 // validateHeaderName checks that a header name is a valid HTTP token per RFC 7230.

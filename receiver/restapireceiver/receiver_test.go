@@ -644,14 +644,14 @@ func TestRESTAPILogsReceiver_WithTimestampPagination(t *testing.T) {
 			HeaderName: "X-API-Key",
 			Value:      "test-key",
 		},
+		StartTimeParamName: "t0",
+		StartTimeValue:     initialTime.Format(time.RFC3339),
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "t0",
 				TimestampFieldName: "ts",
 				PageSizeFieldName:  "perPage",
 				PageSize:           200,
-				InitialTimestamp:   initialTime.Format(time.RFC3339),
 			},
 		},
 		MaxPollInterval: 100 * time.Millisecond,
