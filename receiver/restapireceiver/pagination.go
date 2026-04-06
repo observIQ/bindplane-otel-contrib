@@ -90,7 +90,9 @@ func newPaginationState(cfg *Config) *paginationState {
 	case paginationModeTimestamp:
 		// Set initial timestamp from the top-level start_time_value if provided.
 		// Config validation ensures the timestamp is parseable.
-		if cfg.StartTimeValue != "" && cfg.StartTimeValue != "now" {
+		if cfg.StartTimeValue == "now" {
+			state.CurrentTimestamp = time.Now().UTC()
+		} else if cfg.StartTimeValue != "" {
 			if isEpochFormat(cfg.TimestampFormat) {
 				// Parse epoch numeric value
 				if t, err := parseEpochTimestamp(cfg.StartTimeValue, cfg.TimestampFormat); err == nil {
