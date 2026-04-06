@@ -57,6 +57,13 @@ type baseReceiver struct {
 	paginationState     *paginationState
 }
 
+// logDeprecationWarnings emits warnings for any deprecated config fields that were migrated.
+func (b *baseReceiver) logDeprecationWarnings() {
+	for _, w := range b.cfg.deprecationWarnings {
+		b.logger.Warn(w)
+	}
+}
+
 // initializeClient creates the HTTP client.
 func (b *baseReceiver) initializeClient(ctx context.Context, host component.Host) error {
 	client, err := newRESTAPIClient(ctx, b.settings, b.cfg, host)
@@ -350,6 +357,7 @@ func newRESTAPILogsReceiver(
 
 // Start starts the receiver.
 func (r *restAPILogsReceiver) Start(ctx context.Context, host component.Host) error {
+	r.logDeprecationWarnings()
 	if err := r.initializeClient(ctx, host); err != nil {
 		return err
 	}
@@ -608,6 +616,7 @@ func newRESTAPIMetricsReceiver(
 
 // Start starts the receiver.
 func (r *restAPIMetricsReceiver) Start(ctx context.Context, host component.Host) error {
+	r.logDeprecationWarnings()
 	if err := r.initializeClient(ctx, host); err != nil {
 		return err
 	}

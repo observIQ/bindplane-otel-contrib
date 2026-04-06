@@ -16,12 +16,15 @@ package restapireceiver
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configopaque"
+	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/confmap/confmaptest"
 	"go.opentelemetry.io/collector/confmap/xconfmap"
 
@@ -574,8 +577,9 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "timestamp pagination missing param name",
 			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: authModeAPIKey,
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "",
 				APIKeyConfig: APIKeyConfig{
 					HeaderName: "X-API-Key",
 					Value:      "test-key",
@@ -583,20 +587,20 @@ func TestConfig_Validate(t *testing.T) {
 				Pagination: PaginationConfig{
 					Mode: paginationModeTimestamp,
 					Timestamp: TimestampPagination{
-						ParamName:          "",
 						TimestampFieldName: "ts",
 						PageSizeFieldName:  "perPage",
 						PageSize:           100,
 					},
 				},
 			},
-			expectedErr: "param_name is required when pagination.mode is timestamp",
+			expectedErr: "start_time_param_name is required when pagination.mode is timestamp",
 		},
 		{
 			name: "timestamp pagination missing timestamp field name",
 			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: authModeAPIKey,
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "t0",
 				APIKeyConfig: APIKeyConfig{
 					HeaderName: "X-API-Key",
 					Value:      "test-key",
@@ -604,7 +608,6 @@ func TestConfig_Validate(t *testing.T) {
 				Pagination: PaginationConfig{
 					Mode: paginationModeTimestamp,
 					Timestamp: TimestampPagination{
-						ParamName:          "t0",
 						TimestampFieldName: "",
 						PageSizeFieldName:  "perPage",
 						PageSize:           100,
@@ -616,8 +619,10 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "valid timestamp pagination",
 			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: authModeAPIKey,
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "t0",
+				StartTimeValue:     time.Now().Format(time.RFC3339),
 				APIKeyConfig: APIKeyConfig{
 					HeaderName: "X-API-Key",
 					Value:      "test-key",
@@ -625,11 +630,9 @@ func TestConfig_Validate(t *testing.T) {
 				Pagination: PaginationConfig{
 					Mode: paginationModeTimestamp,
 					Timestamp: TimestampPagination{
-						ParamName:          "t0",
 						TimestampFieldName: "ts",
 						PageSizeFieldName:  "perPage",
 						PageSize:           200,
-						InitialTimestamp:   time.Now().Format(time.RFC3339),
 					},
 				},
 			},
@@ -638,8 +641,11 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "valid timestamp pagination with custom format",
 			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: authModeAPIKey,
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "min-date",
+				TimestampFormat:    "2006-01-02 15:04:05",
+				StartTimeValue:     "2025-01-01 00:00:00",
 				APIKeyConfig: APIKeyConfig{
 					HeaderName: "X-API-Key",
 					Value:      "test-key",
@@ -647,10 +653,7 @@ func TestConfig_Validate(t *testing.T) {
 				Pagination: PaginationConfig{
 					Mode: paginationModeTimestamp,
 					Timestamp: TimestampPagination{
-						ParamName:          "min-date",
 						TimestampFieldName: "timestamp",
-						TimestampFormat:    "2006-01-02 15:04:05",
-						InitialTimestamp:   "2025-01-01 00:00:00",
 					},
 				},
 			},
@@ -659,8 +662,11 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "invalid initial_timestamp format",
 			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: authModeAPIKey,
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "min-date",
+				TimestampFormat:    "2006-01-02 15:04:05",
+				StartTimeValue:     "invalid-timestamp",
 				APIKeyConfig: APIKeyConfig{
 					HeaderName: "X-API-Key",
 					Value:      "test-key",
@@ -668,20 +674,20 @@ func TestConfig_Validate(t *testing.T) {
 				Pagination: PaginationConfig{
 					Mode: paginationModeTimestamp,
 					Timestamp: TimestampPagination{
-						ParamName:          "min-date",
 						TimestampFieldName: "timestamp",
-						TimestampFormat:    "2006-01-02 15:04:05",
-						InitialTimestamp:   "invalid-timestamp",
 					},
 				},
 			},
-			expectedErr: `initial_timestamp "invalid-timestamp" could not be parsed`,
+			expectedErr: `start_time_value "invalid-timestamp" could not be parsed`,
 		},
 		{
 			name: "valid timestamp pagination with epoch_s format",
 			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: authModeAPIKey,
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "since",
+				TimestampFormat:    "epoch_s",
+				StartTimeValue:     "1704067200",
 				APIKeyConfig: APIKeyConfig{
 					HeaderName: "X-API-Key",
 					Value:      "test-key",
@@ -689,10 +695,7 @@ func TestConfig_Validate(t *testing.T) {
 				Pagination: PaginationConfig{
 					Mode: paginationModeTimestamp,
 					Timestamp: TimestampPagination{
-						ParamName:          "since",
 						TimestampFieldName: "timestamp",
-						TimestampFormat:    "epoch_s",
-						InitialTimestamp:   "1704067200",
 					},
 				},
 			},
@@ -701,8 +704,11 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "valid timestamp pagination with epoch_ms format",
 			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: authModeAPIKey,
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "since",
+				TimestampFormat:    "epoch_ms",
+				StartTimeValue:     "1704067200000",
 				APIKeyConfig: APIKeyConfig{
 					HeaderName: "X-API-Key",
 					Value:      "test-key",
@@ -710,10 +716,7 @@ func TestConfig_Validate(t *testing.T) {
 				Pagination: PaginationConfig{
 					Mode: paginationModeTimestamp,
 					Timestamp: TimestampPagination{
-						ParamName:          "since",
 						TimestampFieldName: "timestamp",
-						TimestampFormat:    "epoch_ms",
-						InitialTimestamp:   "1704067200000",
 					},
 				},
 			},
@@ -722,8 +725,11 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "valid timestamp pagination with epoch_s_frac format (milliseconds)",
 			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: authModeAPIKey,
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "since",
+				TimestampFormat:    "epoch_s_frac",
+				StartTimeValue:     "1704067200.123",
 				APIKeyConfig: APIKeyConfig{
 					HeaderName: "X-API-Key",
 					Value:      "test-key",
@@ -731,10 +737,7 @@ func TestConfig_Validate(t *testing.T) {
 				Pagination: PaginationConfig{
 					Mode: paginationModeTimestamp,
 					Timestamp: TimestampPagination{
-						ParamName:          "since",
 						TimestampFieldName: "timestamp",
-						TimestampFormat:    "epoch_s_frac",
-						InitialTimestamp:   "1704067200.123",
 					},
 				},
 			},
@@ -743,8 +746,11 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "valid timestamp pagination with epoch_s_frac format (microseconds)",
 			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: authModeAPIKey,
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "since",
+				TimestampFormat:    "epoch_s_frac",
+				StartTimeValue:     "1704067200.123456",
 				APIKeyConfig: APIKeyConfig{
 					HeaderName: "X-API-Key",
 					Value:      "test-key",
@@ -752,10 +758,7 @@ func TestConfig_Validate(t *testing.T) {
 				Pagination: PaginationConfig{
 					Mode: paginationModeTimestamp,
 					Timestamp: TimestampPagination{
-						ParamName:          "since",
 						TimestampFieldName: "timestamp",
-						TimestampFormat:    "epoch_s_frac",
-						InitialTimestamp:   "1704067200.123456",
 					},
 				},
 			},
@@ -764,8 +767,11 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "valid timestamp pagination with epoch_s_frac format (whole seconds)",
 			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: authModeAPIKey,
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "since",
+				TimestampFormat:    "epoch_s_frac",
+				StartTimeValue:     "1704067200",
 				APIKeyConfig: APIKeyConfig{
 					HeaderName: "X-API-Key",
 					Value:      "test-key",
@@ -773,10 +779,7 @@ func TestConfig_Validate(t *testing.T) {
 				Pagination: PaginationConfig{
 					Mode: paginationModeTimestamp,
 					Timestamp: TimestampPagination{
-						ParamName:          "since",
 						TimestampFieldName: "timestamp",
-						TimestampFormat:    "epoch_s_frac",
-						InitialTimestamp:   "1704067200",
 					},
 				},
 			},
@@ -785,8 +788,11 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "invalid epoch initial_timestamp (not numeric)",
 			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: authModeAPIKey,
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "since",
+				TimestampFormat:    "epoch_s",
+				StartTimeValue:     "not-a-number",
 				APIKeyConfig: APIKeyConfig{
 					HeaderName: "X-API-Key",
 					Value:      "test-key",
@@ -794,14 +800,11 @@ func TestConfig_Validate(t *testing.T) {
 				Pagination: PaginationConfig{
 					Mode: paginationModeTimestamp,
 					Timestamp: TimestampPagination{
-						ParamName:          "since",
 						TimestampFieldName: "timestamp",
-						TimestampFormat:    "epoch_s",
-						InitialTimestamp:   "not-a-number",
 					},
 				},
 			},
-			expectedErr: "initial_timestamp \"not-a-number\" must be a numeric value when using epoch timestamp_format (epoch_s)",
+			expectedErr: "start_time_value \"not-a-number\" must be a numeric value when using epoch timestamp_format (epoch_s)",
 		},
 		{
 			name: "negative min_poll_interval",
@@ -1091,6 +1094,228 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectedErr: "",
 		},
+		{
+			name: "valid end_timestamp_value now",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "start_time",
+				EndTimeParamName:   "end_time",
+				EndTimeValue:       "now",
+				APIKeyConfig: APIKeyConfig{
+					HeaderName: "X-API-Key",
+					Value:      "test-key",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeTimestamp,
+					Timestamp: TimestampPagination{
+						TimestampFieldName: "timestamp",
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "valid end_timestamp_value RFC3339",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "start_time",
+				EndTimeParamName:   "end_time",
+				EndTimeValue:       "2025-06-01T00:00:00Z",
+				APIKeyConfig: APIKeyConfig{
+					HeaderName: "X-API-Key",
+					Value:      "test-key",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeTimestamp,
+					Timestamp: TimestampPagination{
+						TimestampFieldName: "timestamp",
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "valid end_timestamp_value epoch",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "since",
+				TimestampFormat:    "epoch_s",
+				EndTimeParamName:   "until",
+				EndTimeValue:       "1748736000",
+				APIKeyConfig: APIKeyConfig{
+					HeaderName: "X-API-Key",
+					Value:      "test-key",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeTimestamp,
+					Timestamp: TimestampPagination{
+						TimestampFieldName: "timestamp",
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "invalid end_timestamp_value string format",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "start_time",
+				EndTimeParamName:   "end_time",
+				EndTimeValue:       "not-a-timestamp",
+				APIKeyConfig: APIKeyConfig{
+					HeaderName: "X-API-Key",
+					Value:      "test-key",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeTimestamp,
+					Timestamp: TimestampPagination{
+						TimestampFieldName: "timestamp",
+					},
+				},
+			},
+			expectedErr: `end_time_value "not-a-timestamp" could not be parsed`,
+		},
+		{
+			name: "invalid end_timestamp_value epoch format",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeAPIKey,
+				StartTimeParamName: "since",
+				TimestampFormat:    "epoch_s",
+				EndTimeParamName:   "until",
+				EndTimeValue:       "not-a-number",
+				APIKeyConfig: APIKeyConfig{
+					HeaderName: "X-API-Key",
+					Value:      "test-key",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeTimestamp,
+					Timestamp: TimestampPagination{
+						TimestampFieldName: "timestamp",
+					},
+				},
+			},
+			expectedErr: `end_time_value "not-a-number" must be a numeric value when using epoch timestamp_format`,
+		},
+		{
+			name: "valid time-bound with offset_limit pagination",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeNone,
+				StartTimeParamName: "from",
+				StartTimeValue:     "2025-01-01T00:00:00Z",
+				EndTimeParamName:   "to",
+				EndTimeValue:       "2025-06-01T00:00:00Z",
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "offset",
+						LimitFieldName:  "limit",
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "valid time-bound with no pagination",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeNone,
+				StartTimeParamName: "since",
+				StartTimeValue:     "now",
+				EndTimeParamName:   "until",
+				EndTimeValue:       "now",
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "invalid start_time_value with no pagination",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeNone,
+				StartTimeParamName: "from",
+				StartTimeValue:     "bad-value",
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: `start_time_value "bad-value" could not be parsed`,
+		},
+		{
+			name: "invalid end_time_value with offset_limit pagination",
+			config: &Config{
+				URL:              "https://api.example.com/data",
+				AuthMode:         authModeNone,
+				EndTimeParamName: "to",
+				EndTimeValue:     "bad-value",
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "offset",
+						LimitFieldName:  "limit",
+					},
+				},
+			},
+			expectedErr: `end_time_value "bad-value" could not be parsed`,
+		},
+		{
+			name: "valid time-bound epoch with page_size pagination",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeNone,
+				StartTimeParamName: "from",
+				StartTimeValue:     "1704067200",
+				EndTimeParamName:   "to",
+				EndTimeValue:       "1748736000",
+				TimestampFormat:    "epoch_s",
+				Pagination: PaginationConfig{
+					Mode: paginationModePageSize,
+					PageSize: PageSizePagination{
+						PageNumFieldName:  "page",
+						PageSizeFieldName: "size",
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "end_time_value before start_time_value",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeNone,
+				StartTimeParamName: "from",
+				StartTimeValue:     "2025-06-01T00:00:00Z",
+				EndTimeParamName:   "to",
+				EndTimeValue:       "2025-01-01T00:00:00Z",
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "start_time_value (2025-06-01T00:00:00Z) must be before end_time_value (2025-01-01T00:00:00Z)",
+		},
+		{
+			name: "end_time_value before start_time_value epoch",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeNone,
+				StartTimeParamName: "from",
+				StartTimeValue:     "1748736000",
+				EndTimeParamName:   "to",
+				EndTimeValue:       "1704067200",
+				TimestampFormat:    "epoch_s",
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "start_time_value (1748736000) must be before end_time_value (1704067200)",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1150,4 +1375,117 @@ func TestLoadConfigFromYAML(t *testing.T) {
 	require.Equal(t, authModeAPIKey, restapiCfg.AuthMode)
 	require.Equal(t, configopaque.String("test-key"), restapiCfg.APIKeyConfig.Value)
 	require.Equal(t, "X-API-Key", restapiCfg.APIKeyConfig.HeaderName)
+}
+
+func TestConfig_DeprecatedTimestampMigration(t *testing.T) {
+	testCases := []struct {
+		name               string
+		rawConfig          map[string]any
+		expectedStartParam string
+		expectedStartValue string
+		expectedEndParam   string
+		expectedEndValue   string
+		expectedFormat     string
+		expectedWarnings   int
+		warnContains       string
+	}{
+		{
+			name: "migrates old pagination.timestamp fields to top-level",
+			rawConfig: map[string]any{
+				"url":       "https://api.example.com/data",
+				"auth_mode": "none",
+				"pagination": map[string]any{
+					"mode": "timestamp",
+					"timestamp": map[string]any{
+						"param_name":           "since",
+						"initial_timestamp":    "2025-01-01T00:00:00Z",
+						"timestamp_format":     "2006-01-02T15:04:05Z07:00",
+						"timestamp_field_name": "updated_at",
+					},
+				},
+			},
+			expectedStartParam: "since",
+			expectedStartValue: "2025-01-01T00:00:00Z",
+			expectedFormat:     "2006-01-02T15:04:05Z07:00",
+			expectedWarnings:   3,
+			warnContains:       "is deprecated",
+		},
+		{
+			name: "new fields take precedence over old fields",
+			rawConfig: map[string]any{
+				"url":                   "https://api.example.com/data",
+				"auth_mode":             "none",
+				"start_time_param_name": "from",
+				"start_time_value":      "2025-06-01T00:00:00Z",
+				"pagination": map[string]any{
+					"mode": "timestamp",
+					"timestamp": map[string]any{
+						"param_name":           "since",
+						"initial_timestamp":    "2025-01-01T00:00:00Z",
+						"timestamp_field_name": "updated_at",
+					},
+				},
+			},
+			expectedStartParam: "from",
+			expectedStartValue: "2025-06-01T00:00:00Z",
+			expectedWarnings:   2,
+			warnContains:       "both deprecated",
+		},
+		{
+			name: "no warnings when only new fields are used",
+			rawConfig: map[string]any{
+				"url":                   "https://api.example.com/data",
+				"auth_mode":             "none",
+				"start_time_param_name": "since",
+				"start_time_value":      "2025-01-01T00:00:00Z",
+				"pagination": map[string]any{
+					"mode": "timestamp",
+					"timestamp": map[string]any{
+						"timestamp_field_name": "updated_at",
+					},
+				},
+			},
+			expectedStartParam: "since",
+			expectedStartValue: "2025-01-01T00:00:00Z",
+			expectedWarnings:   0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			conf := confmap.NewFromStringMap(tc.rawConfig)
+
+			cfg := &Config{}
+			err := cfg.Unmarshal(conf)
+			require.NoError(t, err)
+
+			if tc.expectedStartParam != "" {
+				assert.Equal(t, tc.expectedStartParam, cfg.StartTimeParamName)
+			}
+			if tc.expectedStartValue != "" {
+				assert.Equal(t, tc.expectedStartValue, cfg.StartTimeValue)
+			}
+			if tc.expectedEndParam != "" {
+				assert.Equal(t, tc.expectedEndParam, cfg.EndTimeParamName)
+			}
+			if tc.expectedEndValue != "" {
+				assert.Equal(t, tc.expectedEndValue, cfg.EndTimeValue)
+			}
+			if tc.expectedFormat != "" {
+				assert.Equal(t, tc.expectedFormat, cfg.TimestampFormat)
+			}
+
+			assert.Len(t, cfg.deprecationWarnings, tc.expectedWarnings)
+			if tc.warnContains != "" {
+				found := false
+				for _, w := range cfg.deprecationWarnings {
+					if strings.Contains(w, tc.warnContains) {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "expected warning containing %q, got %v", tc.warnContains, cfg.deprecationWarnings)
+			}
+		})
+	}
 }

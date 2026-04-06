@@ -16,6 +16,7 @@ package restapireceiver
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -875,12 +876,12 @@ func TestParseOffsetLimitResponse_NoTokenFieldConfigured(t *testing.T) {
 
 func TestBuildPaginationParams_Timestamp_EpochSeconds(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_s",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_s",
 				PageSizeFieldName:  "limit",
 				PageSize:           100,
 			},
@@ -900,12 +901,12 @@ func TestBuildPaginationParams_Timestamp_EpochSeconds(t *testing.T) {
 
 func TestBuildPaginationParams_Timestamp_EpochMilliseconds(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_ms",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_ms",
 				PageSizeFieldName:  "limit",
 				PageSize:           50,
 			},
@@ -925,12 +926,12 @@ func TestBuildPaginationParams_Timestamp_EpochMilliseconds(t *testing.T) {
 
 func TestBuildPaginationParams_Timestamp_EpochMicroseconds(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_us",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_us",
 				PageSizeFieldName:  "limit",
 				PageSize:           100,
 			},
@@ -950,12 +951,12 @@ func TestBuildPaginationParams_Timestamp_EpochMicroseconds(t *testing.T) {
 
 func TestBuildPaginationParams_Timestamp_EpochNanoseconds(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_ns",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_ns",
 				PageSizeFieldName:  "limit",
 				PageSize:           100,
 			},
@@ -975,12 +976,12 @@ func TestBuildPaginationParams_Timestamp_EpochNanoseconds(t *testing.T) {
 
 func TestBuildPaginationParams_Timestamp_EpochSeconds_WithOffset(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_s",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_s",
 			},
 		},
 	}
@@ -998,12 +999,12 @@ func TestBuildPaginationParams_Timestamp_EpochSeconds_WithOffset(t *testing.T) {
 
 func TestBuildPaginationParams_Timestamp_EpochMilliseconds_WithOffset(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_ms",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_ms",
 			},
 		},
 	}
@@ -1021,12 +1022,12 @@ func TestBuildPaginationParams_Timestamp_EpochMilliseconds_WithOffset(t *testing
 
 func TestBuildPaginationParams_Timestamp_EpochMicroseconds_WithOffset(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_us",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_us",
 			},
 		},
 	}
@@ -1044,12 +1045,12 @@ func TestBuildPaginationParams_Timestamp_EpochMicroseconds_WithOffset(t *testing
 
 func TestBuildPaginationParams_Timestamp_EpochNanoseconds_WithOffset(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_ns",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_ns",
 			},
 		},
 	}
@@ -1067,13 +1068,13 @@ func TestBuildPaginationParams_Timestamp_EpochNanoseconds_WithOffset(t *testing.
 
 func TestNewPaginationState_Timestamp_EpochSeconds(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_s",
+		StartTimeValue:     "1735689600",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_s",
-				InitialTimestamp:   "1735689600",
 				PageSize:           100,
 			},
 		},
@@ -1087,13 +1088,13 @@ func TestNewPaginationState_Timestamp_EpochSeconds(t *testing.T) {
 
 func TestNewPaginationState_Timestamp_EpochMilliseconds(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_ms",
+		StartTimeValue:     "1735689600000",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_ms",
-				InitialTimestamp:   "1735689600000",
 				PageSize:           50,
 			},
 		},
@@ -1107,13 +1108,13 @@ func TestNewPaginationState_Timestamp_EpochMilliseconds(t *testing.T) {
 
 func TestNewPaginationState_Timestamp_EpochMicroseconds(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_us",
+		StartTimeValue:     "1735689600000000",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_us",
-				InitialTimestamp:   "1735689600000000",
 				PageSize:           100,
 			},
 		},
@@ -1127,13 +1128,13 @@ func TestNewPaginationState_Timestamp_EpochMicroseconds(t *testing.T) {
 
 func TestNewPaginationState_Timestamp_EpochNanoseconds(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_ns",
+		StartTimeValue:     "1735689600000000000",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_ns",
-				InitialTimestamp:   "1735689600000000000",
 				PageSize:           100,
 			},
 		},
@@ -1147,12 +1148,12 @@ func TestNewPaginationState_Timestamp_EpochNanoseconds(t *testing.T) {
 
 func TestBuildPaginationParams_Timestamp_EpochSecondsFractional(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_s_frac",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_s_frac",
 				PageSizeFieldName:  "limit",
 				PageSize:           100,
 			},
@@ -1173,12 +1174,12 @@ func TestBuildPaginationParams_Timestamp_EpochSecondsFractional(t *testing.T) {
 
 func TestBuildPaginationParams_Timestamp_EpochSecondsFractional_WholeSeconds(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_s_frac",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_s_frac",
 			},
 		},
 	}
@@ -1196,12 +1197,12 @@ func TestBuildPaginationParams_Timestamp_EpochSecondsFractional_WholeSeconds(t *
 
 func TestBuildPaginationParams_Timestamp_EpochSecondsFractional_WithOffset(t *testing.T) {
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_s_frac",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_s_frac",
 			},
 		},
 	}
@@ -1220,13 +1221,13 @@ func TestBuildPaginationParams_Timestamp_EpochSecondsFractional_WithOffset(t *te
 func TestNewPaginationState_Timestamp_EpochSecondsFractional_Ms(t *testing.T) {
 	// "1735689600.123" — millisecond precision fractional seconds
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_s_frac",
+		StartTimeValue:     "1735689600.123",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_s_frac",
-				InitialTimestamp:   "1735689600.123",
 				PageSize:           100,
 			},
 		},
@@ -1241,13 +1242,13 @@ func TestNewPaginationState_Timestamp_EpochSecondsFractional_Ms(t *testing.T) {
 func TestNewPaginationState_Timestamp_EpochSecondsFractional_Us(t *testing.T) {
 	// "1735689600.123456" — microsecond precision fractional seconds
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_s_frac",
+		StartTimeValue:     "1735689600.123456",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_s_frac",
-				InitialTimestamp:   "1735689600.123456",
 				PageSize:           50,
 			},
 		},
@@ -1262,13 +1263,13 @@ func TestNewPaginationState_Timestamp_EpochSecondsFractional_Us(t *testing.T) {
 func TestNewPaginationState_Timestamp_EpochSecondsFractional_Ns(t *testing.T) {
 	// "1735689600.123456789" — nanosecond precision fractional seconds
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_s_frac",
+		StartTimeValue:     "1735689600.123456789",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_s_frac",
-				InitialTimestamp:   "1735689600.123456789",
 				PageSize:           50,
 			},
 		},
@@ -1283,13 +1284,13 @@ func TestNewPaginationState_Timestamp_EpochSecondsFractional_Ns(t *testing.T) {
 func TestNewPaginationState_Timestamp_EpochSecondsFractional_WholeSeconds(t *testing.T) {
 	// "1735689600" — whole seconds with epoch_s_frac format
 	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_s_frac",
+		StartTimeValue:     "1735689600",
 		Pagination: PaginationConfig{
 			Mode: paginationModeTimestamp,
 			Timestamp: TimestampPagination{
-				ParamName:          "since",
 				TimestampFieldName: "ts",
-				TimestampFormat:    "epoch_s_frac",
-				InitialTimestamp:   "1735689600",
 				PageSize:           100,
 			},
 		},
@@ -1499,4 +1500,269 @@ func TestParsePaginationResponse_WithDataArray(t *testing.T) {
 	hasMore, err := parsePaginationResponse(cfg, responseMap, data, state, zap.NewNop())
 	require.NoError(t, err)
 	require.True(t, hasMore) // Full page of 10 items
+}
+
+func TestBuildPaginationParams_Timestamp_EndParam(t *testing.T) {
+	cfg := &Config{
+		StartTimeParamName: "start_time",
+		EndTimeParamName:   "end_time",
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				TimestampFieldName: "ts",
+				PageSizeFieldName:  "limit",
+				PageSize:           100,
+			},
+		},
+	}
+
+	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	before := time.Now().UTC()
+	state := newPaginationState(cfg)
+	after := time.Now().UTC()
+	state.CurrentTimestamp = ts
+
+	params := buildPaginationParams(cfg, state)
+
+	// Start param should be the configured timestamp
+	require.Equal(t, "2025-01-01T00:00:00Z", params.Get("start_time"))
+
+	// End param should be approximately now
+	endStr := params.Get("end_time")
+	require.NotEmpty(t, endStr)
+	endTime, err := time.Parse(time.RFC3339, endStr)
+	require.NoError(t, err)
+	require.False(t, endTime.Before(before.Truncate(time.Second)))
+	require.False(t, endTime.After(after.Add(time.Second)))
+
+	require.Equal(t, "100", params.Get("limit"))
+}
+
+func TestBuildPaginationParams_Timestamp_EndParam_Epoch(t *testing.T) {
+	cfg := &Config{
+		StartTimeParamName: "since",
+		EndTimeParamName:   "until",
+		TimestampFormat:    "epoch_s",
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				TimestampFieldName: "ts",
+				PageSize:           50,
+			},
+		},
+	}
+
+	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	before := time.Now().UTC()
+	state := newPaginationState(cfg)
+	state.CurrentTimestamp = ts
+
+	params := buildPaginationParams(cfg, state)
+
+	require.Equal(t, "1735689600", params.Get("since"))
+
+	endStr := params.Get("until")
+	require.NotEmpty(t, endStr)
+	// Parse the epoch value and verify it's close to now
+	var endEpoch int64
+	_, err := fmt.Sscanf(endStr, "%d", &endEpoch)
+	require.NoError(t, err)
+	require.InDelta(t, before.Unix(), endEpoch, 2)
+}
+
+func TestBuildPaginationParams_Timestamp_EndParam_FixedValue(t *testing.T) {
+	cfg := &Config{
+		StartTimeParamName: "start_time",
+		EndTimeParamName:   "end_time",
+		EndTimeValue:       "2025-06-01T00:00:00Z",
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				TimestampFieldName: "ts",
+				PageSizeFieldName:  "limit",
+				PageSize:           100,
+			},
+		},
+	}
+
+	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	state := newPaginationState(cfg)
+	state.CurrentTimestamp = ts
+
+	params := buildPaginationParams(cfg, state)
+	require.Equal(t, "2025-01-01T00:00:00Z", params.Get("start_time"))
+	require.Equal(t, "2025-06-01T00:00:00Z", params.Get("end_time"))
+	require.Equal(t, "100", params.Get("limit"))
+}
+
+func TestBuildPaginationParams_Timestamp_EndParam_FixedEpoch(t *testing.T) {
+	cfg := &Config{
+		StartTimeParamName: "since",
+		EndTimeParamName:   "until",
+		EndTimeValue:       "1748736000",
+		TimestampFormat:    "epoch_s",
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				TimestampFieldName: "ts",
+				PageSize:           50,
+			},
+		},
+	}
+
+	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	state := newPaginationState(cfg)
+	state.CurrentTimestamp = ts
+
+	params := buildPaginationParams(cfg, state)
+	require.Equal(t, "1735689600", params.Get("since"))
+	require.Equal(t, "1748736000", params.Get("until"))
+}
+
+func TestBuildPaginationParams_Timestamp_NoEndParam(t *testing.T) {
+	cfg := &Config{
+		StartTimeParamName: "since",
+		TimestampFormat:    "epoch_s",
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				TimestampFieldName: "ts",
+				PageSize:           100,
+			},
+		},
+	}
+
+	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	state := &paginationState{
+		CurrentTimestamp: ts,
+		PageSize:         100,
+	}
+
+	params := buildPaginationParams(cfg, state)
+	require.Equal(t, "1735689600", params.Get("since"))
+	require.Empty(t, params.Get("end_time"))
+	require.Empty(t, params.Get("until"))
+}
+
+func TestBuildPaginationParams_TimeBound_OffsetLimit(t *testing.T) {
+	cfg := &Config{
+		StartTimeParamName: "from",
+		StartTimeValue:     "2025-01-01T00:00:00Z",
+		EndTimeParamName:   "to",
+		EndTimeValue:       "2025-06-01T00:00:00Z",
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName: "offset",
+				LimitFieldName:  "limit",
+			},
+		},
+	}
+
+	state := newPaginationState(cfg)
+
+	params := buildPaginationParams(cfg, state)
+	require.Equal(t, "0", params.Get("offset"))
+	require.Equal(t, "10", params.Get("limit"))
+	require.Equal(t, "2025-01-01T00:00:00Z", params.Get("from"))
+	require.Equal(t, "2025-06-01T00:00:00Z", params.Get("to"))
+}
+
+func TestBuildPaginationParams_TimeBound_PageSize(t *testing.T) {
+	cfg := &Config{
+		StartTimeParamName: "since",
+		StartTimeValue:     "1735689600",
+		EndTimeParamName:   "until",
+		EndTimeValue:       "1748736000",
+		TimestampFormat:    "epoch_s",
+		Pagination: PaginationConfig{
+			Mode: paginationModePageSize,
+			PageSize: PageSizePagination{
+				PageNumFieldName:  "page",
+				PageSizeFieldName: "size",
+				StartingPage:      1,
+			},
+		},
+	}
+
+	state := newPaginationState(cfg)
+
+	params := buildPaginationParams(cfg, state)
+	require.Equal(t, "1", params.Get("page"))
+	require.Equal(t, "20", params.Get("size"))
+	require.Equal(t, "1735689600", params.Get("since"))
+	require.Equal(t, "1748736000", params.Get("until"))
+}
+
+func TestBuildPaginationParams_TimeBound_NoPagination(t *testing.T) {
+	cfg := &Config{
+		StartTimeParamName: "start_date",
+		StartTimeValue:     "2025-03-01T00:00:00Z",
+		EndTimeParamName:   "end_date",
+		EndTimeValue:       "now",
+		Pagination: PaginationConfig{
+			Mode: paginationModeNone,
+		},
+	}
+
+	before := time.Now().UTC()
+	state := newPaginationState(cfg)
+	after := time.Now().UTC()
+
+	params := buildPaginationParams(cfg, state)
+
+	require.Equal(t, "2025-03-01T00:00:00Z", params.Get("start_date"))
+
+	// End should be approximately now in RFC3339
+	endStr := params.Get("end_date")
+	require.NotEmpty(t, endStr)
+	endTime, err := time.Parse(time.RFC3339, endStr)
+	require.NoError(t, err)
+	require.False(t, endTime.Before(before.Truncate(time.Second)))
+	require.False(t, endTime.After(after.Add(time.Second)))
+}
+
+func TestBuildPaginationParams_TimeBound_EndTimeOnly(t *testing.T) {
+	cfg := &Config{
+		EndTimeParamName: "before",
+		EndTimeValue:     "2025-12-31T23:59:59Z",
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName: "offset",
+				LimitFieldName:  "limit",
+			},
+		},
+	}
+
+	state := newPaginationState(cfg)
+
+	params := buildPaginationParams(cfg, state)
+	require.Equal(t, "0", params.Get("offset"))
+	require.Equal(t, "10", params.Get("limit"))
+	require.Empty(t, params.Get("from"))
+	require.Equal(t, "2025-12-31T23:59:59Z", params.Get("before"))
+}
+
+func TestBuildPaginationParams_TimeBound_StartTimeNow(t *testing.T) {
+	cfg := &Config{
+		StartTimeParamName: "from",
+		StartTimeValue:     "now",
+		TimestampFormat:    "epoch_s",
+		Pagination: PaginationConfig{
+			Mode: paginationModeNone,
+		},
+	}
+
+	before := time.Now().UTC()
+	state := newPaginationState(cfg)
+
+	params := buildPaginationParams(cfg, state)
+
+	fromStr := params.Get("from")
+	require.NotEmpty(t, fromStr)
+	var fromEpoch int64
+	_, err := fmt.Sscanf(fromStr, "%d", &fromEpoch)
+	require.NoError(t, err)
+	require.InDelta(t, before.Unix(), fromEpoch, 2)
 }
