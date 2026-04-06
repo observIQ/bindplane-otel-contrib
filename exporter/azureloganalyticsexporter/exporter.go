@@ -16,14 +16,19 @@ package azureloganalyticsexporter // import "github.com/observiq/bindplane-otel-
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	azlog "github.com/Azure/azure-sdk-for-go/sdk/azcore/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/monitor/ingestion/azlogs"
+	"github.com/observiq/bindplane-otel-contrib/internal/exporterutils"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter"
+	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.uber.org/zap"
 )
@@ -89,12 +94,12 @@ func (e *azureLogAnalyticsExporter) logsDataPusher(ctx context.Context, ld plog.
 	azureLogAnalyticsLogs, err := e.marshaler.transformLogsToSentinelFormat(ctx, ld)
 
 	if err != nil {
-		return fmt.Errorf("failed to convert logs to Azure Log Analytics format: %w", err)
+		return consumererror.NewPermanent(fmt.Errorf("failed to convert logs to Azure Log Analytics format: %w", err))
 	}
 
 	_, err = e.client.Upload(ctx, e.ruleID, e.streamName, azureLogAnalyticsLogs, nil)
 	if err != nil {
-		return fmt.Errorf("failed to upload logs to Azure Log Analytics: %w", err)
+		return e.classifyError(err)
 	}
 
 	e.logger.Debug("Successfully sent logs to Azure Log Analytics",
@@ -102,6 +107,27 @@ func (e *azureLogAnalyticsExporter) logsDataPusher(ctx context.Context, ld plog.
 	)
 
 	return nil
+}
+
+// classifyError inspects an error returned by the Azure SDK and returns
+// a permanent, throttle-retry, or plain (retryable) error as appropriate.
+func (e *azureLogAnalyticsExporter) classifyError(err error) error {
+	var respErr *azcore.ResponseError
+	if !errors.As(err, &respErr) {
+		// Network error, timeout, etc. — transient, let exporterhelper retry
+		return fmt.Errorf("failed to upload logs to Azure Log Analytics: %w", err)
+	}
+
+	statusErr := fmt.Errorf("failed to upload logs to Azure Log Analytics (HTTP %d): %w", respErr.StatusCode, err)
+
+	shouldRetry, retryDelay := exporterutils.ShouldRetryHTTP(respErr.RawResponse)
+	if shouldRetry {
+		if retryDelay > 0 {
+			return exporterhelper.NewThrottleRetry(statusErr, retryDelay)
+		}
+		return statusErr
+	}
+	return consumererror.NewPermanent(statusErr)
 }
 
 // Start starts the exporter
