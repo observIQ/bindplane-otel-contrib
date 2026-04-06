@@ -248,7 +248,7 @@ func TestConfigFingerprint_DifferentConfigs(t *testing.T) {
 
 	// Changing URL should change the fingerprint
 	differentURL := &Config{
-		URL: "https://api.example.com/audit-logs",
+		URL:        "https://api.example.com/audit-logs",
 		Pagination: baseCfg.Pagination,
 	}
 	require.NotEqual(t, baseFingerprint, configFingerprint(differentURL),
