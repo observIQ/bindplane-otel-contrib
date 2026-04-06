@@ -35,7 +35,7 @@ The following config is an example configuration of the log count processor usin
 
 ```yaml
 receivers:
-  filelog:
+  file_log:
     include: [./example/apache.log]
   route/example:
 processors:
@@ -49,7 +49,7 @@ exporters:
 service:
   pipelines:
     logs:
-      receivers: [filelog]
+      receivers: [file_log]
       processors: [batch, logcount]
       exporters: [logging]
     metrics:

@@ -37,7 +37,7 @@ The following config is an example configuration of the metric extract processor
 
 ```yaml
 receivers:
-  filelog:
+  file_log:
     include: [./example/apache.log]
   route/example:
 processors:
@@ -55,7 +55,7 @@ exporters:
 service:
   pipelines:
     logs:
-      receivers: [filelog]
+      receivers: [file_log]
       processors: [batch, metricextract]
       exporters: [logging]
     metrics:
