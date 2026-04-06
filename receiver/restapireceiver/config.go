@@ -60,6 +60,46 @@ func (m *AuthMode) UnmarshalText(text []byte) error {
 	}
 }
 
+// ResponseFormat defines the response format for the REST API receiver.
+type ResponseFormat string
+
+const (
+	responseFormatJSON   ResponseFormat = "json"
+	responseFormatNDJSON ResponseFormat = "ndjson"
+)
+
+// UnmarshalText implements the encoding.TextUnmarshaler interface
+func (f *ResponseFormat) UnmarshalText(text []byte) error {
+	format := ResponseFormat(text)
+	switch format {
+	case responseFormatJSON, responseFormatNDJSON:
+		*f = format
+		return nil
+	default:
+		return fmt.Errorf("invalid response_format: %s, must be one of: json, ndjson", text)
+	}
+}
+
+// ResponseSource defines where pagination response attributes are extracted from.
+type ResponseSource string
+
+const (
+	responseSourceBody   ResponseSource = "body"
+	responseSourceHeader ResponseSource = "header"
+)
+
+// UnmarshalText implements the encoding.TextUnmarshaler interface
+func (s *ResponseSource) UnmarshalText(text []byte) error {
+	src := ResponseSource(text)
+	switch src {
+	case responseSourceBody, responseSourceHeader:
+		*s = src
+		return nil
+	default:
+		return fmt.Errorf("invalid response_source: %s, must be one of: body, header", text)
+	}
+}
+
 // PaginationMode defines the pagination mode for the REST API receiver.
 type PaginationMode string
 
@@ -87,8 +127,16 @@ type Config struct {
 	// URL is the base URL for the REST API endpoint (required).
 	URL string `mapstructure:"url"`
 
+	// ResponseFormat defines the format of the API response body.
+	// "json" (default): standard JSON array or object with a data field.
+	// "ndjson": newline-delimited JSON where each line is a separate JSON object.
+	//   In NDJSON mode, the last line is treated as metadata (e.g., containing pagination cursors)
+	//   and is not included in the data output.
+	ResponseFormat ResponseFormat `mapstructure:"response_format"`
+
 	// ResponseField is the name of the field in the response that contains the array of items.
 	// If empty, the response is assumed to be a top-level array.
+	// Not used when response_format is "ndjson".
 	ResponseField string `mapstructure:"response_field"`
 
 	// Auth defines authentication configuration.
@@ -209,6 +257,13 @@ type PaginationConfig struct {
 	// Mode is the pagination mode: "none", "offset_limit", or "page_size".
 	Mode PaginationMode `mapstructure:"mode"`
 
+	// ResponseSource controls where pagination response attributes are extracted from.
+	// "body" (default): extract from the response body (or NDJSON metadata line).
+	// "header": extract from HTTP response headers.
+	// Affects all response-based pagination fields: next_offset_field_name,
+	// total_record_count_field, and total_pages_field_name.
+	ResponseSource ResponseSource `mapstructure:"response_source"`
+
 	// OffsetLimit defines offset/limit pagination.
 	OffsetLimit OffsetLimitPagination `mapstructure:"offset_limit"`
 
@@ -218,7 +273,7 @@ type PaginationConfig struct {
 	// Timestamp defines timestamp-based pagination.
 	Timestamp TimestampPagination `mapstructure:"timestamp"`
 
-	// TotalRecordCountField is the name of the field in the response that contains the total record count.
+	// TotalRecordCountField is the name of the field or header that contains the total record count.
 	TotalRecordCountField string `mapstructure:"total_record_count_field"`
 
 	// PageLimit is the maximum number of pages to fetch (0 = no limit).
@@ -239,8 +294,9 @@ type OffsetLimitPagination struct {
 	// LimitFieldName is the name of the query parameter for limit.
 	LimitFieldName string `mapstructure:"limit_field_name"`
 
-	// NextOffsetFieldName is the name of the field in the response that contains the next offset token.
+	// NextOffsetFieldName is the name of the field or header that contains the next offset token.
 	// When set, the receiver uses token-based (cursor) pagination instead of numeric offsets.
+	// Where the value is extracted from depends on pagination.response_source.
 	NextOffsetFieldName string `mapstructure:"next_offset_field_name"`
 }
 
@@ -297,6 +353,19 @@ type TimestampPagination struct {
 func (c *Config) Validate() error {
 	if c.URL == "" {
 		return fmt.Errorf("url is required")
+	}
+
+	// Apply default response format
+	if c.ResponseFormat == "" {
+		c.ResponseFormat = responseFormatJSON
+	}
+
+	// Validate response format
+	switch c.ResponseFormat {
+	case responseFormatJSON, responseFormatNDJSON:
+		// Valid formats
+	default:
+		return fmt.Errorf("invalid response_format: %s, must be one of: json, ndjson", c.ResponseFormat)
 	}
 
 	// Validate auth
@@ -409,6 +478,19 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid pagination mode: %s, must be one of: none, offset_limit, page_size, timestamp", c.Pagination.Mode)
 	}
 
+	// Default response_source to body
+	if c.Pagination.ResponseSource == "" {
+		c.Pagination.ResponseSource = responseSourceBody
+	}
+
+	// Validate response_source
+	switch c.Pagination.ResponseSource {
+	case responseSourceBody, responseSourceHeader:
+		// Valid
+	default:
+		return fmt.Errorf("invalid response_source: %s, must be one of: body, header", c.Pagination.ResponseSource)
+	}
+
 	// Validate pagination mode specific requirements
 	switch c.Pagination.Mode {
 	case paginationModeOffsetLimit:
@@ -417,6 +499,10 @@ func (c *Config) Validate() error {
 		}
 		if c.Pagination.OffsetLimit.LimitFieldName == "" {
 			return fmt.Errorf("limit_field_name is required when pagination.mode is offset_limit")
+		}
+		// next_offset_field_name is required when response_source is header
+		if c.Pagination.ResponseSource == responseSourceHeader && c.Pagination.OffsetLimit.NextOffsetFieldName == "" {
+			return fmt.Errorf("next_offset_field_name is required when response_source is header")
 		}
 	case paginationModePageSize:
 		if c.Pagination.PageSize.PageNumFieldName == "" {

@@ -35,7 +35,7 @@ The following config is an example configuration of the `sampling` processor wit
 
 ```yaml
 receivers:
-  filelog:
+  file_log:
     include: [/tmp/example/apache.log]
 processors:
   sampling:
@@ -46,7 +46,7 @@ exporters:
 service:
   pipelines:
     logs:
-      receivers: [filelog]
+      receivers: [file_log]
       processors: [sampling]
       exporters: [logging]
 ```
