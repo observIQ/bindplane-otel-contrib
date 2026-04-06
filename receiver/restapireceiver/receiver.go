@@ -44,7 +44,7 @@ type checkpointData struct {
 	// ConfigFingerprint is a hash of the query-defining config fields (URL, pagination settings).
 	// When the fingerprint changes between runs, the checkpoint is considered stale and is
 	// discarded. This prevents a checkpoint from one receiver configuration from silently
-	// applying to a different configuration (e.g., different URL, changed initial_timestamp,
+	// applying to a different configuration (e.g., different URL, changed start_time_value,
 	// or switched pagination mode).
 	ConfigFingerprint string `json:"config_fingerprint,omitempty"`
 }
@@ -101,7 +101,7 @@ func (b *baseReceiver) initializeStorage(ctx context.Context, host component.Hos
 // If no checkpoint was loaded, creates a fresh state from config.
 // If a checkpoint was loaded, reconciles it with the current config to handle
 // cases where the checkpoint is stale or incomplete (e.g., a zero timestamp
-// that would silently override a configured initial_timestamp).
+// that would silently override a configured start_time_value).
 func (b *baseReceiver) initializePagination() {
 	if b.paginationState == nil {
 		b.paginationState = newPaginationState(b.cfg)
@@ -115,7 +115,7 @@ func (b *baseReceiver) initializePagination() {
 // reconcileCheckpointWithConfig handles edge cases for checkpoints that passed fingerprint
 // validation (i.e., the config hasn't changed) but still have incomplete state.
 // This covers the scenario where the receiver crashed or was stopped before completing
-// its first poll — the checkpoint exists with a zero timestamp even though initial_timestamp
+// its first poll — the checkpoint exists with a zero timestamp even though start_time_value
 // is configured. Without this fix, the zero timestamp would cause the timestamp query
 // parameter to be omitted, making the API return all historical data.
 //
@@ -126,17 +126,17 @@ func (b *baseReceiver) reconcileCheckpointWithConfig() {
 		configState := newPaginationState(b.cfg)
 
 		if b.paginationState.CurrentTimestamp.IsZero() && !configState.CurrentTimestamp.IsZero() {
-			// The checkpoint has a zero timestamp but the config specifies an initial_timestamp.
+			// The checkpoint has a zero timestamp but the config specifies a start_time_value.
 			// Prefer the config value to avoid fetching all historical data.
-			b.logger.Warn("loaded checkpoint has zero timestamp; using configured initial_timestamp instead",
-				zap.String("initial_timestamp", b.cfg.Pagination.Timestamp.InitialTimestamp))
+			b.logger.Warn("loaded checkpoint has zero timestamp; using configured start_time_value instead",
+				zap.String("start_time_value", b.cfg.StartTimeValue))
 			b.paginationState.CurrentTimestamp = configState.CurrentTimestamp
 		} else if !b.paginationState.CurrentTimestamp.IsZero() && !configState.CurrentTimestamp.IsZero() {
 			// Checkpoint has a valid timestamp — it represents real polling progress.
 			// Log so operators know the config value is not being used.
-			b.logger.Info("using timestamp from storage checkpoint; configured initial_timestamp will not apply",
+			b.logger.Info("using timestamp from storage checkpoint; configured start_time_value will not apply",
 				zap.Time("checkpoint_timestamp", b.paginationState.CurrentTimestamp),
-				zap.String("configured_initial_timestamp", b.cfg.Pagination.Timestamp.InitialTimestamp))
+				zap.String("configured_start_time_value", b.cfg.StartTimeValue))
 		}
 	}
 }
@@ -202,7 +202,9 @@ func (b *baseReceiver) adjustPollInterval(result pollResult) {
 // receiver fetches. When any of these fields change between runs, a stored checkpoint
 // is no longer valid because it tracks pagination state for a different query.
 //
-// Included fields: URL, and the full pagination config (mode, field names, initial_timestamp, etc.).
+// Included fields: URL, the full pagination config (mode, field names, etc.), and the
+// top-level time parameters (start_time_param_name, start_time_value, end_time_param_name,
+// end_time_value, timestamp_format).
 // Excluded fields: auth credentials (same query, different creds), poll intervals (timing only),
 // headers, storage ID, response format/field, and metrics config.
 func configFingerprint(cfg *Config) string {
@@ -219,6 +221,18 @@ func configFingerprint(cfg *Config) string {
 	h.Write([]byte(cfg.URL))
 	h.Write([]byte{0}) // separator to avoid URL+pagination collisions
 	h.Write(paginationBytes)
+	// Include top-level time parameters that were moved out of pagination config.
+	// These affect what data is fetched and must invalidate the checkpoint when changed.
+	h.Write([]byte{0})
+	h.Write([]byte(cfg.StartTimeParamName))
+	h.Write([]byte{0})
+	h.Write([]byte(cfg.StartTimeValue))
+	h.Write([]byte{0})
+	h.Write([]byte(cfg.EndTimeParamName))
+	h.Write([]byte{0})
+	h.Write([]byte(cfg.EndTimeValue))
+	h.Write([]byte{0})
+	h.Write([]byte(cfg.TimestampFormat))
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
@@ -243,7 +257,7 @@ func (b *baseReceiver) loadCheckpoint(ctx context.Context) {
 	}
 
 	// Validate the checkpoint against the current config. If the config has changed
-	// (different URL, pagination settings, initial_timestamp, etc.), the checkpoint
+	// (different URL, pagination settings, start_time_value, etc.), the checkpoint
 	// is stale and must be discarded to avoid applying pagination state from a
 	// different query configuration.
 	currentFingerprint := configFingerprint(b.cfg)

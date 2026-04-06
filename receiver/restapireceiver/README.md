@@ -374,14 +374,14 @@ receivers:
     auth_mode: bearer
     bearer:
       token: "token"
+    start_time_param_name: "t0"
+    start_time_value: "2024-01-01T00:00:00Z"
     pagination:
       mode: timestamp
       timestamp:
-        param_name: "t0"
         timestamp_field_name: "ts"
         page_size_field_name: "perPage"
         page_size: 200
-        initial_timestamp: "2024-01-01T00:00:00Z"
     storage: file_storage
 
 extensions:
@@ -400,13 +400,13 @@ receivers:
     response_field: "events"
     max_poll_interval: 10s
     auth_mode: none
+    start_time_param_name: "min-date"
+    start_time_value: "2025-01-01T00:00:00Z"
+    timestamp_format: "20060102150405" # YYYYMMDDHHMMSS format
     pagination:
       mode: timestamp
       timestamp:
-        param_name: "min-date"
         timestamp_field_name: "timestamp"
-        timestamp_format: "20060102150405" # YYYYMMDDHHMMSS format
-        initial_timestamp: "2025-01-01T00:00:00Z"
 ```
 
 ### Timestamp Pagination with Epoch Format
@@ -422,13 +422,13 @@ receivers:
     auth_mode: bearer
     bearer:
       token: "token"
+    start_time_param_name: "since"
+    start_time_value: "1704067200" # 2024-01-01T00:00:00Z
+    timestamp_format: "epoch_s" # sends ?since=1704067200
     pagination:
       mode: timestamp
       timestamp:
-        param_name: "since"
         timestamp_field_name: "created_at"
-        timestamp_format: "epoch_s" # sends ?since=1704067200
-        initial_timestamp: "1704067200" # 2024-01-01T00:00:00Z
         page_size_field_name: "limit"
         page_size: 100
     storage: file_storage
@@ -546,12 +546,12 @@ The checkpoint includes:
 
 ### Config change detection
 
-Each checkpoint is tagged with a fingerprint derived from the URL and pagination settings. If any of these fields change between restarts (e.g., a different `url`, `initial_timestamp`, or pagination `mode`), the stored checkpoint is discarded and the receiver starts fresh from the new configuration. This prevents a checkpoint from one query configuration from silently applying to a different one.
+Each checkpoint is tagged with a fingerprint derived from the URL, pagination settings, and time parameters (`start_time_param_name`, `start_time_value`, `end_time_param_name`, `end_time_value`, `timestamp_format`). If any of these fields change between restarts (e.g., a different `url`, `start_time_value`, or pagination `mode`), the stored checkpoint is discarded and the receiver starts fresh from the new configuration. This prevents a checkpoint from one query configuration from silently applying to a different one.
 
 Non-query fields like `min_poll_interval`, authentication credentials, and `headers` do not affect the fingerprint.
 
 ### Timestamp pagination and checkpointing
 
-For timestamp-based pagination, the checkpoint preserves the most recent timestamp extracted from API response data. On restart, polling resumes from that timestamp rather than re-fetching historical data. The configured `initial_timestamp` only applies when no valid checkpoint exists (first run, or after the checkpoint is invalidated by a config change).
+For timestamp-based pagination, the checkpoint preserves the most recent timestamp extracted from API response data. On restart, polling resumes from that timestamp rather than re-fetching historical data. The configured `start_time_value` only applies when no valid checkpoint exists (first run, or after the checkpoint is invalidated by a config change).
 
-If the receiver is stopped before completing its first successful poll (resulting in a checkpoint with a zero timestamp), and `initial_timestamp` is configured, the configured value is used instead of the zero timestamp.
+If the receiver is stopped before completing its first successful poll (resulting in a checkpoint with a zero timestamp), and `start_time_value` is configured, the configured value is used instead of the zero timestamp.
