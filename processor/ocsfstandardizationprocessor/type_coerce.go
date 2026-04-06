@@ -50,7 +50,7 @@ func coerceToInt(value any) any {
 	case float64:
 		return int(v)
 	case string:
-		if i, err := strconv.ParseInt(v, 0, 64); err == nil {
+		if i, err := strconv.ParseInt(v, 0, 0); err == nil {
 			return int(i)
 		}
 		return value
