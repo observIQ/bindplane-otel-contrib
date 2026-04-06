@@ -3,9 +3,9 @@ module github.com/observiq/bindplane-otel-contrib/processor/datapointcountproces
 go 1.25.7
 
 require (
-	github.com/observiq/bindplane-otel-contrib/pkg/counter v1.1.1
-	github.com/observiq/bindplane-otel-contrib/pkg/expr v1.1.1
-	github.com/observiq/bindplane-otel-contrib/receiver/routereceiver v1.1.1
+	github.com/observiq/bindplane-otel-contrib/pkg/counter v1.2.0
+	github.com/observiq/bindplane-otel-contrib/pkg/expr v1.2.0
+	github.com/observiq/bindplane-otel-contrib/receiver/routereceiver v1.2.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl v0.149.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.55.0
