@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/observiq/bindplane-otel-contrib/pkg/expr"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottllog"
@@ -26,7 +27,6 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
-	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
 
 	"go.uber.org/zap"
 )
@@ -84,20 +84,76 @@ func (m *azureLogAnalyticsMarshaler) transformLogsToSentinelFormat(ctx context.C
 	if m.cfg.RawLogField != "" {
 		return m.transformRawLogsToAzureLogAnalyticsFormat(ctx, ld)
 	}
-	td := plogotlp.NewExportRequestFromLogs(ld)
+	outputSlice := make([]map[string]interface{}, 0)
 
-	jsonData, err := td.MarshalJSON()
+	// reservedKeys are metadata fields set by the exporter. If a map body
+	// contains any of these keys, the body value will be overwritten by
+	// the metadata value.
+	reservedKeys := []string{"TimeGenerated", "SeverityText", "SeverityNumber", "TraceId", "SpanId"}
+
+	for i := 0; i < ld.ResourceLogs().Len(); i++ {
+		resourceLog := ld.ResourceLogs().At(i)
+
+		for j := 0; j < resourceLog.ScopeLogs().Len(); j++ {
+			scopeLog := resourceLog.ScopeLogs().At(j)
+
+			for k := 0; k < scopeLog.LogRecords().Len(); k++ {
+				logRecord := scopeLog.LogRecords().At(k)
+
+				var entry map[string]interface{}
+
+				if logRecord.Body().Type() == pcommon.ValueTypeMap {
+					entry = logRecord.Body().Map().AsRaw()
+					// Warn if any body fields will be overwritten by metadata
+					for _, rk := range reservedKeys {
+						if _, ok := entry[rk]; ok {
+							m.logger.Warn("log body map field will be overwritten by metadata",
+								zap.String("key", rk))
+						}
+					}
+				} else {
+					entry = map[string]interface{}{
+						"RawData": logRecord.Body().AsString(),
+					}
+				}
+
+				// TimeGenerated
+				ts := logRecord.Timestamp().AsTime()
+				if ts.IsZero() {
+					ts = logRecord.ObservedTimestamp().AsTime()
+				}
+				if ts.IsZero() {
+					ts = time.Now()
+				}
+				entry["TimeGenerated"] = ts.Format(time.RFC3339)
+
+				// Severity
+				entry["SeverityText"] = logRecord.SeverityText()
+				entry["SeverityNumber"] = int32(logRecord.SeverityNumber())
+
+				// Trace context (only if non-empty)
+				if traceID := logRecord.TraceID().String(); traceID != "" && traceID != "00000000000000000000000000000000" {
+					entry["TraceId"] = traceID
+				}
+				if spanID := logRecord.SpanID().String(); spanID != "" && spanID != "0000000000000000" {
+					entry["SpanId"] = spanID
+				}
+
+				outputSlice = append(outputSlice, entry)
+			}
+		}
+	}
+
+	jsonData, err := json.Marshal(outputSlice)
 	if err != nil {
 		return nil, fmt.Errorf("marshal json: %w", err)
 	}
-
-	wrappedData := append([]byte{'['}, append(jsonData, ']')...)
-	return wrappedData, nil
+	return jsonData, nil
 }
 
 // transformRawLogsToAzureLogAnalyticsFormat transforms logs to Azure Log Analytics format using the raw log approach
 func (m *azureLogAnalyticsMarshaler) transformRawLogsToAzureLogAnalyticsFormat(ctx context.Context, ld plog.Logs) ([]byte, error) {
-	var azureLogAnalyticsLogs []map[string]interface{}
+	azureLogAnalyticsLogs := make([]map[string]interface{}, 0)
 
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		resourceLog := ld.ResourceLogs().At(i)
