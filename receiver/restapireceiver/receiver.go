@@ -202,37 +202,29 @@ func (b *baseReceiver) adjustPollInterval(result pollResult) {
 // receiver fetches. When any of these fields change between runs, a stored checkpoint
 // is no longer valid because it tracks pagination state for a different query.
 //
-// Included fields: URL, the full pagination config (mode, field names, etc.), and the
-// top-level time parameters (start_time_param_name, start_time_value, end_time_param_name,
-// end_time_value, timestamp_format).
-// Excluded fields: auth credentials (same query, different creds), poll intervals (timing only),
-// headers, storage ID, response format/field, and metrics config.
+// Included: URL, pagination mode, start_time_value, end_time_value, starting_offset, starting_page.
+// These are the fields where a change means "I want different data" and the checkpoint is stale.
+//
+// Excluded (changing these does NOT invalidate the checkpoint):
+//   - Query param names (start_time_param_name, end_time_param_name, offset_field_name, etc.)
+//     — renaming the param key doesn't change what data is fetched.
+//   - timestamp_format — changes serialization of the same time.Time, not the query range.
+//   - page_size, page_limit — throughput knobs, not query-defining.
+//   - response_source, field names for reading responses — how to parse, not what to fetch.
+//   - Auth, headers, poll intervals, storage ID, response format, metrics config.
 func configFingerprint(cfg *Config) string {
-	// Marshal the pagination config to get a stable representation of all its fields.
-	// This automatically captures any new fields added to PaginationConfig in the future.
-	paginationBytes, err := jsoniter.Marshal(cfg.Pagination)
-	if err != nil {
-		// Should never happen with a valid config struct, but fall back to
-		// an empty hash so we don't crash — the checkpoint will just be treated as new.
-		paginationBytes = []byte("{}")
-	}
-
 	h := sha256.New()
 	h.Write([]byte(cfg.URL))
-	h.Write([]byte{0}) // separator to avoid URL+pagination collisions
-	h.Write(paginationBytes)
-	// Include top-level time parameters that were moved out of pagination config.
-	// These affect what data is fetched and must invalidate the checkpoint when changed.
 	h.Write([]byte{0})
-	h.Write([]byte(cfg.StartTimeParamName))
+	h.Write([]byte(cfg.Pagination.Mode))
 	h.Write([]byte{0})
 	h.Write([]byte(cfg.StartTimeValue))
 	h.Write([]byte{0})
-	h.Write([]byte(cfg.EndTimeParamName))
-	h.Write([]byte{0})
 	h.Write([]byte(cfg.EndTimeValue))
 	h.Write([]byte{0})
-	h.Write([]byte(cfg.TimestampFormat))
+	h.Write([]byte(fmt.Sprintf("%d", cfg.Pagination.OffsetLimit.StartingOffset)))
+	h.Write([]byte{0})
+	h.Write([]byte(fmt.Sprintf("%d", cfg.Pagination.PageSize.StartingPage)))
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
