@@ -39,6 +39,7 @@ func NewFactory() receiver.Factory {
 
 func createDefaultConfig() component.Config {
 	return &Config{
+		MaxWatches: 65536,
 		Hashing: HashingConfig{
 			Debounce: 2 * time.Second,
 			MaxBytes: 32 * 1024 * 1024,

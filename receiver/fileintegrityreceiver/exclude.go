@@ -15,42 +15,61 @@
 package fileintegrityreceiver
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// compileExcludes builds matchers for exclude patterns: glob patterns use filepath.Match;
-// non-glob patterns match the path exactly or as a directory prefix.
-// Matchers must be passed a path already normalized with filepath.Clean.
-func compileExcludes(patterns []string) []func(string) bool {
-	out := make([]func(string) bool, 0, len(patterns))
+// PathMatcher reports whether a filepath.Clean'd path should be excluded.
+type PathMatcher func(string) bool
+
+// CompileExcludes builds matchers from a list of exclude patterns.
+// Glob patterns (*, ?, []) use filepath.Match; plain patterns match
+// exactly or as a directory prefix. Returns an error if any glob is malformed.
+func CompileExcludes(patterns []string) ([]PathMatcher, error) {
+	out := make([]PathMatcher, 0, len(patterns))
 	for _, raw := range patterns {
 		if raw == "" {
 			continue
 		}
 		pat := filepath.Clean(raw)
-		isGlob := strings.ContainsAny(pat, "*?[]")
-		if isGlob {
-			p := pat
-			out = append(out, func(cleanPath string) bool {
-				m, err := filepath.Match(p, cleanPath)
-				return err == nil && m
-			})
-			continue
+
+		if isGlob(pat) {
+			m, err := newGlobMatcher(pat)
+			if err != nil {
+				return nil, fmt.Errorf("bad exclude pattern %q: %w", raw, err)
+			}
+			out = append(out, m)
+		} else {
+			out = append(out, newPrefixMatcher(pat))
 		}
-		p := pat
-		out = append(out, func(cleanPath string) bool {
-			if cleanPath == p {
-				return true
-			}
-			sep := string(os.PathSeparator)
-			prefix := p
-			if !strings.HasSuffix(prefix, sep) {
-				prefix += sep
-			}
-			return strings.HasPrefix(cleanPath, prefix)
-		})
 	}
-	return out
+	return out, nil
+}
+
+// isGlob reports whether a pattern contains glob meta-characters.
+func isGlob(pattern string) bool {
+	return strings.ContainsAny(pattern, "*?[]")
+}
+
+// newGlobMatcher returns a matcher that uses filepath.Match.
+// It validates the pattern eagerly so callers fail fast on bad syntax.
+func newGlobMatcher(pattern string) (PathMatcher, error) {
+	if _, err := filepath.Match(pattern, ""); err != nil {
+		return nil, err
+	}
+	return func(path string) bool {
+		matched, _ := filepath.Match(pattern, path)
+		return matched
+	}, nil
+}
+
+// newPrefixMatcher returns a matcher that matches an exact path
+// or anything nested under it as a directory.
+func newPrefixMatcher(dir string) PathMatcher {
+	prefix := dir + string(os.PathSeparator)
+	return func(path string) bool {
+		return path == dir || strings.HasPrefix(path, prefix)
+	}
 }

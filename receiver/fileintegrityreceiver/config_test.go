@@ -66,4 +66,11 @@ func TestCreateDefaultConfig(t *testing.T) {
 	require.Equal(t, 2*time.Second, cfg.Hashing.Debounce)
 	require.Equal(t, int64(32*1024*1024), cfg.Hashing.MaxBytes)
 	require.False(t, cfg.Hashing.Enabled)
+	require.Equal(t, 65536, cfg.MaxWatches)
+}
+
+func TestConfigValidate_MaxWatchesNegative(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{Paths: []string{dir}, MaxWatches: -1}
+	require.EqualError(t, cfg.Validate(), "max_watches must be non-negative")
 }

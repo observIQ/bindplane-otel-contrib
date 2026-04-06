@@ -23,9 +23,10 @@ import (
 
 // HashingConfig configures optional SHA-256 hashing of file contents on applicable events.
 type HashingConfig struct {
-	Enabled  bool          `mapstructure:"enabled"`
-	Debounce time.Duration `mapstructure:"debounce"`
-	MaxBytes int64         `mapstructure:"max_bytes"`
+	Enabled     bool          `mapstructure:"enabled"`
+	Debounce    time.Duration `mapstructure:"debounce"`
+	MaxDebounce time.Duration `mapstructure:"max_debounce"`
+	MaxBytes    int64         `mapstructure:"max_bytes"`
 }
 
 // Config configures the file integrity monitoring receiver.
@@ -38,6 +39,12 @@ type Config struct {
 
 	// Exclude lists glob patterns (using path/filepath syntax) or plain paths; plain paths match the path itself or any path under that prefix.
 	Exclude []string `mapstructure:"exclude"`
+
+	// MaxWatches limits the number of directory watches registered with fsnotify.
+	// When the limit is reached, additional directories are skipped with a warning.
+	// This prevents exhausting inotify watches or file descriptors on large filesystems.
+	// 0 means use the default (65536).
+	MaxWatches int `mapstructure:"max_watches"`
 
 	// Hashing enables debounced SHA-256 hashing for regular files on create/write events.
 	Hashing HashingConfig `mapstructure:"hashing"`
@@ -56,9 +63,15 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("paths: stat %q: %w", p, err)
 		}
 	}
+	if c.MaxWatches < 0 {
+		return errors.New("max_watches must be non-negative")
+	}
 	if c.Hashing.Enabled {
 		if c.Hashing.Debounce <= 0 {
 			return errors.New("hashing.debounce must be positive when hashing is enabled")
+		}
+		if c.Hashing.MaxDebounce > 0 && c.Hashing.MaxDebounce < c.Hashing.Debounce {
+			return errors.New("hashing.max_debounce must be zero (disabled) or >= hashing.debounce")
 		}
 		if c.Hashing.MaxBytes <= 0 {
 			return errors.New("hashing.max_bytes must be positive when hashing is enabled")

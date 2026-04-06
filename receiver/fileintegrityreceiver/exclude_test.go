@@ -27,9 +27,16 @@ func TestCompileExcludes(t *testing.T) {
 	nested := filepath.Join(root, "fim")
 	require.NoError(t, os.MkdirAll(nested, 0o755))
 
-	ms := compileExcludes([]string{filepath.Join(nested, "*"), "*.tmp"})
+	ms, err := CompileExcludes([]string{filepath.Join(nested, "*"), "*.tmp"})
+	require.NoError(t, err)
+	require.Len(t, ms, 2)
+
+	// First matcher is a glob (filepath.Join(nested, "*")); should match files
+	// directly under nested but not outside it.
 	require.True(t, ms[0](filepath.Clean(filepath.Join(nested, "x"))))
 	require.False(t, ms[0](filepath.Clean(filepath.Join(root, "other", "x"))))
+
+	// Second matcher comes from a glob; should match *.tmp but not other extensions.
 	require.True(t, ms[1](filepath.Clean("foo.tmp")))
 	require.False(t, ms[1](filepath.Clean("foo.txt")))
 }
