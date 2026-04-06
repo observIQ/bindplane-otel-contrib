@@ -28,7 +28,7 @@ The snapshot processor is used in custom distributions of the collector to provi
 The snapshot processor may be used in a pipeline in order to temporarily catch telemetry data in a buffer, which an opamp server may request:
 ```yaml
 receivers:
-  filelog:
+  file_log:
     include: [/var/log/logfile.txt]
 
 processors:
@@ -49,7 +49,7 @@ service:
   extensions: [bindplane, opamp]
   pipelines:
     logs:
-      receivers: [filelog]
+      receivers: [file_log]
       processors: [snapshotprocessor]
       exporters: [nop]
 ```

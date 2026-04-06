@@ -367,6 +367,30 @@ func TestConfig_Validate(t *testing.T) {
 			expectedErr: "",
 		},
 		{
+			name: "valid ndjson response format",
+			config: &Config{
+				URL:            "https://api.example.com/data",
+				ResponseFormat: responseFormatNDJSON,
+				AuthMode:       authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "invalid response format",
+			config: &Config{
+				URL:            "https://api.example.com/data",
+				ResponseFormat: ResponseFormat("xml"),
+				AuthMode:       authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid response_format: xml, must be one of: json, ndjson",
+		},
+		{
 			name: "invalid pagination mode",
 			config: &Config{
 				URL:      "https://api.example.com/data",
@@ -434,6 +458,56 @@ func TestConfig_Validate(t *testing.T) {
 						OffsetFieldName: "offset",
 						LimitFieldName:  "limit",
 						StartingOffset:  0,
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "valid offset_limit with header response_source",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode:           paginationModeOffsetLimit,
+					ResponseSource: responseSourceHeader,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName:     "offset",
+						LimitFieldName:      "limit",
+						NextOffsetFieldName: "X-Next-Offset",
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "header response_source requires next_offset_field_name for offset_limit",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode:           paginationModeOffsetLimit,
+					ResponseSource: responseSourceHeader,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "offset",
+						LimitFieldName:  "limit",
+					},
+				},
+			},
+			expectedErr: "next_offset_field_name is required when response_source is header",
+		},
+		{
+			name: "valid page_size with header response_source",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode:           paginationModePageSize,
+					ResponseSource: responseSourceHeader,
+					PageSize: PageSizePagination{
+						PageNumFieldName:    "page",
+						PageSizeFieldName:   "per_page",
+						TotalPagesFieldName: "X-Total-Pages",
 					},
 				},
 			},

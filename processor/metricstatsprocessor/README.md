@@ -32,7 +32,7 @@ In this example, the throughput of log-based metrics is limited, by calculating 
 
 ```yaml
 receivers:
-  filelog:
+  file_log:
     include:
     - $HOME/example.log
     operators:
@@ -63,7 +63,7 @@ exporters:
 service:
   pipelines:
     logs:
-      receivers: [filelog]
+      receivers: [file_log]
       processors: [metricextract]
       exporters: [nop]
     metrics:

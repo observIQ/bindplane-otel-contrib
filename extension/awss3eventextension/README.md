@@ -23,7 +23,7 @@ The collector must have write access to the directory specified in `directory`. 
 
 The extension will download files to a temporary file name which ends with `.bptmp`. Once the file has been downloaded and the extension has verified that it is a valid object, the temporary file will be renamed to the actual file name.
 
-If using the `filelog` receiver to read the files, it is recommended that you `exclude` files ending with `.bptmp`. e.g. If using `directory: /tmp/s3event`, you should use `include: /tmp/s3event/**/*` and `exclude: /tmp/s3event/**/*.bptmp`. It is also recommended to set `delete_after_read: true` in the `filelog` receiver so downloaded files are cleaned up after they are consumed.
+If using the `file_log` receiver to read the files, it is recommended that you `exclude` files ending with `.bptmp`. e.g. If using `directory: /tmp/s3event`, you should use `include: /tmp/s3event/**/*` and `exclude: /tmp/s3event/**/*.bptmp`. It is also recommended to set `delete_after_read: true` in the `file_log` receiver so downloaded files are cleaned up after they are consumed.
 
 ## AWS Setup
 
@@ -55,7 +55,7 @@ extensions:
     directory: /tmp/s3event
 
 receivers:
-  filelog:
+  file_log:
     include: /tmp/s3event/**/*
     exclude: /tmp/s3event/**/*.bptmp
     delete_after_read: true
@@ -68,6 +68,6 @@ service:
   extensions: [s3event]
   pipelines:
     logs:
-      receivers: [filelog]
+      receivers: [file_log]
       exporters: [otlp]
 ```
