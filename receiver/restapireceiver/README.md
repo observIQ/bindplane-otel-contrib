@@ -31,7 +31,8 @@ Alpha:
 | Field                | Type      | Default | Required | Description                                                                                                                                                                                    |
 | -------------------- | --------- | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `url`                | string    |         | `true`   | The base URL for the REST API endpoint                                                                                                                                                         |
-| `response_field`     | string    |         | `false`  | The name of the field in the response that contains the array of items. If empty, the response is assumed to be a top-level array. For nested fields, use dot notation (e.g., `response.data`) |
+| `response_format`    | string    | `json`  | `false`  | Response body format: `json` (standard JSON array/object) or `ndjson` (newline-delimited JSON). In NDJSON mode, each line is a separate JSON object; the last line is treated as metadata (e.g., containing pagination cursors) and is not emitted as data. |
+| `response_field`     | string    |         | `false`  | The name of the field in the response that contains the array of items. If empty, the response is assumed to be a top-level array. For nested fields, use dot notation (e.g., `response.data`). Not used when `response_format` is `ndjson`. |
 | `metrics`            | object    |         | `false`  | Metrics configuration (see below)                                                                                                                                                              |
 | `auth_mode`          | string    | `none`  | `false`  | Authentication mode: `none`, `apikey`, `bearer`, `basic`, `oauth2`, or `akamai_edgegrid`                                                                                                       |
 | `apikey`             | object    |         | `false`  | API Key configuration (see below)                                                                                                                                                              |
@@ -99,7 +100,8 @@ Use `auth_mode: none` for public APIs that don't require authentication. No addi
 | Field                                 | Type   | Default | Required | Description                                                          |
 | ------------------------------------- | ------ | ------- | -------- | -------------------------------------------------------------------- |
 | `pagination.mode`                     | string | `none`  | `false`  | Pagination mode: `none`, `offset_limit`, `page_size`, or `timestamp` |
-| `pagination.total_record_count_field` | string |         | `false`  | Field name in response containing total record count                 |
+| `pagination.response_source`          | string | `body`  | `false`  | Where to extract pagination response attributes from: `body` (response body or NDJSON metadata line) or `header` (HTTP response headers). Applies to `total_record_count_field`, `next_offset_field_name`, and `total_pages_field_name`. |
+| `pagination.total_record_count_field` | string |         | `false`  | Name of the field or header containing total record count            |
 | `pagination.page_limit`               | int    | `0`     | `false`  | Maximum number of pages to fetch (0 = no limit)                      |
 | `pagination.zero_based_index`         | bool   | `false` | `false`  | Indicates that the requested data starts at index 0                  |
 
@@ -110,7 +112,7 @@ Use `auth_mode: none` for public APIs that don't require authentication. No addi
 | `pagination.offset_limit.offset_field_name`      | string |         | `false`  | Query parameter name for offset                                                                                                                                                                                                |
 | `pagination.offset_limit.limit_field_name`       | string |         | `false`  | Query parameter name for limit                                                                                                                                                                                                 |
 | `pagination.offset_limit.starting_offset`        | int    | `0`     | `false`  | Starting offset value                                                                                                                                                                                                          |
-| `pagination.offset_limit.next_offset_field_name` | string |         | `false`  | Field name in the response containing the next offset token. When set, the receiver uses token-based (cursor) pagination instead of numeric offsets. Supports nested fields with dot notation (e.g., `pagination.next_cursor`) |
+| `pagination.offset_limit.next_offset_field_name` | string |         | `false`  | Name of the field or header containing the next offset token. When set, the receiver uses token-based (cursor) pagination instead of numeric offsets. For body sources, supports nested fields with dot notation (e.g., `pagination.next_cursor`). |
 
 #### Page/Size Pagination
 
@@ -119,7 +121,7 @@ Use `auth_mode: none` for public APIs that don't require authentication. No addi
 | `pagination.page_size.page_num_field_name`    | string |         | `false`  | Query parameter name for page number               |
 | `pagination.page_size.page_size_field_name`   | string |         | `false`  | Query parameter name for page size                 |
 | `pagination.page_size.starting_page`          | int    | `1`     | `false`  | Starting page number                               |
-| `pagination.page_size.total_pages_field_name` | string |         | `false`  | Field name in response containing total page count |
+| `pagination.page_size.total_pages_field_name` | string |         | `false`  | Name of the field or header containing total page count |
 
 #### Timestamp-Based Pagination
 
@@ -268,6 +270,29 @@ receivers:
       client_secret: "your-client-secret"
 ```
 
+### Akamai SIEM API (NDJSON + Cursor Pagination)
+
+The Akamai SIEM API returns newline-delimited JSON (NDJSON), where each line is a security event and the last line is a metadata object containing the `offset` cursor for pagination. Use `response_format: ndjson` combined with `next_offset_field_name` to handle this.
+
+```yaml
+receivers:
+  restapi:
+    url: "https://{hostname}/siem/v1/configs/{configId}"
+    response_format: ndjson
+    max_poll_interval: 5m
+    auth_mode: akamai_edgegrid
+    akamai_edgegrid:
+      access_token: "your-access-token"
+      client_token: "your-client-token"
+      client_secret: "your-client-secret"
+    pagination:
+      mode: offset_limit
+      offset_limit:
+        offset_field_name: "offset"
+        limit_field_name: "limit"
+        next_offset_field_name: "offset"
+```
+
 ### Token-Based (Cursor) Offset Pagination
 
 Some APIs return a token or cursor in the response body instead of using numeric offsets. Use `next_offset_field_name` to extract this token and pass it as the offset parameter on subsequent requests.
@@ -303,6 +328,29 @@ This configuration would work with an API that returns responses like:
 ```
 
 When `next_cursor` is empty, null, or missing, the receiver treats it as the end of available data.
+
+### Header-Based Cursor Pagination
+
+Some APIs return pagination attributes (cursors, total counts) in response headers instead of the body. Set `response_source: header` to extract all pagination fields from headers.
+
+```yaml
+receivers:
+  restapi:
+    url: "https://api.example.com/events"
+    max_poll_interval: 5m
+    auth_mode: bearer
+    bearer:
+      token: "your-bearer-token-here"
+    pagination:
+      mode: offset_limit
+      response_source: header
+      total_record_count_field: "X-Total-Count"
+      offset_limit:
+        offset_field_name: "cursor"
+        limit_field_name: "limit"
+        next_offset_field_name: "X-Next-Cursor"
+    storage: file_storage
+```
 
 ### Timestamp Pagination
 

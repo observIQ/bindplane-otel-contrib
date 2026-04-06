@@ -657,7 +657,7 @@ func TestRESTAPIClient_GetFullResponse_CustomHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetFullResponse(ctx, server.URL, params)
+	data, _, err := client.GetFullResponse(ctx, server.URL, params)
 	require.NoError(t, err)
 	require.NotNil(t, data)
 }
@@ -735,9 +735,333 @@ func TestRESTAPIClient_GetFullResponse_SensitiveHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetFullResponse(ctx, server.URL, params)
+	data, _, err := client.GetFullResponse(ctx, server.URL, params)
 	require.NoError(t, err)
 	require.NotNil(t, data)
+}
+
+func TestRESTAPIClient_GetNDJSON(t *testing.T) {
+	// Create a test server that returns NDJSON
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "test-key", r.Header.Get("X-API-Key"))
+
+		// NDJSON: data lines + metadata line (last)
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Write([]byte(`{"id":"1","message":"event1"}` + "\n"))
+		w.Write([]byte(`{"id":"2","message":"event2"}` + "\n"))
+		w.Write([]byte(`{"id":"3","message":"event3"}` + "\n"))
+		w.Write([]byte(`{"offset":"abc123","total":3}` + "\n"))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:      server.URL,
+		AuthMode: authModeAPIKey,
+		APIKeyConfig: APIKeyConfig{
+			HeaderName: "X-API-Key",
+			Value:      "test-key",
+		},
+		ClientConfig: confighttp.ClientConfig{},
+	}
+
+	ctx := context.Background()
+	host := componenttest.NewNopHost()
+	settings := componenttest.NewNopTelemetrySettings()
+
+	client, err := newRESTAPIClient(ctx, settings, cfg, host)
+	require.NoError(t, err)
+
+	params := url.Values{}
+	data, metadata, _, err := client.GetNDJSON(ctx, server.URL, params, true)
+	require.NoError(t, err)
+	require.Len(t, data, 3)
+	require.Equal(t, "1", data[0]["id"])
+	require.Equal(t, "event1", data[0]["message"])
+	require.Equal(t, "2", data[1]["id"])
+	require.Equal(t, "3", data[2]["id"])
+	require.Equal(t, "abc123", metadata["offset"])
+	require.Equal(t, float64(3), metadata["total"])
+}
+
+func TestRESTAPIClient_GetNDJSON_EmptyResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		// Empty response body
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:          server.URL,
+		AuthMode:     authModeNone,
+		ClientConfig: confighttp.ClientConfig{},
+	}
+
+	ctx := context.Background()
+	host := componenttest.NewNopHost()
+	settings := componenttest.NewNopTelemetrySettings()
+
+	client, err := newRESTAPIClient(ctx, settings, cfg, host)
+	require.NoError(t, err)
+
+	data, metadata, _, err := client.GetNDJSON(ctx, server.URL, url.Values{}, true)
+	require.NoError(t, err)
+	require.Len(t, data, 0)
+	require.Empty(t, metadata)
+}
+
+func TestRESTAPIClient_GetNDJSON_MetadataOnly(t *testing.T) {
+	// Single line = metadata only, no data
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Write([]byte(`{"offset":"xyz","total":0}` + "\n"))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:          server.URL,
+		AuthMode:     authModeNone,
+		ClientConfig: confighttp.ClientConfig{},
+	}
+
+	ctx := context.Background()
+	host := componenttest.NewNopHost()
+	settings := componenttest.NewNopTelemetrySettings()
+
+	client, err := newRESTAPIClient(ctx, settings, cfg, host)
+	require.NoError(t, err)
+
+	data, metadata, _, err := client.GetNDJSON(ctx, server.URL, url.Values{}, true)
+	require.NoError(t, err)
+	require.Len(t, data, 0)
+	require.Equal(t, "xyz", metadata["offset"])
+	require.Equal(t, float64(0), metadata["total"])
+}
+
+func TestRESTAPIClient_GetNDJSON_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("Forbidden"))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:          server.URL,
+		AuthMode:     authModeNone,
+		ClientConfig: confighttp.ClientConfig{},
+	}
+
+	ctx := context.Background()
+	host := componenttest.NewNopHost()
+	settings := componenttest.NewNopTelemetrySettings()
+
+	client, err := newRESTAPIClient(ctx, settings, cfg, host)
+	require.NoError(t, err)
+
+	data, metadata, _, err := client.GetNDJSON(ctx, server.URL, url.Values{}, true)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "403")
+	require.Nil(t, data)
+	require.Nil(t, metadata)
+}
+
+func TestParseNDJSON(t *testing.T) {
+	logger := componenttest.NewNopTelemetrySettings().Logger
+
+	testCases := []struct {
+		name             string
+		body             string
+		metadataInBody   bool
+		expectedData     int
+		expectedMetadata map[string]any
+		expectErr        bool
+	}{
+		{
+			name:             "empty body",
+			body:             "",
+			metadataInBody:   true,
+			expectedData:     0,
+			expectedMetadata: map[string]any{},
+		},
+		{
+			name:             "metadata only",
+			body:             `{"offset":"abc"}`,
+			metadataInBody:   true,
+			expectedData:     0,
+			expectedMetadata: map[string]any{"offset": "abc"},
+		},
+		{
+			name:           "data and metadata",
+			body:           "{\"id\":\"1\"}\n{\"id\":\"2\"}\n{\"offset\":\"next\",\"total\":2}",
+			metadataInBody: true,
+			expectedData:   2,
+			expectedMetadata: map[string]any{
+				"offset": "next",
+				"total":  float64(2),
+			},
+		},
+		{
+			name:           "with blank lines",
+			body:           "{\"id\":\"1\"}\n\n{\"id\":\"2\"}\n\n{\"offset\":\"next\"}\n",
+			metadataInBody: true,
+			expectedData:   2,
+			expectedMetadata: map[string]any{
+				"offset": "next",
+			},
+		},
+		{
+			name:           "invalid metadata line",
+			body:           "{\"id\":\"1\"}\nnot-json",
+			metadataInBody: true,
+			expectErr:      true,
+		},
+		{
+			name:           "invalid data line is skipped",
+			body:           "not-json\n{\"id\":\"1\"}\n{\"offset\":\"abc\"}",
+			metadataInBody: true,
+			expectedData:   1,
+			expectedMetadata: map[string]any{
+				"offset": "abc",
+			},
+		},
+		{
+			name:           "metadata in header - all lines are data",
+			body:           "{\"id\":\"1\"}\n{\"id\":\"2\"}\n{\"id\":\"3\"}",
+			metadataInBody: false,
+			expectedData:   3,
+		},
+		{
+			name:           "metadata in header - single line is data not metadata",
+			body:           `{"offset":"abc","total":5}`,
+			metadataInBody: false,
+			expectedData:   1,
+		},
+		{
+			name:           "metadata in header - empty body",
+			body:           "",
+			metadataInBody: false,
+			expectedData:   0,
+		},
+		{
+			name:           "metadata in header - invalid line is skipped",
+			body:           "not-json\n{\"id\":\"1\"}\n{\"id\":\"2\"}",
+			metadataInBody: false,
+			expectedData:   2,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, metadata, err := parseNDJSON([]byte(tc.body), tc.metadataInBody, logger)
+			if tc.expectErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, data, tc.expectedData)
+			if !tc.metadataInBody && tc.expectedData > 0 {
+				require.Nil(t, metadata)
+			} else if tc.expectedMetadata != nil {
+				for k, v := range tc.expectedMetadata {
+					require.Equal(t, v, metadata[k])
+				}
+			}
+		})
+	}
+}
+
+func TestRESTAPIClient_GetNDJSON_MetadataInHeader(t *testing.T) {
+	// When metadataInBody is false, all lines are data — none are stripped as metadata.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set("X-Next-Offset", "abc123")
+		w.Write([]byte(`{"id":"1","message":"event1"}` + "\n"))
+		w.Write([]byte(`{"id":"2","message":"event2"}` + "\n"))
+		w.Write([]byte(`{"id":"3","message":"event3"}` + "\n"))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:          server.URL,
+		AuthMode:     authModeNone,
+		ClientConfig: confighttp.ClientConfig{},
+	}
+
+	ctx := context.Background()
+	host := componenttest.NewNopHost()
+	settings := componenttest.NewNopTelemetrySettings()
+
+	client, err := newRESTAPIClient(ctx, settings, cfg, host)
+	require.NoError(t, err)
+
+	data, metadata, headers, err := client.GetNDJSON(ctx, server.URL, url.Values{}, false)
+	require.NoError(t, err)
+	require.Len(t, data, 3)
+	require.Equal(t, "1", data[0]["id"])
+	require.Equal(t, "2", data[1]["id"])
+	require.Equal(t, "3", data[2]["id"])
+	require.Nil(t, metadata)
+	require.Equal(t, "abc123", headers.Get("X-Next-Offset"))
+}
+
+func TestRESTAPIClient_GetNDJSON_ReturnsHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Next-Offset", "cursor-abc123")
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Write([]byte(`{"id":"1"}` + "\n"))
+		w.Write([]byte(`{"offset":"body-offset"}` + "\n"))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:          server.URL,
+		AuthMode:     authModeNone,
+		ClientConfig: confighttp.ClientConfig{},
+	}
+
+	ctx := context.Background()
+	host := componenttest.NewNopHost()
+	settings := componenttest.NewNopTelemetrySettings()
+
+	client, err := newRESTAPIClient(ctx, settings, cfg, host)
+	require.NoError(t, err)
+
+	data, metadata, headers, err := client.GetNDJSON(ctx, server.URL, url.Values{}, true)
+	require.NoError(t, err)
+	require.Len(t, data, 1)
+	require.Equal(t, "body-offset", metadata["offset"])
+	require.Equal(t, "cursor-abc123", headers.Get("X-Next-Offset"))
+}
+
+func TestRESTAPIClient_GetFullResponse_ReturnsHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Next-Cursor", "page2")
+		w.Header().Set("Content-Type", "application/json")
+		response := map[string]any{
+			"data": []map[string]any{
+				{"id": "1"},
+			},
+		}
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:          server.URL,
+		AuthMode:     authModeNone,
+		ClientConfig: confighttp.ClientConfig{},
+	}
+
+	ctx := context.Background()
+	host := componenttest.NewNopHost()
+	settings := componenttest.NewNopTelemetrySettings()
+
+	client, err := newRESTAPIClient(ctx, settings, cfg, host)
+	require.NoError(t, err)
+
+	data, headers, err := client.GetFullResponse(ctx, server.URL, url.Values{})
+	require.NoError(t, err)
+	require.NotNil(t, data)
+	require.Equal(t, "page2", headers.Get("X-Next-Cursor"))
 }
 
 func TestRESTAPIClient_GetJSON_EmptyArray(t *testing.T) {

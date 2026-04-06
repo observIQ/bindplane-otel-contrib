@@ -36,7 +36,7 @@ The example configuration below shows ingesting logs and sampling the size of 50
 
 ```yaml
 receivers:
-  filelog:
+  file_log:
     inclucde: ["/var/log/*.log"]
 
 processors:
@@ -51,7 +51,7 @@ service:
   pipelines:
     logs:
       receivers:
-        - filelog
+        - file_log
       processors:
         - throughputmeasurement
       exporters:

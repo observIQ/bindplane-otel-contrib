@@ -17,7 +17,7 @@ The route receiver does not have any configuration parameters. It simply receive
 The following config is an example configuration of the route receiver. In this example, logs are collected from a file and sent to a log count processor. After each minute, the log counts are converted to metrics and sent to the route receiver in the metrics pipeline.
 ```yaml
 receivers:
-    filelog:
+    file_log:
         include: [./example/apache.log]
     route/log-based-metrics:
 processors:
@@ -31,7 +31,7 @@ exporters:
 service:
     pipelines:
         logs:
-            receivers: [filelog]
+            receivers: [file_log]
             processors: [batch, logcount]
             exporters: [logging]
         metrics:

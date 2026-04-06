@@ -28,7 +28,7 @@ The random failure processor may be used in a pipeline in order to test what occ
 
 ```yaml
 receivers:
-  filelog:
+  file_log:
     include: [/var/log/logfile.txt]
 
 processors:
@@ -42,7 +42,7 @@ exporters:
 service:
   pipelines:
     logs:
-      receivers: [filelog]
+      receivers: [file_log]
       processors: [randomfailure]
       exporters: [nop]
 ```
