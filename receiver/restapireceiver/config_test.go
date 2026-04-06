@@ -1282,6 +1282,37 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectedErr: "",
 		},
+		{
+			name: "end_time_value before start_time_value",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeNone,
+				StartTimeParamName: "from",
+				StartTimeValue:     "2025-06-01T00:00:00Z",
+				EndTimeParamName:   "to",
+				EndTimeValue:       "2025-01-01T00:00:00Z",
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "start_time_value (2025-06-01T00:00:00Z) must be before end_time_value (2025-01-01T00:00:00Z)",
+		},
+		{
+			name: "end_time_value before start_time_value epoch",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeNone,
+				StartTimeParamName: "from",
+				StartTimeValue:     "1748736000",
+				EndTimeParamName:   "to",
+				EndTimeValue:       "1704067200",
+				TimestampFormat:    "epoch_s",
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "start_time_value (1748736000) must be before end_time_value (1704067200)",
+		},
 	}
 
 	for _, tc := range testCases {

@@ -547,6 +547,17 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	// Validate start_time is before end_time
+	if c.StartTimeValue != "" && c.StartTimeValue != "now" && c.EndTimeValue != "" && c.EndTimeValue != "now" {
+		startTime, err := c.parseConfigTimestamp(c.StartTimeValue)
+		if err == nil {
+			endTime, err := c.parseConfigTimestamp(c.EndTimeValue)
+			if err == nil && !startTime.Before(endTime) {
+				return fmt.Errorf("start_time_value (%s) must be before end_time_value (%s)", c.StartTimeValue, c.EndTimeValue)
+			}
+		}
+	}
+
 	// Apply defaults if not configured (zero value means not set)
 	if c.MinPollInterval == 0 {
 		c.MinPollInterval = 10 * time.Second
@@ -587,34 +598,34 @@ func (c *Config) validateTimestampValue(value, fieldName string) error {
 		return nil
 	}
 
-	var parsed bool
-	if isEpochFormat(c.TimestampFormat) {
-		if _, err := strconv.ParseFloat(value, 64); err == nil {
-			parsed = true
-		}
-		if !parsed {
+	if _, err := c.parseConfigTimestamp(value); err != nil {
+		formatHint := "RFC3339 (e.g., 2025-01-01T00:00:00Z)"
+		if isEpochFormat(c.TimestampFormat) {
 			return fmt.Errorf("%s %q must be a numeric value when using epoch timestamp_format (%s)", fieldName, value, c.TimestampFormat)
 		}
-	} else {
 		if c.TimestampFormat != "" {
-			if _, err := time.Parse(c.TimestampFormat, value); err == nil {
-				parsed = true
-			}
+			formatHint = fmt.Sprintf("configured timestamp_format (%s) or RFC3339", c.TimestampFormat)
 		}
-		if !parsed {
-			if _, err := time.Parse(time.RFC3339, value); err == nil {
-				parsed = true
-			}
-		}
-		if !parsed {
-			formatHint := "RFC3339 (e.g., 2025-01-01T00:00:00Z)"
-			if c.TimestampFormat != "" {
-				formatHint = fmt.Sprintf("configured timestamp_format (%s) or RFC3339", c.TimestampFormat)
-			}
-			return fmt.Errorf("%s %q could not be parsed; must be \"now\" or match %s", fieldName, value, formatHint)
-		}
+		return fmt.Errorf("%s %q could not be parsed; must be \"now\" or match %s", fieldName, value, formatHint)
 	}
 	return nil
+}
+
+// parseConfigTimestamp parses a user-configured timestamp value into a time.Time
+// using the same logic as validateTimestampValue.
+func (c *Config) parseConfigTimestamp(value string) (time.Time, error) {
+	if isEpochFormat(c.TimestampFormat) {
+		return parseEpochTimestamp(value, c.TimestampFormat)
+	}
+	if c.TimestampFormat != "" {
+		if t, err := time.Parse(c.TimestampFormat, value); err == nil {
+			return t, nil
+		}
+	}
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("could not parse timestamp %q", value)
 }
 
 // validateHeaderName checks that a header name is a valid HTTP token per RFC 7230.
