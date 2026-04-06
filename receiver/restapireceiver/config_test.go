@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/config/configopaque"
+	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/confmap/confmaptest"
 	"go.opentelemetry.io/collector/confmap/xconfmap"
 
@@ -1379,15 +1379,15 @@ func TestLoadConfigFromYAML(t *testing.T) {
 
 func TestConfig_DeprecatedTimestampMigration(t *testing.T) {
 	testCases := []struct {
-		name                string
-		rawConfig           map[string]any
-		expectedStartParam  string
-		expectedStartValue  string
-		expectedEndParam    string
-		expectedEndValue    string
-		expectedFormat      string
-		expectedWarnings    int
-		warnContains        string
+		name               string
+		rawConfig          map[string]any
+		expectedStartParam string
+		expectedStartValue string
+		expectedEndParam   string
+		expectedEndValue   string
+		expectedFormat     string
+		expectedWarnings   int
+		warnContains       string
 	}{
 		{
 			name: "migrates old pagination.timestamp fields to top-level",
@@ -1397,10 +1397,10 @@ func TestConfig_DeprecatedTimestampMigration(t *testing.T) {
 				"pagination": map[string]any{
 					"mode": "timestamp",
 					"timestamp": map[string]any{
-						"param_name":       "since",
-						"initial_timestamp": "2025-01-01T00:00:00Z",
-						"timestamp_format":  "2006-01-02T15:04:05Z07:00",
-						"timestamp_field_name": "updated_at",
+						"param_name":               "since",
+						"initial_timestamp":        "2025-01-01T00:00:00Z",
+						"timestamp_format":         "2006-01-02T15:04:05Z07:00",
+						"timestamp_field_name":     "updated_at",
 						"end_timestamp_param_name": "until",
 						"end_timestamp_value":      "now",
 					},
@@ -1417,15 +1417,15 @@ func TestConfig_DeprecatedTimestampMigration(t *testing.T) {
 		{
 			name: "new fields take precedence over old fields",
 			rawConfig: map[string]any{
-				"url":                  "https://api.example.com/data",
-				"auth_mode":           "none",
+				"url":                   "https://api.example.com/data",
+				"auth_mode":             "none",
 				"start_time_param_name": "from",
-				"start_time_value":     "2025-06-01T00:00:00Z",
+				"start_time_value":      "2025-06-01T00:00:00Z",
 				"pagination": map[string]any{
 					"mode": "timestamp",
 					"timestamp": map[string]any{
-						"param_name":         "since",
-						"initial_timestamp":  "2025-01-01T00:00:00Z",
+						"param_name":           "since",
+						"initial_timestamp":    "2025-01-01T00:00:00Z",
 						"timestamp_field_name": "updated_at",
 					},
 				},
@@ -1438,10 +1438,10 @@ func TestConfig_DeprecatedTimestampMigration(t *testing.T) {
 		{
 			name: "no warnings when only new fields are used",
 			rawConfig: map[string]any{
-				"url":                  "https://api.example.com/data",
-				"auth_mode":           "none",
+				"url":                   "https://api.example.com/data",
+				"auth_mode":             "none",
 				"start_time_param_name": "since",
-				"start_time_value":     "2025-01-01T00:00:00Z",
+				"start_time_value":      "2025-01-01T00:00:00Z",
 				"pagination": map[string]any{
 					"mode": "timestamp",
 					"timestamp": map[string]any{
