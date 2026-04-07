@@ -102,7 +102,7 @@ func TestInitializePagination_CheckpointWithValidTimestamp_PreservesCheckpoint(t
 			StartTimeParamName: "since",
 			StartTimeValue:     "2026-03-31T12:00:00Z",
 			Pagination: PaginationConfig{
-				Mode: paginationModeTimestamp,
+				Mode:      paginationModeTimestamp,
 				Timestamp: TimestampPagination{},
 			},
 		},
