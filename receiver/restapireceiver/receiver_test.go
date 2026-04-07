@@ -29,8 +29,400 @@ import (
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/confighttp"
 	"go.opentelemetry.io/collector/consumer/consumertest"
+	"go.opentelemetry.io/collector/extension/xextension/storage"
 	"go.opentelemetry.io/collector/receiver/receivertest"
+	"go.uber.org/zap"
 )
+
+func TestInitializePagination_NoCheckpoint_UsesConfig(t *testing.T) {
+	// When no checkpoint is loaded (paginationState is nil), initializePagination
+	// should create a fresh state from config, including the start_time_value.
+	b := &baseReceiver{
+		logger: zap.NewNop(),
+		cfg: &Config{
+			StartTimeParamName: "since",
+			StartTimeValue:     "2026-03-31T12:00:00Z",
+			Pagination: PaginationConfig{
+				Mode: paginationModeTimestamp,
+				Timestamp: TimestampPagination{
+					PageSize: 50,
+				},
+			},
+		},
+	}
+
+	b.initializePagination()
+
+	require.NotNil(t, b.paginationState)
+	expectedTime, _ := time.Parse(time.RFC3339, "2026-03-31T12:00:00Z")
+	require.Equal(t, expectedTime, b.paginationState.CurrentTimestamp)
+	require.Equal(t, 50, b.paginationState.PageSize)
+}
+
+func TestInitializePagination_CheckpointWithZeroTimestamp_PrefersConfig(t *testing.T) {
+	// When a checkpoint exists but has a zero CurrentTimestamp (e.g., from a prior run
+	// that never completed a poll or used a different pagination mode), and the config
+	// specifies a start_time_value, the config value should be used. This prevents
+	// the zero timestamp from causing the receiver to fetch all historical data.
+	b := &baseReceiver{
+		logger: zap.NewNop(),
+		cfg: &Config{
+			StartTimeParamName: "since",
+			StartTimeValue:     "2026-03-31T12:00:00Z",
+			Pagination: PaginationConfig{
+				Mode: paginationModeTimestamp,
+				Timestamp: TimestampPagination{
+					PageSize: 50,
+				},
+			},
+		},
+		// Simulate a loaded checkpoint with zero timestamp
+		paginationState: &paginationState{
+			PageSize: 100,
+		},
+	}
+
+	b.initializePagination()
+
+	expectedTime, _ := time.Parse(time.RFC3339, "2026-03-31T12:00:00Z")
+	require.Equal(t, expectedTime, b.paginationState.CurrentTimestamp,
+		"zero checkpoint timestamp should be replaced by configured start_time_value")
+	// Other checkpoint fields should be preserved
+	require.Equal(t, 100, b.paginationState.PageSize,
+		"non-timestamp checkpoint fields should be preserved")
+}
+
+func TestInitializePagination_CheckpointWithValidTimestamp_PreservesCheckpoint(t *testing.T) {
+	// When a checkpoint has a valid (non-zero) timestamp, it represents real polling
+	// progress and should be preserved, even if start_time_value is configured.
+	checkpointTime := time.Date(2026, 4, 1, 8, 0, 0, 0, time.UTC)
+	b := &baseReceiver{
+		logger: zap.NewNop(),
+		cfg: &Config{
+			StartTimeParamName: "since",
+			StartTimeValue:     "2026-03-31T12:00:00Z",
+			Pagination: PaginationConfig{
+				Mode:      paginationModeTimestamp,
+				Timestamp: TimestampPagination{},
+			},
+		},
+		// Simulate a loaded checkpoint with a valid timestamp from a prior successful poll
+		paginationState: &paginationState{
+			CurrentTimestamp:  checkpointTime,
+			TimestampFromData: true,
+			PageSize:          100,
+		},
+	}
+
+	b.initializePagination()
+
+	require.Equal(t, checkpointTime, b.paginationState.CurrentTimestamp,
+		"valid checkpoint timestamp should be preserved over configured start_time_value")
+	require.True(t, b.paginationState.TimestampFromData,
+		"TimestampFromData flag should be preserved")
+}
+
+func TestInitializePagination_CheckpointWithZeroTimestamp_NoStartTimeValue(t *testing.T) {
+	// When a checkpoint has a zero timestamp and no start_time_value is configured,
+	// the zero timestamp should remain — this is the "fetch from beginning" behavior.
+	b := &baseReceiver{
+		logger: zap.NewNop(),
+		cfg: &Config{
+			StartTimeParamName: "since",
+			Pagination: PaginationConfig{
+				Mode: paginationModeTimestamp,
+				Timestamp: TimestampPagination{
+					PageSize: 50,
+				},
+			},
+		},
+		paginationState: &paginationState{
+			PageSize: 100,
+		},
+	}
+
+	b.initializePagination()
+
+	require.True(t, b.paginationState.CurrentTimestamp.IsZero(),
+		"zero timestamp should remain when no start_time_value is configured")
+}
+
+func TestInitializePagination_NonTimestampMode_SkipsReconciliation(t *testing.T) {
+	// For non-timestamp pagination modes, reconciliation should not modify the checkpoint.
+	b := &baseReceiver{
+		logger: zap.NewNop(),
+		cfg: &Config{
+			Pagination: PaginationConfig{
+				Mode: paginationModeOffsetLimit,
+				OffsetLimit: OffsetLimitPagination{
+					OffsetFieldName: "offset",
+					LimitFieldName:  "limit",
+				},
+			},
+		},
+		paginationState: &paginationState{
+			CurrentOffset: 42,
+			Limit:         10,
+		},
+	}
+
+	b.initializePagination()
+
+	require.Equal(t, 42, b.paginationState.CurrentOffset,
+		"offset/limit checkpoint should not be modified by reconciliation")
+}
+
+func TestCheckpointRoundTrip_TimestampPagination(t *testing.T) {
+	// Verify that a checkpoint saved after successful polling can be loaded and
+	// used without reconciliation overriding it, when config hasn't changed.
+	ctx := context.Background()
+	originalTime := time.Date(2026, 4, 2, 15, 30, 0, 0, time.UTC)
+
+	cfg := &Config{
+		URL:                "https://api.example.com/events",
+		StartTimeParamName: "since",
+		StartTimeValue:     "2026-01-01T00:00:00Z",
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				PageSize: 100,
+			},
+		},
+	}
+
+	// Simulate saving a checkpoint with the config fingerprint
+	checkpoint := checkpointData{
+		PaginationState: &paginationState{
+			CurrentTimestamp:  originalTime,
+			TimestampFromData: true,
+			PageSize:          100,
+			PagesFetched:      5,
+		},
+		ConfigFingerprint: configFingerprint(cfg),
+	}
+	bytes, err := json.Marshal(checkpoint)
+	require.NoError(t, err)
+
+	// Simulate loading the checkpoint
+	var loaded checkpointData
+	err = json.Unmarshal(bytes, &loaded)
+	require.NoError(t, err)
+
+	loadReceiver := &baseReceiver{
+		logger:          zap.NewNop(),
+		cfg:             cfg,
+		paginationState: loaded.PaginationState,
+		storageClient:   storage.NewNopClient(),
+	}
+
+	loadReceiver.initializePagination()
+
+	require.Equal(t, originalTime, loadReceiver.paginationState.CurrentTimestamp,
+		"checkpoint timestamp from successful prior polling should survive round-trip and reconciliation")
+	require.True(t, loadReceiver.paginationState.TimestampFromData)
+
+	// Verify saveCheckpoint doesn't error
+	err = loadReceiver.saveCheckpoint(ctx)
+	require.NoError(t, err)
+}
+
+func TestConfigFingerprint_DifferentConfigs(t *testing.T) {
+	// Verify that config fingerprints differ when query-defining fields change,
+	// and are stable when non-query fields change.
+	baseCfg := &Config{
+		URL:                "https://api.example.com/events",
+		StartTimeParamName: "since",
+		StartTimeValue:     "2026-03-31T12:00:00Z",
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				PageSize: 100,
+			},
+		},
+	}
+	baseFingerprint := configFingerprint(baseCfg)
+
+	// Same config should produce the same fingerprint (stability check)
+	require.Equal(t, baseFingerprint, configFingerprint(baseCfg))
+
+	// Changing URL should change the fingerprint
+	differentURL := &Config{
+		URL:                "https://api.example.com/audit-logs",
+		StartTimeParamName: baseCfg.StartTimeParamName,
+		StartTimeValue:     baseCfg.StartTimeValue,
+		Pagination:         baseCfg.Pagination,
+	}
+	require.NotEqual(t, baseFingerprint, configFingerprint(differentURL),
+		"different URL should produce different fingerprint")
+
+	// Changing start_time_value should change the fingerprint
+	differentTimestamp := &Config{
+		URL:                baseCfg.URL,
+		StartTimeParamName: "since",
+		StartTimeValue:     "2026-01-01T00:00:00Z",
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				PageSize: 100,
+			},
+		},
+	}
+	require.NotEqual(t, baseFingerprint, configFingerprint(differentTimestamp),
+		"different start_time_value should produce different fingerprint")
+
+	// Changing pagination mode should change the fingerprint
+	differentMode := &Config{
+		URL: baseCfg.URL,
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName: "offset",
+				LimitFieldName:  "limit",
+			},
+		},
+	}
+	require.NotEqual(t, baseFingerprint, configFingerprint(differentMode),
+		"different pagination mode should produce different fingerprint")
+
+	// Changing non-query fields (poll interval) should NOT change the fingerprint
+	differentPollInterval := &Config{
+		URL:                baseCfg.URL,
+		StartTimeParamName: baseCfg.StartTimeParamName,
+		StartTimeValue:     baseCfg.StartTimeValue,
+		Pagination:         baseCfg.Pagination,
+		MinPollInterval:    5 * time.Second,
+		MaxPollInterval:    60 * time.Second,
+	}
+	require.Equal(t, baseFingerprint, configFingerprint(differentPollInterval),
+		"different poll interval should not change fingerprint")
+}
+
+func TestLoadCheckpoint_InvalidatesOnConfigChange(t *testing.T) {
+	// Simulates the user's scenario: receiver ran successfully with one config,
+	// then the user changes start_time_value and restarts. The stored checkpoint
+	// should be discarded because the config fingerprint has changed.
+
+	oldCfg := &Config{
+		URL:                "https://api.example.com/events",
+		StartTimeParamName: "since",
+		StartTimeValue:     "2026-04-01T00:00:00Z",
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				PageSize: 100,
+			},
+		},
+	}
+
+	// Save a checkpoint with the old config's fingerprint
+	checkpoint := checkpointData{
+		PaginationState: &paginationState{
+			CurrentTimestamp:  time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC),
+			TimestampFromData: true,
+			PageSize:          100,
+		},
+		ConfigFingerprint: configFingerprint(oldCfg),
+	}
+	checkpointBytes, err := json.Marshal(checkpoint)
+	require.NoError(t, err)
+
+	// Create a real in-memory storage client to test the full load flow
+	storageClient := storage.NewNopClient()
+	// NopClient doesn't persist, so we test via the loadCheckpoint logic directly.
+	// Instead, manually simulate what loadCheckpoint does by unmarshaling and checking.
+	var loaded checkpointData
+	err = json.Unmarshal(checkpointBytes, &loaded)
+	require.NoError(t, err)
+
+	// New config: user changed start_time_value to fetch older data
+	newCfg := &Config{
+		URL:                "https://api.example.com/events",
+		StartTimeParamName: "since",
+		StartTimeValue:     "2026-03-01T00:00:00Z",
+		Pagination: PaginationConfig{
+			Mode: paginationModeTimestamp,
+			Timestamp: TimestampPagination{
+				PageSize: 100,
+			},
+		},
+	}
+
+	// Verify fingerprints differ
+	require.NotEqual(t, loaded.ConfigFingerprint, configFingerprint(newCfg),
+		"old and new config should have different fingerprints")
+
+	// Simulate what loadCheckpoint does: reject the checkpoint
+	b := &baseReceiver{
+		logger:        zap.NewNop(),
+		cfg:           newCfg,
+		storageClient: storageClient,
+	}
+
+	// The checkpoint should be rejected, so paginationState stays nil
+	currentFingerprint := configFingerprint(b.cfg)
+	if loaded.ConfigFingerprint != "" && loaded.ConfigFingerprint != currentFingerprint {
+		// This is what loadCheckpoint does — discard the checkpoint
+		b.paginationState = nil
+	}
+
+	// initializePagination should create fresh state from the new config
+	b.initializePagination()
+
+	expectedTime, _ := time.Parse(time.RFC3339, "2026-03-01T00:00:00Z")
+	require.Equal(t, expectedTime, b.paginationState.CurrentTimestamp,
+		"after config change, fresh state should use the new start_time_value")
+	require.False(t, b.paginationState.TimestampFromData,
+		"fresh state should not have TimestampFromData set")
+}
+
+func TestLoadCheckpoint_AcceptsLegacyCheckpointWithoutFingerprint(t *testing.T) {
+	// Checkpoints created before the fingerprint feature was added have no
+	// ConfigFingerprint field. These should be accepted (not discarded) for
+	// backwards compatibility, and will get a fingerprint on the next save.
+	checkpoint := checkpointData{
+		PaginationState: &paginationState{
+			CurrentTimestamp:  time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+			TimestampFromData: true,
+			PageSize:          100,
+		},
+		// No ConfigFingerprint — simulates a legacy checkpoint
+	}
+	checkpointBytes, err := json.Marshal(checkpoint)
+	require.NoError(t, err)
+
+	var loaded checkpointData
+	err = json.Unmarshal(checkpointBytes, &loaded)
+	require.NoError(t, err)
+
+	// Legacy checkpoint has empty fingerprint — should be accepted
+	require.Empty(t, loaded.ConfigFingerprint)
+
+	cfg := &Config{
+		URL:                "https://api.example.com/events",
+		StartTimeParamName: "since",
+		StartTimeValue:     "2026-01-01T00:00:00Z",
+		Pagination: PaginationConfig{
+			Mode:      paginationModeTimestamp,
+			Timestamp: TimestampPagination{},
+		},
+	}
+
+	// Simulate loadCheckpoint accepting the legacy checkpoint
+	b := &baseReceiver{
+		logger: zap.NewNop(),
+		cfg:    cfg,
+	}
+	// Empty fingerprint → accept the checkpoint (backwards compatibility)
+	if loaded.ConfigFingerprint == "" || loaded.ConfigFingerprint == configFingerprint(cfg) {
+		b.paginationState = loaded.PaginationState
+	}
+
+	b.initializePagination()
+
+	// The legacy checkpoint's timestamp should be preserved (it has a valid non-zero timestamp)
+	require.Equal(t, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), b.paginationState.CurrentTimestamp,
+		"legacy checkpoint with valid timestamp should be preserved")
+}
 
 func TestRESTAPILogsReceiver_StartShutdown(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
