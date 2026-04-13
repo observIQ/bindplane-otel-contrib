@@ -125,7 +125,7 @@ func (a *AzureClient) StreamBlobs(ctx context.Context, container string, prefix 
 		pageNumber++
 		blobsInPage := len(resp.Segment.BlobItems)
 		totalStreamed += blobsInPage
-		a.logger.Info("Azure API page received",
+		a.logger.Debug("Azure API page received",
 			zap.Int("page_number", pageNumber),
 			zap.Int("blobs_in_page", blobsInPage),
 			zap.Int("total_streamed", totalStreamed))

@@ -90,13 +90,13 @@ func newLogsReceiver(id component.ID, logger *zap.Logger, cfg *Config, nextConsu
 
 	switch cfg.BlobFormat {
 	case BlobFormatJSON:
-		logger.Info("Using NDJSON blob format consumer")
+		logger.Debug("Using NDJSON blob format consumer")
 		r.consumer = blobconsume.NewNDJSONLogsConsumer(nextConsumer, logger)
 	case BlobFormatText:
-		logger.Info("Using raw text blob format consumer")
+		logger.Debug("Using raw text blob format consumer")
 		r.consumer = blobconsume.NewRawTextLogsConsumer(nextConsumer)
 	case BlobFormatOTLP, "":
-		logger.Info("Using OTLP blob format consumer")
+		logger.Debug("Using OTLP blob format consumer")
 		r.consumer = blobconsume.NewLogsConsumer(nextConsumer)
 	default:
 		return nil, fmt.Errorf("unsupported blob_format %q, must be one of: %s, %s, %s", cfg.BlobFormat, BlobFormatOTLP, BlobFormatJSON, BlobFormatText)
@@ -386,10 +386,11 @@ func (r *pollingReceiver) expandGlobRootFolders(ctx context.Context) []string {
 
 	prefixes, err := r.azureClient.ListPrefixes(ctx, r.cfg.Container, staticPrefix)
 	if err != nil {
-		r.logger.Warn("Failed to list prefixes for glob expansion, falling back to literal root_folder",
+		r.logger.Warn("Failed to list prefixes for glob expansion, falling back to static prefix",
 			zap.String("root_folder", r.cfg.RootFolder),
+			zap.String("static_prefix", staticPrefix),
 			zap.Error(err))
-		return []string{r.cfg.RootFolder}
+		return []string{staticPrefix}
 	}
 
 	var matched []string
@@ -407,7 +408,7 @@ func (r *pollingReceiver) expandGlobRootFolders(ctx context.Context) []string {
 		return []string{}
 	}
 
-	r.logger.Info("Glob expanded root_folder",
+	r.logger.Debug("Glob expanded root_folder",
 		zap.String("pattern", r.cfg.RootFolder),
 		zap.Strings("matched", matched))
 
@@ -525,7 +526,7 @@ blobLoop:
 	r.wg.Wait()
 
 	processed := int(processedBlobCount.Load())
-	r.logger.Info("Batch processing summary",
+	r.logger.Debug("Batch processing summary",
 		zap.Int("num_in_batch", len(blobs)),
 		zap.Int("processed", processed),
 		zap.Int("skipped_filename", skippedFilename),

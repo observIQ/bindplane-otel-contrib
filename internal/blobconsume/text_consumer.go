@@ -15,6 +15,7 @@
 package blobconsume //import "github.com/observiq/bindplane-otel-contrib/internal/blobconsume"
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
@@ -35,7 +36,12 @@ func NewRawTextLogsConsumer(nextConsumer consumer.Logs) *RawTextLogsConsumer {
 }
 
 // Consume creates a single log record with the entire entityContent as a string body.
+// Empty content is skipped to avoid emitting empty log records.
 func (r *RawTextLogsConsumer) Consume(ctx context.Context, entityContent []byte) error {
+	if len(bytes.TrimSpace(entityContent)) == 0 {
+		return nil
+	}
+
 	logs := plog.NewLogs()
 	resourceLogs := logs.ResourceLogs().AppendEmpty()
 	scopeLogs := resourceLogs.ScopeLogs().AppendEmpty()

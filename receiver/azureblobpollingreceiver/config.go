@@ -185,6 +185,12 @@ func (c *Config) Validate() error {
 		default:
 			return fmt.Errorf("blob_format must be one of: %s, %s, %s", BlobFormatOTLP, BlobFormatJSON, BlobFormatText)
 		}
+
+		// blob_format json and text are only supported for logs pipelines
+		if (c.BlobFormat == BlobFormatJSON || c.BlobFormat == BlobFormatText) &&
+			c.TelemetryType != "" && c.TelemetryType != "logs" {
+			return fmt.Errorf("blob_format %q is only supported for logs pipelines, got telemetry_type %q", c.BlobFormat, c.TelemetryType)
+		}
 	}
 
 	return nil

@@ -363,7 +363,7 @@ func TestPollingReceiver_GlobExpansion(t *testing.T) {
 		mockClient.AssertExpectations(t)
 	})
 
-	t.Run("ListPrefixes error falls back to literal root_folder", func(t *testing.T) {
+	t.Run("ListPrefixes error falls back to static prefix", func(t *testing.T) {
 		logger := zap.NewNop()
 		cfg := &Config{
 			Container:       "test-container",
@@ -390,12 +390,12 @@ func TestPollingReceiver_GlobExpansion(t *testing.T) {
 		mockClient.On("ListPrefixes", mock.Anything, "test-container", "linux/").
 			Return([]string(nil), errors.New("network error"))
 
-		// StreamBlobs should be called with the literal root_folder as fallback
+		// StreamBlobs should be called with the static prefix as fallback
 		mockClient.On("StreamBlobs", mock.Anything, "test-container", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Run(func(args mock.Arguments) {
 				prefix := args.Get(2).(*string)
 				require.NotNil(t, prefix)
-				require.Equal(t, "linux/*", *prefix)
+				require.Equal(t, "linux/", *prefix)
 				doneChan := args.Get(5).(chan struct{})
 				close(doneChan)
 			})

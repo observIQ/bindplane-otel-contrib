@@ -42,7 +42,5 @@ func Test_rawTextLogsConsumer_EmptyContent(t *testing.T) {
 	err := con.Consume(context.Background(), []byte(""))
 	require.NoError(t, err)
 
-	require.Equal(t, 1, sink.LogRecordCount())
-	record := sink.AllLogs()[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
-	require.Equal(t, "", record.Body().Str())
+	require.Equal(t, 0, sink.LogRecordCount())
 }
