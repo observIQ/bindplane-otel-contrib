@@ -87,13 +87,14 @@ Use `auth_mode: none` for public APIs that don't require authentication. No addi
 
 #### Akamai EdgeGrid
 
-**The Akamai API requires an enterprise license. This authentication method has not been tested against an Akamai API.**
+Request signing uses the [official Akamai EdgeGrid Go library](https://github.com/akamai/AkamaiOPEN-edgegrid-golang), which implements the [EdgeGrid v1 HMAC-SHA256 signing scheme](https://techdocs.akamai.com/developer/docs/set-up-authentication-credentials).
 
-| Field                  | Type   | Default | Required | Description                   |
-| ---------------------- | ------ | ------- | -------- | ----------------------------- |
-| `akamai_access_token`  | string |         | `true`   | Akamai EdgeGrid access token  |
-| `akamai_client_token`  | string |         | `true`   | Akamai EdgeGrid client token  |
-| `akamai_client_secret` | string |         | `true`   | Akamai EdgeGrid client secret |
+| Field           | Type   | Default | Required | Description                                                                                                                                                                                  |
+| --------------- | ------ | ------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `access_token`  | string |         | `true`   | Akamai EdgeGrid access token                                                                                                                                                                 |
+| `client_token`  | string |         | `true`   | Akamai EdgeGrid client token                                                                                                                                                                 |
+| `client_secret` | string |         | `true`   | Akamai EdgeGrid client secret                                                                                                                                                                |
+| `account_key`   | string |         | `false`  | Optional `accountSwitchKey`. When set, it is added as a query parameter on every request so partners can make calls against a managed account. See Akamai's docs on `accountSwitchKey` usage. |
 
 ### Time-Bounding Configuration
 
