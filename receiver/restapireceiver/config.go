@@ -290,6 +290,10 @@ type AkamaiEdgeGridConfig struct {
 	AccessToken  configopaque.String `mapstructure:"access_token"`
 	ClientToken  configopaque.String `mapstructure:"client_token"`
 	ClientSecret configopaque.String `mapstructure:"client_secret"`
+	// AccountKey is an optional accountSwitchKey used by partners to make requests
+	// against a managed account. When set, it is added as the accountSwitchKey
+	// query parameter on every outgoing request.
+	AccountKey string `mapstructure:"account_key"`
 }
 
 // PaginationConfig defines pagination configuration.

@@ -28,26 +28,26 @@ Alpha:
 
 ## Configuration
 
-| Field                | Type      | Default | Required | Description                                                                                                                                                                                    |
-| -------------------- | --------- | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `url`                | string    |         | `true`   | The base URL for the REST API endpoint                                                                                                                                                         |
+| Field                | Type      | Default | Required | Description                                                                                                                                                                                                                                                 |
+| -------------------- | --------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`                | string    |         | `true`   | The base URL for the REST API endpoint                                                                                                                                                                                                                      |
 | `response_format`    | string    | `json`  | `false`  | Response body format: `json` (standard JSON array/object) or `ndjson` (newline-delimited JSON). In NDJSON mode, each line is a separate JSON object; the last line is treated as metadata (e.g., containing pagination cursors) and is not emitted as data. |
-| `response_field`     | string    |         | `false`  | The name of the field in the response that contains the array of items. If empty, the response is assumed to be a top-level array. For nested fields, use dot notation (e.g., `response.data`). Not used when `response_format` is `ndjson`. |
-| `metrics`            | object    |         | `false`  | Metrics configuration (see below)                                                                                                                                                              |
-| `auth_mode`          | string    | `none`  | `false`  | Authentication mode: `none`, `apikey`, `bearer`, `basic`, `oauth2`, or `akamai_edgegrid`                                                                                                       |
-| `apikey`             | object    |         | `false`  | API Key configuration (see below)                                                                                                                                                              |
-| `bearer`             | object    |         | `false`  | Bearer Token configuration (see below)                                                                                                                                                         |
-| `basic`              | object    |         | `false`  | Basic Auth configuration (see below)                                                                                                                                                           |
-| `oauth2`             | object    |         | `false`  | OAuth2 Client Credentials configuration (see below)                                                                                                                                            |
-| `akamai_edgegrid`    | object    |         | `false`  | Akamai EdgeGrid configuration (see below)                                                                                                                                                      |
-| `headers`            | map       |         | `false`  | A map of custom headers to send with each request. Header values will appear in debug logs. A header defined in this map must not also be defined in `sensitive_headers`.                      |
-| `sensitive_headers`  | map       |         | `false`  | A map of custom headers with sensitive values (e.g., auth token ID). Values are masked in logs and debug output. Headers defined in this map must not also be defined in `headers`.            |
-| `pagination`         | object    |         | `false`  | Pagination configuration (see below)                                                                                                                                                           |
-| `min_poll_interval`  | duration  | `10s`   | `false`  | Minimum interval between API polls. The receiver resets to this interval when data is received. Increase this to prevent hitting API rate limits.                                              |
-| `max_poll_interval`  | duration  | `5m`    | `false`  | Maximum interval between API polls. The receiver uses adaptive polling that starts at `min_poll_interval` and backs off when no data is returned, up to this maximum.                          |
-| `backoff_multiplier` | float     | `2.0`   | `false`  | Multiplier for increasing the poll interval when no data or a partial page is returned. Must be greater than 1.0.                                                                              |
-| `storage`            | component |         | `false`  | The component ID of a storage extension for checkpointing                                                                                                                                      |
-| `timeout`            | duration  | `10s`   | `false`  | HTTP client timeout                                                                                                                                                                            |
+| `response_field`     | string    |         | `false`  | The name of the field in the response that contains the array of items. If empty, the response is assumed to be a top-level array. For nested fields, use dot notation (e.g., `response.data`). Not used when `response_format` is `ndjson`.                |
+| `metrics`            | object    |         | `false`  | Metrics configuration (see below)                                                                                                                                                                                                                           |
+| `auth_mode`          | string    | `none`  | `false`  | Authentication mode: `none`, `apikey`, `bearer`, `basic`, `oauth2`, or `akamai_edgegrid`                                                                                                                                                                    |
+| `apikey`             | object    |         | `false`  | API Key configuration (see below)                                                                                                                                                                                                                           |
+| `bearer`             | object    |         | `false`  | Bearer Token configuration (see below)                                                                                                                                                                                                                      |
+| `basic`              | object    |         | `false`  | Basic Auth configuration (see below)                                                                                                                                                                                                                        |
+| `oauth2`             | object    |         | `false`  | OAuth2 Client Credentials configuration (see below)                                                                                                                                                                                                         |
+| `akamai_edgegrid`    | object    |         | `false`  | Akamai EdgeGrid configuration (see below)                                                                                                                                                                                                                   |
+| `headers`            | map       |         | `false`  | A map of custom headers to send with each request. Header values will appear in debug logs. A header defined in this map must not also be defined in `sensitive_headers`.                                                                                   |
+| `sensitive_headers`  | map       |         | `false`  | A map of custom headers with sensitive values (e.g., auth token ID). Values are masked in logs and debug output. Headers defined in this map must not also be defined in `headers`.                                                                         |
+| `pagination`         | object    |         | `false`  | Pagination configuration (see below)                                                                                                                                                                                                                        |
+| `min_poll_interval`  | duration  | `10s`   | `false`  | Minimum interval between API polls. The receiver resets to this interval when data is received. Increase this to prevent hitting API rate limits.                                                                                                           |
+| `max_poll_interval`  | duration  | `5m`    | `false`  | Maximum interval between API polls. The receiver uses adaptive polling that starts at `min_poll_interval` and backs off when no data is returned, up to this maximum.                                                                                       |
+| `backoff_multiplier` | float     | `2.0`   | `false`  | Multiplier for increasing the poll interval when no data or a partial page is returned. Must be greater than 1.0.                                                                                                                                           |
+| `storage`            | component |         | `false`  | The component ID of a storage extension for checkpointing                                                                                                                                                                                                   |
+| `timeout`            | duration  | `10s`   | `false`  | HTTP client timeout                                                                                                                                                                                                                                         |
 
 ### Auth Mode Configuration
 
@@ -89,61 +89,64 @@ Use `auth_mode: none` for public APIs that don't require authentication. No addi
 
 **The Akamai API requires an enterprise license. This authentication method has not been tested against an Akamai API.**
 
-| Field                  | Type   | Default | Required | Description                   |
-| ---------------------- | ------ | ------- | -------- | ----------------------------- |
-| `akamai_access_token`  | string |         | `true`   | Akamai EdgeGrid access token  |
-| `akamai_client_token`  | string |         | `true`   | Akamai EdgeGrid client token  |
-| `akamai_client_secret` | string |         | `true`   | Akamai EdgeGrid client secret |
+Request signing uses the [official Akamai EdgeGrid Go library](https://github.com/akamai/AkamaiOPEN-edgegrid-golang), which implements the [EdgeGrid v1 HMAC-SHA256 signing scheme](https://techdocs.akamai.com/developer/docs/set-up-authentication-credentials).
+
+| Field           | Type   | Default | Required | Description                                                                                                                                                                                   |
+| --------------- | ------ | ------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `access_token`  | string |         | `true`   | Akamai EdgeGrid access token                                                                                                                                                                  |
+| `client_token`  | string |         | `true`   | Akamai EdgeGrid client token                                                                                                                                                                  |
+| `client_secret` | string |         | `true`   | Akamai EdgeGrid client secret                                                                                                                                                                 |
+| `account_key`   | string |         | `false`  | Optional `accountSwitchKey`. When set, it is added as a query parameter on every request so partners can make calls against a managed account. See Akamai's docs on `accountSwitchKey` usage. |
 
 ### Time-Bounding Configuration
 
 These top-level fields add start and/or end time query parameters to every request. They work with **any** pagination mode (or none). When used with `timestamp` pagination, the start time advances automatically through response data.
 
-| Field                  | Type   | Default | Required | Description                                                                                                                                                                                                                          |
-| ---------------------- | ------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `start_time_param_name`| string |         | `false`  | Query parameter name for start time (e.g., "since", "from", "start_time"). **Required** when `pagination.mode` is `timestamp`                                                                                                        |
-| `start_time_value`     | string |         | `false`  | Value for the start time: `"now"` resolves to the current time at receiver start (not dynamically updated), or a fixed timestamp in the configured format (e.g., `"2025-01-01T00:00:00Z"` or `"1704067200"` for epoch). For timestamp pagination, this is the initial start value |
-| `end_time_param_name`  | string |         | `false`  | Query parameter name for end time (e.g., "until", "to", "end_time"). If set, sends an end time on every request                                                                                                                      |
-| `end_time_value`       | string | `now`   | `false`  | Value for the end time: `"now"` (default) resolves to the current time at receiver start (not dynamically updated), or a fixed timestamp in the configured format                                                                      |
-| `timestamp_format`     | string | RFC3339 | `false`  | Format for both start and end time query parameters. Accepts Go time format strings or epoch formats (see below)                                                                                                                      |
+| Field                   | Type   | Default | Required | Description                                                                                                                                                                                                                                                                       |
+| ----------------------- | ------ | ------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `start_time_param_name` | string |         | `false`  | Query parameter name for start time (e.g., "since", "from", "start_time"). **Required** when `pagination.mode` is `timestamp`                                                                                                                                                     |
+| `start_time_value`      | string |         | `false`  | Value for the start time: `"now"` resolves to the current time at receiver start (not dynamically updated), or a fixed timestamp in the configured format (e.g., `"2025-01-01T00:00:00Z"` or `"1704067200"` for epoch). For timestamp pagination, this is the initial start value |
+| `end_time_param_name`   | string |         | `false`  | Query parameter name for end time (e.g., "until", "to", "end_time"). If set, sends an end time on every request                                                                                                                                                                   |
+| `end_time_value`        | string | `now`   | `false`  | Value for the end time: `"now"` (default) resolves to the current time at receiver start (not dynamically updated), or a fixed timestamp in the configured format                                                                                                                 |
+| `timestamp_format`      | string | RFC3339 | `false`  | Format for both start and end time query parameters. Accepts Go time format strings or epoch formats (see below)                                                                                                                                                                  |
 
 ### Pagination Configuration
 
-| Field                                 | Type   | Default | Required | Description                                                          |
-| ------------------------------------- | ------ | ------- | -------- | -------------------------------------------------------------------- |
-| `pagination.mode`                     | string | `none`  | `false`  | Pagination mode: `none`, `offset_limit`, `page_size`, or `timestamp` |
+| Field                                 | Type   | Default | Required | Description                                                                                                                                                                                                                              |
+| ------------------------------------- | ------ | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pagination.mode`                     | string | `none`  | `false`  | Pagination mode: `none`, `offset_limit`, `page_size`, or `timestamp`                                                                                                                                                                     |
 | `pagination.response_source`          | string | `body`  | `false`  | Where to extract pagination response attributes from: `body` (response body or NDJSON metadata line) or `header` (HTTP response headers). Applies to `total_record_count_field`, `next_offset_field_name`, and `total_pages_field_name`. |
-| `pagination.total_record_count_field` | string |         | `false`  | Name of the field or header containing total record count            |
-| `pagination.page_limit`               | int    | `0`     | `false`  | Maximum number of pages to fetch (0 = no limit)                      |
-| `pagination.zero_based_index`         | bool   | `false` | `false`  | Indicates that the requested data starts at index 0                  |
+| `pagination.total_record_count_field` | string |         | `false`  | Name of the field or header containing total record count                                                                                                                                                                                |
+| `pagination.page_limit`               | int    | `0`     | `false`  | Maximum number of pages to fetch (0 = no limit)                                                                                                                                                                                          |
+| `pagination.zero_based_index`         | bool   | `false` | `false`  | Indicates that the requested data starts at index 0                                                                                                                                                                                      |
 
 #### Offset/Limit Pagination
 
-| Field                                            | Type   | Default | Required | Description                                                                                                                                                                                                                    |
-| ------------------------------------------------ | ------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pagination.offset_limit.offset_field_name`      | string |         | `false`  | Query parameter name for offset                                                                                                                                                                                                |
-| `pagination.offset_limit.limit_field_name`       | string |         | `false`  | Query parameter name for limit                                                                                                                                                                                                 |
-| `pagination.offset_limit.starting_offset`        | int    | `0`     | `false`  | Starting offset value                                                                                                                                                                                                          |
+| Field                                            | Type   | Default | Required | Description                                                                                                                                                                                                                                        |
+| ------------------------------------------------ | ------ | ------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pagination.offset_limit.offset_field_name`      | string |         | `false`  | Query parameter name for offset                                                                                                                                                                                                                    |
+| `pagination.offset_limit.limit_field_name`       | string |         | `false`  | Query parameter name for limit                                                                                                                                                                                                                     |
+| `pagination.offset_limit.starting_offset`        | int    | `0`     | `false`  | Starting offset value                                                                                                                                                                                                                              |
 | `pagination.offset_limit.next_offset_field_name` | string |         | `false`  | Name of the field or header containing the next offset token. When set, the receiver uses token-based (cursor) pagination instead of numeric offsets. For body sources, supports nested fields with dot notation (e.g., `pagination.next_cursor`). |
 
 #### Page/Size Pagination
 
-| Field                                         | Type   | Default | Required | Description                                        |
-| --------------------------------------------- | ------ | ------- | -------- | -------------------------------------------------- |
-| `pagination.page_size.page_num_field_name`    | string |         | `false`  | Query parameter name for page number               |
-| `pagination.page_size.page_size_field_name`   | string |         | `false`  | Query parameter name for page size                 |
-| `pagination.page_size.starting_page`          | int    | `1`     | `false`  | Starting page number                               |
+| Field                                         | Type   | Default | Required | Description                                             |
+| --------------------------------------------- | ------ | ------- | -------- | ------------------------------------------------------- |
+| `pagination.page_size.page_num_field_name`    | string |         | `false`  | Query parameter name for page number                    |
+| `pagination.page_size.page_size_field_name`   | string |         | `false`  | Query parameter name for page size                      |
+| `pagination.page_size.starting_page`          | int    | `1`     | `false`  | Starting page number                                    |
 | `pagination.page_size.total_pages_field_name` | string |         | `false`  | Name of the field or header containing total page count |
 
 #### Timestamp-Based Pagination
 
 Timestamp pagination uses the top-level `start_time_param_name` and `timestamp_format` fields to send an advancing start time. The start time is automatically updated from response data as pages are consumed.
 
-| Field                                       | Type   | Default | Required | Description                                                                     |
-| ------------------------------------------- | ------ | ------- | -------- | ------------------------------------------------------------------------------- |
+| Field                                       | Type   | Default | Required | Description                                                                         |
+| ------------------------------------------- | ------ | ------- | -------- | ----------------------------------------------------------------------------------- |
 | `pagination.timestamp.timestamp_field_name` | string |         | `true`   | Field name in each response item containing the timestamp (e.g., "ts", "timestamp") |
-| `pagination.timestamp.page_size_field_name` | string |         | `false`  | Query parameter name for page size (e.g., "perPage", "limit")                   |
-| `pagination.timestamp.page_size`            | int    | `100`   | `false`  | Page size to use                                                                |
+| `pagination.timestamp.page_size_field_name` | string |         | `false`  | Query parameter name for page size (e.g., "perPage", "limit")                       |
+| `pagination.timestamp.page_size`            | int    | `100`   | `false`  | Page size to use                                                                    |
 
 Common timestamp formats:
 
