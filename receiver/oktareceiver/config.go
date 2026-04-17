@@ -23,11 +23,11 @@ import (
 	"go.opentelemetry.io/collector/config/configopaque"
 )
 
-var (
+const (
 	defaultPollInterval = time.Minute
 
-	// OktaTimeFormat ISO 8601 Format
-	OktaTimeFormat = "2006-01-02T15:04:05Z"
+	// oktaTimeFormat ISO 8601 Format
+	oktaTimeFormat = "2006-01-02T15:04:05Z"
 )
 
 // Config defines the configuration for an Okta receiver
