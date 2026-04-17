@@ -180,7 +180,7 @@ func TestPollPagination(t *testing.T) {
 	var serverURL string
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		requestCount++
 		w.Header().Set("Content-Type", "application/json")
 		if requestCount == 1 {
