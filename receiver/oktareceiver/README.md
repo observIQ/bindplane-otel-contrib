@@ -7,6 +7,12 @@ This receiver collects system logs from an Okta domain.
 ## Supported Pipelines
 - Logs
 
+## How It Works
+1. The receiver polls the Okta [System Log API](https://developer.okta.com/docs/reference/api/system-log/) once per `poll_interval` for events published since the previous poll.
+2. The receiver follows pagination links to retrieve all events within the poll window.
+3. The receiver converts each event to an OpenTelemetry log and sends it to the collector.
+   - Key event fields (such as UUID, event type, outcome, and actor details) are promoted to log attributes, and the Okta domain is set as a resource attribute.
+
 ## Prerequisites
 - An Okta API Token will be needed to authorize the receiver with your Okta Domain.
 
