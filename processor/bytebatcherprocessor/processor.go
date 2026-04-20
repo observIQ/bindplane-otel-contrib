@@ -1,0 +1,310 @@
+// Copyright  observIQ, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package bytebatcherprocessor
+
+import (
+	"context"
+	"sync"
+	"time"
+
+	"github.com/observiq/bindplane-otel-contrib/processor/bytebatcherprocessor/internal/metadata"
+	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/collector/processor/processorhelper"
+	"go.uber.org/zap"
+)
+
+// batch represents a single telemetry batch of type T.
+type batch[T any] interface {
+	add(item T)
+	sizeBytes(item T) int
+	flush(ctx context.Context) error
+	len() int
+	reset()
+}
+
+// queue manages batching and flushing of telemetry items.
+type queue[T any] struct {
+	mu          sync.Mutex
+	items       []T
+	currentSize int64
+
+	cfg       *Config
+	logger    *zap.Logger
+	newBatch  func() batch[T]
+	telemetry *metadata.TelemetryBuilder
+
+	ctx      context.Context
+	cancel   context.CancelFunc
+	doneChan chan struct{}
+	wg       sync.WaitGroup
+
+	// shutdownFlushCtx, when non-nil, is used for flush operations so final
+	// deliveries respect the processor shutdown deadline.
+	flushCtxMu       sync.RWMutex
+	shutdownFlushCtx context.Context
+}
+
+// newQueue creates a new queue for batching telemetry.
+func newQueue[T any](cfg *Config, logger *zap.Logger, telemetry *metadata.TelemetryBuilder, newBatchFunc func() batch[T]) *queue[T] {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &queue[T]{
+		cfg:       cfg,
+		logger:    logger,
+		newBatch:  newBatchFunc,
+		telemetry: telemetry,
+		ctx:       ctx,
+		cancel:    cancel,
+		doneChan:  make(chan struct{}),
+	}
+}
+
+// start begins the flush goroutine.
+func (q *queue[T]) start() {
+	q.wg.Add(1)
+	go q.flushLoop()
+}
+
+// shutdown gracefully stops the queue and flushes remaining items.
+func (q *queue[T]) shutdown(ctx context.Context) error {
+	q.flushCtxMu.Lock()
+	q.shutdownFlushCtx = ctx
+	q.flushCtxMu.Unlock()
+
+	close(q.doneChan)
+
+	waitCh := make(chan struct{})
+	go func() {
+		q.wg.Wait()
+		close(waitCh)
+	}()
+
+	defer func() {
+		q.flushCtxMu.Lock()
+		q.shutdownFlushCtx = nil
+		q.flushCtxMu.Unlock()
+		q.cancel()
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-waitCh:
+		return nil
+	}
+}
+
+// contextForFlush returns the shutdown context while draining, otherwise the
+// queue's long-lived context (used for bounded retries during normal operation).
+func (q *queue[T]) contextForFlush() context.Context {
+	q.flushCtxMu.RLock()
+	defer q.flushCtxMu.RUnlock()
+	if q.shutdownFlushCtx != nil {
+		return q.shutdownFlushCtx
+	}
+	return q.ctx
+}
+
+// add appends an item to the queue. If the accumulated size exceeds the threshold,
+// items are flushed immediately without blocking the caller.
+func (q *queue[T]) add(item T, b batch[T]) {
+	size := int64(b.sizeBytes(item))
+
+	q.mu.Lock()
+	q.items = append(q.items, item)
+	q.currentSize += size
+
+	// Check if we've hit the size threshold
+	if q.currentSize >= int64(q.cfg.Bytes) {
+		items := q.items
+		q.items = nil
+		q.currentSize = 0
+		q.mu.Unlock()
+
+		q.doFlush(items, b)
+		return
+	}
+	q.mu.Unlock()
+}
+
+// doFlush sends accumulated items to the next consumer.
+func (q *queue[T]) doFlush(items []T, b batch[T]) {
+	if len(items) == 0 {
+		return
+	}
+
+	// Restore items to batch for flushing
+	for _, item := range items {
+		b.add(item)
+	}
+
+	if err := b.flush(q.contextForFlush()); err != nil {
+		q.logger.Error(
+			"next consumer did not accept batched telemetry; dropping this batch (no retry to avoid duplicate export)",
+			zap.Error(err),
+			zap.Int("queued_items", len(items)),
+		)
+	}
+
+	b.reset()
+}
+
+// flushLoop runs the background flush goroutine.
+func (q *queue[T]) flushLoop() {
+	defer q.wg.Done()
+
+	ticker := time.NewTicker(q.cfg.FlushInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			q.flushOnInterval()
+		case <-q.doneChan:
+			// Drain until empty so telemetry queued during the last flush or
+			// shutdown race still reaches the next consumer.
+			for {
+				q.flushOnInterval()
+				q.mu.Lock()
+				empty := len(q.items) == 0
+				q.mu.Unlock()
+				if empty {
+					break
+				}
+			}
+			return
+		}
+	}
+}
+
+// flushOnInterval flushes items on the interval trigger.
+func (q *queue[T]) flushOnInterval() {
+	q.mu.Lock()
+	if len(q.items) == 0 {
+		q.mu.Unlock()
+		return
+	}
+
+	items := q.items
+	q.items = nil
+	q.currentSize = 0
+	q.mu.Unlock()
+
+	// Use a temporary batch for flushing
+	b := q.newBatch()
+	q.doFlush(items, b)
+}
+
+// tracesProcessor processes incoming trace data.
+type tracesProcessor struct {
+	q *queue[ptrace.Traces]
+}
+
+func newTracesProcessor(cfg *Config, logger *zap.Logger, telemetry *metadata.TelemetryBuilder, newBatchFunc func() batch[ptrace.Traces]) *tracesProcessor {
+	return &tracesProcessor{
+		q: newQueue(cfg, logger, telemetry, newBatchFunc),
+	}
+}
+
+// Capabilities returns the traces processor's capabilities.
+func (p *tracesProcessor) Capabilities() consumer.Capabilities {
+	return consumer.Capabilities{MutatesData: true}
+}
+
+// Start starts the traces processor.
+func (p *tracesProcessor) Start(context.Context, component.Host) error {
+	p.q.start()
+	return nil
+}
+
+// Shutdown shuts down the traces processor.
+func (p *tracesProcessor) Shutdown(ctx context.Context) error {
+	return p.q.shutdown(ctx)
+}
+
+func (p *tracesProcessor) processTraces(_ context.Context, td ptrace.Traces) (ptrace.Traces, error) {
+	b := p.q.newBatch()
+	p.q.add(td, b)
+	return td, processorhelper.ErrSkipProcessingData
+}
+
+// logsProcessor processes incoming log data.
+type logsProcessor struct {
+	q *queue[plog.Logs]
+}
+
+func newLogsProcessor(cfg *Config, logger *zap.Logger, telemetry *metadata.TelemetryBuilder, newBatchFunc func() batch[plog.Logs]) *logsProcessor {
+	return &logsProcessor{
+		q: newQueue(cfg, logger, telemetry, newBatchFunc),
+	}
+}
+
+// Capabilities returns the log processor's capabilities.
+func (p *logsProcessor) Capabilities() consumer.Capabilities {
+	return consumer.Capabilities{MutatesData: true}
+}
+
+// Start starts the logs processor.
+func (p *logsProcessor) Start(context.Context, component.Host) error {
+	p.q.start()
+	return nil
+}
+
+// Shutdown shuts down the logs processor.
+func (p *logsProcessor) Shutdown(ctx context.Context) error {
+	return p.q.shutdown(ctx)
+}
+
+func (p *logsProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.Logs, error) {
+	b := p.q.newBatch()
+	p.q.add(ld, b)
+	return ld, processorhelper.ErrSkipProcessingData
+}
+
+// metricsProcessor processes incoming metric data.
+type metricsProcessor struct {
+	q *queue[pmetric.Metrics]
+}
+
+func newMetricsProcessor(cfg *Config, logger *zap.Logger, telemetry *metadata.TelemetryBuilder, newBatchFunc func() batch[pmetric.Metrics]) *metricsProcessor {
+	return &metricsProcessor{
+		q: newQueue(cfg, logger, telemetry, newBatchFunc),
+	}
+}
+
+// Capabilities returns the processor's capabilities.
+func (p *metricsProcessor) Capabilities() consumer.Capabilities {
+	return consumer.Capabilities{MutatesData: true}
+}
+
+// Start starts the metrics processor.
+func (p *metricsProcessor) Start(context.Context, component.Host) error {
+	p.q.start()
+	return nil
+}
+
+// Shutdown shuts down the metrics processor.
+func (p *metricsProcessor) Shutdown(ctx context.Context) error {
+	return p.q.shutdown(ctx)
+}
+
+func (p *metricsProcessor) processMetrics(_ context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
+	b := p.q.newBatch()
+	p.q.add(md, b)
+	return md, processorhelper.ErrSkipProcessingData
+}
