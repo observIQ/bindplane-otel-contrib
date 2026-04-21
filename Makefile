@@ -303,6 +303,7 @@ fmt:
 .PHONY: tidy
 tidy:
 	$(MAKE) for-all CMD="go mod tidy -compat=1.25.7"
+	cd $(TOOLS_MOD_DIR) && go mod tidy -compat=1.25.7
 
 # This target runs gosec in each individual go module.
 # Specific modules have directories that need to be ignored.

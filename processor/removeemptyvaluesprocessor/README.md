@@ -33,7 +33,7 @@ The following config is an example configuration of the `removeemptyvalues` proc
 
 ```yaml
 receivers:
-  windowseventlog:
+  windows_event_log:
     channel: application
 
 processors:
@@ -45,7 +45,7 @@ exporters:
 service:
   pipelines:
     logs:
-      receivers: [windowseventlog]
+      receivers: [windows_event_log]
       processors: [removeemptyvalues]
       exporters: [logging]
 ```
@@ -57,7 +57,7 @@ The following configuration removes fields that are the empty string ("") or nul
 
 ```yaml
 receivers:
-  windowseventlog:
+  windows_event_log:
     channel: application
 
 processors:
@@ -72,7 +72,7 @@ exporters:
 service:
   pipelines:
     logs:
-      receivers: [windowseventlog]
+      receivers: [windows_event_log]
       processors: [removeemptyvalues]
       exporters: [logging]
 ```
