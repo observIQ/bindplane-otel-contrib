@@ -32,7 +32,7 @@ Alpha:
 | -------------------- | --------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `url`                | string    |         | `true`   | The base URL for the REST API endpoint                                                                                                                                                                                                                      |
 | `response_format`    | string    | `json`  | `false`  | Response body format: `json` (standard JSON array/object) or `ndjson` (newline-delimited JSON). In NDJSON mode, each line is a separate JSON object; the last line is treated as metadata (e.g., containing pagination cursors) and is not emitted as data. |
-| `response_field`     | string    |         | `false`  | The name of the field in the response that contains the array of items. If empty, the response is assumed to be a top-level array. For nested fields, use dot notation (e.g., `response.data`). Not used when `response_format` is `ndjson`.                |
+| `response_field`     | string    |         | `false`  | The name of the field in the response that contains the array of items. If empty, the response is assumed to be a top-level array. For nested fields, use dot notation (e.g., `response.data`). Array elements can be selected by non-negative index (e.g., `intervals[0].readings`, `matrix[0][1]`). Not used when `response_format` is `ndjson`.                |
 | `metrics`            | object    |         | `false`  | Metrics configuration (see below)                                                                                                                                                                                                                           |
 | `auth_mode`          | string    | `none`  | `false`  | Authentication mode: `none`, `apikey`, `bearer`, `basic`, `oauth2`, or `akamai_edgegrid`                                                                                                                                                                    |
 | `apikey`             | object    |         | `false`  | API Key configuration (see below)                                                                                                                                                                                                                           |
@@ -127,7 +127,7 @@ These top-level fields add start and/or end time query parameters to every reque
 | `pagination.offset_limit.offset_field_name`      | string |         | `false`  | Query parameter name for offset                                                                                                                                                                                                                    |
 | `pagination.offset_limit.limit_field_name`       | string |         | `false`  | Query parameter name for limit                                                                                                                                                                                                                     |
 | `pagination.offset_limit.starting_offset`        | int    | `0`     | `false`  | Starting offset value                                                                                                                                                                                                                              |
-| `pagination.offset_limit.next_offset_field_name` | string |         | `false`  | Name of the field or header containing the next offset token. When set, the receiver uses token-based (cursor) pagination instead of numeric offsets. For body sources, supports nested fields with dot notation (e.g., `pagination.next_cursor`). |
+| `pagination.offset_limit.next_offset_field_name` | string |         | `false`  | Name of the field or header containing the next offset token. When set, the receiver uses token-based (cursor) pagination instead of numeric offsets. For body sources, supports nested fields with dot notation and array indices (e.g., `pagination.next_cursor`, `cursors[0].next`). |
 
 #### Page/Size Pagination
 
@@ -525,6 +525,23 @@ The receiver expects JSON responses in one of two formats:
 ```
 
 When using the second format, specify the field name in `response_field` (e.g., `"data"`).
+
+`response_field` also accepts dot notation for nested objects and `[N]` for array indices. For a response like:
+
+```json
+{
+  "intervals": [
+    {
+      "readings": [
+        { "id": "1", "value": 10 },
+        { "id": "2", "value": 20 }
+      ]
+    }
+  ]
+}
+```
+
+set `response_field: "intervals[0].readings"` to emit the two reading objects.
 
 ## Adaptive Polling
 
