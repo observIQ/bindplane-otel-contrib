@@ -585,7 +585,7 @@ func (c *Config) Validate() error {
 		// token-based pagination (next_offset_field_name set), advance is
 		// driven by the token so limit_field_name is optional.
 		if c.Pagination.OffsetLimit.NextOffsetFieldName == "" && c.Pagination.OffsetLimit.LimitFieldName == "" {
-			return fmt.Errorf("limit_field_name is required when pagination.mode is offset_limit (unless next_offset_field_name is set for token-based pagination)")
+			return fmt.Errorf("limit_field_name is required when pagination.mode is offset_limit and next_offset_field_name is not set for token-based pagination")
 		}
 		// next_offset_field_name is required when response_source is header
 		if c.Pagination.ResponseSource == responseSourceHeader && c.Pagination.OffsetLimit.NextOffsetFieldName == "" {
