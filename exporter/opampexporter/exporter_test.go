@@ -53,13 +53,13 @@ func TestExporter_ConsumeLogs(t *testing.T) {
 		require.NoError(t, e.Shutdown(context.Background()))
 	})
 
-	require.Equal(t, opampCapability, mockOpamp.capability)
+	require.Equal(t, defaultCapability, mockOpamp.capability)
 
 	logs := generateTestLogs()
 	require.NoError(t, e.ConsumeLogs(context.Background(), logs))
 
 	msg := mockOpamp.waitForMessage(t)
-	require.Equal(t, otlpMessageType, msg.messageType)
+	require.Equal(t, defaultMessageType, msg.messageType)
 
 	decoded, err := snappy.Decode(nil, msg.payload)
 	require.NoError(t, err)
@@ -87,13 +87,13 @@ func TestExporter_ConsumeMetrics(t *testing.T) {
 		require.NoError(t, e.Shutdown(context.Background()))
 	})
 
-	require.Equal(t, opampCapability, mockOpamp.capability)
+	require.Equal(t, defaultCapability, mockOpamp.capability)
 
 	metrics := generateTestMetrics()
 	require.NoError(t, e.ConsumeMetrics(context.Background(), metrics))
 
 	msg := mockOpamp.waitForMessage(t)
-	require.Equal(t, otlpMessageType, msg.messageType)
+	require.Equal(t, defaultMessageType, msg.messageType)
 
 	decoded, err := snappy.Decode(nil, msg.payload)
 	require.NoError(t, err)
@@ -121,13 +121,13 @@ func TestExporter_ConsumeTraces(t *testing.T) {
 		require.NoError(t, e.Shutdown(context.Background()))
 	})
 
-	require.Equal(t, opampCapability, mockOpamp.capability)
+	require.Equal(t, defaultCapability, mockOpamp.capability)
 
 	traces := generateTestTraces()
 	require.NoError(t, e.ConsumeTraces(context.Background(), traces))
 
 	msg := mockOpamp.waitForMessage(t)
-	require.Equal(t, otlpMessageType, msg.messageType)
+	require.Equal(t, defaultMessageType, msg.messageType)
 
 	decoded, err := snappy.Decode(nil, msg.payload)
 	require.NoError(t, err)
@@ -173,6 +173,36 @@ func TestExporter_SharedInstanceAcrossSignals(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return mockOpamp.messageCount() == 3
 	}, time.Second, 10*time.Millisecond)
+}
+
+func TestExporter_CustomCapabilityAndMessageType(t *testing.T) {
+	factory := NewFactory()
+	set := exportertest.NewNopSettings(metadata.Type)
+	set.ID = component.NewIDWithName(metadata.Type, "custom")
+
+	cfg := factory.CreateDefaultConfig().(*Config)
+	cfg.Capability = "com.example.throughput"
+	cfg.MessageType = "throughput-proto"
+
+	e, err := factory.CreateLogs(context.Background(), set, cfg)
+	require.NoError(t, err)
+
+	mockOpamp := newMockOpAMPExtension()
+	host := &mockHost{extensions: map[component.ID]component.Component{
+		component.MustNewID("opamp"): mockOpamp,
+	}}
+
+	require.NoError(t, e.Start(context.Background(), host))
+	t.Cleanup(func() {
+		require.NoError(t, e.Shutdown(context.Background()))
+	})
+
+	require.Equal(t, "com.example.throughput", mockOpamp.capability)
+
+	require.NoError(t, e.ConsumeLogs(context.Background(), generateTestLogs()))
+
+	msg := mockOpamp.waitForMessage(t)
+	require.Equal(t, "throughput-proto", msg.messageType)
 }
 
 func TestExporter_Start_MissingExtension(t *testing.T) {

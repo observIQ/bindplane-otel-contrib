@@ -31,16 +31,13 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	opampCapability = "com.bindplane.opampexporter"
-	otlpMessageType = "otlp-snappy"
-)
-
 type opampExporter struct {
 	logger *zap.Logger
 
 	exporterID       component.ID
 	opampExtensionID component.ID
+	capability       string
+	messageType      string
 
 	mu                      sync.Mutex
 	customCapabilityHandler opampcustommessages.CustomCapabilityHandler
@@ -58,6 +55,8 @@ func newOpAMPExporter(logger *zap.Logger, cfg *Config, exporterID component.ID) 
 		logger:           logger,
 		exporterID:       exporterID,
 		opampExtensionID: cfg.OpAMP,
+		capability:       cfg.Capability,
+		messageType:      cfg.MessageType,
 		started:          &atomic.Bool{},
 		stopped:          &atomic.Bool{},
 	}
@@ -79,7 +78,7 @@ func (e *opampExporter) start(_ context.Context, host component.Host) error {
 		return fmt.Errorf("extension %q is not a custom message registry", e.opampExtensionID)
 	}
 
-	handler, err := registry.Register(opampCapability)
+	handler, err := registry.Register(e.capability)
 	if err != nil {
 		return fmt.Errorf("register custom capability: %w", err)
 	}
@@ -145,7 +144,7 @@ func (e *opampExporter) sendMessage(payload []byte) error {
 	}
 
 	for {
-		msgSendChan, err := handler.SendMessage(otlpMessageType, payload)
+		msgSendChan, err := handler.SendMessage(e.messageType, payload)
 		switch {
 		case err == nil:
 			e.logger.Debug("OTLP message scheduled to send via OpAMP")

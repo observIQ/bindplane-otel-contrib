@@ -28,7 +28,9 @@ func TestNewFactory(t *testing.T) {
 	require.Equal(t, metadata.Type, factory.Type())
 
 	expectedCfg := &Config{
-		OpAMP: defaultOpAMPExtensionID,
+		OpAMP:       defaultOpAMPExtensionID,
+		Capability:  defaultCapability,
+		MessageType: defaultMessageType,
 	}
 
 	cfg, ok := factory.CreateDefaultConfig().(*Config)

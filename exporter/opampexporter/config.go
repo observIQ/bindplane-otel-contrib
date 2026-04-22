@@ -22,11 +22,31 @@ import (
 
 var defaultOpAMPExtensionID = component.MustNewID("opamp")
 
+const (
+	// defaultCapability is the OpAMP custom capability registered by the
+	// exporter when `capability` is not overridden.
+	defaultCapability = "com.bindplane.opampexporter"
+	// defaultMessageType is the OpAMP custom message type used for each
+	// payload when `message_type` is not overridden.
+	defaultMessageType = "otlp-snappy"
+)
+
 // Config is the configuration for the opamp exporter.
 type Config struct {
 	// OpAMP is the component ID of the opamp extension to use to register the
 	// custom capability and send custom messages.
 	OpAMP component.ID `mapstructure:"opamp"`
+
+	// Capability is the OpAMP custom capability registered by this exporter
+	// and used on every outgoing custom message. Configure distinct
+	// capabilities on separate exporter instances to differentiate payload
+	// streams (e.g. throughput vs. health metrics).
+	Capability string `mapstructure:"capability"`
+
+	// MessageType is the OpAMP custom message type used for each outgoing
+	// payload. The default indicates the payload is snappy-compressed
+	// OTLP-proto.
+	MessageType string `mapstructure:"message_type"`
 }
 
 // Validate validates the exporter configuration.
@@ -34,6 +54,12 @@ func (cfg Config) Validate() error {
 	var emptyID component.ID
 	if cfg.OpAMP == emptyID {
 		return errors.New("`opamp` must be specified")
+	}
+	if cfg.Capability == "" {
+		return errors.New("`capability` must be specified")
+	}
+	if cfg.MessageType == "" {
+		return errors.New("`message_type` must be specified")
 	}
 
 	return nil
