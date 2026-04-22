@@ -5,8 +5,9 @@ This exporter sends OTLP telemetry payloads to a connected OpAMP server as
 
 It registers the custom capability `com.bindplane.opampexporter` with an
 OpAMP extension in the collector, and for each batch of logs, metrics, or
-traces it receives, it sends a custom message of type `otlp` whose body is
-the OTLP-proto-encoded payload for that signal.
+traces it receives, it sends a custom message of type `otlp-snappy` whose
+body is the OTLP-proto-encoded payload for that signal, compressed with
+[Snappy](https://github.com/google/snappy).
 
 ## Supported signals
 
@@ -52,6 +53,7 @@ service:
 ## Message format
 
 - Capability: `com.bindplane.opampexporter`
-- Message type: `otlp`
+- Message type: `otlp-snappy`
 - Message body: OTLP-proto-encoded `plog.Logs`, `pmetric.Metrics`, or
-  `ptrace.Traces` depending on the originating pipeline.
+  `ptrace.Traces` depending on the originating pipeline, then compressed
+  with Snappy (block format, as produced by `snappy.Encode`).

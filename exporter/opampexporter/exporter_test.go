@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/snappy"
 	"github.com/observiq/bindplane-otel-contrib/exporter/opampexporter/internal/metadata"
 	"github.com/open-telemetry/opamp-go/client/types"
 	"github.com/open-telemetry/opamp-go/protobufs"
@@ -60,8 +61,10 @@ func TestExporter_ConsumeLogs(t *testing.T) {
 	msg := mockOpamp.waitForMessage(t)
 	require.Equal(t, otlpMessageType, msg.messageType)
 
+	decoded, err := snappy.Decode(nil, msg.payload)
+	require.NoError(t, err)
 	unmarshaler := plog.ProtoUnmarshaler{}
-	got, err := unmarshaler.UnmarshalLogs(msg.payload)
+	got, err := unmarshaler.UnmarshalLogs(decoded)
 	require.NoError(t, err)
 	require.Equal(t, logs, got)
 }
@@ -92,8 +95,10 @@ func TestExporter_ConsumeMetrics(t *testing.T) {
 	msg := mockOpamp.waitForMessage(t)
 	require.Equal(t, otlpMessageType, msg.messageType)
 
+	decoded, err := snappy.Decode(nil, msg.payload)
+	require.NoError(t, err)
 	unmarshaler := pmetric.ProtoUnmarshaler{}
-	got, err := unmarshaler.UnmarshalMetrics(msg.payload)
+	got, err := unmarshaler.UnmarshalMetrics(decoded)
 	require.NoError(t, err)
 	require.Equal(t, metrics, got)
 }
@@ -124,8 +129,10 @@ func TestExporter_ConsumeTraces(t *testing.T) {
 	msg := mockOpamp.waitForMessage(t)
 	require.Equal(t, otlpMessageType, msg.messageType)
 
+	decoded, err := snappy.Decode(nil, msg.payload)
+	require.NoError(t, err)
 	unmarshaler := ptrace.ProtoUnmarshaler{}
-	got, err := unmarshaler.UnmarshalTraces(msg.payload)
+	got, err := unmarshaler.UnmarshalTraces(decoded)
 	require.NoError(t, err)
 	require.Equal(t, traces, got)
 }

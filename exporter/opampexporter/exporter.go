@@ -21,6 +21,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/golang/snappy"
 	"github.com/open-telemetry/opamp-go/client/types"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages"
 	"go.opentelemetry.io/collector/component"
@@ -31,8 +32,8 @@ import (
 )
 
 const (
-	opampCapability  = "com.bindplane.opampexporter"
-	otlpMessageType  = "otlp"
+	opampCapability = "com.bindplane.opampexporter"
+	otlpMessageType = "otlp-snappy"
 )
 
 type opampExporter struct {
@@ -115,7 +116,7 @@ func (e *opampExporter) consumeLogs(_ context.Context, ld plog.Logs) error {
 	if err != nil {
 		return fmt.Errorf("marshal logs: %w", err)
 	}
-	return e.sendMessage(payload)
+	return e.sendMessage(snappy.Encode(nil, payload))
 }
 
 func (e *opampExporter) consumeMetrics(_ context.Context, md pmetric.Metrics) error {
@@ -123,7 +124,7 @@ func (e *opampExporter) consumeMetrics(_ context.Context, md pmetric.Metrics) er
 	if err != nil {
 		return fmt.Errorf("marshal metrics: %w", err)
 	}
-	return e.sendMessage(payload)
+	return e.sendMessage(snappy.Encode(nil, payload))
 }
 
 func (e *opampExporter) consumeTraces(_ context.Context, td ptrace.Traces) error {
@@ -131,7 +132,7 @@ func (e *opampExporter) consumeTraces(_ context.Context, td ptrace.Traces) error
 	if err != nil {
 		return fmt.Errorf("marshal traces: %w", err)
 	}
-	return e.sendMessage(payload)
+	return e.sendMessage(snappy.Encode(nil, payload))
 }
 
 func (e *opampExporter) sendMessage(payload []byte) error {
