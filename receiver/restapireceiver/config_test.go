@@ -444,7 +444,7 @@ func TestConfig_Validate(t *testing.T) {
 					},
 				},
 			},
-			expectedErr: "limit_field_name is required when pagination.mode is offset_limit (unless next_offset_field_name is set for token-based pagination)",
+			expectedErr: "limit_field_name is required when pagination.mode is offset_limit and next_offset_field_name is not set for token-based pagination",
 		},
 		{
 			name: "valid offset_limit with token-based pagination omits limit_field_name",
