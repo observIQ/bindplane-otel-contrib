@@ -444,7 +444,26 @@ func TestConfig_Validate(t *testing.T) {
 					},
 				},
 			},
-			expectedErr: "limit_field_name is required when pagination.mode is offset_limit",
+			expectedErr: "limit_field_name is required when pagination.mode is offset_limit (unless next_offset_field_name is set for token-based pagination)",
+		},
+		{
+			name: "valid offset_limit with token-based pagination omits limit_field_name",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeAPIKey,
+				APIKeyConfig: APIKeyConfig{
+					HeaderName: "X-API-Key",
+					Value:      "test-key",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName:     "cursor",
+						NextOffsetFieldName: "next_cursor",
+					},
+				},
+			},
+			expectedErr: "",
 		},
 		{
 			name: "valid offset_limit pagination",
