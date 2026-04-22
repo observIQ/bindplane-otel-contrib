@@ -39,9 +39,11 @@ func NewFactory() exporter.Factory {
 
 func createDefaultConfig() component.Config {
 	return &Config{
-		OpAMP:       defaultOpAMPExtensionID,
-		Capability:  defaultCapability,
-		MessageType: defaultMessageType,
+		OpAMP: defaultOpAMPExtensionID,
+		CustomMessage: CustomMessageConfig{
+			Capability: defaultCapability,
+			Type:       defaultMessageType,
+		},
 	}
 }
 

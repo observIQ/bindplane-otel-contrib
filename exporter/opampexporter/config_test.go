@@ -36,17 +36,17 @@ func TestConfigValidate(t *testing.T) {
 		require.ErrorContains(t, cfg.Validate(), "`opamp` must be specified")
 	})
 
-	t.Run("Capability must be specified", func(t *testing.T) {
+	t.Run("CustomMessage.Capability must be specified", func(t *testing.T) {
 		cfg := createDefaultConfig().(*Config)
-		cfg.Capability = ""
+		cfg.CustomMessage.Capability = ""
 
-		require.ErrorContains(t, cfg.Validate(), "`capability` must be specified")
+		require.ErrorContains(t, cfg.Validate(), "`custom_message.capability` must be specified")
 	})
 
-	t.Run("MessageType must be specified", func(t *testing.T) {
+	t.Run("CustomMessage.Type must be specified", func(t *testing.T) {
 		cfg := createDefaultConfig().(*Config)
-		cfg.MessageType = ""
+		cfg.CustomMessage.Type = ""
 
-		require.ErrorContains(t, cfg.Validate(), "`message_type` must be specified")
+		require.ErrorContains(t, cfg.Validate(), "`custom_message.type` must be specified")
 	})
 }

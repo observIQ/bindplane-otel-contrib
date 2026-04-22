@@ -55,8 +55,8 @@ func newOpAMPExporter(logger *zap.Logger, cfg *Config, exporterID component.ID) 
 		logger:           logger,
 		exporterID:       exporterID,
 		opampExtensionID: cfg.OpAMP,
-		capability:       cfg.Capability,
-		messageType:      cfg.MessageType,
+		capability:       cfg.CustomMessage.Capability,
+		messageType:      cfg.CustomMessage.Type,
 		started:          &atomic.Bool{},
 		stopped:          &atomic.Bool{},
 	}

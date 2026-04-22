@@ -24,11 +24,11 @@ var defaultOpAMPExtensionID = component.MustNewID("opamp")
 
 const (
 	// defaultCapability is the OpAMP custom capability registered by the
-	// exporter when `capability` is not overridden.
+	// exporter when `custom_message.capability` is not overridden.
 	defaultCapability = "com.bindplane.opampexporter"
 	// defaultMessageType is the OpAMP custom message type used for each
-	// payload when `message_type` is not overridden.
-	defaultMessageType = "otlp-snappy"
+	// payload when `custom_message.type` is not overridden.
+	defaultMessageType = "otlp"
 )
 
 // Config is the configuration for the opamp exporter.
@@ -37,16 +37,22 @@ type Config struct {
 	// custom capability and send custom messages.
 	OpAMP component.ID `mapstructure:"opamp"`
 
+	// CustomMessage controls the OpAMP custom capability and message type
+	// used for every outgoing payload. Configure distinct values on separate
+	// exporter instances to differentiate payload streams (e.g. throughput
+	// vs. health metrics).
+	CustomMessage CustomMessageConfig `mapstructure:"custom_message"`
+}
+
+// CustomMessageConfig configures the OpAMP custom capability and message
+// type used by the exporter.
+type CustomMessageConfig struct {
 	// Capability is the OpAMP custom capability registered by this exporter
-	// and used on every outgoing custom message. Configure distinct
-	// capabilities on separate exporter instances to differentiate payload
-	// streams (e.g. throughput vs. health metrics).
+	// and used on every outgoing custom message.
 	Capability string `mapstructure:"capability"`
 
-	// MessageType is the OpAMP custom message type used for each outgoing
-	// payload. The default indicates the payload is snappy-compressed
-	// OTLP-proto.
-	MessageType string `mapstructure:"message_type"`
+	// Type is the OpAMP custom message type used for each outgoing payload.
+	Type string `mapstructure:"type"`
 }
 
 // Validate validates the exporter configuration.
@@ -55,11 +61,11 @@ func (cfg Config) Validate() error {
 	if cfg.OpAMP == emptyID {
 		return errors.New("`opamp` must be specified")
 	}
-	if cfg.Capability == "" {
-		return errors.New("`capability` must be specified")
+	if cfg.CustomMessage.Capability == "" {
+		return errors.New("`custom_message.capability` must be specified")
 	}
-	if cfg.MessageType == "" {
-		return errors.New("`message_type` must be specified")
+	if cfg.CustomMessage.Type == "" {
+		return errors.New("`custom_message.type` must be specified")
 	}
 
 	return nil

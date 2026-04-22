@@ -181,8 +181,8 @@ func TestExporter_CustomCapabilityAndMessageType(t *testing.T) {
 	set.ID = component.NewIDWithName(metadata.Type, "custom")
 
 	cfg := factory.CreateDefaultConfig().(*Config)
-	cfg.Capability = "com.example.throughput"
-	cfg.MessageType = "throughput-proto"
+	cfg.CustomMessage.Capability = "com.example.throughput"
+	cfg.CustomMessage.Type = "throughput-proto"
 
 	e, err := factory.CreateLogs(context.Background(), set, cfg)
 	require.NoError(t, err)
