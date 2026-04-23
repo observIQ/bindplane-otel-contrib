@@ -1,0 +1,17 @@
+{
+  "class_uid": 4003,
+  "activity_name": "Query",
+  "activity_id": 1,
+  "time": "2026-04-23T12:00:00Z",
+  "status": "Success",
+  "severity": "Informational",
+  "metadata": {"product": {"name": "CoreDNS", "vendor_name": "CNCF"}},
+  "device": {"uid": "dns01", "hostname": "dns01.corp", "ip": "10.0.0.53"},
+  "src_endpoint": {"ip": "10.1.2.3", "hostname": "client.corp", "port": 54321},
+  "dst_endpoint": {"ip": "10.0.0.53", "port": 53},
+  "connection_info": {"protocol_name": "UDP"},
+  "query": {"hostname": "www.example.com", "type": 1, "type_name": "A", "transaction_uid": "0x1234"},
+  "rcode": "NOERROR",
+  "rcode_id": 0,
+  "answers": [{"rdata": "93.184.216.34"}]
+}

@@ -1,0 +1,13 @@
+{
+  "class_uid": 3002,
+  "category_uid": 3,
+  "activity_name": "Logon",
+  "activity_id": 1,
+  "time": "2026-04-23T18:00:00Z",
+  "status": "Success",
+  "severity": "Informational",
+  "metadata": {"product": {"name": "SSH", "vendor_name": "OpenSSH"}},
+  "user": {"name": "alice-all"},
+  "src_endpoint": {"ip": "10.2.2.2", "hostname": "client.all"},
+  "device": {"uid": "host-all"}
+}

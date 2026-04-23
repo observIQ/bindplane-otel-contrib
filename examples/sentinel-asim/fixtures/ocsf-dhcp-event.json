@@ -1,0 +1,17 @@
+{
+  "class_uid": 4004,
+  "activity_name": "Offer",
+  "activity_id": 2,
+  "time": "2026-04-23T12:00:00Z",
+  "status": "Success",
+  "severity": "Informational",
+  "metadata": {"product": {"name": "ISC dhcpd", "vendor_name": "ISC"}},
+  "device": {"uid": "dhcp01", "hostname": "dhcp01.corp", "ip": "10.0.0.10"},
+  "src_endpoint": {"ip": "0.0.0.0", "mac": "aa:bb:cc:11:22:33", "hostname": "laptop-42"},
+  "dst_endpoint": {"ip": "255.255.255.255", "mac": "ff:ff:ff:ff:ff:ff", "port": 68},
+  "lease_dur": 86400,
+  "offered_ip_addr": "10.1.2.42",
+  "requested_ip_addr": "10.1.2.42",
+  "is_renewal": false,
+  "transaction_uid": "0xdeadbeef"
+}

@@ -1,0 +1,72 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "dataCollectionRuleName": {"defaultValue": "asim-audit-native", "type": "string"},
+    "location": {"defaultValue": "eastus", "type": "string"},
+    "workspaceResourceId": {
+      "defaultValue": "/subscriptions/<YOUR_SUBSCRIPTION_ID>/resourcegroups/<YOUR_RESOURCE_GROUP>/providers/microsoft.operationalinsights/workspaces/<YOUR_WORKSPACE_NAME>",
+      "type": "string"
+    },
+    "endpointResourceId": {
+      "defaultValue": "/subscriptions/<YOUR_SUBSCRIPTION_ID>/resourceGroups/<YOUR_RESOURCE_GROUP>/providers/Microsoft.Insights/dataCollectionEndpoints/<YOUR_DCE_NAME>",
+      "type": "string"
+    }
+  },
+  "resources": [{
+    "type": "Microsoft.Insights/dataCollectionRules",
+    "apiVersion": "2023-03-11",
+    "name": "[parameters('dataCollectionRuleName')]",
+    "location": "[parameters('location')]",
+    "properties": {
+      "dataCollectionEndpointId": "[parameters('endpointResourceId')]",
+      "streamDeclarations": {
+        "Custom-ASimAuditEventLogs": {
+          "columns": [
+            {"name": "TimeGenerated", "type": "datetime"},
+            {"name": "EventCount", "type": "int"},
+            {"name": "EventStartTime", "type": "datetime"},
+            {"name": "EventEndTime", "type": "datetime"},
+            {"name": "EventType", "type": "string"},
+            {"name": "EventSubType", "type": "string"},
+            {"name": "EventResult", "type": "string"},
+            {"name": "EventResultDetails", "type": "string"},
+            {"name": "EventProduct", "type": "string"},
+            {"name": "EventVendor", "type": "string"},
+            {"name": "EventSchema", "type": "string"},
+            {"name": "EventSchemaVersion", "type": "string"},
+            {"name": "EventSeverity", "type": "string"},
+            {"name": "Dvc", "type": "string"},
+            {"name": "DvcHostname", "type": "string"},
+            {"name": "DvcIpAddr", "type": "string"},
+            {"name": "ActorUsername", "type": "string"},
+            {"name": "ActorUserType", "type": "string"},
+            {"name": "Operation", "type": "string"},
+            {"name": "Object", "type": "string"},
+            {"name": "ObjectType", "type": "string"},
+            {"name": "OldValue", "type": "string"},
+            {"name": "NewValue", "type": "string"},
+            {"name": "HttpUserAgent", "type": "string"},
+            {"name": "SrcIpAddr", "type": "string"}
+          ]
+        }
+      },
+      "destinations": {
+        "logAnalytics": [{
+          "workspaceResourceId": "[parameters('workspaceResourceId')]",
+          "name": "logAnalyticsWorkspace"
+        }]
+      },
+      "dataFlows": [{
+        "streams": ["Custom-ASimAuditEventLogs"],
+        "destinations": ["logAnalyticsWorkspace"],
+        "transformKql": "source",
+        "outputStream": "Microsoft-ASimAuditEventLogs"
+      }]
+    }
+  }],
+  "outputs": {
+    "immutableId": {"type": "string", "value": "[reference(parameters('dataCollectionRuleName')).immutableId]"},
+    "dcrId": {"type": "string", "value": "[resourceId('Microsoft.Insights/dataCollectionRules', parameters('dataCollectionRuleName'))]"}
+  }
+}
