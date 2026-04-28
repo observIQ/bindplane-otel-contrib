@@ -382,13 +382,13 @@ type sentMessage struct {
 type mockOpAMPExtension struct {
 	mu sync.Mutex
 
-	capability        string
-	registerOptions   *opampcustommessages.CustomCapabilityRegisterOptions
-	registerCount     int
-	sendCallCount     int
-	sentMessages      []sentMessage
-	sendErr           error
-	unregisterCall    int
+	capability      string
+	registerOptions *opampcustommessages.CustomCapabilityRegisterOptions
+	registerCount   int
+	sendCallCount   int
+	sentMessages    []sentMessage
+	sendErr         error
+	unregisterCall  int
 
 	// pendingBeforeSuccess controls how many SendMessage calls return
 	// ErrCustomMessagePending before the first successful send.
