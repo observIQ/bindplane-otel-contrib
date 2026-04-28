@@ -29,6 +29,9 @@ const (
 	// defaultMessageType is the OpAMP custom message type used for each
 	// payload when `custom_message.type` is not overridden.
 	defaultMessageType = "otlp"
+	// defaultMaxQueuedMessages matches the default used by the
+	// opampcustommessages registry.
+	defaultMaxQueuedMessages = 10
 )
 
 // Config is the configuration for the opamp exporter.
@@ -42,6 +45,12 @@ type Config struct {
 	// exporter instances to differentiate payload streams (e.g. throughput
 	// vs. health metrics).
 	CustomMessage CustomMessageConfig `mapstructure:"custom_message"`
+
+	// MaxQueuedMessages is the maximum number of incoming custom messages
+	// that may be queued for the registered capability before further
+	// messages are dropped. Passed through to the OpAMP custom messages
+	// registry as `WithMaxQueuedMessages`.
+	MaxQueuedMessages int `mapstructure:"max_queued_messages"`
 }
 
 // CustomMessageConfig configures the OpAMP custom capability and message
@@ -66,6 +75,9 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.CustomMessage.Type == "" {
 		return errors.New("`custom_message.type` must be specified")
+	}
+	if cfg.MaxQueuedMessages <= 0 {
+		return errors.New("`max_queued_messages` must be greater than 0")
 	}
 
 	return nil

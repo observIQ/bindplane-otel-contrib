@@ -34,10 +34,11 @@ import (
 type opampExporter struct {
 	logger *zap.Logger
 
-	exporterID       component.ID
-	opampExtensionID component.ID
-	capability       string
-	messageType      string
+	exporterID        component.ID
+	opampExtensionID  component.ID
+	capability        string
+	messageType       string
+	maxQueuedMessages int
 
 	mu                      sync.Mutex
 	customCapabilityHandler opampcustommessages.CustomCapabilityHandler
@@ -52,13 +53,14 @@ type opampExporter struct {
 
 func newOpAMPExporter(logger *zap.Logger, cfg *Config, exporterID component.ID) *opampExporter {
 	return &opampExporter{
-		logger:           logger,
-		exporterID:       exporterID,
-		opampExtensionID: cfg.OpAMP,
-		capability:       cfg.CustomMessage.Capability,
-		messageType:      cfg.CustomMessage.Type,
-		started:          &atomic.Bool{},
-		stopped:          &atomic.Bool{},
+		logger:            logger,
+		exporterID:        exporterID,
+		opampExtensionID:  cfg.OpAMP,
+		capability:        cfg.CustomMessage.Capability,
+		messageType:       cfg.CustomMessage.Type,
+		maxQueuedMessages: cfg.MaxQueuedMessages,
+		started:           &atomic.Bool{},
+		stopped:           &atomic.Bool{},
 	}
 }
 
@@ -78,7 +80,8 @@ func (e *opampExporter) start(_ context.Context, host component.Host) error {
 		return fmt.Errorf("extension %q is not a custom message registry", e.opampExtensionID)
 	}
 
-	handler, err := registry.Register(e.capability)
+	handler, err := registry.Register(e.capability,
+		opampcustommessages.WithMaxQueuedMessages(e.maxQueuedMessages))
 	if err != nil {
 		return fmt.Errorf("register custom capability: %w", err)
 	}

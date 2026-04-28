@@ -23,11 +23,12 @@ throughput metrics vs. health metrics) on their own capabilities.
 
 ## Configuration
 
-| Field                         | Default                       | Description                                                                                          |
-|-------------------------------|-------------------------------|------------------------------------------------------------------------------------------------------|
-| `opamp`                       | `opamp`                       | Component ID of the OpAMP extension used to register the custom capability and send custom messages. |
-| `custom_message.capability`   | `com.bindplane.opampexporter` | Custom capability registered on the OpAMP extension and used on every outgoing message.              |
-| `custom_message.type`         | `otlp`                        | Custom message type used for each payload.                                                           |
+| Field                         | Default                       | Description                                                                                                                                       |
+|-------------------------------|-------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| `opamp`                       | `opamp`                       | Component ID of the OpAMP extension used to register the custom capability and send custom messages.                                              |
+| `custom_message.capability`   | `com.bindplane.opampexporter` | Custom capability registered on the OpAMP extension and used on every outgoing message.                                                           |
+| `custom_message.type`         | `otlp`                        | Custom message type used for each payload.                                                                                                        |
+| `max_queued_messages`         | `10`                          | Max incoming custom messages buffered for the registered capability before further messages are dropped (passed through as `WithMaxQueuedMessages`). |
 
 ### Example — default
 

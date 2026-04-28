@@ -33,6 +33,7 @@ func TestNewFactory(t *testing.T) {
 			Capability: defaultCapability,
 			Type:       defaultMessageType,
 		},
+		MaxQueuedMessages: defaultMaxQueuedMessages,
 	}
 
 	cfg, ok := factory.CreateDefaultConfig().(*Config)

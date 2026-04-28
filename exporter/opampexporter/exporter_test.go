@@ -205,6 +205,31 @@ func TestExporter_CustomCapabilityAndMessageType(t *testing.T) {
 	require.Equal(t, "throughput-proto", msg.messageType)
 }
 
+func TestExporter_MaxQueuedMessagesPassedToRegister(t *testing.T) {
+	factory := NewFactory()
+	set := exportertest.NewNopSettings(metadata.Type)
+	set.ID = component.NewIDWithName(metadata.Type, "max-queued")
+
+	cfg := factory.CreateDefaultConfig().(*Config)
+	cfg.MaxQueuedMessages = 42
+
+	e, err := factory.CreateLogs(context.Background(), set, cfg)
+	require.NoError(t, err)
+
+	mockOpamp := newMockOpAMPExtension()
+	host := &mockHost{extensions: map[component.ID]component.Component{
+		component.MustNewID("opamp"): mockOpamp,
+	}}
+
+	require.NoError(t, e.Start(context.Background(), host))
+	t.Cleanup(func() {
+		require.NoError(t, e.Shutdown(context.Background()))
+	})
+
+	require.NotNil(t, mockOpamp.registerOptions)
+	require.Equal(t, 42, mockOpamp.registerOptions.MaxQueuedMessages)
+}
+
 func TestExporter_Start_MissingExtension(t *testing.T) {
 	e := newOpAMPExporter(exportertest.NewNopSettings(metadata.Type).Logger,
 		createDefaultConfig().(*Config),
@@ -289,12 +314,13 @@ type sentMessage struct {
 type mockOpAMPExtension struct {
 	mu sync.Mutex
 
-	capability     string
-	registerCount  int
-	sendCallCount  int
-	sentMessages   []sentMessage
-	sendErr        error
-	unregisterCall int
+	capability        string
+	registerOptions   *opampcustommessages.CustomCapabilityRegisterOptions
+	registerCount     int
+	sendCallCount     int
+	sentMessages      []sentMessage
+	sendErr           error
+	unregisterCall    int
 
 	// pendingBeforeSuccess controls how many SendMessage calls return
 	// ErrCustomMessagePending before the first successful send.
@@ -308,11 +334,16 @@ func newMockOpAMPExtension() *mockOpAMPExtension {
 func (m *mockOpAMPExtension) Start(_ context.Context, _ component.Host) error { return nil }
 func (m *mockOpAMPExtension) Shutdown(_ context.Context) error                { return nil }
 
-func (m *mockOpAMPExtension) Register(capability string, _ ...opampcustommessages.CustomCapabilityRegisterOption) (opampcustommessages.CustomCapabilityHandler, error) {
+func (m *mockOpAMPExtension) Register(capability string, opts ...opampcustommessages.CustomCapabilityRegisterOption) (opampcustommessages.CustomCapabilityHandler, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.capability = capability
 	m.registerCount++
+	resolved := opampcustommessages.DefaultCustomCapabilityRegisterOptions()
+	for _, opt := range opts {
+		opt(resolved)
+	}
+	m.registerOptions = resolved
 	return m, nil
 }
 

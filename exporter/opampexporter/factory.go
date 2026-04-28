@@ -44,6 +44,7 @@ func createDefaultConfig() component.Config {
 			Capability: defaultCapability,
 			Type:       defaultMessageType,
 		},
+		MaxQueuedMessages: defaultMaxQueuedMessages,
 	}
 }
 

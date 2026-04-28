@@ -49,4 +49,14 @@ func TestConfigValidate(t *testing.T) {
 
 		require.ErrorContains(t, cfg.Validate(), "`custom_message.type` must be specified")
 	})
+
+	t.Run("MaxQueuedMessages must be greater than 0", func(t *testing.T) {
+		cfg := createDefaultConfig().(*Config)
+		cfg.MaxQueuedMessages = 0
+
+		require.ErrorContains(t, cfg.Validate(), "`max_queued_messages` must be greater than 0")
+
+		cfg.MaxQueuedMessages = -1
+		require.ErrorContains(t, cfg.Validate(), "`max_queued_messages` must be greater than 0")
+	})
 }
