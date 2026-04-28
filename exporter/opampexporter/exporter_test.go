@@ -296,6 +296,74 @@ func TestExporter_Send_ReturnsError(t *testing.T) {
 	require.ErrorContains(t, err, "boom")
 }
 
+func TestExporter_Shutdown_DrainsInflightSends(t *testing.T) {
+	e := newOpAMPExporter(exportertest.NewNopSettings(metadata.Type).Logger,
+		createDefaultConfig().(*Config),
+		component.NewIDWithName(metadata.Type, "drain"))
+	t.Cleanup(func() { unregisterExporter(e.exporterID) })
+
+	mockOpamp := newMockOpAMPExtension()
+	// SendMessage will return ErrCustomMessagePending with a channel that
+	// the test never closes — the consume goroutine should park in its
+	// retry loop waiting on that channel.
+	mockOpamp.holdPendingChan = make(chan struct{})
+
+	host := &mockHost{extensions: map[component.ID]component.Component{
+		component.MustNewID("opamp"): mockOpamp,
+	}}
+	require.NoError(t, e.start(context.Background(), host))
+
+	consumeErr := make(chan error, 1)
+	go func() {
+		consumeErr <- e.consumeLogs(context.Background(), generateTestLogs())
+	}()
+
+	// Wait for SendMessage to be called at least once so we know the
+	// goroutine is parked in the retry loop.
+	require.Eventually(t, func() bool {
+		return mockOpamp.sendCalls() >= 1
+	}, time.Second, 10*time.Millisecond)
+
+	// Shutdown must wait for the consume to observe `done` and return.
+	// `Unregister` must not run until after the consume has drained.
+	require.NoError(t, e.shutdown(context.Background()))
+
+	require.ErrorIs(t, <-consumeErr, errShuttingDown)
+	require.Equal(t, 1, mockOpamp.unregisterCalls())
+}
+
+func TestExporter_Shutdown_BoundedByContext(t *testing.T) {
+	e := newOpAMPExporter(exportertest.NewNopSettings(metadata.Type).Logger,
+		createDefaultConfig().(*Config),
+		component.NewIDWithName(metadata.Type, "bounded"))
+	t.Cleanup(func() { unregisterExporter(e.exporterID) })
+
+	mockOpamp := newMockOpAMPExtension()
+	// Block SendMessage itself so the consume goroutine cannot observe
+	// `done` — it's stuck inside the handler call. Shutdown should still
+	// unblock when its context is cancelled.
+	mockOpamp.blockSend = make(chan struct{})
+	t.Cleanup(func() { close(mockOpamp.blockSend) })
+
+	host := &mockHost{extensions: map[component.ID]component.Component{
+		component.MustNewID("opamp"): mockOpamp,
+	}}
+	require.NoError(t, e.start(context.Background(), host))
+
+	go func() {
+		_ = e.consumeLogs(context.Background(), generateTestLogs())
+	}()
+
+	require.Eventually(t, func() bool {
+		return mockOpamp.sendCalls() >= 1
+	}, time.Second, 10*time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	err := e.shutdown(ctx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
 // --- test doubles ---
 
 type mockHost struct {
@@ -325,6 +393,16 @@ type mockOpAMPExtension struct {
 	// pendingBeforeSuccess controls how many SendMessage calls return
 	// ErrCustomMessagePending before the first successful send.
 	pendingBeforeSuccess int
+
+	// holdPendingChan, when non-nil, is returned by SendMessage along with
+	// ErrCustomMessagePending so callers block indefinitely waiting for a
+	// pending-send slot (until the test closes the channel).
+	holdPendingChan chan struct{}
+
+	// blockSend, when non-nil, blocks SendMessage itself until the channel
+	// is closed. Used to simulate a consume that can't observe shutdown
+	// because it is stuck inside the handler call.
+	blockSend chan struct{}
 }
 
 func newMockOpAMPExtension() *mockOpAMPExtension {
@@ -353,25 +431,40 @@ func (m *mockOpAMPExtension) Message() <-chan *protobufs.CustomMessage {
 
 func (m *mockOpAMPExtension) SendMessage(messageType string, message []byte) (chan struct{}, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	m.sendCallCount++
+	sendErr := m.sendErr
+	holdChan := m.holdPendingChan
+	blockSend := m.blockSend
+	pendingBeforeSuccess := m.pendingBeforeSuccess
+	if pendingBeforeSuccess > 0 {
+		m.pendingBeforeSuccess--
+	}
+	m.mu.Unlock()
 
-	if m.sendErr != nil {
-		return nil, m.sendErr
+	if blockSend != nil {
+		<-blockSend
 	}
 
-	if m.pendingBeforeSuccess > 0 {
-		m.pendingBeforeSuccess--
+	if sendErr != nil {
+		return nil, sendErr
+	}
+
+	if holdChan != nil {
+		return holdChan, types.ErrCustomMessagePending
+	}
+
+	if pendingBeforeSuccess > 0 {
 		ch := make(chan struct{})
 		close(ch)
 		return ch, types.ErrCustomMessagePending
 	}
 
+	m.mu.Lock()
 	m.sentMessages = append(m.sentMessages, sentMessage{
 		messageType: messageType,
 		payload:     append([]byte(nil), message...),
 	})
+	m.mu.Unlock()
 	return nil, nil
 }
 
@@ -379,6 +472,12 @@ func (m *mockOpAMPExtension) Unregister() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.unregisterCall++
+}
+
+func (m *mockOpAMPExtension) unregisterCalls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.unregisterCall
 }
 
 func (m *mockOpAMPExtension) registerCalls() int {

@@ -49,7 +49,13 @@ type opampExporter struct {
 
 	started *atomic.Bool
 	stopped *atomic.Bool
+	done    chan struct{}
+	wg      sync.WaitGroup
 }
+
+// errShuttingDown is returned by sendMessage when shutdown is observed
+// while the send was waiting for a pending-send slot.
+var errShuttingDown = errors.New("opamp exporter is shutting down")
 
 func newOpAMPExporter(logger *zap.Logger, cfg *Config, exporterID component.ID) *opampExporter {
 	return &opampExporter{
@@ -61,6 +67,7 @@ func newOpAMPExporter(logger *zap.Logger, cfg *Config, exporterID component.ID) 
 		maxQueuedMessages: cfg.MaxQueuedMessages,
 		started:           &atomic.Bool{},
 		stopped:           &atomic.Bool{},
+		done:              make(chan struct{}),
 	}
 }
 
@@ -93,13 +100,32 @@ func (e *opampExporter) start(_ context.Context, host component.Host) error {
 	return nil
 }
 
-func (e *opampExporter) shutdown(_ context.Context) error {
+func (e *opampExporter) shutdown(ctx context.Context) error {
 	if e.stopped.Swap(true) {
 		// shutdown logic should only be run once per shared instance.
 		return nil
 	}
 
 	unregisterExporter(e.exporterID)
+
+	// Signal in-flight sends to stop waiting for pending-send slots, then
+	// wait for them to drain (bounded by the shutdown context's deadline)
+	// before unregistering the handler so unregister doesn't race with an
+	// in-progress SendMessage.
+	close(e.done)
+
+	drained := make(chan struct{})
+	go func() {
+		e.wg.Wait()
+		close(drained)
+	}()
+
+	var shutdownErr error
+	select {
+	case <-drained:
+	case <-ctx.Done():
+		shutdownErr = ctx.Err()
+	}
 
 	e.mu.Lock()
 	handler := e.customCapabilityHandler
@@ -110,7 +136,7 @@ func (e *opampExporter) shutdown(_ context.Context) error {
 		handler.Unregister()
 	}
 
-	return nil
+	return shutdownErr
 }
 
 func (e *opampExporter) consumeLogs(_ context.Context, ld plog.Logs) error {
@@ -138,6 +164,17 @@ func (e *opampExporter) consumeTraces(_ context.Context, td ptrace.Traces) error
 }
 
 func (e *opampExporter) sendMessage(payload []byte) error {
+	// Reject new sends once shutdown has been signaled so we don't add to
+	// the wait group while shutdown is draining it.
+	select {
+	case <-e.done:
+		return errShuttingDown
+	default:
+	}
+
+	e.wg.Add(1)
+	defer e.wg.Done()
+
 	e.mu.Lock()
 	handler := e.customCapabilityHandler
 	e.mu.Unlock()
@@ -154,7 +191,11 @@ func (e *opampExporter) sendMessage(payload []byte) error {
 			return nil
 		case errors.Is(err, types.ErrCustomMessagePending):
 			e.logger.Debug("Custom message pending, waiting for send slot.")
-			<-msgSendChan
+			select {
+			case <-msgSendChan:
+			case <-e.done:
+				return errShuttingDown
+			}
 		default:
 			return fmt.Errorf("send opamp custom message: %w", err)
 		}
