@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/processor/samplingprocessor
 
-go 1.25.7
+go 1.25.9
 
 require (
 	github.com/observiq/bindplane-otel-contrib/pkg/expr v1.3.0

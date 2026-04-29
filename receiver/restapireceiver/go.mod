@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/receiver/restapireceiver
 
-go 1.25.7
+go 1.25.9
 
 require (
 	github.com/akamai/AkamaiOPEN-edgegrid-golang/v13 v13.1.0

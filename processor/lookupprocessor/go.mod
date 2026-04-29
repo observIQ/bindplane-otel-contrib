@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/processor/lookupprocessor
 
-go 1.25.7
+go 1.25.9
 
 require (
 	github.com/stretchr/testify v1.11.1

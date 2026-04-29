@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/exporter/opampexporter
 
-go 1.25.7
+go 1.25.9
 
 require (
 	github.com/golang/snappy v1.0.0

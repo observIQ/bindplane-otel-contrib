@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/receiver/pcapreceiver
 
-go 1.25.7
+go 1.25.9
 
 require (
 	github.com/gopacket/gopacket v1.5.0
