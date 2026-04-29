@@ -9,7 +9,7 @@ require (
 	go.opentelemetry.io/collector/pdata v1.56.0
 	go.opentelemetry.io/collector/processor/processorhelper v0.150.0
 	go.opentelemetry.io/collector/processor/processortest v0.150.0
-	go.uber.org/zap v1.27.1
+	go.uber.org/zap v1.28.0
 )
 
 require (
