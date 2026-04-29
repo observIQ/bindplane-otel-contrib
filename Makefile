@@ -11,6 +11,7 @@ GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 
 TOOLS_MOD_DIR := ./internal/tools
+GO_COMPAT_VERSION := $(shell grep '^go ' $(TOOLS_MOD_DIR)/go.mod | awk '{print $$2}')
 
 SNAPSHOT := $(shell git rev-parse --short HEAD)
 PREVIOUS_TAG := $(shell git tag --sort=v:refname --no-contains HEAD | grep -E "[0-9]+\.[0-9]+\.[0-9]+$$" | grep -v 'version' | tail -n1)
@@ -302,8 +303,8 @@ fmt:
 
 .PHONY: tidy
 tidy:
-	$(MAKE) for-all CMD="go mod tidy -compat=1.25.7"
-	cd $(TOOLS_MOD_DIR) && go mod tidy -compat=1.25.7
+	$(MAKE) for-all CMD="go mod tidy -compat=$(GO_COMPAT_VERSION)"
+	cd $(TOOLS_MOD_DIR) && go mod tidy -compat=$(GO_COMPAT_VERSION)
 
 # This target runs gosec in each individual go module.
 # Specific modules have directories that need to be ignored.
@@ -429,6 +430,8 @@ update-go-version:
 		echo "running go mod edit -go=$(GO_VERSION) in $${dir}"; \
 		(cd "$${dir}" && go mod edit -go=$(GO_VERSION)); \
 	done
+	@echo "running go mod edit -go=$(GO_VERSION) in $(TOOLS_MOD_DIR)"; \
+	(cd $(TOOLS_MOD_DIR) && go mod edit -go=$(GO_VERSION))
 	$(MAKE) tidy
 
 .PHONY: for-all
