@@ -415,6 +415,22 @@ update-modules:
 	./scripts/update-module-version.sh "$(NEW_VERSION)"
 	$(MAKE) tidy
 
+.PHONY: update-go-version
+update-go-version:
+	@if [ -z "$(GO_VERSION)" ]; then \
+		echo "GO_VERSION was not set"; \
+		exit 1; \
+	fi
+	@if ! printf '%s\n' "$(GO_VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$'; then \
+		echo "GO_VERSION $(GO_VERSION) is invalid; expected x.y.z"; \
+		exit 1; \
+	fi
+	@set -e; for dir in $(ALL_MODULES); do \
+		echo "running go mod edit -go=$(GO_VERSION) in $${dir}"; \
+		(cd "$${dir}" && go mod edit -go=$(GO_VERSION)); \
+	done
+	$(MAKE) tidy
+
 .PHONY: for-all
 for-all:
 	@set -e; for dir in $(ALL_MODULES); do \

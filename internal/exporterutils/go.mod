@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/internal/exporterutils
 
-go 1.25.7
+go 1.25.9
 
 require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171

@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/internal/azureblob
 
-go 1.25.7
+go 1.25.9
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.1

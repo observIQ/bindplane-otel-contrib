@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/receiver/gcspubsubeventreceiver
 
-go 1.25.7
+go 1.25.9
 
 require (
 	cloud.google.com/go/pubsub v1.50.2

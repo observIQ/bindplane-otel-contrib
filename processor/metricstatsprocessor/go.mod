@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/processor/metricstatsprocessor
 
-go 1.25.7
+go 1.25.9
 
 require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest v0.150.0

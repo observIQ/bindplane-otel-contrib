@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/exporter/webhookexporter
 
-go 1.25.7
+go 1.25.9
 
 require (
 	github.com/observiq/bindplane-otel-contrib/internal/exporterutils v1.3.0

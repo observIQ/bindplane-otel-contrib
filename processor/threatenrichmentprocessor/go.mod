@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/processor/threatenrichmentprocessor
 
-go 1.25.7
+go 1.25.9
 
 require (
 	github.com/observiq/bindplane-otel-contrib/internal/amqfilter v1.3.0

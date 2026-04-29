@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/processor/topologyprocessor
 
-go 1.25.7
+go 1.25.9
 
 require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden v0.150.0
