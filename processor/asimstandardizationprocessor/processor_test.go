@@ -21,11 +21,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest/observer"
 )
 
-// authInputBody returns a body with all fields needed to populate the
-// commonRequiredColumns when used with minimalAuthFieldMappings.
+// authInputBody returns a body with all fields needed to populate
+// minimalAuthFieldMappings.
 func authInputBody() map[string]any {
 	return map[string]any{
 		"time":           "2024-01-01T00:00:00Z",
@@ -99,10 +98,6 @@ func TestProcessLogs_FilterMatch(t *testing.T) {
 	stream, ok := rec.Attributes().Get(sentinelStreamNameAttribute)
 	require.True(t, ok)
 	require.Equal(t, "Custom-ASimAuthenticationEventLogs", stream.Str())
-
-	schema, ok := rec.Attributes().Get(eventSchemaAttribute)
-	require.True(t, ok)
-	require.Equal(t, "Authentication", schema.Str())
 }
 
 func TestProcessLogs_FilterNoMatch_DropsRecord(t *testing.T) {
@@ -204,10 +199,6 @@ func TestProcessLogs_EventSchemaPerTargetTable(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, tc.stream, stream.Str())
 
-			schema, ok := rec.Attributes().Get(eventSchemaAttribute)
-			require.True(t, ok)
-			require.Equal(t, tc.schema, schema.Str())
-
 			require.Equal(t, tc.schema, rec.Body().Map().AsRaw()["EventSchema"])
 		})
 	}
@@ -268,72 +259,6 @@ func TestProcessLogs_ResourceAttributesAccessible(t *testing.T) {
 
 	body := firstRecord(t, out).Body().Map().AsRaw()
 	require.Equal(t, "web-01", body["Dvc"])
-}
-
-func TestProcessLogs_RuntimeValidation_LogsMissingButKeepsRecord(t *testing.T) {
-	core, observed := observer.New(zap.DebugLevel)
-	logger := zap.New(core)
-
-	enabled := true
-	p, err := newASIMStandardizationProcessor(logger, &Config{
-		RuntimeValidation: &enabled,
-		EventMappings: []EventMapping{
-			{
-				TargetTable: TargetTableAuthentication,
-				// Intentionally omit most required columns.
-				FieldMappings: []FieldMapping{
-					{From: "body.user", To: "TargetUsername"},
-				},
-			},
-		},
-	})
-	require.NoError(t, err)
-
-	out, err := p.processLogs(context.Background(), newLogsWithBody(authInputBody()))
-	require.NoError(t, err)
-	require.Equal(t, 1, countLogRecords(out), "record must NOT be dropped on validation failure")
-
-	// A debug-level log must mention missing required columns.
-	entries := observed.FilterMessage("ASIM record missing required columns").All()
-	require.NotEmpty(t, entries, "expected debug log for missing required columns")
-}
-
-func TestProcessLogs_RuntimeValidation_AllRequiredPresent_NoLog(t *testing.T) {
-	core, observed := observer.New(zap.DebugLevel)
-	logger := zap.New(core)
-
-	enabled := true
-	p, err := newASIMStandardizationProcessor(logger, &Config{
-		RuntimeValidation: &enabled,
-		EventMappings: []EventMapping{
-			{
-				TargetTable:   TargetTableAuthentication,
-				FieldMappings: minimalAuthFieldMappings,
-			},
-		},
-	})
-	require.NoError(t, err)
-
-	out, err := p.processLogs(context.Background(), newLogsWithBody(authInputBody()))
-	require.NoError(t, err)
-	require.Equal(t, 1, countLogRecords(out))
-
-	entries := observed.FilterMessage("ASIM record missing required columns").All()
-	require.Empty(t, entries, "no missing-column warning expected when all required cols present")
-}
-
-func TestProcessLogs_RuntimeValidationDefaultsToFalse(t *testing.T) {
-	p := newProcessor(t, &Config{
-		EventMappings: []EventMapping{
-			{
-				TargetTable: TargetTableAuthentication,
-				FieldMappings: []FieldMapping{
-					{From: "body.user", To: "TargetUsername"},
-				},
-			},
-		},
-	})
-	require.False(t, p.runtimeValidation)
 }
 
 func TestProcessLogs_NoMatchingEventMapping_DropsRecord(t *testing.T) {
@@ -425,15 +350,77 @@ func TestNewASIMStandardizationProcessor_InvalidFilterExpression(t *testing.T) {
 	require.Contains(t, err.Error(), "compiling filter expression")
 }
 
-func TestMissingRequiredColumns(t *testing.T) {
-	body := map[string]any{
-		"TimeGenerated": "x",
-		"EventCount":    1,
-	}
-	missing := missingRequiredColumns(body, []string{
-		"TimeGenerated", "EventCount", "EventType", "EventResult",
+func TestProcessLogs_UnmatchedStreamName_RoutesToCustomTable(t *testing.T) {
+	p := newProcessor(t, &Config{
+		UnmatchedStreamName: "Custom-UnmappedLogs_CL",
+		EventMappings: []EventMapping{
+			{
+				Filter:      `body.event_id == "4624"`,
+				TargetTable: TargetTableAuthentication,
+				FieldMappings: []FieldMapping{
+					{To: "EventType", Default: "Logon"},
+				},
+			},
+		},
 	})
-	require.ElementsMatch(t, []string{"EventType", "EventResult"}, missing)
 
-	require.Empty(t, missingRequiredColumns(body, []string{"TimeGenerated"}))
+	// Body whose event_id won't match any mapping above.
+	body := map[string]any{
+		"event_id":  "9999",
+		"host_name": "win-srv-99",
+		"raw":       "stuff",
+	}
+	out, err := p.processLogs(context.Background(), newLogsWithBody(body))
+	require.NoError(t, err)
+	require.Equal(t, 1, countLogRecords(out), "unmatched record must be retained")
+
+	rec := firstRecord(t, out)
+	stream, ok := rec.Attributes().Get(sentinelStreamNameAttribute)
+	require.True(t, ok)
+	require.Equal(t, "Custom-UnmappedLogs_CL", stream.Str())
+
+	gotBody := rec.Body().Map().AsRaw()
+	additional, ok := gotBody["AdditionalFields"].(map[string]any)
+	require.True(t, ok, "AdditionalFields must carry the original body")
+	require.Equal(t, "9999", additional["event_id"])
+	require.Equal(t, "win-srv-99", additional["host_name"])
+	require.Equal(t, "stuff", additional["raw"])
 }
+
+func TestProcessLogs_UnmatchedStreamNameUnset_DropsAsBefore(t *testing.T) {
+	p := newProcessor(t, &Config{
+		EventMappings: []EventMapping{
+			{
+				Filter:      `body.event_id == "4624"`,
+				TargetTable: TargetTableAuthentication,
+				FieldMappings: []FieldMapping{
+					{To: "EventType", Default: "Logon"},
+				},
+			},
+		},
+	})
+
+	out, err := p.processLogs(context.Background(), newLogsWithBody(map[string]any{
+		"event_id": "9999",
+	}))
+	require.NoError(t, err)
+	require.Equal(t, 0, countLogRecords(out), "unmatched record must drop when flag unset")
+}
+
+func TestConfigValidate_UnmatchedStreamNameRejectsBadPrefix(t *testing.T) {
+	cfg := &Config{
+		UnmatchedStreamName: "UnmappedLogs_CL",
+		EventMappings: []EventMapping{
+			{
+				TargetTable: TargetTableAuthentication,
+				FieldMappings: []FieldMapping{
+					{To: "EventType", Default: "Logon"},
+				},
+			},
+		},
+	}
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `must start with "Custom-"`)
+}
+

@@ -23,13 +23,17 @@ import (
 	"go.uber.org/zap"
 )
 
-// Attribute names the processor writes on transformed log records. The
-// Microsoft Sentinel (Azure Log Analytics) exporter consumes
-// sentinel_stream_name to route each record to a specific DCR stream.
 const (
+	// sentinelStreamNameAttribute is the per-record routing key consumed by
+	// the Microsoft Sentinel (Azure Log Analytics) exporter.
 	sentinelStreamNameAttribute = "sentinel_stream_name"
-	eventSchemaAttribute        = "EventSchema"
-
+	// eventSchemaColumn is the ASIM-mandated body column identifying the
+	// schema (e.g. "Authentication").
+	eventSchemaColumn = "EventSchema"
+	// additionalFieldsColumn is the ASIM dynamic column where the original
+	// pre-transform payload is stashed so unmapped fields stay queryable.
+	additionalFieldsColumn = "AdditionalFields"
+	// sentinelStreamNamePrefix is the Custom-* prefix Azure DCRs require.
 	sentinelStreamNamePrefix = "Custom-"
 )
 
@@ -45,13 +49,12 @@ type compiledEventMapping struct {
 	streamName    string
 	eventSchema   string
 	fieldMappings []compiledFieldMapping
-	requiredCols  []string
 }
 
 type asimStandardizationProcessor struct {
-	logger            *zap.Logger
-	eventMappings     []compiledEventMapping
-	runtimeValidation bool
+	logger              *zap.Logger
+	eventMappings       []compiledEventMapping
+	unmatchedStreamName string
 }
 
 func newASIMStandardizationProcessor(logger *zap.Logger, config *Config) (*asimStandardizationProcessor, error) {
@@ -83,7 +86,6 @@ func newASIMStandardizationProcessor(logger *zap.Logger, config *Config) (*asimS
 			streamName:    sentinelStreamNamePrefix + eventMapping.TargetTable,
 			eventSchema:   schema,
 			fieldMappings: fieldMappings,
-			requiredCols:  commonRequiredColumns,
 		}
 
 		if eventMapping.Filter != "" {
@@ -97,15 +99,10 @@ func newASIMStandardizationProcessor(logger *zap.Logger, config *Config) (*asimS
 		compiled = append(compiled, cem)
 	}
 
-	runtimeValidation := false
-	if config.RuntimeValidation != nil {
-		runtimeValidation = *config.RuntimeValidation
-	}
-
 	return &asimStandardizationProcessor{
-		logger:            logger,
-		eventMappings:     compiled,
-		runtimeValidation: runtimeValidation,
+		logger:              logger,
+		eventMappings:       compiled,
+		unmatchedStreamName: config.UnmatchedStreamName,
 	}, nil
 }
 
@@ -116,27 +113,15 @@ func (asp *asimStandardizationProcessor) processLogs(_ context.Context, ld plog.
 		for j := 0; j < resource.ScopeLogs().Len(); j++ {
 			scope := resource.ScopeLogs().At(j)
 			scope.LogRecords().RemoveIf(func(log plog.LogRecord) bool {
-				shouldDrop := !asp.processLogRecord(log, resourceAttrs)
-				if shouldDrop {
-					asp.logger.Debug("Dropping log record", zap.String("reason", "no match"))
-				}
-				return shouldDrop
+				return !asp.processLogRecord(log, resourceAttrs)
 			})
 		}
 		resource.ScopeLogs().RemoveIf(func(scope plog.ScopeLogs) bool {
-			records := scope.LogRecords().Len()
-			if records == 0 {
-				asp.logger.Debug("Dropping scope", zap.String("reason", "no records"))
-			}
-			return records == 0
+			return scope.LogRecords().Len() == 0
 		})
 	}
 	ld.ResourceLogs().RemoveIf(func(resource plog.ResourceLogs) bool {
-		scopes := resource.ScopeLogs().Len()
-		if scopes == 0 {
-			asp.logger.Debug("Dropping resource", zap.String("reason", "no scopes"))
-		}
-		return scopes == 0
+		return resource.ScopeLogs().Len() == 0
 	})
 	return ld, nil
 }
@@ -152,26 +137,20 @@ func (asp *asimStandardizationProcessor) processLogRecord(log plog.LogRecord, re
 			continue
 		}
 
+		originalBody := log.Body().AsRaw()
 		newBody := map[string]any{}
 
 		for _, fieldMapping := range eventMapping.fieldMappings {
 			var value any
 			if fieldMapping.from != nil {
 				val, err := fieldMapping.from.Evaluate(record)
-				if err != nil || val == nil {
-					if err != nil {
-						asp.logger.Error("Failed to evaluate expression",
-							zap.String("field", fieldMapping.to),
-							zap.Error(err),
-						)
-					}
-					if val == nil {
-						asp.logger.Debug(
-							"No value found for field, using default",
-							zap.String("field", fieldMapping.to),
-							zap.Any("default", fieldMapping.defaultValue),
-						)
-					}
+				if err != nil {
+					asp.logger.Error("Failed to evaluate expression",
+						zap.String("field", fieldMapping.to),
+						zap.Error(err),
+					)
+					value = fieldMapping.defaultValue
+				} else if val == nil {
 					value = fieldMapping.defaultValue
 				} else {
 					value = val
@@ -183,20 +162,12 @@ func (asp *asimStandardizationProcessor) processLogRecord(log plog.LogRecord, re
 			if value == nil {
 				continue
 			}
-
 			newBody[fieldMapping.to] = value
 		}
 
-		// Always set EventSchema for ASIM-compliance and routing.
-		newBody[eventSchemaAttribute] = eventMapping.eventSchema
-
-		if asp.runtimeValidation {
-			if missing := missingRequiredColumns(newBody, eventMapping.requiredCols); len(missing) > 0 {
-				asp.logger.Debug("ASIM record missing required columns",
-					zap.String("target_table", eventMapping.targetTable),
-					zap.Strings("missing", missing),
-				)
-			}
+		newBody[eventSchemaColumn] = eventMapping.eventSchema
+		if originalBody != nil {
+			newBody[additionalFieldsColumn] = originalBody
 		}
 
 		if err := log.Body().SetEmptyMap().FromRaw(newBody); err != nil {
@@ -207,24 +178,23 @@ func (asp *asimStandardizationProcessor) processLogRecord(log plog.LogRecord, re
 			return false
 		}
 
-		attrs := log.Attributes()
-		attrs.PutStr(sentinelStreamNameAttribute, eventMapping.streamName)
-		attrs.PutStr(eventSchemaAttribute, eventMapping.eventSchema)
+		log.Attributes().PutStr(sentinelStreamNameAttribute, eventMapping.streamName)
+		return true
+	}
 
+	// No event mapping matched. Route to the unmatched custom stream when
+	// configured, otherwise drop.
+	if asp.unmatchedStreamName != "" {
+		newBody := map[string]any{
+			additionalFieldsColumn: log.Body().AsRaw(),
+		}
+		if err := log.Body().SetEmptyMap().FromRaw(newBody); err != nil {
+			asp.logger.Error("failed to set unmatched log body", zap.Error(err))
+			return false
+		}
+		log.Attributes().PutStr(sentinelStreamNameAttribute, asp.unmatchedStreamName)
 		return true
 	}
 
 	return false
-}
-
-// missingRequiredColumns returns the list of required columns that are not
-// present (as keys) in the body map.
-func missingRequiredColumns(body map[string]any, required []string) []string {
-	var missing []string
-	for _, col := range required {
-		if _, ok := body[col]; !ok {
-			missing = append(missing, col)
-		}
-	}
-	return missing
 }

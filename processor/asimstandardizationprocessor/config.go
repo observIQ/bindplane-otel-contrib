@@ -16,6 +16,7 @@ package asimstandardizationprocessor
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/observiq/bindplane-otel-contrib/pkg/expr"
 )
@@ -49,127 +50,6 @@ var eventSchemaByTargetTable = map[string]string{
 	TargetTableUserManagementActivity: "UserManagement",
 }
 
-// commonRequiredColumns are required for every ASIM stream regardless of
-// target table. These match the fields the Sentinel ASIM parsers always
-// expect to be present.
-var commonRequiredColumns = []string{
-	"TimeGenerated",
-	"EventCount",
-	"EventStartTime",
-	"EventEndTime",
-	"EventType",
-	"EventResult",
-	"EventProduct",
-	"EventVendor",
-	"EventSchema",
-	"EventSchemaVersion",
-	"Dvc",
-}
-
-// permissibleColumnsByTargetTable lists the full set of columns declared for
-// each Custom-ASim* DCR stream. Sourced from the bindplane-op-enterprise
-// dcr-asim-*.json templates' streamDeclarations.<stream>.columns.
-//
-// The processor treats all entries here as "permissible" (allowed) but only
-// the entries also present in commonRequiredColumns are validated as required
-// when runtime_validation is enabled. Per-table required-column whitelists
-// are not currently distinguished — every declared column is treated as
-// permissible, every commonRequiredColumns entry is required.
-var permissibleColumnsByTargetTable = map[string][]string{
-	TargetTableAuthentication: {
-		"TimeGenerated", "EventCount", "EventStartTime", "EventEndTime",
-		"EventType", "EventResult", "EventResultDetails", "EventProduct",
-		"EventVendor", "EventSchema", "EventSchemaVersion", "EventSeverity",
-		"Dvc", "DvcHostname", "TargetUsername", "ActorUsername", "SrcIpAddr",
-		"LogonMethod",
-	},
-	TargetTableNetworkSession: {
-		"TimeGenerated", "EventCount", "EventStartTime", "EventEndTime",
-		"EventType", "EventResult", "EventProduct", "EventVendor",
-		"EventSchema", "EventSchemaVersion", "EventSeverity", "Dvc",
-		"DvcHostname", "DvcIpAddr", "SrcIpAddr", "SrcHostname", "SrcPortNumber",
-		"DstIpAddr", "DstHostname", "DstPortNumber", "NetworkProtocol",
-		"NetworkApplicationProtocol", "NetworkBytes", "NetworkPackets",
-		"SrcBytes", "DstBytes", "NetworkDirection", "NetworkRuleName",
-		"DvcAction",
-	},
-	TargetTableDnsActivity: {
-		"TimeGenerated", "EventCount", "EventStartTime", "EventEndTime",
-		"EventType", "EventSubType", "EventResult", "EventResultDetails",
-		"EventProduct", "EventVendor", "EventSchema", "EventSchemaVersion",
-		"EventSeverity", "Dvc", "DvcHostname", "DvcIpAddr", "SrcIpAddr",
-		"SrcHostname", "SrcPortNumber", "DstIpAddr", "DstPortNumber",
-		"NetworkProtocol", "DnsQuery", "DnsQueryType", "DnsQueryTypeName",
-		"DnsResponseCode", "DnsResponseCodeName", "DnsResponseName",
-		"TransactionIdHex",
-	},
-	TargetTableProcessEvent: {
-		"TimeGenerated", "EventCount", "EventStartTime", "EventEndTime",
-		"EventType", "EventResult", "EventProduct", "EventVendor",
-		"EventSchema", "EventSchemaVersion", "EventSeverity", "Dvc",
-		"DvcHostname", "DvcIpAddr", "TargetProcessName",
-		"TargetProcessCommandLine", "TargetProcessId", "TargetProcessGuid",
-		"TargetProcessCreationTime", "TargetProcessFileMD5",
-		"TargetProcessFileSHA1", "TargetProcessFileSHA256",
-		"TargetProcessCurrentDirectory", "TargetUsername", "ActingProcessName",
-		"ActingProcessCommandLine", "ActingProcessId", "ActingProcessGuid",
-		"ActorUsername", "User",
-	},
-	TargetTableFileEvent: {
-		"TimeGenerated", "EventCount", "EventStartTime", "EventEndTime",
-		"EventType", "EventResult", "EventProduct", "EventVendor",
-		"EventSchema", "EventSchemaVersion", "EventSeverity", "Dvc",
-		"DvcHostname", "DvcIpAddr", "ActorUsername", "ActingProcessName",
-		"ActingProcessId", "TargetFilePath", "TargetFileName",
-		"TargetFileExtension", "TargetFileSize", "TargetFileMD5",
-		"TargetFileSHA1", "TargetFileSHA256", "SrcFilePath", "SrcFileName",
-	},
-	TargetTableAuditEvent: {
-		"TimeGenerated", "EventCount", "EventStartTime", "EventEndTime",
-		"EventType", "EventSubType", "EventResult", "EventResultDetails",
-		"EventProduct", "EventVendor", "EventSchema", "EventSchemaVersion",
-		"EventSeverity", "Dvc", "DvcHostname", "DvcIpAddr", "ActorUsername",
-		"ActorUserType", "Operation", "Object", "ObjectType", "OldValue",
-		"NewValue", "HttpUserAgent", "SrcIpAddr",
-	},
-	TargetTableWebSession: {
-		"TimeGenerated", "EventCount", "EventStartTime", "EventEndTime",
-		"EventType", "EventSubType", "EventResult", "EventResultDetails",
-		"EventProduct", "EventVendor", "EventSchema", "EventSchemaVersion",
-		"EventSeverity", "Dvc", "DvcHostname", "DvcIpAddr", "SrcIpAddr",
-		"SrcHostname", "SrcPortNumber", "DstIpAddr", "DstHostname",
-		"DstPortNumber", "NetworkProtocol", "NetworkBytes", "SrcBytes",
-		"DstBytes", "Url", "UrlCategory", "HttpVersion", "HttpRequestMethod",
-		"HttpStatusCode", "HttpUserAgent", "HttpReferrer", "HttpContentType",
-		"HttpResponseTime", "FileName", "DvcAction",
-	},
-	TargetTableDhcpEvent: {
-		"TimeGenerated", "EventCount", "EventStartTime", "EventEndTime",
-		"EventType", "EventResult", "EventResultDetails", "EventProduct",
-		"EventVendor", "EventSchema", "EventSchemaVersion", "EventSeverity",
-		"Dvc", "DvcHostname", "DvcIpAddr", "SrcIpAddr", "SrcMacAddr",
-		"SrcHostname", "DstIpAddr", "DstMacAddr", "DstPortNumber",
-		"DhcpLeaseDuration", "DhcpOfferedIpAddr", "DhcpRequestedIpAddr",
-	},
-	TargetTableRegistryEvent: {
-		"TimeGenerated", "EventCount", "EventStartTime", "EventEndTime",
-		"EventType", "EventResult", "EventProduct", "EventVendor",
-		"EventSchema", "EventSchemaVersion", "EventSeverity", "Dvc",
-		"DvcHostname", "DvcIpAddr", "ActorUsername", "ActingProcessName",
-		"ActingProcessId", "ActingProcessGuid", "RegistryKey",
-		"RegistryPreviousKey", "RegistryValue", "RegistryValueType",
-		"RegistryValueData", "RegistryPreviousValueData",
-	},
-	TargetTableUserManagementActivity: {
-		"TimeGenerated", "EventCount", "EventStartTime", "EventEndTime",
-		"EventType", "EventResult", "EventProduct", "EventVendor",
-		"EventSchema", "EventSchemaVersion", "EventSeverity", "Dvc",
-		"DvcHostname", "DvcIpAddr", "ActorUsername", "TargetUsername",
-		"TargetUserType", "TargetUsernameType", "GroupName", "GroupType",
-		"SrcIpAddr",
-	},
-}
-
 // FieldMapping maps a source log field (resolved via an expr-lang `from`
 // expression) to a target ASIM column name. If `from` is empty or evaluates
 // to nil, `default` is used.
@@ -199,10 +79,12 @@ type Config struct {
 	// EventMappings is the ordered list of event mappings.
 	EventMappings []EventMapping `mapstructure:"event_mappings"`
 
-	// RuntimeValidation, when true, verifies that all required ASIM columns
-	// are present in the transformed body. Missing columns are logged at
-	// debug level but the record is NOT dropped.
-	RuntimeValidation *bool `mapstructure:"runtime_validation"`
+	// UnmatchedStreamName, if set, opts the processor into routing records
+	// that don't match any event mapping to a Sentinel Custom Logs stream
+	// (e.g. "Custom-UnmappedLogs_CL"). The original body is preserved verbatim
+	// in `AdditionalFields`. The DCR must declare a streamDeclaration matching
+	// this name. Empty (default) preserves the drop-on-no-match behaviour.
+	UnmatchedStreamName string `mapstructure:"unmatched_stream_name"`
 }
 
 // IsKnownTargetTable returns true if the given string is a supported ASIM
@@ -241,6 +123,10 @@ func (cfg Config) Validate() error {
 				}
 			}
 		}
+	}
+
+	if cfg.UnmatchedStreamName != "" && !strings.HasPrefix(cfg.UnmatchedStreamName, "Custom-") {
+		return fmt.Errorf("unmatched_stream_name must start with %q (Sentinel custom-table convention)", "Custom-")
 	}
 
 	return nil

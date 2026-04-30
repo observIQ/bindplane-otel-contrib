@@ -191,15 +191,3 @@ func TestIsKnownTargetTable(t *testing.T) {
 	require.False(t, IsKnownTargetTable("ASimNotReal"))
 }
 
-func TestEventSchemaCoverage(t *testing.T) {
-	// Ensure every supported target table has both an EventSchema mapping
-	// and a permissible-columns list, and that those keys agree.
-	for table := range eventSchemaByTargetTable {
-		_, ok := permissibleColumnsByTargetTable[table]
-		require.Truef(t, ok, "missing permissibleColumnsByTargetTable entry for %q", table)
-	}
-	for table := range permissibleColumnsByTargetTable {
-		_, ok := eventSchemaByTargetTable[table]
-		require.Truef(t, ok, "missing eventSchemaByTargetTable entry for %q", table)
-	}
-}
