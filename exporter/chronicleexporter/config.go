@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/observiq/bindplane-otel-contrib/pkg/expr"
 	"go.opentelemetry.io/collector/component"
@@ -78,6 +79,9 @@ type Config struct {
 
 	// CollectAgentMetrics is a flag that determines whether or not to collect agent metrics.
 	CollectAgentMetrics bool `mapstructure:"collect_agent_metrics"`
+
+	// MetricsInterval is the interval at which to collect and send agent metrics.
+	MetricsInterval time.Duration `mapstructure:"metrics_interval"`
 
 	// Protocol is the protocol that will be used to send logs to Chronicle.
 	// Either https or grpc.
@@ -141,6 +145,10 @@ func (cfg *Config) Validate() error {
 
 	if strings.HasPrefix(cfg.Endpoint, "http://") || strings.HasPrefix(cfg.Endpoint, "https://") {
 		return fmt.Errorf("endpoint should not contain a protocol: %s", cfg.Endpoint)
+	}
+
+	if cfg.CollectAgentMetrics && cfg.MetricsInterval <= 0 {
+		return errors.New("metrics_interval must be a positive duration")
 	}
 
 	if cfg.Protocol == protocolHTTPS {

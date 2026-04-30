@@ -32,6 +32,7 @@ func Test_createDefaultConfig(t *testing.T) {
 		Endpoint:                  "malachiteingestion-pa.googleapis.com",
 		Compression:               "none",
 		CollectAgentMetrics:       true,
+		MetricsInterval:           defaultMetricsInterval,
 		Protocol:                  protocolGRPC,
 		BatchRequestSizeLimitGRPC: defaultBatchRequestSizeLimitGRPC,
 		BatchRequestSizeLimitHTTP: defaultBatchRequestSizeLimitHTTP,
