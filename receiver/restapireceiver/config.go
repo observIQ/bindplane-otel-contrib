@@ -336,6 +336,8 @@ type OffsetLimitPagination struct {
 	StartingOffset int `mapstructure:"starting_offset"`
 
 	// LimitFieldName is the name of the query parameter for limit.
+	// Required for numeric offset pagination. Optional when NextOffsetFieldName
+	// is set (token-based pagination), since page advance is driven by the token.
 	LimitFieldName string `mapstructure:"limit_field_name"`
 
 	// NextOffsetFieldName is the name of the field or header that contains the next offset token.
@@ -578,8 +580,12 @@ func (c *Config) Validate() error {
 		if c.Pagination.OffsetLimit.OffsetFieldName == "" {
 			return fmt.Errorf("offset_field_name is required when pagination.mode is offset_limit")
 		}
-		if c.Pagination.OffsetLimit.LimitFieldName == "" {
-			return fmt.Errorf("limit_field_name is required when pagination.mode is offset_limit")
+		// limit_field_name is required for numeric offset pagination so the
+		// server's page size matches the internal offset advance. With
+		// token-based pagination (next_offset_field_name set), advance is
+		// driven by the token so limit_field_name is optional.
+		if c.Pagination.OffsetLimit.NextOffsetFieldName == "" && c.Pagination.OffsetLimit.LimitFieldName == "" {
+			return fmt.Errorf("limit_field_name is required when pagination.mode is offset_limit and next_offset_field_name is not set for token-based pagination")
 		}
 		// next_offset_field_name is required when response_source is header
 		if c.Pagination.ResponseSource == responseSourceHeader && c.Pagination.OffsetLimit.NextOffsetFieldName == "" {
