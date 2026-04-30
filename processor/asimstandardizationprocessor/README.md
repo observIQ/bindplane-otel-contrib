@@ -24,11 +24,15 @@ For every transformed record, the processor:
    populated from `field_mappings`.
 2. Sets `EventSchema` in the body to the schema name corresponding to the
    target table (e.g. `Authentication` for `ASimAuthenticationEventLogs`).
-3. Sets two log-record attributes for downstream Sentinel routing:
-   - `sentinel_stream_name = "Custom-" + target_table`
-   - `EventSchema = <PascalCase>` (matches the body field).
+3. Stashes the original pre-transform body under the `AdditionalFields`
+   ASIM column so unmapped source fields stay queryable in Sentinel.
+4. Sets the `sentinel_stream_name` log-record attribute to
+   `Custom-<target_table>` so the Azure Log Analytics exporter routes the
+   record to the right DCR stream.
 
-Records that do not match any `event_mapping` are dropped.
+Records that do **not** match any `event_mapping` are dropped by default.
+Set `unmatched_stream_name` (see below) to opt in to routing them to a
+Sentinel custom-log table instead.
 
 ## Supported target tables
 
@@ -50,7 +54,7 @@ Records that do not match any `event_mapping` are dropped.
 | Field | Type | Default | Required | Description |
 | -- | -- | -- | -- | -- |
 | `event_mappings` | []EventMapping | `[]` | No | Ordered list of event mappings. The first mapping whose `filter` matches a record wins. |
-| `runtime_validation` | bool | `false` | No | When `true`, after writing the new body, the processor verifies that all required ASIM columns are present. Missing columns are logged at debug level — the record is **not** dropped. |
+| `unmatched_stream_name` | string | `""` | No | When set, records that don't match any `event_mapping` are kept and stamped with this Sentinel stream name (must start with `Custom-`) instead of being dropped. The original body is preserved verbatim under the body's `AdditionalFields` key. The destination DCR must declare a matching `streamDeclaration`. |
 
 ### EventMapping
 
@@ -68,29 +72,29 @@ Records that do not match any `event_mapping` are dropped.
 | `to` | string | | Yes | Target ASIM column name. |
 | `default` | any | | No | Fallback value used when `from` is empty / evaluates to nil. Required if `from` is not set. |
 
-### Required columns (when `runtime_validation` is enabled)
+## AdditionalFields preservation
 
-The following columns are required for **every** target table. If any are
-missing after field mapping, a debug-level log is emitted; the record is
-kept either way.
+After a record matches an event mapping, the original (pre-transform) body
+is stored under the `AdditionalFields` key of the new body. ASIM's
+`AdditionalFields` is declared as a `dynamic` (JSON) column on every
+supported native ASIM table, so any source field that wasn't promoted to an
+explicit ASIM column remains queryable in Sentinel via:
 
+```kusto
+ASimAuthenticationEventLogs
+| extend raw = AdditionalFields
+| project TimeGenerated, ActorUsername, TargetUsername, raw
 ```
-TimeGenerated, EventCount, EventStartTime, EventEndTime, EventType,
-EventResult, EventProduct, EventVendor, EventSchema, EventSchemaVersion,
-Dvc
-```
 
-> Note: per-table required-column whitelists are not currently enforced; all
-> columns declared in the Sentinel DCR templates for a given stream are
-> permissible, but only the columns above are validated when
-> `runtime_validation` is enabled.
+For records routed via `unmatched_stream_name`, the new body contains only
+`AdditionalFields` (carrying the verbatim original body) — no ASIM
+column-name flattening is attempted because no mapping matched.
 
 ## Example configuration
 
 ```yaml
 processors:
   asim_standardization:
-    runtime_validation: true
     event_mappings:
       - filter: 'attributes["event.type"] == "authentication"'
         target_table: ASimAuthenticationEventLogs
@@ -112,7 +116,7 @@ processors:
           - to: EventVendor
             default: Microsoft
           - to: EventSchemaVersion
-            default: "0.1.3"
+            default: "0.1.4"
           - from: 'resource["host.name"]'
             to: Dvc
           - from: 'body["user"]["name"]'
@@ -124,12 +128,12 @@ processors:
 ## Example: `asim_windows_security` preset
 
 A typical preset for Windows Security event mapping into the ASIM
-Authentication table:
+Authentication table, with unmapped records routed to a custom log table:
 
 ```yaml
 processors:
   asim_standardization/windows_security:
-    runtime_validation: true
+    unmatched_stream_name: Custom-UnmappedLogs_CL
     event_mappings:
       - filter: 'attributes["winlog.channel"] == "Security" && body["winlog"]["event_id"] in [4624, 4625]'
         target_table: ASimAuthenticationEventLogs
@@ -151,7 +155,7 @@ processors:
           - to: EventVendor
             default: Microsoft
           - to: EventSchemaVersion
-            default: "0.1.3"
+            default: "0.1.4"
           - from: 'resource["host.name"]'
             to: Dvc
           - from: 'body["user"]["name"]'
@@ -162,8 +166,9 @@ processors:
             to: LogonMethod
 ```
 
-The processor sets these attributes on each transformed record so the
+The processor sets the following on each transformed record so the
 Microsoft Sentinel exporter can route appropriately:
 
+- `body["EventSchema"] = "Authentication"`
+- `body["AdditionalFields"] = <pre-transform body>`
 - `attributes["sentinel_stream_name"] = "Custom-ASimAuthenticationEventLogs"`
-- `attributes["EventSchema"] = "Authentication"`
