@@ -167,7 +167,7 @@ func TestProcessLogs_EventSchemaPerTargetTable(t *testing.T) {
 	}{
 		{TargetTableAuthentication, "Authentication", "Custom-ASimAuthenticationEventLogs"},
 		{TargetTableNetworkSession, "NetworkSession", "Custom-ASimNetworkSessionLogs"},
-		{TargetTableDnsActivity, "Dns", "Custom-ASimDnsActivityLogs"},
+		{TargetTableDNSActivity, "Dns", "Custom-ASimDnsActivityLogs"},
 		{TargetTableProcessEvent, "ProcessEvent", "Custom-ASimProcessEventLogs"},
 		{TargetTableFileEvent, "FileEvent", "Custom-ASimFileEventLogs"},
 		{TargetTableAuditEvent, "AuditEvent", "Custom-ASimAuditEventLogs"},
@@ -423,4 +423,3 @@ func TestConfigValidate_UnmatchedStreamNameRejectsBadPrefix(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `must start with "Custom-"`)
 }
-

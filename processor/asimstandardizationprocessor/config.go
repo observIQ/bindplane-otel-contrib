@@ -25,7 +25,7 @@ import (
 const (
 	TargetTableAuthentication         = "ASimAuthenticationEventLogs"
 	TargetTableNetworkSession         = "ASimNetworkSessionLogs"
-	TargetTableDnsActivity            = "ASimDnsActivityLogs"
+	TargetTableDNSActivity            = "ASimDnsActivityLogs"
 	TargetTableProcessEvent           = "ASimProcessEventLogs"
 	TargetTableFileEvent              = "ASimFileEventLogs"
 	TargetTableAuditEvent             = "ASimAuditEventLogs"
@@ -40,7 +40,7 @@ const (
 var eventSchemaByTargetTable = map[string]string{
 	TargetTableAuthentication:         "Authentication",
 	TargetTableNetworkSession:         "NetworkSession",
-	TargetTableDnsActivity:            "Dns",
+	TargetTableDNSActivity:            "Dns",
 	TargetTableProcessEvent:           "ProcessEvent",
 	TargetTableFileEvent:              "FileEvent",
 	TargetTableAuditEvent:             "AuditEvent",

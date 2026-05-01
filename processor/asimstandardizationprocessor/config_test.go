@@ -63,7 +63,7 @@ func TestConfigValidate(t *testing.T) {
 				EventMappings: []EventMapping{
 					{TargetTable: TargetTableAuthentication, FieldMappings: minimalAuthFieldMappings},
 					{TargetTable: TargetTableNetworkSession, FieldMappings: minimalAuthFieldMappings},
-					{TargetTable: TargetTableDnsActivity, FieldMappings: minimalAuthFieldMappings},
+					{TargetTable: TargetTableDNSActivity, FieldMappings: minimalAuthFieldMappings},
 					{TargetTable: TargetTableProcessEvent, FieldMappings: minimalAuthFieldMappings},
 					{TargetTable: TargetTableFileEvent, FieldMappings: minimalAuthFieldMappings},
 					{TargetTable: TargetTableAuditEvent, FieldMappings: minimalAuthFieldMappings},
@@ -190,4 +190,3 @@ func TestIsKnownTargetTable(t *testing.T) {
 	require.False(t, IsKnownTargetTable(""))
 	require.False(t, IsKnownTargetTable("ASimNotReal"))
 }
-
