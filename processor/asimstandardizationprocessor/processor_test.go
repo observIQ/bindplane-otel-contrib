@@ -349,4 +349,3 @@ func TestNewASIMStandardizationProcessor_InvalidFilterExpression(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "compiling filter expression")
 }
-
