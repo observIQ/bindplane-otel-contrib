@@ -3,9 +3,9 @@ module github.com/observiq/bindplane-otel-contrib/receiver/azureblobpollingrecei
 go 1.25.9
 
 require (
-	github.com/observiq/bindplane-otel-contrib/internal/azureblob v1.3.0
-	github.com/observiq/bindplane-otel-contrib/internal/blobconsume v1.3.0
-	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.3.0
+	github.com/observiq/bindplane-otel-contrib/internal/azureblob v1.4.0
+	github.com/observiq/bindplane-otel-contrib/internal/blobconsume v1.4.0
+	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.4.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.56.0
 	go.opentelemetry.io/collector/consumer v1.56.0
