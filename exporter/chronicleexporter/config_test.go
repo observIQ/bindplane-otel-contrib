@@ -16,6 +16,7 @@ package chronicleexporter
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -192,6 +193,17 @@ func TestConfigValidate(t *testing.T) {
 				APIVersion:                "invalid",
 			},
 			expectedErr: "invalid API version: invalid",
+		},
+		{
+			desc: "Invalid metrics interval",
+			config: &Config{
+				Creds:               "creds_example",
+				LogType:             "log_type_example",
+				Compression:         noCompression,
+				CollectAgentMetrics: true,
+				MetricsInterval:     -1 * time.Second,
+			},
+			expectedErr: "metrics_interval must be a positive duration",
 		},
 	}
 
