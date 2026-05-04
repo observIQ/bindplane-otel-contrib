@@ -53,9 +53,7 @@ The exporter can be configured using the following fields:
 | `metrics_interval`              | duration          | `5m`                                   | `false`  | The interval at which agent metrics are collected and sent. Only applies when `collect_agent_metrics` is `true`.                                           |
 | `batch_request_size_limit_grpc` | int               | `4000000`                              | `false`  | The maximum size, in bytes, allowed for a gRPC batch creation request.                                                                                     |
 | `batch_request_size_limit_http` | int               | `4000000`                              | `false`  | The maximum size, in bytes, allowed for an HTTPS batch creation request.                                                                                   |
-| `license_type`                  | string            |                                        | `false`  | The license type of the Bindplane instance managing this agent. Used to determine the collector ID for Chronicle.                                          |
 | `log_errored_payloads`          | bool              | `false`                                | `false`  | Whether to log payloads that fail to send. Useful for debugging.                                                                                           |
-| `forwarder`                     | string            |                                        | `false`  | **Deprecated as of v1.87.1.** The forwarder (Collector ID) is now determined by the license type.                                                          |
 
 ### Log Type
 
