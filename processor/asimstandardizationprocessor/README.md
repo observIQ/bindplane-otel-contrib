@@ -30,9 +30,7 @@ For every transformed record, the processor:
    `Custom-<target_table>` so the Azure Log Analytics exporter routes the
    record to the right DCR stream.
 
-Records that do **not** match any `event_mapping` are dropped by default.
-Set `unmatched_stream_name` (see below) to opt in to routing them to a
-Sentinel custom-log table instead.
+Records that do **not** match any `event_mapping` are dropped.
 
 ## Supported target tables
 
@@ -54,7 +52,6 @@ Sentinel custom-log table instead.
 | Field | Type | Default | Required | Description |
 | -- | -- | -- | -- | -- |
 | `event_mappings` | []EventMapping | `[]` | No | Ordered list of event mappings. The first mapping whose `filter` matches a record wins. |
-| `unmatched_stream_name` | string | `""` | No | When set, records that don't match any `event_mapping` are kept and stamped with this Sentinel stream name (must start with `Custom-`) instead of being dropped. The original body is preserved verbatim under the body's `AdditionalFields` key. The destination DCR must declare a matching `streamDeclaration`. |
 
 ### EventMapping
 
@@ -85,10 +82,6 @@ ASimAuthenticationEventLogs
 | extend raw = AdditionalFields
 | project TimeGenerated, ActorUsername, TargetUsername, raw
 ```
-
-For records routed via `unmatched_stream_name`, the new body contains only
-`AdditionalFields` (carrying the verbatim original body) — no ASIM
-column-name flattening is attempted because no mapping matched.
 
 ## Example configuration
 
@@ -128,12 +121,11 @@ processors:
 ## Example: `asim_windows_security` preset
 
 A typical preset for Windows Security event mapping into the ASIM
-Authentication table, with unmapped records routed to a custom log table:
+Authentication table:
 
 ```yaml
 processors:
   asim_standardization/windows_security:
-    unmatched_stream_name: Custom-UnmappedLogs_CL
     event_mappings:
       - filter: 'attributes["winlog.channel"] == "Security" && body["winlog"]["event_id"] in [4624, 4625]'
         target_table: ASimAuthenticationEventLogs

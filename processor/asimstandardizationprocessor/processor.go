@@ -52,9 +52,8 @@ type compiledEventMapping struct {
 }
 
 type asimStandardizationProcessor struct {
-	logger              *zap.Logger
-	eventMappings       []compiledEventMapping
-	unmatchedStreamName string
+	logger        *zap.Logger
+	eventMappings []compiledEventMapping
 }
 
 func newASIMStandardizationProcessor(logger *zap.Logger, config *Config) (*asimStandardizationProcessor, error) {
@@ -100,9 +99,8 @@ func newASIMStandardizationProcessor(logger *zap.Logger, config *Config) (*asimS
 	}
 
 	return &asimStandardizationProcessor{
-		logger:              logger,
-		eventMappings:       compiled,
-		unmatchedStreamName: config.UnmatchedStreamName,
+		logger:        logger,
+		eventMappings: compiled,
 	}, nil
 }
 
@@ -179,20 +177,6 @@ func (asp *asimStandardizationProcessor) processLogRecord(log plog.LogRecord, re
 		}
 
 		log.Attributes().PutStr(sentinelStreamNameAttribute, eventMapping.streamName)
-		return true
-	}
-
-	// No event mapping matched. Route to the unmatched custom stream when
-	// configured, otherwise drop.
-	if asp.unmatchedStreamName != "" {
-		newBody := map[string]any{
-			additionalFieldsColumn: log.Body().AsRaw(),
-		}
-		if err := log.Body().SetEmptyMap().FromRaw(newBody); err != nil {
-			asp.logger.Error("failed to set unmatched log body", zap.Error(err))
-			return false
-		}
-		log.Attributes().PutStr(sentinelStreamNameAttribute, asp.unmatchedStreamName)
 		return true
 	}
 

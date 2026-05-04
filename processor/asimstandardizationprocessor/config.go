@@ -16,7 +16,6 @@ package asimstandardizationprocessor
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/observiq/bindplane-otel-contrib/pkg/expr"
 )
@@ -78,13 +77,6 @@ type EventMapping struct {
 type Config struct {
 	// EventMappings is the ordered list of event mappings.
 	EventMappings []EventMapping `mapstructure:"event_mappings"`
-
-	// UnmatchedStreamName, if set, opts the processor into routing records
-	// that don't match any event mapping to a Sentinel Custom Logs stream
-	// (e.g. "Custom-UnmappedLogs_CL"). The original body is preserved verbatim
-	// in `AdditionalFields`. The DCR must declare a streamDeclaration matching
-	// this name. Empty (default) preserves the drop-on-no-match behaviour.
-	UnmatchedStreamName string `mapstructure:"unmatched_stream_name"`
 }
 
 // IsKnownTargetTable returns true if the given string is a supported ASIM
@@ -123,10 +115,6 @@ func (cfg Config) Validate() error {
 				}
 			}
 		}
-	}
-
-	if cfg.UnmatchedStreamName != "" && !strings.HasPrefix(cfg.UnmatchedStreamName, "Custom-") {
-		return fmt.Errorf("unmatched_stream_name must start with %q (Sentinel custom-table convention)", "Custom-")
 	}
 
 	return nil
