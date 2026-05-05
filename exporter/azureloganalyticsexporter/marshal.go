@@ -31,6 +31,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// Attribute names for per-record routing. When set on the log record (or
+// resource) these override the exporter's configured StreamName / RuleID.
+const (
+	sentinelStreamNameAttribute = "sentinel_stream_name"
+	sentinelRuleIDAttribute     = "sentinel_rule_id"
+)
+
 // azureLogAnalyticsMarshaler handles transforming logs for Azure Log Analytics
 type azureLogAnalyticsMarshaler struct {
 	cfg          *Config
@@ -76,6 +83,46 @@ func (m *azureLogAnalyticsMarshaler) getRawField(ctx context.Context, field stri
 	default:
 		return "", fmt.Errorf("unsupported log record expression result type: %T", lrExprResult)
 	}
+}
+
+// lookupStringAttr returns the string value for the given key on the attribute
+// map. Non-string values and missing keys return ("", false).
+func lookupStringAttr(attrs pcommon.Map, key string) (string, bool) {
+	v, ok := attrs.Get(key)
+	if !ok {
+		return "", false
+	}
+	if v.Type() != pcommon.ValueTypeStr {
+		return "", false
+	}
+	return v.Str(), true
+}
+
+// getStreamName resolves the DCR stream name for a log record using the
+// following precedence: log record attribute, resource attribute, config. An
+// empty attribute value is treated as unset and falls through to the next
+// source.
+func (m *azureLogAnalyticsMarshaler) getStreamName(logRecord plog.LogRecord, _ plog.ScopeLogs, resourceLog plog.ResourceLogs) string {
+	if v, ok := lookupStringAttr(logRecord.Attributes(), sentinelStreamNameAttribute); ok && v != "" {
+		return v
+	}
+	if v, ok := lookupStringAttr(resourceLog.Resource().Attributes(), sentinelStreamNameAttribute); ok && v != "" {
+		return v
+	}
+	return m.cfg.StreamName
+}
+
+// getRuleID resolves the DCR rule ID for a log record using the following
+// precedence: log record attribute, resource attribute, config. An empty
+// attribute value is treated as unset and falls through to the next source.
+func (m *azureLogAnalyticsMarshaler) getRuleID(logRecord plog.LogRecord, _ plog.ScopeLogs, resourceLog plog.ResourceLogs) string {
+	if v, ok := lookupStringAttr(logRecord.Attributes(), sentinelRuleIDAttribute); ok && v != "" {
+		return v
+	}
+	if v, ok := lookupStringAttr(resourceLog.Resource().Attributes(), sentinelRuleIDAttribute); ok && v != "" {
+		return v
+	}
+	return m.cfg.RuleID
 }
 
 // transformLogsToSentinelFormat transforms logs to Microsoft Sentinel format

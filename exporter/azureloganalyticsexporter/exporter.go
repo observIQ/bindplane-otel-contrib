@@ -81,7 +81,16 @@ func (e *azureLogAnalyticsExporter) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: false}
 }
 
-// logsDataPusher pushes log data to Azure Log Analytics
+// logsDataPusher pushes log data to Azure Log Analytics.
+//
+// Records are first partitioned by (ruleID, streamName) based on the
+// sentinel_rule_id / sentinel_stream_name attributes (falling back to config
+// values) so that per-record routing can be honored. Each group is uploaded
+// independently; permanent errors short-circuit the remaining groups while
+// transient errors are collected and returned as a joined error so that the
+// exporterhelper retry pipeline still sees a transient failure and retries
+// the whole batch (Azure Log Analytics is expected to handle duplicates
+// idempotently on retry).
 func (e *azureLogAnalyticsExporter) logsDataPusher(ctx context.Context, ld plog.Logs) error {
 	logsCount := ld.LogRecordCount()
 	if logsCount == 0 {
@@ -90,21 +99,64 @@ func (e *azureLogAnalyticsExporter) logsDataPusher(ctx context.Context, ld plog.
 
 	e.logger.Debug("Microsoft Sentinel exporter sending logs", zap.Int("count", logsCount))
 
-	// Convert logs to JSON format expected by Azure Log Analytics
-	azureLogAnalyticsLogs, err := e.marshaler.transformLogsToSentinelFormat(ctx, ld)
+	groups := groupLogs(ld, e.cfg)
 
-	if err != nil {
-		return consumererror.NewPermanent(fmt.Errorf("failed to convert logs to Azure Log Analytics format: %w", err))
+	var errs []error
+	for key, groupLogs := range groups {
+		if groupLogs.LogRecordCount() == 0 {
+			continue
+		}
+
+		// TODO(routing): support per-record sentinel_endpoint by maintaining a
+		// per-endpoint client pool. For now we always use the configured
+		// endpoint (key.Endpoint is always cfg.Endpoint in this build).
+		if key.Endpoint != "" && key.Endpoint != e.cfg.Endpoint {
+			e.logger.Warn("per-record endpoint override not yet supported; using configured endpoint",
+				zap.String("record_endpoint", key.Endpoint),
+				zap.String("configured_endpoint", e.cfg.Endpoint),
+			)
+		}
+
+		payload, err := e.marshaler.transformLogsToSentinelFormat(ctx, groupLogs)
+		if err != nil {
+			return consumererror.NewPermanent(fmt.Errorf("failed to convert logs to Azure Log Analytics format: %w", err))
+		}
+
+		ruleID := key.RuleID
+		if ruleID == "" {
+			ruleID = e.ruleID
+		}
+		streamName := key.StreamName
+		if streamName == "" {
+			streamName = e.streamName
+		}
+
+		_, err = e.client.Upload(ctx, ruleID, streamName, payload, nil)
+		if err != nil {
+			classified := e.classifyError(err)
+			// Permanent errors should short-circuit so the batch is dropped
+			// without retry, mirroring the previous single-group behavior.
+			if consumererror.IsPermanent(classified) {
+				if len(errs) > 0 {
+					return errors.Join(append(errs, classified)...)
+				}
+				return classified
+			}
+			// Transient: keep going, try remaining groups, collect errors.
+			errs = append(errs, classified)
+			continue
+		}
+
+		e.logger.Debug("Successfully sent logs to Azure Log Analytics",
+			zap.Int("count", groupLogs.LogRecordCount()),
+			zap.String("rule_id", ruleID),
+			zap.String("stream_name", streamName),
+		)
 	}
 
-	_, err = e.client.Upload(ctx, e.ruleID, e.streamName, azureLogAnalyticsLogs, nil)
-	if err != nil {
-		return e.classifyError(err)
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
-
-	e.logger.Debug("Successfully sent logs to Azure Log Analytics",
-		zap.Int("count", logsCount),
-	)
 
 	return nil
 }
