@@ -4,8 +4,8 @@ go 1.25.9
 
 require (
 	github.com/golang/snappy v1.0.0
-	github.com/observiq/bindplane-otel-contrib/pkg/measurements v1.4.0
-	github.com/observiq/bindplane-otel-contrib/processor/topologyprocessor v1.4.0
+	github.com/observiq/bindplane-otel-contrib/pkg/measurements v1.5.0
+	github.com/observiq/bindplane-otel-contrib/processor/topologyprocessor v1.5.0
 	github.com/open-telemetry/opamp-go v0.23.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages v0.151.0
 	github.com/stretchr/testify v1.11.1
