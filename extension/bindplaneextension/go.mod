@@ -4,6 +4,7 @@ go 1.25.9
 
 require (
 	github.com/golang/snappy v1.0.0
+	github.com/observiq/bindplane-otel-contrib/internal/support-util v0.0.0
 	github.com/observiq/bindplane-otel-contrib/pkg/measurements v1.7.0
 	github.com/observiq/bindplane-otel-contrib/processor/topologyprocessor v1.7.0
 	github.com/open-telemetry/opamp-go v0.23.0
@@ -17,6 +18,7 @@ require (
 	go.opentelemetry.io/collector/pdata v1.59.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.28.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -54,8 +56,9 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/observiq/bindplane-otel-contrib/internal/support-util => ../../internal/support-util
 
 replace github.com/observiq/bindplane-otel-contrib/pkg/measurements => ../../pkg/measurements
 
