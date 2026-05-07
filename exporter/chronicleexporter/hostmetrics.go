@@ -34,7 +34,9 @@ type hostMetricsReporter struct {
 	set    component.TelemetrySettings
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
-	send   sendMetricsFunc
+
+	send     sendMetricsFunc
+	interval time.Duration
 
 	mutex      sync.Mutex
 	agentID    []byte
@@ -67,6 +69,7 @@ func newHostMetricsReporter(cfg *Config, set component.TelemetrySettings, export
 	hmr := &hostMetricsReporter{
 		set:        set,
 		send:       send,
+		interval:   cfg.MetricsInterval,
 		agentID:    agentID[:],
 		exporterID: exporterID,
 		source: &api.EventSource{
@@ -87,7 +90,7 @@ func (hmr *hostMetricsReporter) start() {
 	hmr.wg.Add(1)
 
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(hmr.interval)
 
 		defer func() {
 			hmr.wg.Done()
