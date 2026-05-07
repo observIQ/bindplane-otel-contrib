@@ -19,10 +19,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/golang/snappy"
+	"github.com/observiq/bindplane-otel-contrib/extension/bindplaneextension/internal/bundle"
 	"github.com/observiq/bindplane-otel-contrib/pkg/measurements"
 	"github.com/observiq/bindplane-otel-contrib/processor/topologyprocessor"
 	"github.com/open-telemetry/opamp-go/client/types"
@@ -39,6 +42,8 @@ type bindplaneExtension struct {
 	topologyRegistry                  *topologyprocessor.ResettableTopologyRegistry
 	customCapabilityHandlerThroughput opampcustommessages.CustomCapabilityHandler
 	customCapabilityHandlerTopology   opampcustommessages.CustomCapabilityHandler
+	bundleCapabilityHandler           opampcustommessages.CustomCapabilityHandler
+	bundleManager                     bundle.Manager
 
 	doneChan chan struct{}
 	wg       *sync.WaitGroup
@@ -64,6 +69,10 @@ func (b *bindplaneExtension) Start(_ context.Context, host component.Host) error
 
 	// Set up custom capabilities if enabled
 	if b.cfg.OpAMP != emptyComponentID {
+		if err := b.setupBundleManager(); err != nil {
+			return fmt.Errorf("setup support bundle manager: %w", err)
+		}
+
 		err := b.setupCustomCapabilities(host)
 		if err != nil {
 			return fmt.Errorf("setup capability handler: %w", err)
@@ -78,8 +87,40 @@ func (b *bindplaneExtension) Start(_ context.Context, host component.Host) error
 			b.wg.Add(1)
 			go b.reportTopologyLoop()
 		}
+
+		if b.bundleCapabilityHandler != nil {
+			b.wg.Add(1)
+			go b.handleBundleMessages()
+		}
 	}
 
+	return nil
+}
+
+func (b *bindplaneExtension) setupBundleManager() error {
+	cfg := b.cfg.SupportBundle
+
+	opts := bundle.Options{
+		CollectorConfigPath:    cfg.CollectorConfigPath,
+		CollectorLogDir:        cfg.CollectorLogDir,
+		ManagerConfigPath:      cfg.ManagerConfigPath,
+		CollectorManagerConfig: cfg.ManagerConfigPath,
+		CollectorInstallRoot:   cfg.CollectorInstallRoot,
+		IncludeConfig:          true,
+		IncludeLogs:            true,
+		IncludeSystemInfo:      true,
+	}
+
+	if cfg.EncryptionPublicKeyPath != "" {
+		keyPEM, err := os.ReadFile(cfg.EncryptionPublicKeyPath)
+		if err != nil {
+			return fmt.Errorf("read encryption public key: %w", err)
+		}
+		opts.EncryptionPublicKeyPEM = keyPEM
+	}
+
+	httpClient := &http.Client{Timeout: 10 * time.Minute}
+	b.bundleManager = bundle.NewDefaultManager(b.logger, bundle.NewDefaultBundler(httpClient, opts))
 	return nil
 }
 
@@ -121,6 +162,11 @@ func (b *bindplaneExtension) setupCustomCapabilities(host component.Host) error 
 		}
 	}
 
+	b.bundleCapabilityHandler, err = registry.Register(bundle.Capability)
+	if err != nil {
+		return fmt.Errorf("register support bundle capability: %w", err)
+	}
+
 	return nil
 }
 
@@ -131,6 +177,29 @@ func (b *bindplaneExtension) Dependencies() []component.ID {
 	}
 
 	return []component.ID{b.cfg.OpAMP}
+}
+
+func (b *bindplaneExtension) handleBundleMessages() {
+	defer b.wg.Done()
+
+	for {
+		select {
+		case msg := <-b.bundleCapabilityHandler.Message():
+			if msg == nil {
+				return
+			}
+			uploadURL := bundle.UploadURL(b.cfg.SupportBundle.OpAMPEndpoint, b.cfg.SupportBundle.AgentID)
+			go b.bundleManager.HandleRequest(
+				context.Background(),
+				msg.GetCapability(),
+				msg.GetType(),
+				msg.GetData(),
+				uploadURL,
+			)
+		case <-b.doneChan:
+			return
+		}
+	}
 }
 
 func (b *bindplaneExtension) reportMetricsLoop() {
@@ -241,6 +310,10 @@ func (b *bindplaneExtension) Shutdown(ctx context.Context) error {
 
 	if b.customCapabilityHandlerTopology != nil {
 		b.customCapabilityHandlerTopology.Unregister()
+	}
+
+	if b.bundleCapabilityHandler != nil {
+		b.bundleCapabilityHandler.Unregister()
 	}
 
 	return nil
