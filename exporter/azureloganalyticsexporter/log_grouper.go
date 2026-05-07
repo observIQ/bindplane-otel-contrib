@@ -18,27 +18,15 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
-// groupKey uniquely identifies a batch destination (DCR ingestion). The
-// Endpoint is included in the key to reserve support for per-record endpoint
-// routing in a future revision; for now all groups share the configured
-// endpoint (see groupLogs).
-//
-// TODO(routing): support per-record sentinel_endpoint attribute via a per-
-// endpoint client pool, then populate Endpoint from attribute precedence.
+// groupKey uniquely identifies a batch destination (DCR ingestion).
 type groupKey struct {
-	Endpoint   string
 	RuleID     string
 	StreamName string
 }
 
-// String returns the composite key string "endpoint|ruleID|streamName".
-func (k groupKey) String() string {
-	return k.Endpoint + "|" + k.RuleID + "|" + k.StreamName
-}
-
 // groupLogs splits an incoming plog.Logs batch into one batch per unique
-// (endpoint, ruleID, streamName) combination, as resolved from per-record
-// attributes with fallback to the exporter configuration.
+// (ruleID, streamName) combination, as resolved from per-record attributes
+// with fallback to the exporter configuration.
 //
 // The Resource -> Scope -> LogRecord hierarchy is preserved inside each output
 // batch: a given resource/scope may be duplicated across output batches if its
@@ -46,8 +34,8 @@ func (k groupKey) String() string {
 // resource and scope metadata.
 //
 // Backward compatibility: if no log records carry routing attributes, the
-// result is a single group keyed by (cfg.Endpoint, cfg.RuleID, cfg.StreamName)
-// equivalent to the original pre-grouping behavior.
+// result is a single group keyed by (cfg.RuleID, cfg.StreamName) equivalent
+// to the original pre-grouping behavior.
 func groupLogs(ld plog.Logs, cfg *Config) map[groupKey]plog.Logs {
 	groups := make(map[groupKey]plog.Logs)
 
@@ -82,9 +70,8 @@ func groupLogs(ld plog.Logs, cfg *Config) map[groupKey]plog.Logs {
 				lr := records.At(k)
 
 				key := groupKey{
-					Endpoint:   cfg.Endpoint,
-					RuleID:     marshaler.getRuleID(lr, sl, rl),
-					StreamName: marshaler.getStreamName(lr, sl, rl),
+					RuleID:     marshaler.getRuleID(lr, rl),
+					StreamName: marshaler.getStreamName(lr, rl),
 				}
 
 				out, ok := groups[key]
@@ -126,7 +113,6 @@ func groupLogs(ld plog.Logs, cfg *Config) map[groupKey]plog.Logs {
 	// group keyed by the configured values so callers have a consistent shape.
 	if len(groups) == 0 {
 		key := groupKey{
-			Endpoint:   cfg.Endpoint,
 			RuleID:     cfg.RuleID,
 			StreamName: cfg.StreamName,
 		}

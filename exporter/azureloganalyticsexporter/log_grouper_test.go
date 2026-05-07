@@ -54,7 +54,7 @@ func TestGroupLogs_NoAttributesSingleGroup(t *testing.T) {
 	groups := groupLogs(ld, cfg)
 	require.Len(t, groups, 1, "no routing attrs should produce a single group")
 
-	wantKey := groupKey{Endpoint: cfg.Endpoint, RuleID: cfg.RuleID, StreamName: cfg.StreamName}
+	wantKey := groupKey{RuleID: cfg.RuleID, StreamName: cfg.StreamName}
 	got, ok := groups[wantKey]
 	require.True(t, ok, "single group should be keyed by config values; got keys %v", keysOf(groups))
 	assert.Equal(t, 3, got.LogRecordCount())
@@ -82,9 +82,9 @@ func TestGroupLogs_ByStreamName(t *testing.T) {
 	groups := groupLogs(ld, cfg)
 	require.Len(t, groups, 3)
 
-	assert.Equal(t, 2, groups[groupKey{Endpoint: "ep", RuleID: "r", StreamName: "Custom-Alpha"}].LogRecordCount())
-	assert.Equal(t, 1, groups[groupKey{Endpoint: "ep", RuleID: "r", StreamName: "Custom-Beta"}].LogRecordCount())
-	assert.Equal(t, 1, groups[groupKey{Endpoint: "ep", RuleID: "r", StreamName: "default-stream"}].LogRecordCount())
+	assert.Equal(t, 2, groups[groupKey{RuleID: "r", StreamName: "Custom-Alpha"}].LogRecordCount())
+	assert.Equal(t, 1, groups[groupKey{RuleID: "r", StreamName: "Custom-Beta"}].LogRecordCount())
+	assert.Equal(t, 1, groups[groupKey{RuleID: "r", StreamName: "default-stream"}].LogRecordCount())
 }
 
 func TestGroupLogs_ByRuleID(t *testing.T) {
@@ -99,8 +99,8 @@ func TestGroupLogs_ByRuleID(t *testing.T) {
 
 	groups := groupLogs(ld, cfg)
 	require.Len(t, groups, 2)
-	assert.Equal(t, 2, groups[groupKey{Endpoint: "ep", RuleID: "rule-1", StreamName: "s"}].LogRecordCount())
-	assert.Equal(t, 1, groups[groupKey{Endpoint: "ep", RuleID: "rule-2", StreamName: "s"}].LogRecordCount())
+	assert.Equal(t, 2, groups[groupKey{RuleID: "rule-1", StreamName: "s"}].LogRecordCount())
+	assert.Equal(t, 1, groups[groupKey{RuleID: "rule-2", StreamName: "s"}].LogRecordCount())
 }
 
 func TestGroupLogs_CombinedRuleAndStream(t *testing.T) {
@@ -122,10 +122,10 @@ func TestGroupLogs_CombinedRuleAndStream(t *testing.T) {
 
 	groups := groupLogs(ld, cfg)
 	require.Len(t, groups, 4)
-	assert.Equal(t, 2, groups[groupKey{Endpoint: "ep", RuleID: "rule-1", StreamName: "stream-1"}].LogRecordCount())
-	assert.Equal(t, 1, groups[groupKey{Endpoint: "ep", RuleID: "rule-1", StreamName: "stream-2"}].LogRecordCount())
-	assert.Equal(t, 1, groups[groupKey{Endpoint: "ep", RuleID: "rule-2", StreamName: "stream-1"}].LogRecordCount())
-	assert.Equal(t, 1, groups[groupKey{Endpoint: "ep", RuleID: "default-rule", StreamName: "default-stream"}].LogRecordCount())
+	assert.Equal(t, 2, groups[groupKey{RuleID: "rule-1", StreamName: "stream-1"}].LogRecordCount())
+	assert.Equal(t, 1, groups[groupKey{RuleID: "rule-1", StreamName: "stream-2"}].LogRecordCount())
+	assert.Equal(t, 1, groups[groupKey{RuleID: "rule-2", StreamName: "stream-1"}].LogRecordCount())
+	assert.Equal(t, 1, groups[groupKey{RuleID: "default-rule", StreamName: "default-stream"}].LogRecordCount())
 }
 
 func TestGroupLogs_ResourceAttributeRouting(t *testing.T) {
@@ -141,7 +141,7 @@ func TestGroupLogs_ResourceAttributeRouting(t *testing.T) {
 
 	groups := groupLogs(ld, cfg)
 	require.Len(t, groups, 1)
-	wantKey := groupKey{Endpoint: "ep", RuleID: "res-rule", StreamName: "res-stream"}
+	wantKey := groupKey{RuleID: "res-rule", StreamName: "res-stream"}
 	assert.Equal(t, 2, groups[wantKey].LogRecordCount(),
 		"resource attributes should route all records under that resource")
 }
@@ -158,8 +158,8 @@ func TestGroupLogs_RecordAttributeOverridesResource(t *testing.T) {
 
 	groups := groupLogs(ld, cfg)
 	require.Len(t, groups, 2)
-	assert.Equal(t, 1, groups[groupKey{Endpoint: "ep", RuleID: "rec-rule", StreamName: "default-stream"}].LogRecordCount())
-	assert.Equal(t, 1, groups[groupKey{Endpoint: "ep", RuleID: "res-rule", StreamName: "default-stream"}].LogRecordCount())
+	assert.Equal(t, 1, groups[groupKey{RuleID: "rec-rule", StreamName: "default-stream"}].LogRecordCount())
+	assert.Equal(t, 1, groups[groupKey{RuleID: "res-rule", StreamName: "default-stream"}].LogRecordCount())
 }
 
 func TestGroupLogs_PreservesResourceAndScopeHierarchy(t *testing.T) {
@@ -189,8 +189,8 @@ func TestGroupLogs_PreservesResourceAndScopeHierarchy(t *testing.T) {
 	groups := groupLogs(ld, cfg)
 	require.Len(t, groups, 2)
 
-	s1 := groups[groupKey{Endpoint: "ep", RuleID: "default-rule", StreamName: "stream-1"}]
-	s2 := groups[groupKey{Endpoint: "ep", RuleID: "default-rule", StreamName: "stream-2"}]
+	s1 := groups[groupKey{RuleID: "default-rule", StreamName: "stream-1"}]
+	s2 := groups[groupKey{RuleID: "default-rule", StreamName: "stream-2"}]
 
 	// stream-1 contains records from both resources, and two scopes under A.
 	assert.Equal(t, 3, s1.LogRecordCount())
@@ -215,13 +215,8 @@ func TestGroupLogs_EmptyInputReturnsConfigKeyedGroup(t *testing.T) {
 
 	groups := groupLogs(ld, cfg)
 	require.Len(t, groups, 1)
-	_, ok := groups[groupKey{Endpoint: "ep", RuleID: "r", StreamName: "s"}]
+	_, ok := groups[groupKey{RuleID: "r", StreamName: "s"}]
 	assert.True(t, ok)
-}
-
-func TestGroupKey_String(t *testing.T) {
-	k := groupKey{Endpoint: "ep", RuleID: "r", StreamName: "s"}
-	assert.Equal(t, "ep|r|s", k.String())
 }
 
 func assertResourceID(t *testing.T, rl plog.ResourceLogs, want string) {

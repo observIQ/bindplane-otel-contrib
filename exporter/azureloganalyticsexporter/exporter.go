@@ -89,8 +89,7 @@ func (e *azureLogAnalyticsExporter) Capabilities() consumer.Capabilities {
 // independently; permanent errors short-circuit the remaining groups while
 // transient errors are collected and returned as a joined error so that the
 // exporterhelper retry pipeline still sees a transient failure and retries
-// the whole batch (Azure Log Analytics is expected to handle duplicates
-// idempotently on retry).
+// the whole batch.
 func (e *azureLogAnalyticsExporter) logsDataPusher(ctx context.Context, ld plog.Logs) error {
 	logsCount := ld.LogRecordCount()
 	if logsCount == 0 {
@@ -105,16 +104,6 @@ func (e *azureLogAnalyticsExporter) logsDataPusher(ctx context.Context, ld plog.
 	for key, groupLogs := range groups {
 		if groupLogs.LogRecordCount() == 0 {
 			continue
-		}
-
-		// TODO(routing): support per-record sentinel_endpoint by maintaining a
-		// per-endpoint client pool. For now we always use the configured
-		// endpoint (key.Endpoint is always cfg.Endpoint in this build).
-		if key.Endpoint != "" && key.Endpoint != e.cfg.Endpoint {
-			e.logger.Warn("per-record endpoint override not yet supported; using configured endpoint",
-				zap.String("record_endpoint", key.Endpoint),
-				zap.String("configured_endpoint", e.cfg.Endpoint),
-			)
 		}
 
 		payload, err := e.marshaler.transformLogsToSentinelFormat(ctx, groupLogs)

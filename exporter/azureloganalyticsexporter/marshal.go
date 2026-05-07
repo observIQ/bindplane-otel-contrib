@@ -102,7 +102,7 @@ func lookupStringAttr(attrs pcommon.Map, key string) (string, bool) {
 // following precedence: log record attribute, resource attribute, config. An
 // empty attribute value is treated as unset and falls through to the next
 // source.
-func (m *azureLogAnalyticsMarshaler) getStreamName(logRecord plog.LogRecord, _ plog.ScopeLogs, resourceLog plog.ResourceLogs) string {
+func (m *azureLogAnalyticsMarshaler) getStreamName(logRecord plog.LogRecord, resourceLog plog.ResourceLogs) string {
 	if v, ok := lookupStringAttr(logRecord.Attributes(), sentinelStreamNameAttribute); ok && v != "" {
 		return v
 	}
@@ -115,7 +115,7 @@ func (m *azureLogAnalyticsMarshaler) getStreamName(logRecord plog.LogRecord, _ p
 // getRuleID resolves the DCR rule ID for a log record using the following
 // precedence: log record attribute, resource attribute, config. An empty
 // attribute value is treated as unset and falls through to the next source.
-func (m *azureLogAnalyticsMarshaler) getRuleID(logRecord plog.LogRecord, _ plog.ScopeLogs, resourceLog plog.ResourceLogs) string {
+func (m *azureLogAnalyticsMarshaler) getRuleID(logRecord plog.LogRecord, resourceLog plog.ResourceLogs) string {
 	if v, ok := lookupStringAttr(logRecord.Attributes(), sentinelRuleIDAttribute); ok && v != "" {
 		return v
 	}

@@ -436,81 +436,81 @@ func newTestTriple() (plog.ResourceLogs, plog.ScopeLogs, plog.LogRecord) {
 func TestGetStreamName(t *testing.T) {
 	t.Run("falls back to config when no attribute", func(t *testing.T) {
 		m := newTestMarshaler(&Config{StreamName: "Custom-Default"})
-		rl, sl, lr := newTestTriple()
-		assert.Equal(t, "Custom-Default", m.getStreamName(lr, sl, rl))
+		rl, _, lr := newTestTriple()
+		assert.Equal(t, "Custom-Default", m.getStreamName(lr, rl))
 	})
 
 	t.Run("uses log record attribute when present", func(t *testing.T) {
 		m := newTestMarshaler(&Config{StreamName: "Custom-Default"})
-		rl, sl, lr := newTestTriple()
+		rl, _, lr := newTestTriple()
 		lr.Attributes().PutStr(sentinelStreamNameAttribute, "Custom-Override")
-		assert.Equal(t, "Custom-Override", m.getStreamName(lr, sl, rl))
+		assert.Equal(t, "Custom-Override", m.getStreamName(lr, rl))
 	})
 
 	t.Run("uses resource attribute when log attribute absent", func(t *testing.T) {
 		m := newTestMarshaler(&Config{StreamName: "Custom-Default"})
-		rl, sl, lr := newTestTriple()
+		rl, _, lr := newTestTriple()
 		rl.Resource().Attributes().PutStr(sentinelStreamNameAttribute, "Custom-Resource")
-		assert.Equal(t, "Custom-Resource", m.getStreamName(lr, sl, rl))
+		assert.Equal(t, "Custom-Resource", m.getStreamName(lr, rl))
 	})
 
 	t.Run("log record attribute wins over resource attribute", func(t *testing.T) {
 		m := newTestMarshaler(&Config{StreamName: "Custom-Default"})
-		rl, sl, lr := newTestTriple()
+		rl, _, lr := newTestTriple()
 		rl.Resource().Attributes().PutStr(sentinelStreamNameAttribute, "Custom-Resource")
 		lr.Attributes().PutStr(sentinelStreamNameAttribute, "Custom-Record")
-		assert.Equal(t, "Custom-Record", m.getStreamName(lr, sl, rl))
+		assert.Equal(t, "Custom-Record", m.getStreamName(lr, rl))
 	})
 
 	t.Run("empty attribute string falls back to config", func(t *testing.T) {
 		m := newTestMarshaler(&Config{StreamName: "Custom-Default"})
-		rl, sl, lr := newTestTriple()
+		rl, _, lr := newTestTriple()
 		lr.Attributes().PutStr(sentinelStreamNameAttribute, "")
-		assert.Equal(t, "Custom-Default", m.getStreamName(lr, sl, rl))
+		assert.Equal(t, "Custom-Default", m.getStreamName(lr, rl))
 	})
 
 	t.Run("non-string attribute falls back to config", func(t *testing.T) {
 		m := newTestMarshaler(&Config{StreamName: "Custom-Default"})
-		rl, sl, lr := newTestTriple()
+		rl, _, lr := newTestTriple()
 		lr.Attributes().PutInt(sentinelStreamNameAttribute, 42)
-		assert.Equal(t, "Custom-Default", m.getStreamName(lr, sl, rl))
+		assert.Equal(t, "Custom-Default", m.getStreamName(lr, rl))
 	})
 }
 
 func TestGetRuleID(t *testing.T) {
 	t.Run("falls back to config when no attribute", func(t *testing.T) {
 		m := newTestMarshaler(&Config{RuleID: "dcr-default"})
-		rl, sl, lr := newTestTriple()
-		assert.Equal(t, "dcr-default", m.getRuleID(lr, sl, rl))
+		rl, _, lr := newTestTriple()
+		assert.Equal(t, "dcr-default", m.getRuleID(lr, rl))
 	})
 
 	t.Run("uses log record attribute when present", func(t *testing.T) {
 		m := newTestMarshaler(&Config{RuleID: "dcr-default"})
-		rl, sl, lr := newTestTriple()
+		rl, _, lr := newTestTriple()
 		lr.Attributes().PutStr(sentinelRuleIDAttribute, "dcr-record")
-		assert.Equal(t, "dcr-record", m.getRuleID(lr, sl, rl))
+		assert.Equal(t, "dcr-record", m.getRuleID(lr, rl))
 	})
 
 	t.Run("uses resource attribute when log attribute absent", func(t *testing.T) {
 		m := newTestMarshaler(&Config{RuleID: "dcr-default"})
-		rl, sl, lr := newTestTriple()
+		rl, _, lr := newTestTriple()
 		rl.Resource().Attributes().PutStr(sentinelRuleIDAttribute, "dcr-resource")
-		assert.Equal(t, "dcr-resource", m.getRuleID(lr, sl, rl))
+		assert.Equal(t, "dcr-resource", m.getRuleID(lr, rl))
 	})
 
 	t.Run("log record attribute wins over resource attribute", func(t *testing.T) {
 		m := newTestMarshaler(&Config{RuleID: "dcr-default"})
-		rl, sl, lr := newTestTriple()
+		rl, _, lr := newTestTriple()
 		rl.Resource().Attributes().PutStr(sentinelRuleIDAttribute, "dcr-resource")
 		lr.Attributes().PutStr(sentinelRuleIDAttribute, "dcr-record")
-		assert.Equal(t, "dcr-record", m.getRuleID(lr, sl, rl))
+		assert.Equal(t, "dcr-record", m.getRuleID(lr, rl))
 	})
 
 	t.Run("empty attribute string falls back to config", func(t *testing.T) {
 		m := newTestMarshaler(&Config{RuleID: "dcr-default"})
-		rl, sl, lr := newTestTriple()
+		rl, _, lr := newTestTriple()
 		lr.Attributes().PutStr(sentinelRuleIDAttribute, "")
-		assert.Equal(t, "dcr-default", m.getRuleID(lr, sl, rl))
+		assert.Equal(t, "dcr-default", m.getRuleID(lr, rl))
 	})
 }
 
