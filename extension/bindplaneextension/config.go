@@ -37,6 +37,10 @@ type Config struct {
 	TopologyInterval time.Duration `mapstructure:"topology_interval"`
 	// ExtraMeasurementsAttributes are a map of key-value pairs to add to all reported measurements.
 	ExtraMeasurementsAttributes map[string]string `mapstructure:"extra_measurements_attributes,omitempty"`
+	// SupportBundleEncryptionPublicKeyPath is an optional path to a PEM-encoded RSA public key
+	// used to encrypt support bundles into BNDL format before upload.
+	// When omitted the default embedded key is used.
+	SupportBundleEncryptionPublicKeyPath string `mapstructure:"support_bundle_encryption_public_key_path,omitempty"`
 }
 
 // Validate returns an error if the config is invalid
