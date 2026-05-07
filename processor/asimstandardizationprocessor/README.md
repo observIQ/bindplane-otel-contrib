@@ -99,6 +99,14 @@ Two checks run in order after each record's body has been mapped:
 
 Set `runtime_validation: false` to pass mapped records through unchanged.
 
+## Duplicates and at-least-once delivery
+
+Azure's Logs Ingestion API has no idempotency-key support and the
+[`azureloganalyticsexporter`](../../exporter/azureloganalyticsexporter)
+retries failed uploads as a whole batch. If Azure persists a batch but the
+response is lost (timeout, 5xx after write), the retry produces duplicates.
+Delivery is **at-least-once**, not exactly-once.
+
 ## AdditionalFields preservation
 
 After a record matches an event mapping, the original (pre-transform) body
