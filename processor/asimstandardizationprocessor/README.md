@@ -52,6 +52,7 @@ Records that do **not** match any `event_mapping` are dropped.
 | Field | Type | Default | Required | Description |
 | -- | -- | -- | -- | -- |
 | `event_mappings` | []EventMapping | `[]` | No | Ordered list of event mappings. The first mapping whose `filter` matches a record wins. |
+| `runtime_validation` | bool | `true` | No | Coerce mapped values to their target ASIM column types and drop records missing any ASIM common mandatory column. See [Runtime validation](#runtime-validation). |
 
 ### EventMapping
 
@@ -68,6 +69,35 @@ Records that do **not** match any `event_mapping` are dropped.
 | `from` | string | | No | [expr-lang](https://github.com/expr-lang/expr) value expression evaluated against the source log. Required if `default` is not set. |
 | `to` | string | | Yes | Target ASIM column name. |
 | `default` | any | | No | Fallback value used when `from` is empty / evaluates to nil. Required if `from` is not set. |
+
+## Runtime validation
+
+When `runtime_validation` is `true` (default), the processor enforces the ASIM
+column contract on every transformed record so the Azure DCR upload doesn't
+reject the batch with `InvalidTransformOutput` and trigger a persistent-queue
+retry storm that ends in silent data loss.
+
+The full per-table column-type map is sourced from Microsoft's
+[KqlvalidationsTests CustomTables](https://github.com/Azure/Azure-Sentinel/tree/master/.script/tests/KqlvalidationsTests/CustomTables)
+JSON, with hand overrides for fields where the published validation schema
+disagrees with the actual native ASim* stream contract on Azure (Threat\*
+counters, web byte/packet counters, etc.).
+
+Two checks run in order after each record's body has been mapped:
+
+1. **Type coercion.** Each populated body field is coerced to the type
+   declared by Microsoft for that column. Strings are parsed as datetimes
+   (RFC3339, ISO8601, common variants), as integers (decimal, `0x`-prefixed
+   hex, decimal-point tolerant), as floats, or as booleans. Coercion failures
+   drop the offending field with a warn log; the record continues with the
+   remaining fields.
+2. **Mandatory column check.** Records missing any of the ASIM common
+   mandatory columns (`TimeGenerated`, `EventCount`, `EventStartTime`,
+   `EventEndTime`, `EventType`, `EventResult`, `EventProduct`, `EventVendor`,
+   `EventSchema`, `EventSchemaVersion`, `Dvc`) after coercion are dropped
+   entirely with a warn log.
+
+Set `runtime_validation: false` to pass mapped records through unchanged.
 
 ## AdditionalFields preservation
 

@@ -52,8 +52,9 @@ type compiledEventMapping struct {
 }
 
 type asimStandardizationProcessor struct {
-	logger        *zap.Logger
-	eventMappings []compiledEventMapping
+	logger            *zap.Logger
+	eventMappings     []compiledEventMapping
+	runtimeValidation bool
 }
 
 func newASIMStandardizationProcessor(logger *zap.Logger, config *Config) (*asimStandardizationProcessor, error) {
@@ -98,9 +99,15 @@ func newASIMStandardizationProcessor(logger *zap.Logger, config *Config) (*asimS
 		compiled = append(compiled, cem)
 	}
 
+	runtimeValidation := true
+	if config.RuntimeValidation != nil {
+		runtimeValidation = *config.RuntimeValidation
+	}
+
 	return &asimStandardizationProcessor{
-		logger:        logger,
-		eventMappings: compiled,
+		logger:            logger,
+		eventMappings:     compiled,
+		runtimeValidation: runtimeValidation,
 	}, nil
 }
 
@@ -168,6 +175,43 @@ func (asp *asimStandardizationProcessor) processLogRecord(log plog.LogRecord, re
 			newBody[additionalFieldsColumn] = originalBody
 		}
 
+		// Type-coerce mapped fields against the target ASIM table's column
+		// types so the Azure DCR upload doesn't reject the batch with
+		// InvalidTransformOutput. Coercion failures drop the offending field
+		// (and, when runtime_validation is enabled, the record).
+		colTypes := asimColumnTypes[eventMapping.targetTable]
+		for k, v := range newBody {
+			if k == additionalFieldsColumn {
+				continue
+			}
+			want, ok := colTypes[k]
+			if !ok {
+				continue
+			}
+			coerced, ok := coerceValue(v, want)
+			if !ok {
+				asp.logger.Warn("ASIM column coercion failed; dropping field",
+					zap.String("target_table", eventMapping.targetTable),
+					zap.String("column", k),
+					zap.String("want", string(want)),
+					zap.Any("value", v),
+				)
+				delete(newBody, k)
+				continue
+			}
+			newBody[k] = coerced
+		}
+
+		if asp.runtimeValidation {
+			if missing := missingRequiredColumns(newBody); len(missing) > 0 {
+				asp.logger.Warn("ASIM record missing required columns; dropping",
+					zap.String("target_table", eventMapping.targetTable),
+					zap.Strings("missing", missing),
+				)
+				return false
+			}
+		}
+
 		if err := log.Body().SetEmptyMap().FromRaw(newBody); err != nil {
 			asp.logger.Error("failed to set log body",
 				zap.Error(err),
@@ -181,4 +225,18 @@ func (asp *asimStandardizationProcessor) processLogRecord(log plog.LogRecord, re
 	}
 
 	return false
+}
+
+// missingRequiredColumns returns the names of any commonRequiredColumns
+// that are not populated (or are populated with a nil value) in the new
+// body.
+func missingRequiredColumns(body map[string]any) []string {
+	var missing []string
+	for _, col := range commonRequiredColumns {
+		v, ok := body[col]
+		if !ok || v == nil {
+			missing = append(missing, col)
+		}
+	}
+	return missing
 }

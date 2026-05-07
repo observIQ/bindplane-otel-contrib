@@ -77,6 +77,22 @@ type EventMapping struct {
 type Config struct {
 	// EventMappings is the ordered list of event mappings.
 	EventMappings []EventMapping `mapstructure:"event_mappings"`
+
+	// RuntimeValidation, when true (default), enforces the ASIM column
+	// contract on every transformed record:
+	//   - Each populated body field is coerced to the type declared by
+	//     Microsoft for that column (e.g. string "2026-04-29T00:00:00Z" is
+	//     parsed and re-emitted as a `datetime`, "0x1a2b" is parsed to an
+	//     `int`/`long`, etc.). Coercion failures drop the offending field.
+	//   - Records missing any of the ASIM common mandatory columns
+	//     (TimeGenerated, EventCount, EventStartTime, EventEndTime,
+	//     EventType, EventResult, EventProduct, EventVendor, EventSchema,
+	//     EventSchemaVersion, Dvc) after mapping are dropped with a warn
+	//     log so they don't cause an Azure DCR upload to fail with
+	//     InvalidTransformOutput and trigger the persistent-queue retry
+	//     storm that ends in silent data loss.
+	// Set to false to opt out and pass mapped records through unchanged.
+	RuntimeValidation *bool `mapstructure:"runtime_validation"`
 }
 
 // IsKnownTargetTable returns true if the given string is a supported ASIM

@@ -43,6 +43,13 @@ func authInputBody() map[string]any {
 
 func newProcessor(t *testing.T, cfg *Config) *asimStandardizationProcessor {
 	t.Helper()
+	// Default to runtime_validation off in tests so existing fixtures with
+	// minimal field mappings aren't auto-dropped. Validation-specific tests
+	// enable it explicitly via the Config.
+	if cfg.RuntimeValidation == nil {
+		off := false
+		cfg.RuntimeValidation = &off
+	}
 	p, err := newASIMStandardizationProcessor(zap.NewNop(), cfg)
 	require.NoError(t, err)
 	return p
@@ -348,4 +355,111 @@ func TestNewASIMStandardizationProcessor_InvalidFilterExpression(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "compiling filter expression")
+}
+
+func TestRuntimeValidation_DefaultsToOn(t *testing.T) {
+	p, err := newASIMStandardizationProcessor(zap.NewNop(), &Config{
+		EventMappings: []EventMapping{
+			{
+				TargetTable:   TargetTableAuthentication,
+				FieldMappings: minimalAuthFieldMappings,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, p.runtimeValidation, "RuntimeValidation should default to true")
+}
+
+func TestRuntimeValidation_DropsRecordWhenMandatoryMissing(t *testing.T) {
+	on := true
+	p, err := newASIMStandardizationProcessor(zap.NewNop(), &Config{
+		RuntimeValidation: &on,
+		EventMappings: []EventMapping{
+			{
+				TargetTable: TargetTableAuthentication,
+				FieldMappings: []FieldMapping{
+					{From: "body.user", To: "TargetUsername"},
+					// Intentionally omit all other mandatory cols.
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := p.processLogs(context.Background(), newLogsWithBody(authInputBody()))
+	require.NoError(t, err)
+	require.Equal(t, 0, countLogRecords(out), "record missing mandatory cols must drop when validation enabled")
+}
+
+func TestRuntimeValidation_KeepsRecordWhenAllMandatoryPresent(t *testing.T) {
+	on := true
+	p, err := newASIMStandardizationProcessor(zap.NewNop(), &Config{
+		RuntimeValidation: &on,
+		EventMappings: []EventMapping{
+			{
+				TargetTable:   TargetTableAuthentication,
+				FieldMappings: minimalAuthFieldMappings,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := p.processLogs(context.Background(), newLogsWithBody(authInputBody()))
+	require.NoError(t, err)
+	require.Equal(t, 1, countLogRecords(out))
+}
+
+func TestTypeCoercion_DateTimeStringIsParsed(t *testing.T) {
+	p := newProcessor(t, &Config{
+		EventMappings: []EventMapping{
+			{
+				TargetTable: TargetTableAuthentication,
+				FieldMappings: []FieldMapping{
+					{To: "TimeGenerated", Default: "2026-04-29T01:10:00Z"},
+				},
+			},
+		},
+	})
+	out, err := p.processLogs(context.Background(), newLogsWithBody(authInputBody()))
+	require.NoError(t, err)
+	body := firstRecord(t, out).Body().Map().AsRaw()
+	got, ok := body["TimeGenerated"].(string)
+	require.True(t, ok, "TimeGenerated should remain a string after coercion")
+	// Coerce normalises to RFC3339Nano.
+	require.Contains(t, got, "2026-04-29T01:10:00")
+}
+
+func TestTypeCoercion_HexProcessIDStringIsParsedToInt(t *testing.T) {
+	p := newProcessor(t, &Config{
+		EventMappings: []EventMapping{
+			{
+				TargetTable: TargetTableProcessEvent,
+				FieldMappings: []FieldMapping{
+					{To: "EventCount", Default: "0x10"},
+				},
+			},
+		},
+	})
+	out, err := p.processLogs(context.Background(), newLogsWithBody(authInputBody()))
+	require.NoError(t, err)
+	body := firstRecord(t, out).Body().Map().AsRaw()
+	require.EqualValues(t, 16, body["EventCount"])
+}
+
+func TestTypeCoercion_BadValueDropsField(t *testing.T) {
+	p := newProcessor(t, &Config{
+		EventMappings: []EventMapping{
+			{
+				TargetTable: TargetTableAuthentication,
+				FieldMappings: []FieldMapping{
+					{To: "EventCount", Default: "not-a-number"},
+				},
+			},
+		},
+	})
+	out, err := p.processLogs(context.Background(), newLogsWithBody(authInputBody()))
+	require.NoError(t, err)
+	body := firstRecord(t, out).Body().Map().AsRaw()
+	_, present := body["EventCount"]
+	require.False(t, present, "uncoercible value should drop field")
 }
