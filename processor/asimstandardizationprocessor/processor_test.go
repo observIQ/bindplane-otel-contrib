@@ -18,6 +18,7 @@ import (
 	"context"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -512,4 +513,22 @@ func TestCoerce_StringPrimitivesUseSprint(t *testing.T) {
 	got, ok = coerceValue(true, ColString)
 	require.True(t, ok)
 	require.Equal(t, "true", got)
+}
+
+func TestCoerce_StringTimeDotTimeUsesRFC3339Nano(t *testing.T) {
+	// time.Time satisfies fmt.Stringer with Go's debug format
+	// ("2026-05-04 21:30:00 +0000 UTC"), which isn't valid ISO8601 and
+	// won't round-trip through KQL. coerceString must hit time.Time
+	// explicitly before the Stringer fallback.
+	ts := time.Date(2026, 5, 4, 21, 30, 0, 123456789, time.UTC)
+	got, ok := coerceValue(ts, ColString)
+	require.True(t, ok)
+	require.Equal(t, "2026-05-04T21:30:00.123456789Z", got)
+
+	// Non-UTC input must be normalised to UTC before formatting.
+	loc, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+	got, ok = coerceValue(time.Date(2026, 5, 4, 17, 30, 0, 0, loc), ColString)
+	require.True(t, ok)
+	require.Equal(t, "2026-05-04T21:30:00Z", got)
 }

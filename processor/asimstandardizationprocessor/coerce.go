@@ -67,8 +67,12 @@ func coerceString(v any) (any, bool) {
 	switch x := v.(type) {
 	case string:
 		return x, true
-	case fmt.Stringer:
-		return x.String(), true
+	case time.Time:
+		// time.Time satisfies fmt.Stringer with Go's debug format
+		// ("2026-05-04 21:30:00 +0000 UTC") which isn't a valid ISO8601
+		// timestamp. Hit it explicitly before the Stringer fallback so the
+		// emitted value round-trips cleanly through KQL.
+		return x.UTC().Format(time.RFC3339Nano), true
 	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
 		return fmt.Sprint(x), true
 	case []any, map[string]any:
@@ -80,6 +84,12 @@ func coerceString(v any) (any, bool) {
 			return nil, false
 		}
 		return string(b), true
+	case fmt.Stringer:
+		// Stringer fallback covers types like net.IP whose String() output is
+		// the canonical textual representation. Be careful adding Stringer
+		// types whose String() differs from the canonical wire format; prefer
+		// adding an explicit case above this fallback for those.
+		return x.String(), true
 	default:
 		// Anything we don't explicitly recognise is rejected so the warn log
 		// + field-drop catch the misconfiguration. Avoid the Go-default
