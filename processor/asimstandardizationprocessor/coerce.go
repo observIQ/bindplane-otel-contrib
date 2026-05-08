@@ -15,7 +15,9 @@
 package asimstandardizationprocessor
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -61,16 +63,28 @@ func coerceValue(value any, want ColType) (any, bool) {
 	}
 }
 
-func coerceString(v any) (string, bool) {
+func coerceString(v any) (any, bool) {
 	switch x := v.(type) {
 	case string:
 		return x, true
 	case fmt.Stringer:
 		return x.String(), true
-	case bool, int, int32, int64, uint, uint32, uint64, float32, float64:
+	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
 		return fmt.Sprint(x), true
+	case []any, map[string]any:
+		// Composite values are JSON-marshalled rather than fmt.Sprint'd so the
+		// emitted string is something Sentinel queries can usefully extract
+		// fields from (instead of Go's `[1 2 3]` / `map[a:1]` debug syntax).
+		b, err := json.Marshal(x)
+		if err != nil {
+			return nil, false
+		}
+		return string(b), true
 	default:
-		return fmt.Sprint(x), true
+		// Anything we don't explicitly recognise is rejected so the warn log
+		// + field-drop catch the misconfiguration. Avoid the Go-default
+		// formatter for arbitrary types that won't round-trip through KQL.
+		return nil, false
 	}
 }
 
@@ -89,14 +103,13 @@ func coerceDateTime(v any) (any, bool) {
 			}
 		}
 		return nil, false
-	case int, int32, int64, uint, uint32, uint64:
-		// Treat as unix epoch seconds.
-		sec, ok := toInt64(x)
-		if !ok {
-			return nil, false
-		}
-		return time.Unix(sec, 0).UTC().Format(time.RFC3339Nano), true
 	default:
+		// Numeric epoch values (seconds, ms, µs, ns) are deliberately not
+		// supported here because the unit can't be inferred from magnitude
+		// alone and silently picking the wrong scale produces timestamps that
+		// are off by 1000x or 1Mx. Mappings should convert to a string
+		// timestamp with an explicit format via expr-lang before reaching
+		// this path.
 		return nil, false
 	}
 }
@@ -104,6 +117,13 @@ func coerceDateTime(v any) (any, bool) {
 func coerceInt(v any) (any, bool) {
 	n, ok := toInt64(v)
 	if !ok {
+		return nil, false
+	}
+	// Microsoft KQL `int` is 32-bit signed
+	// (https://learn.microsoft.com/en-us/kusto/query/scalar-data-types/int).
+	// Values that don't fit are rejected so the warn log + field-drop catch
+	// the overflow rather than letting Azure silently truncate at ingest.
+	if n < math.MinInt32 || n > math.MaxInt32 {
 		return nil, false
 	}
 	return n, true

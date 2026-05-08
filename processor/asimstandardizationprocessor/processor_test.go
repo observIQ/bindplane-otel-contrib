@@ -16,6 +16,7 @@ package asimstandardizationprocessor
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -462,4 +463,53 @@ func TestTypeCoercion_BadValueDropsField(t *testing.T) {
 	body := firstRecord(t, out).Body().Map().AsRaw()
 	_, present := body["EventCount"]
 	require.False(t, present, "uncoercible value should drop field")
+}
+
+func TestCoerce_IntRejectsValuesOutsideInt32(t *testing.T) {
+	// Microsoft KQL int is 32-bit; values above 2^31-1 must be rejected so
+	// Azure ingest doesn't truncate or reject the batch.
+	_, ok := coerceValue(int64(math.MaxInt32)+1, ColInt)
+	require.False(t, ok, "int32 overflow must drop field")
+	_, ok = coerceValue(int64(math.MinInt32)-1, ColInt)
+	require.False(t, ok, "int32 underflow must drop field")
+
+	v, ok := coerceValue(int64(math.MaxInt32), ColInt)
+	require.True(t, ok, "max int32 must round-trip")
+	require.EqualValues(t, math.MaxInt32, v)
+}
+
+func TestCoerce_LongAcceptsLargeValues(t *testing.T) {
+	v, ok := coerceValue(int64(math.MaxInt64), ColLong)
+	require.True(t, ok)
+	require.EqualValues(t, int64(math.MaxInt64), v)
+}
+
+func TestCoerce_DateTimeRejectsNumericEpoch(t *testing.T) {
+	// Numeric epoch values are deliberately unsupported because the unit
+	// (s/ms/µs/ns) can't be inferred from magnitude alone. Mappings should
+	// pre-format with an explicit layout.
+	for _, v := range []any{int64(1700000000), int(1700000000), uint64(1700000000)} {
+		_, ok := coerceValue(v, ColDateTime)
+		require.False(t, ok, "numeric epoch must be rejected by coerceDateTime")
+	}
+}
+
+func TestCoerce_StringJSONMarshalsComposites(t *testing.T) {
+	got, ok := coerceValue([]any{"a", 1, true}, ColString)
+	require.True(t, ok)
+	require.Equal(t, `["a",1,true]`, got)
+
+	got, ok = coerceValue(map[string]any{"k": "v"}, ColString)
+	require.True(t, ok)
+	require.Equal(t, `{"k":"v"}`, got)
+}
+
+func TestCoerce_StringPrimitivesUseSprint(t *testing.T) {
+	got, ok := coerceValue(int64(42), ColString)
+	require.True(t, ok)
+	require.Equal(t, "42", got)
+
+	got, ok = coerceValue(true, ColString)
+	require.True(t, ok)
+	require.Equal(t, "true", got)
 }
