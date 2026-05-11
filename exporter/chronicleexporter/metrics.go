@@ -30,7 +30,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type hostMetricsReporter struct {
+type metricsReporter struct {
 	set    component.TelemetrySettings
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -49,7 +49,7 @@ type hostMetricsReporter struct {
 
 type sendMetricsFunc func(context.Context, *api.BatchCreateEventsRequest) error
 
-func newHostMetricsReporter(cfg *Config, set component.TelemetrySettings, exporterID string, send sendMetricsFunc) (*hostMetricsReporter, error) {
+func newMetricsReporter(cfg *Config, set component.TelemetrySettings, exporterID string, send sendMetricsFunc) (*metricsReporter, error) {
 	customerID, err := uuid.Parse(cfg.CustomerID)
 	if err != nil {
 		return nil, fmt.Errorf("parse customer ID: %w", err)
@@ -66,7 +66,7 @@ func newHostMetricsReporter(cfg *Config, set component.TelemetrySettings, export
 	}
 
 	now := timestamppb.Now()
-	hmr := &hostMetricsReporter{
+	hmr := &metricsReporter{
 		set:        set,
 		send:       send,
 		interval:   cfg.MetricsInterval,
@@ -84,7 +84,7 @@ func newHostMetricsReporter(cfg *Config, set component.TelemetrySettings, export
 	return hmr, nil
 }
 
-func (hmr *hostMetricsReporter) start() {
+func (hmr *metricsReporter) start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	hmr.cancel = cancel
 	hmr.wg.Add(1)
@@ -109,7 +109,7 @@ func (hmr *hostMetricsReporter) start() {
 				request := hmr.buildRequest()
 				err = hmr.send(ctx, request)
 				if err != nil {
-					hmr.set.Logger.Error("Failed to upload host metrics", zap.Error(err))
+					hmr.set.Logger.Error("Failed to upload metrics", zap.Error(err))
 				} else {
 					hmr.resetWindow(timestamppb.Now())
 				}
@@ -119,7 +119,7 @@ func (hmr *hostMetricsReporter) start() {
 }
 
 // buildRequest builds the create events request object
-func (hmr *hostMetricsReporter) buildRequest() *api.BatchCreateEventsRequest {
+func (hmr *metricsReporter) buildRequest() *api.BatchCreateEventsRequest {
 	hmr.mutex.Lock()
 	defer hmr.mutex.Unlock()
 
@@ -146,7 +146,7 @@ func (hmr *hostMetricsReporter) buildRequest() *api.BatchCreateEventsRequest {
 	}
 }
 
-func (hmr *hostMetricsReporter) shutdown() {
+func (hmr *metricsReporter) shutdown() {
 	if hmr.cancel != nil {
 		hmr.cancel()
 		hmr.wg.Wait()
@@ -154,7 +154,7 @@ func (hmr *hostMetricsReporter) shutdown() {
 }
 
 // collectHostMetrics collects the host metrics and updates the agent stats object
-func (hmr *hostMetricsReporter) collectHostMetrics() error {
+func (hmr *metricsReporter) collectHostMetrics() error {
 	hmr.mutex.Lock()
 	defer hmr.mutex.Unlock()
 
@@ -191,7 +191,7 @@ func (hmr *hostMetricsReporter) collectHostMetrics() error {
 }
 
 // resetWindow resets the agent stats object and sets the window start time
-func (hmr *hostMetricsReporter) resetWindow(windowStartTime *timestamppb.Timestamp) {
+func (hmr *metricsReporter) resetWindow(windowStartTime *timestamppb.Timestamp) {
 	hmr.mutex.Lock()
 	defer hmr.mutex.Unlock()
 
@@ -207,7 +207,7 @@ func (hmr *hostMetricsReporter) resetWindow(windowStartTime *timestamppb.Timesta
 	}
 }
 
-func (hmr *hostMetricsReporter) recordSent(count int64) {
+func (hmr *metricsReporter) recordSent(count int64) {
 	hmr.mutex.Lock()
 	defer hmr.mutex.Unlock()
 
@@ -223,7 +223,7 @@ func (hmr *hostMetricsReporter) recordSent(count int64) {
 	hmr.agentStats.LastSuccessfulUploadTime = timestamppb.Now()
 }
 
-func (hmr *hostMetricsReporter) recordDropped(count int64) {
+func (hmr *metricsReporter) recordDropped(count int64) {
 	hmr.mutex.Lock()
 	defer hmr.mutex.Unlock()
 
