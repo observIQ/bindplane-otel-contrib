@@ -3,7 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/receiver/restapireceiver
 go 1.25.9
 
 require (
-	github.com/akamai/AkamaiOPEN-edgegrid-golang/v13 v13.1.0
+	github.com/akamai/AkamaiOPEN-edgegrid-golang/v13 v13.2.0
 	github.com/json-iterator/go v1.1.12
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/stanza v0.151.0
 	github.com/stretchr/testify v1.11.1

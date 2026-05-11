@@ -1,7 +1,7 @@
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
-github.com/akamai/AkamaiOPEN-edgegrid-golang/v13 v13.1.0 h1:KvfpO2utLmpRq0fbC0UZRzdCERfLGLX1/dcYvG7pP7k=
-github.com/akamai/AkamaiOPEN-edgegrid-golang/v13 v13.1.0/go.mod h1:AxGyKKxAxaCNeGadscLgo+gBYEAKhNG6tRR5O0HjV30=
+github.com/akamai/AkamaiOPEN-edgegrid-golang/v13 v13.2.0 h1:LFe/58tcZv+uQTuOW/wnTm6y4t9D1bvq0vkn4XNhaTM=
+github.com/akamai/AkamaiOPEN-edgegrid-golang/v13 v13.2.0/go.mod h1:FFt6ELF13cBEF8SElNhtby7yWMbAQbYrmEZhmCHd2cc=
 github.com/benbjohnson/clock v1.3.5 h1:VvXlSJBzZpA/zum6Sj74hxwYI2DIxRWuNIoXAzHZz5o=
 github.com/benbjohnson/clock v1.3.5/go.mod h1:J11/hYXuz8f4ySSvYwY0FKfm+ezbsZBKZxNJlLklBHA=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=
