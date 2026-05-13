@@ -62,7 +62,7 @@ returned, it falls back to `GET` and decodes the value as JSON `map[string]strin
 | timeout          | duration          | `10s`   | HTTP timeout. |
 | response_mapping | map[string]string | `nil`   | Maps output field names to dotted JSON paths in the response (e.g. `host: data.hostname`). When unset, the top-level response object is flattened. |
 
-The HTTP client retries up to 3 times with exponential backoff (100ms, 200ms, 400ms).
+The HTTP client makes up to 3 attempts (initial + 2 retries) with exponential backoff between attempts (100ms, then 200ms).
 
 ### Example: CSV
 ```yaml
