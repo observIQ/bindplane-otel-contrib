@@ -21,22 +21,37 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
+// redisLookupTimeout bounds each Redis call so a slow or unreachable server
+// cannot stall pipeline processing indefinitely.
+const redisLookupTimeout = 5 * time.Second
+
+// redisBootPingTimeout bounds the best-effort startup Ping. A failure here is
+// logged as a warning so config errors (bad address, auth) surface at boot,
+// but does not block source creation — the cache can serve through outages
+// and uncached keys will error per-lookup.
+const redisBootPingTimeout = 2 * time.Second
+
 var errRedisKeyNotFound = errors.New("key not found in redis")
 
-// RedisSource implements LookupSource for Redis.
+// RedisSource implements LookupSource for Redis. Construction performs a
+// short, best-effort Ping so configuration errors surface at boot; a failed
+// Ping is logged as a warning but does not block source creation, so the
+// cache can serve through transient outages and uncached keys error per lookup.
 type RedisSource struct {
 	client    *redis.Client
 	keyPrefix string
 	logger    *zap.Logger
 }
 
-// NewRedisSource creates a new RedisSource. It establishes the connection eagerly
-// so configuration errors surface during processor start.
+// NewRedisSource creates a new RedisSource. A short best-effort Ping runs
+// against the configured server to surface address/auth errors in logs at
+// boot; failure is warned, never fatal.
 func NewRedisSource(cfg *RedisConfig, logger *zap.Logger) (*RedisSource, error) {
 	opts := &redis.Options{
 		Addr:     cfg.Address,
@@ -53,12 +68,16 @@ func NewRedisSource(cfg *RedisConfig, logger *zap.Logger) (*RedisSource, error) 
 
 	client := redis.NewClient(opts)
 
-	if err := client.Ping(context.Background()).Err(); err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("failed to connect to redis: %w", err)
+	pingCtx, cancel := context.WithTimeout(context.Background(), redisBootPingTimeout)
+	defer cancel()
+	if err := client.Ping(pingCtx).Err(); err != nil {
+		logger.Warn("redis ping failed at start; source will retry per lookup, cached entries will still be served",
+			zap.String("address", cfg.Address),
+			zap.Error(err),
+		)
+	} else {
+		logger.Info("redis source ready", zap.String("address", cfg.Address))
 	}
-
-	logger.Info("successfully connected to redis", zap.String("address", cfg.Address))
 
 	return &RedisSource{
 		client:    client,
@@ -67,10 +86,13 @@ func NewRedisSource(cfg *RedisConfig, logger *zap.Logger) (*RedisSource, error) 
 	}, nil
 }
 
-// Lookup retrieves data from Redis for the given key. Tries HGETALL first, then
-// falls back to GET with JSON decode.
-func (r *RedisSource) Lookup(key string) (map[string]string, error) {
-	ctx := context.Background()
+// Lookup retrieves data from Redis for the given key. Tries HGETALL first,
+// then falls back to GET with JSON decode if the key holds a string value.
+// Honors the caller's context and applies a per-call timeout.
+func (r *RedisSource) Lookup(ctx context.Context, key string) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, redisLookupTimeout)
+	defer cancel()
+
 	redisKey := r.buildKey(key)
 
 	hashResult, err := r.client.HGetAll(ctx, redisKey).Result()
@@ -100,7 +122,7 @@ func (r *RedisSource) Lookup(key string) (map[string]string, error) {
 	return data, nil
 }
 
-// Load is a no-op for Redis (connection is established in constructor).
+// Load is a no-op for Redis (connection is managed by the client).
 func (r *RedisSource) Load() error {
 	return nil
 }

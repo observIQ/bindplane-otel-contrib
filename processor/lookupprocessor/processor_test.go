@@ -400,7 +400,7 @@ func TestAddLookupValues(t *testing.T) {
 		field:  "ip",
 	}
 
-	processor.addLookupValues(sourceMap)
+	processor.addLookupValues(context.Background(), sourceMap)
 	expectedMap := map[string]any{
 		"ip":     "0.0.0.0",
 		"env":    "prod",

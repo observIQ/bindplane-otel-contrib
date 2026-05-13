@@ -17,6 +17,7 @@ package lookupprocessor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,7 +32,21 @@ const (
 	apiMaxRetries      = 3
 	apiInitialDelay    = 100 * time.Millisecond
 	apiRetryMultiplier = 2
+
+	// apiMaxResponseBytes caps how much of a response body the source will read
+	// to protect against misbehaving or hostile endpoints returning huge payloads.
+	apiMaxResponseBytes = 1 << 20 // 1 MiB
 )
+
+// nonRetryableStatusError signals an HTTP status that should not be retried.
+type nonRetryableStatusError struct {
+	status int
+	body   string
+}
+
+func (e *nonRetryableStatusError) Error() string {
+	return fmt.Sprintf("API returned non-retryable status %d: %s", e.status, e.body)
+}
 
 // APISource implements LookupSource for REST API endpoints.
 type APISource struct {
@@ -69,8 +84,9 @@ func NewAPISource(cfg *APIConfig, logger *zap.Logger) (*APISource, error) {
 	}, nil
 }
 
-// Lookup makes an API call with the key substituted in the URL.
-func (a *APISource) Lookup(key string) (map[string]string, error) {
+// Lookup makes an API call with the key substituted in the URL. Honors the
+// caller's context; cancellation aborts pending retries promptly.
+func (a *APISource) Lookup(ctx context.Context, key string) (map[string]string, error) {
 	requestURL := a.substituteURL(key)
 
 	if _, err := url.Parse(requestURL); err != nil {
@@ -83,13 +99,23 @@ func (a *APISource) Lookup(key string) (map[string]string, error) {
 	for attempt := 0; attempt < apiMaxRetries; attempt++ {
 		if attempt > 0 {
 			a.logger.Debug("retrying API request", zap.Int("attempt", attempt), zap.Duration("delay", delay))
-			time.Sleep(delay)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
 			delay *= apiRetryMultiplier
 		}
 
-		data, err := a.makeRequest(requestURL)
+		data, err := a.makeRequest(ctx, requestURL)
 		if err == nil {
 			return data, nil
+		}
+
+		// Non-retryable status codes (e.g. 400, 401, 403, 404) abort immediately.
+		var nrse *nonRetryableStatusError
+		if errors.As(err, &nrse) {
+			return nil, err
 		}
 
 		lastErr = err
@@ -122,8 +148,22 @@ func (a *APISource) substituteURL(key string) string {
 	return result
 }
 
-func (a *APISource) makeRequest(requestURL string) (map[string]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), a.timeout)
+// isRetryableStatus reports whether an HTTP status warrants a retry. 4xx is
+// generally a deterministic client error and not retried, except 408 (request
+// timeout) and 429 (too many requests) which can succeed if tried again.
+func isRetryableStatus(status int) bool {
+	switch {
+	case status >= 500:
+		return true
+	case status == http.StatusRequestTimeout, status == http.StatusTooManyRequests:
+		return true
+	default:
+		return false
+	}
+}
+
+func (a *APISource) makeRequest(parent context.Context, requestURL string) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(parent, a.timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, a.method, requestURL, nil)
@@ -141,12 +181,17 @@ func (a *APISource) makeRequest(requestURL string) (map[string]string, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(resp.Body)
+	// Cap how much of the response we will read to defend against misbehaving
+	// or hostile endpoints.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, apiMaxResponseBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		if !isRetryableStatus(resp.StatusCode) {
+			return nil, &nonRetryableStatusError{status: resp.StatusCode, body: string(body)}
+		}
 		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 	}
 

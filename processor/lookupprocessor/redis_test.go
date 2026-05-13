@@ -15,6 +15,7 @@
 package lookupprocessor
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -34,7 +35,7 @@ func TestRedisSource_HashLookup(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = src.Close() })
 
-	got, err := src.Lookup("42")
+	got, err := src.Lookup(context.Background(), "42")
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"name": "alice", "team": "sre"}, got)
 }
@@ -50,7 +51,7 @@ func TestRedisSource_JSONFallback(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = src.Close() })
 
-	got, err := src.Lookup("0.0.0.0")
+	got, err := src.Lookup(context.Background(), "0.0.0.0")
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"host": "h1", "region": "us-west"}, got)
 }
@@ -62,14 +63,20 @@ func TestRedisSource_NotFound(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = src.Close() })
 
-	_, err = src.Lookup("missing")
+	_, err = src.Lookup(context.Background(), "missing")
 	require.Error(t, err)
 	require.True(t, errors.Is(err, errRedisKeyNotFound))
 }
 
-func TestRedisSource_ConnectFailure(t *testing.T) {
-	// 127.0.0.1:1 is reserved and refuses connections.
-	_, err := NewRedisSource(&RedisConfig{Address: "127.0.0.1:1"}, zap.NewNop())
+func TestRedisSource_StartPingFailNonFatal_LookupErrors(t *testing.T) {
+	// 127.0.0.1:1 is reserved and refuses connections. Constructor must succeed
+	// (boot Ping failure is logged as a warning only); the error must surface
+	// on the first Lookup.
+	src, err := NewRedisSource(&RedisConfig{Address: "127.0.0.1:1"}, zap.NewNop())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = src.Close() })
+
+	_, err = src.Lookup(context.Background(), "any")
 	require.Error(t, err)
 }
 

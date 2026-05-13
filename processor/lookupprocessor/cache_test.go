@@ -35,7 +35,7 @@ type fakeSource struct {
 	loadErr error
 }
 
-func (f *fakeSource) Lookup(key string) (map[string]string, error) {
+func (f *fakeSource) Lookup(_ context.Context, key string) (map[string]string, error) {
 	f.calls++
 	v, ok := f.data[key]
 	if !ok {
@@ -60,13 +60,13 @@ func TestLookupCache_Disabled_Passthrough(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 
-	got, err := c.Lookup("k")
+	got, err := c.Lookup(context.Background(), "k")
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"a": "1"}, got)
 	require.Equal(t, 1, fs.calls)
 
 	// Second call also hits source because cache is disabled.
-	_, _ = c.Lookup("k")
+	_, _ = c.Lookup(context.Background(), "k")
 	require.Equal(t, 2, fs.calls)
 }
 
@@ -77,18 +77,18 @@ func TestLookupCache_InMemory_HitMissExpiry(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 
 	// First call populates cache.
-	_, err = c.Lookup("k")
+	_, err = c.Lookup(context.Background(), "k")
 	require.NoError(t, err)
 	require.Equal(t, 1, fs.calls)
 
 	// Second call within TTL is a hit.
-	_, err = c.Lookup("k")
+	_, err = c.Lookup(context.Background(), "k")
 	require.NoError(t, err)
 	require.Equal(t, 1, fs.calls)
 
 	// Wait past TTL, expect another source call.
 	time.Sleep(1100 * time.Millisecond)
-	_, err = c.Lookup("k")
+	_, err = c.Lookup(context.Background(), "k")
 	require.NoError(t, err)
 	require.Equal(t, 2, fs.calls)
 }
@@ -99,7 +99,7 @@ func TestLookupCache_InMemory_ExpiredEntryDeleted(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 
-	_, err = c.Lookup("k")
+	_, err = c.Lookup(context.Background(), "k")
 	require.NoError(t, err)
 	require.Len(t, c.mem, 1)
 
@@ -108,7 +108,7 @@ func TestLookupCache_InMemory_ExpiredEntryDeleted(t *testing.T) {
 	// Lookup a different key after expiry; the expired entry for "k" must be
 	// evicted as a side effect of the get() path even though we are not
 	// reading "k" again — verify by calling get("k") directly.
-	_, found, err := c.get("k")
+	_, found, err := c.get(context.Background(), "k")
 	require.NoError(t, err)
 	require.False(t, found)
 	require.Empty(t, c.mem, "expired entries must be deleted from the in-memory map")
@@ -127,7 +127,7 @@ func TestLookupCache_StorageExtension_ExpiredEntryDeleted(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 
-	_, err = c.Lookup("k")
+	_, err = c.Lookup(context.Background(), "k")
 	require.NoError(t, err)
 
 	client := ext.clients["logs"]
@@ -136,7 +136,7 @@ func TestLookupCache_StorageExtension_ExpiredEntryDeleted(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	_, found, err := c.get("k")
+	_, found, err := c.get(context.Background(), "k")
 	require.NoError(t, err)
 	require.False(t, found)
 	require.Empty(t, client.data, "expired entries must be deleted from the storage client")
@@ -148,10 +148,10 @@ func TestLookupCache_SourceErrorNotCached(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 
-	_, err = c.Lookup("missing")
+	_, err = c.Lookup(context.Background(), "missing")
 	require.Error(t, err)
 
-	_, err = c.Lookup("missing")
+	_, err = c.Lookup(context.Background(), "missing")
 	require.Error(t, err)
 	require.Equal(t, 2, fs.calls, "errors must not be cached")
 }
@@ -274,15 +274,15 @@ func TestLookupCache_StorageExtension_HitMissExpiryAndNaming(t *testing.T) {
 	require.Equal(t, []string{"logs", "traces"}, ext.names, "GetClient must be called with the signal-specific name for each instance")
 
 	// Populate via lookup, then second lookup must hit cache (no extra source call).
-	_, err = logsCache.Lookup("k")
+	_, err = logsCache.Lookup(context.Background(), "k")
 	require.NoError(t, err)
-	_, err = logsCache.Lookup("k")
+	_, err = logsCache.Lookup(context.Background(), "k")
 	require.NoError(t, err)
 	require.Equal(t, 1, fs.calls)
 
 	// Expire and re-fetch.
 	time.Sleep(250 * time.Millisecond)
-	_, err = logsCache.Lookup("k")
+	_, err = logsCache.Lookup(context.Background(), "k")
 	require.NoError(t, err)
 	require.Equal(t, 2, fs.calls)
 

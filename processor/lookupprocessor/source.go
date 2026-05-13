@@ -14,10 +14,13 @@
 
 package lookupprocessor
 
+import "context"
+
 // LookupSource is an interface for different lookup data sources.
 type LookupSource interface {
-	// Lookup returns a map of attributes for the given key.
-	Lookup(key string) (map[string]string, error)
+	// Lookup returns a map of attributes for the given key. The context must
+	// be honored so callers can bound or cancel slow/blocked lookups.
+	Lookup(ctx context.Context, key string) (map[string]string, error)
 	// Load initializes or refreshes the lookup source.
 	Load() error
 	// Close cleans up resources used by the lookup source.

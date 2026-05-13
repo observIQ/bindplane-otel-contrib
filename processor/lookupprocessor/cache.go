@@ -87,12 +87,12 @@ func NewLookupCache(
 }
 
 // Lookup checks the cache first, then falls back to the source on miss.
-func (c *LookupCache) Lookup(key string) (map[string]string, error) {
+func (c *LookupCache) Lookup(ctx context.Context, key string) (map[string]string, error) {
 	if !c.enabled {
-		return c.source.Lookup(key)
+		return c.source.Lookup(ctx, key)
 	}
 
-	cachedData, found, err := c.get(key)
+	cachedData, found, err := c.get(ctx, key)
 	if err != nil {
 		c.logger.Debug("cache lookup error, falling back to source", zap.Error(err))
 	} else if found {
@@ -101,12 +101,12 @@ func (c *LookupCache) Lookup(key string) (map[string]string, error) {
 	}
 
 	c.logger.Debug("cache miss", zap.String("key", key))
-	data, err := c.source.Lookup(key)
+	data, err := c.source.Lookup(ctx, key)
 	if err != nil {
 		return nil, err
 	}
 
-	if storeErr := c.set(key, data); storeErr != nil {
+	if storeErr := c.set(ctx, key, data); storeErr != nil {
 		c.logger.Debug("failed to cache result", zap.Error(storeErr))
 	}
 
@@ -138,11 +138,11 @@ func (c *LookupCache) Close() error {
 	return errors.Join(errs...)
 }
 
-func (c *LookupCache) get(key string) (map[string]string, bool, error) {
+func (c *LookupCache) get(ctx context.Context, key string) (map[string]string, bool, error) {
 	cacheKey := fmt.Sprintf("lookup:%s", key)
 
 	if c.storage != nil {
-		data, err := c.storage.Get(context.Background(), cacheKey)
+		data, err := c.storage.Get(ctx, cacheKey)
 		if err != nil {
 			return nil, false, err
 		}
@@ -155,7 +155,7 @@ func (c *LookupCache) get(key string) (map[string]string, bool, error) {
 		}
 		if time.Now().After(entry.ExpiresAt) {
 			c.logger.Debug("cache entry expired", zap.String("key", key))
-			if delErr := c.storage.Delete(context.Background(), cacheKey); delErr != nil {
+			if delErr := c.storage.Delete(ctx, cacheKey); delErr != nil {
 				c.logger.Debug("failed to delete expired cache entry", zap.String("key", key), zap.Error(delErr))
 			}
 			return nil, false, nil
@@ -177,7 +177,7 @@ func (c *LookupCache) get(key string) (map[string]string, bool, error) {
 	return entry.Data, true, nil
 }
 
-func (c *LookupCache) set(key string, data map[string]string) error {
+func (c *LookupCache) set(ctx context.Context, key string, data map[string]string) error {
 	cacheKey := fmt.Sprintf("lookup:%s", key)
 	entry := cacheEntry{
 		Data:      data,
@@ -189,7 +189,7 @@ func (c *LookupCache) set(key string, data map[string]string) error {
 		if err != nil {
 			return fmt.Errorf("failed to marshal cache entry: %w", err)
 		}
-		return c.storage.Set(context.Background(), cacheKey, entryData)
+		return c.storage.Set(ctx, cacheKey, entryData)
 	}
 
 	c.memMu.Lock()

@@ -20,6 +20,13 @@ source and adding the resulting fields to the configured `context`.
    (e.g. `file_storage`, `redis_storage`) for persistence across restarts, or
    a per-instance in-memory map when no `storage` is configured.
 
+   Eviction is lazy: there is no background sweeper. An expired entry is
+   recognized and removed only on the next read of the same key. A key that
+   is never looked up again remains in the cache until the process restarts
+   (in-memory backend) or until the storage extension reclaims it (persistent
+   backend). For high-cardinality keys that rarely repeat, prefer a storage
+   extension with bounded retention or disable the cache.
+
 ## Configuration
 
 ### Common
