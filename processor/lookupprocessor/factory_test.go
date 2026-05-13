@@ -17,11 +17,18 @@ package lookupprocessor
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/processor/processortest"
 )
+
+func TestDefaultConfig(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	require.True(t, cfg.CacheEnabled)
+	require.Equal(t, 5*time.Minute, cfg.CacheTTL)
+}
 
 func TestNewFactory(t *testing.T) {
 	factory := NewFactory()
@@ -34,6 +41,7 @@ func TestNewFactory(t *testing.T) {
 	cfg := Config{
 		Context: "body",
 		Field:   "ip",
+		CSV:     "test.csv",
 	}
 	settings := processortest.NewNopSettings(componentType)
 	consumer := consumertest.NewNop()

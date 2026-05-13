@@ -59,7 +59,7 @@ pkg/                Public utility packages
 |---|---|
 | [datapointcountprocessor](processor/datapointcountprocessor) | Converts the number of datapoints received during an interval into a metric |
 | [logcountprocessor](processor/logcountprocessor) | Converts the number of logs received during an interval into a metric |
-| [lookupprocessor](processor/lookupprocessor) | Looks up values in a CSV file and adds matching record values to telemetry context |
+| [lookupprocessor](processor/lookupprocessor) | Looks up values from a CSV file, Redis, or HTTP API and adds matching record values to telemetry context, with optional TTL caching |
 | [maskprocessor](processor/maskprocessor) | Detects and masks sensitive data using configurable regex rules |
 | [metricextractprocessor](processor/metricextractprocessor) | Extracts metrics from logs |
 | [metricstatsprocessor](processor/metricstatsprocessor) | Calculates statistics from metrics over a configurable interval for sampling or volume reduction |

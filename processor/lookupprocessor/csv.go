@@ -124,6 +124,13 @@ func findLookupIndex(headers []string, lookupColumn string) (int, error) {
 	return -1, errLookupColumnNotFound
 }
 
+// Close releases resources held by the CSVFile. CSV data is loaded on demand
+// and the file is closed after each Load, so this is a no-op kept for
+// LookupSource interface compliance.
+func (c *CSVFile) Close() error {
+	return nil
+}
+
 // NewCSVFile creates a new CSVFile
 func NewCSVFile(filepath string, lookupColumn string) *CSVFile {
 	return &CSVFile{

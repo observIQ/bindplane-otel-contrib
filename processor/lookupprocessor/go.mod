@@ -3,9 +3,13 @@ module github.com/observiq/bindplane-otel-contrib/processor/lookupprocessor
 go 1.25.9
 
 require (
+	github.com/alicebob/miniredis/v2 v2.38.0
+	github.com/redis/go-redis/v9 v9.19.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.57.0
 	go.opentelemetry.io/collector/consumer/consumertest v0.151.0
+	go.opentelemetry.io/collector/extension v1.57.0
+	go.opentelemetry.io/collector/extension/xextension v0.151.0
 	go.opentelemetry.io/collector/pdata v1.57.0
 	go.opentelemetry.io/collector/processor/processorhelper v0.151.0
 	go.opentelemetry.io/collector/processor/processortest v0.151.0
@@ -18,11 +22,12 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/go-version v1.9.0 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/collector/component/componentstatus v0.151.0 // indirect
 	go.opentelemetry.io/collector/component/componenttest v0.151.0 // indirect
 	go.opentelemetry.io/collector/consumer/xconsumer v0.151.0 // indirect
-	go.opentelemetry.io/collector/featuregate v1.57.0 // indirect
+	go.opentelemetry.io/collector/featuregate v1.58.0 // indirect
 	go.opentelemetry.io/collector/internal/componentalias v0.151.0 // indirect
 	go.opentelemetry.io/collector/pdata/pprofile v0.151.0 // indirect
 	go.opentelemetry.io/collector/pdata/testdata v0.151.0 // indirect
@@ -30,6 +35,7 @@ require (
 	go.opentelemetry.io/collector/processor/xprocessor v0.151.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.43.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.43.0 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 )
 
 require (

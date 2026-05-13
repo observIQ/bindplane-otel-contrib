@@ -16,6 +16,7 @@ package lookupprocessor
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -27,59 +28,121 @@ import (
 	"go.uber.org/zap"
 )
 
-// lookupProcessor is a lookupProcessor that looks up values and adds them to telemetry
+const defaultCacheTTL = 5 * time.Minute
+
+// signal identifies the pipeline kind a processor instance is wired into. It
+// namespaces the storage extension client so concurrent processor instances
+// for the same component ID across signals do not share or close each other's
+// state.
+const (
+	signalLogs    = "logs"
+	signalTraces  = "traces"
+	signalMetrics = "metrics"
+)
+
+// lookupProcessor looks up values and adds them to telemetry.
 type lookupProcessor struct {
-	logger  *zap.Logger
-	csvFile *CSVFile
-	context string
-	field   string
-	cancel  context.CancelFunc
-	wg      *sync.WaitGroup
+	logger      *zap.Logger
+	source      LookupSource
+	context     string
+	field       string
+	cancel      context.CancelFunc
+	wg          *sync.WaitGroup
+	cfg         *Config
+	componentID component.ID
+	signal      string
 }
 
-// newLookupProcessor creates a new lookupProcessor
-func newLookupProcessor(cfg *Config, logger *zap.Logger) *lookupProcessor {
+// newLookupProcessor creates a new lookupProcessor. The source is constructed
+// in start() so host-dependent extensions (e.g. storage) are available.
+func newLookupProcessor(cfg *Config, componentID component.ID, signal string, logger *zap.Logger) *lookupProcessor {
 	return &lookupProcessor{
-		logger:  logger,
-		csvFile: NewCSVFile(cfg.CSV, cfg.Field),
-		context: cfg.Context,
-		field:   cfg.Field,
-		wg:      &sync.WaitGroup{},
+		logger:      logger,
+		context:     cfg.Context,
+		field:       cfg.Field,
+		wg:          &sync.WaitGroup{},
+		cfg:         cfg,
+		componentID: componentID,
+		signal:      signal,
 	}
 }
 
-// start starts the processor
-func (p *lookupProcessor) start(_ context.Context, _ component.Host) error {
-	ctx, cancel := context.WithCancel(context.Background())
+func (p *lookupProcessor) buildSource() (LookupSource, error) {
+	switch {
+	case p.cfg.Redis != nil:
+		return NewRedisSource(p.cfg.Redis, p.logger)
+	case p.cfg.API != nil:
+		return NewAPISource(p.cfg.API, p.logger)
+	case p.cfg.CSV != "":
+		return NewCSVFile(p.cfg.CSV, p.cfg.Field), nil
+	default:
+		return nil, errMissingSource
+	}
+}
+
+// start starts the processor.
+func (p *lookupProcessor) start(ctx context.Context, host component.Host) error {
+	source, err := p.buildSource()
+	if err != nil {
+		return fmt.Errorf("failed to create lookup source: %w", err)
+	}
+
+	ttl := defaultCacheTTL
+	if p.cfg.CacheTTL > 0 {
+		ttl = p.cfg.CacheTTL
+	}
+
+	cached, err := NewLookupCache(
+		ctx,
+		source,
+		ttl,
+		p.cfg.CacheEnabled,
+		p.cfg.StorageID,
+		host,
+		p.componentID,
+		p.signal,
+		p.logger,
+	)
+	if err != nil {
+		_ = source.Close()
+		return fmt.Errorf("failed to create lookup cache: %w", err)
+	}
+
+	p.source = cached
+
+	backgroundCtx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
 
 	p.wg.Add(1)
-	go p.loadCSV(ctx)
+	go p.loadSource(backgroundCtx)
 
 	return nil
 }
 
-// shutdown stops the processor
+// shutdown stops the processor.
 func (p *lookupProcessor) shutdown(context.Context) error {
 	if p.cancel != nil {
 		p.cancel()
 	}
 	p.wg.Wait()
+
+	if p.source != nil {
+		return p.source.Close()
+	}
 	return nil
 }
 
-// loadCSV loads the csv into memory every minute until the context is canceled
-func (p *lookupProcessor) loadCSV(ctx context.Context) {
+// loadSource refreshes the source every minute until context is canceled.
+func (p *lookupProcessor) loadSource(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 	defer p.wg.Done()
 
 	for {
-		err := p.csvFile.Load()
-		if err != nil {
-			p.logger.Error("failed to load csv", zap.Error(err))
+		if err := p.source.Load(); err != nil {
+			p.logger.Error("failed to load source", zap.Error(err))
 		} else {
-			p.logger.Debug("csv loaded")
+			p.logger.Debug("source loaded/refreshed")
 		}
 
 		select {
@@ -90,7 +153,7 @@ func (p *lookupProcessor) loadCSV(ctx context.Context) {
 	}
 }
 
-// processLogs processes incoming logs
+// processLogs processes incoming logs.
 func (p *lookupProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.Logs, error) {
 	switch p.context {
 	case bodyContext:
@@ -104,18 +167,15 @@ func (p *lookupProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.Log
 	}
 }
 
-// processLogsWithResourceContext processes incoming logs with resource context
 func (p *lookupProcessor) processLogsWithResourceContext(ld plog.Logs) (plog.Logs, error) {
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		resource := ld.ResourceLogs().At(i)
 		attrs := resource.Resource().Attributes()
 		p.addLookupValues(attrs)
 	}
-
 	return ld, nil
 }
 
-// processLogsWithAttributesContext processes incoming logs with attributes context
 func (p *lookupProcessor) processLogsWithAttributesContext(ld plog.Logs) (plog.Logs, error) {
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		resource := ld.ResourceLogs().At(i)
@@ -128,11 +188,9 @@ func (p *lookupProcessor) processLogsWithAttributesContext(ld plog.Logs) (plog.L
 			}
 		}
 	}
-
 	return ld, nil
 }
 
-// processLogsWithBodyContext processes incoming logs with body context
 func (p *lookupProcessor) processLogsWithBodyContext(ld plog.Logs) (plog.Logs, error) {
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		resource := ld.ResourceLogs().At(i)
@@ -143,17 +201,15 @@ func (p *lookupProcessor) processLogsWithBodyContext(ld plog.Logs) (plog.Logs, e
 				if logs.Body().Type() != pcommon.ValueTypeMap {
 					continue
 				}
-
 				body := logs.Body().Map()
 				p.addLookupValues(body)
 			}
 		}
 	}
-
 	return ld, nil
 }
 
-// processTraces processes incoming traces
+// processTraces processes incoming traces.
 func (p *lookupProcessor) processTraces(_ context.Context, td ptrace.Traces) (ptrace.Traces, error) {
 	switch p.context {
 	case attributesContext:
@@ -165,18 +221,15 @@ func (p *lookupProcessor) processTraces(_ context.Context, td ptrace.Traces) (pt
 	}
 }
 
-// processTracesWithResourceContext processes incoming traces with resource context
 func (p *lookupProcessor) processTracesWithResourceContext(td ptrace.Traces) (ptrace.Traces, error) {
 	for i := 0; i < td.ResourceSpans().Len(); i++ {
 		resource := td.ResourceSpans().At(i)
 		attrs := resource.Resource().Attributes()
 		p.addLookupValues(attrs)
 	}
-
 	return td, nil
 }
 
-// processTracesWithAttributesContext processes incoming traces with attributes context
 func (p *lookupProcessor) processTracesWithAttributesContext(td ptrace.Traces) (ptrace.Traces, error) {
 	for i := 0; i < td.ResourceSpans().Len(); i++ {
 		resource := td.ResourceSpans().At(i)
@@ -189,11 +242,10 @@ func (p *lookupProcessor) processTracesWithAttributesContext(td ptrace.Traces) (
 			}
 		}
 	}
-
 	return td, nil
 }
 
-// processMetrics processes incoming metrics
+// processMetrics processes incoming metrics.
 func (p *lookupProcessor) processMetrics(_ context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
 	switch p.context {
 	case attributesContext:
@@ -205,18 +257,15 @@ func (p *lookupProcessor) processMetrics(_ context.Context, md pmetric.Metrics) 
 	}
 }
 
-// processMetricsWithResourceContext processes incoming metrics with resource context
 func (p *lookupProcessor) processMetricsWithResourceContext(md pmetric.Metrics) (pmetric.Metrics, error) {
 	for i := 0; i < md.ResourceMetrics().Len(); i++ {
 		resource := md.ResourceMetrics().At(i)
 		attrs := resource.Resource().Attributes()
 		p.addLookupValues(attrs)
 	}
-
 	return md, nil
 }
 
-// processMetricsWithAttributesContext processes incoming metrics with attributes context
 func (p *lookupProcessor) processMetricsWithAttributesContext(md pmetric.Metrics) (pmetric.Metrics, error) {
 	for i := 0; i < md.ResourceMetrics().Len(); i++ {
 		resource := md.ResourceMetrics().At(i)
@@ -240,11 +289,9 @@ func (p *lookupProcessor) processMetricsWithAttributesContext(md pmetric.Metrics
 			}
 		}
 	}
-
 	return md, nil
 }
 
-// processSumMetrics processes incoming sum metrics
 func (p *lookupProcessor) processSumMetrics(metrics pmetric.Metric) {
 	sum := metrics.Sum()
 	for i := 0; i < sum.DataPoints().Len(); i++ {
@@ -253,7 +300,6 @@ func (p *lookupProcessor) processSumMetrics(metrics pmetric.Metric) {
 	}
 }
 
-// processGaugeMetrics processes incoming gauge metrics
 func (p *lookupProcessor) processGaugeMetrics(metrics pmetric.Metric) {
 	gauge := metrics.Gauge()
 	for i := 0; i < gauge.DataPoints().Len(); i++ {
@@ -262,7 +308,6 @@ func (p *lookupProcessor) processGaugeMetrics(metrics pmetric.Metric) {
 	}
 }
 
-// processSummaryMetrics processes incoming summary metrics
 func (p *lookupProcessor) processSummaryMetrics(metrics pmetric.Metric) {
 	summary := metrics.Summary()
 	for i := 0; i < summary.DataPoints().Len(); i++ {
@@ -271,7 +316,6 @@ func (p *lookupProcessor) processSummaryMetrics(metrics pmetric.Metric) {
 	}
 }
 
-// processHistogramMetrics processes incoming histogram metrics
 func (p *lookupProcessor) processHistogramMetrics(metrics pmetric.Metric) {
 	histogram := metrics.Histogram()
 	for i := 0; i < histogram.DataPoints().Len(); i++ {
@@ -280,7 +324,6 @@ func (p *lookupProcessor) processHistogramMetrics(metrics pmetric.Metric) {
 	}
 }
 
-// processExponentialHistogramMetrics processes incoming exponential histogram metrics
 func (p *lookupProcessor) processExponentialHistogramMetrics(metrics pmetric.Metric) {
 	exponentialHistogram := metrics.ExponentialHistogram()
 	for i := 0; i < exponentialHistogram.DataPoints().Len(); i++ {
@@ -289,7 +332,6 @@ func (p *lookupProcessor) processExponentialHistogramMetrics(metrics pmetric.Met
 	}
 }
 
-// addLookupValues adds lookup values to the source map
 func (p *lookupProcessor) addLookupValues(source pcommon.Map) {
 	lookupValue, ok := source.Get(p.field)
 	if !ok {
@@ -300,9 +342,9 @@ func (p *lookupProcessor) addLookupValues(source pcommon.Map) {
 		return
 	}
 
-	mappedValues, err := p.csvFile.Lookup(lookupValue.AsString())
+	mappedValues, err := p.source.Lookup(lookupValue.AsString())
 	if err != nil {
-		p.logger.Debug("Could not find value in CSV", zap.String("value", lookupValue.AsString()), zap.Error(err))
+		p.logger.Debug("Could not find value in source", zap.String("value", lookupValue.AsString()), zap.Error(err))
 		return
 	}
 
