@@ -17,6 +17,7 @@ package lookupprocessor
 import (
 	"context"
 	"errors"
+	"time"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
@@ -24,19 +25,16 @@ import (
 	"go.opentelemetry.io/collector/processor/processorhelper"
 )
 
-// componentType is the value of the "type" key in configuration.
 var componentType = component.MustNewType("lookup")
 
-const (
-	stability = component.StabilityLevelAlpha
-)
+const stability = component.StabilityLevelAlpha
 
 var (
 	consumerCapabilities = consumer.Capabilities{MutatesData: true}
 	errInvalidConfigType = errors.New("config is not of type lookupprocessor.Config")
 )
 
-// NewFactory creates a new factory with the default configuration
+// NewFactory creates a new factory with the default configuration.
 func NewFactory() processor.Factory {
 	return processor.NewFactory(
 		componentType,
@@ -47,12 +45,13 @@ func NewFactory() processor.Factory {
 	)
 }
 
-// createDefaultConfig creates the default configuration for the processor
 func createDefaultConfig() component.Config {
-	return &Config{}
+	return &Config{
+		CacheEnabled: true,
+		CacheTTL:     5 * time.Minute,
+	}
 }
 
-// createTracesProcessor creates a trace processor
 func createTracesProcessor(
 	ctx context.Context,
 	set processor.Settings,
@@ -64,20 +63,19 @@ func createTracesProcessor(
 		return nil, errInvalidConfigType
 	}
 
-	processor := newLookupProcessor(lookupCfg, set.Logger)
+	p := newLookupProcessor(lookupCfg, set.ID, signalTraces, set.Logger)
 	return processorhelper.NewTraces(
 		ctx,
 		set,
 		cfg,
 		nextConsumer,
-		processor.processTraces,
+		p.processTraces,
 		processorhelper.WithCapabilities(consumerCapabilities),
-		processorhelper.WithStart(processor.start),
-		processorhelper.WithShutdown(processor.shutdown),
+		processorhelper.WithStart(p.start),
+		processorhelper.WithShutdown(p.shutdown),
 	)
 }
 
-// createLogsProcessor creates a log processor
 func createLogsProcessor(
 	ctx context.Context,
 	set processor.Settings,
@@ -89,20 +87,19 @@ func createLogsProcessor(
 		return nil, errInvalidConfigType
 	}
 
-	processor := newLookupProcessor(lookupCfg, set.Logger)
+	p := newLookupProcessor(lookupCfg, set.ID, signalLogs, set.Logger)
 	return processorhelper.NewLogs(
 		ctx,
 		set,
 		cfg,
 		nextConsumer,
-		processor.processLogs,
+		p.processLogs,
 		processorhelper.WithCapabilities(consumerCapabilities),
-		processorhelper.WithStart(processor.start),
-		processorhelper.WithShutdown(processor.shutdown),
+		processorhelper.WithStart(p.start),
+		processorhelper.WithShutdown(p.shutdown),
 	)
 }
 
-// createMetricsProcessor creates a metric processor
 func createMetricsProcessor(
 	ctx context.Context,
 	set processor.Settings,
@@ -114,15 +111,15 @@ func createMetricsProcessor(
 		return nil, errInvalidConfigType
 	}
 
-	processor := newLookupProcessor(lookupCfg, set.Logger)
+	p := newLookupProcessor(lookupCfg, set.ID, signalMetrics, set.Logger)
 	return processorhelper.NewMetrics(
 		ctx,
 		set,
 		cfg,
 		nextConsumer,
-		processor.processMetrics,
+		p.processMetrics,
 		processorhelper.WithCapabilities(consumerCapabilities),
-		processorhelper.WithStart(processor.start),
-		processorhelper.WithShutdown(processor.shutdown),
+		processorhelper.WithStart(p.start),
+		processorhelper.WithShutdown(p.shutdown),
 	)
 }

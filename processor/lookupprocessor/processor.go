@@ -16,6 +16,7 @@ package lookupprocessor
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -27,59 +28,121 @@ import (
 	"go.uber.org/zap"
 )
 
-// lookupProcessor is a lookupProcessor that looks up values and adds them to telemetry
+const defaultCacheTTL = 5 * time.Minute
+
+// signal identifies the pipeline kind a processor instance is wired into. It
+// namespaces the storage extension client so concurrent processor instances
+// for the same component ID across signals do not share or close each other's
+// state.
+const (
+	signalLogs    = "logs"
+	signalTraces  = "traces"
+	signalMetrics = "metrics"
+)
+
+// lookupProcessor looks up values and adds them to telemetry.
 type lookupProcessor struct {
-	logger  *zap.Logger
-	csvFile *CSVFile
-	context string
-	field   string
-	cancel  context.CancelFunc
-	wg      *sync.WaitGroup
+	logger      *zap.Logger
+	source      LookupSource
+	context     string
+	field       string
+	cancel      context.CancelFunc
+	wg          *sync.WaitGroup
+	cfg         *Config
+	componentID component.ID
+	signal      string
 }
 
-// newLookupProcessor creates a new lookupProcessor
-func newLookupProcessor(cfg *Config, logger *zap.Logger) *lookupProcessor {
+// newLookupProcessor creates a new lookupProcessor. The source is constructed
+// in start() so host-dependent extensions (e.g. storage) are available.
+func newLookupProcessor(cfg *Config, componentID component.ID, signal string, logger *zap.Logger) *lookupProcessor {
 	return &lookupProcessor{
-		logger:  logger,
-		csvFile: NewCSVFile(cfg.CSV, cfg.Field),
-		context: cfg.Context,
-		field:   cfg.Field,
-		wg:      &sync.WaitGroup{},
+		logger:      logger,
+		context:     cfg.Context,
+		field:       cfg.Field,
+		wg:          &sync.WaitGroup{},
+		cfg:         cfg,
+		componentID: componentID,
+		signal:      signal,
 	}
 }
 
-// start starts the processor
-func (p *lookupProcessor) start(_ context.Context, _ component.Host) error {
-	ctx, cancel := context.WithCancel(context.Background())
+func (p *lookupProcessor) buildSource() (LookupSource, error) {
+	switch {
+	case p.cfg.Redis != nil:
+		return NewRedisSource(p.cfg.Redis, p.logger)
+	case p.cfg.API != nil:
+		return NewAPISource(p.cfg.API, p.logger)
+	case p.cfg.CSV != "":
+		return NewCSVFile(p.cfg.CSV, p.cfg.Field), nil
+	default:
+		return nil, errMissingSource
+	}
+}
+
+// start starts the processor.
+func (p *lookupProcessor) start(ctx context.Context, host component.Host) error {
+	source, err := p.buildSource()
+	if err != nil {
+		return fmt.Errorf("failed to create lookup source: %w", err)
+	}
+
+	ttl := defaultCacheTTL
+	if p.cfg.CacheTTL > 0 {
+		ttl = p.cfg.CacheTTL
+	}
+
+	cached, err := NewLookupCache(
+		ctx,
+		source,
+		ttl,
+		p.cfg.CacheEnabled,
+		p.cfg.StorageID,
+		host,
+		p.componentID,
+		p.signal,
+		p.logger,
+	)
+	if err != nil {
+		_ = source.Close()
+		return fmt.Errorf("failed to create lookup cache: %w", err)
+	}
+
+	p.source = cached
+
+	backgroundCtx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
 
 	p.wg.Add(1)
-	go p.loadCSV(ctx)
+	go p.loadSource(backgroundCtx)
 
 	return nil
 }
 
-// shutdown stops the processor
+// shutdown stops the processor.
 func (p *lookupProcessor) shutdown(context.Context) error {
 	if p.cancel != nil {
 		p.cancel()
 	}
 	p.wg.Wait()
+
+	if p.source != nil {
+		return p.source.Close()
+	}
 	return nil
 }
 
-// loadCSV loads the csv into memory every minute until the context is canceled
-func (p *lookupProcessor) loadCSV(ctx context.Context) {
+// loadSource refreshes the source every minute until context is canceled.
+func (p *lookupProcessor) loadSource(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 	defer p.wg.Done()
 
 	for {
-		err := p.csvFile.Load()
-		if err != nil {
-			p.logger.Error("failed to load csv", zap.Error(err))
+		if err := p.source.Load(); err != nil {
+			p.logger.Error("failed to load source", zap.Error(err))
 		} else {
-			p.logger.Debug("csv loaded")
+			p.logger.Debug("source loaded/refreshed")
 		}
 
 		select {
@@ -90,33 +153,32 @@ func (p *lookupProcessor) loadCSV(ctx context.Context) {
 	}
 }
 
-// processLogs processes incoming logs
-func (p *lookupProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.Logs, error) {
+// processLogs processes incoming logs.
+func (p *lookupProcessor) processLogs(ctx context.Context, ld plog.Logs) (plog.Logs, error) {
 	switch p.context {
 	case bodyContext:
-		return p.processLogsWithBodyContext(ld)
+		return p.processLogsWithBodyContext(ctx, ld)
 	case attributesContext:
-		return p.processLogsWithAttributesContext(ld)
+		return p.processLogsWithAttributesContext(ctx, ld)
 	case resourceContext:
-		return p.processLogsWithResourceContext(ld)
+		return p.processLogsWithResourceContext(ctx, ld)
 	default:
 		return ld, errInvalidContext
 	}
 }
 
-// processLogsWithResourceContext processes incoming logs with resource context
-func (p *lookupProcessor) processLogsWithResourceContext(ld plog.Logs) (plog.Logs, error) {
+// processLogsWithResourceContext processes incoming logs with resource context.
+func (p *lookupProcessor) processLogsWithResourceContext(ctx context.Context, ld plog.Logs) (plog.Logs, error) {
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		resource := ld.ResourceLogs().At(i)
 		attrs := resource.Resource().Attributes()
-		p.addLookupValues(attrs)
+		p.addLookupValues(ctx, attrs)
 	}
-
 	return ld, nil
 }
 
-// processLogsWithAttributesContext processes incoming logs with attributes context
-func (p *lookupProcessor) processLogsWithAttributesContext(ld plog.Logs) (plog.Logs, error) {
+// processLogsWithAttributesContext processes incoming logs with attributes context.
+func (p *lookupProcessor) processLogsWithAttributesContext(ctx context.Context, ld plog.Logs) (plog.Logs, error) {
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		resource := ld.ResourceLogs().At(i)
 		for j := 0; j < resource.ScopeLogs().Len(); j++ {
@@ -124,16 +186,15 @@ func (p *lookupProcessor) processLogsWithAttributesContext(ld plog.Logs) (plog.L
 			for k := 0; k < scope.LogRecords().Len(); k++ {
 				logs := scope.LogRecords().At(k)
 				attrs := logs.Attributes()
-				p.addLookupValues(attrs)
+				p.addLookupValues(ctx, attrs)
 			}
 		}
 	}
-
 	return ld, nil
 }
 
-// processLogsWithBodyContext processes incoming logs with body context
-func (p *lookupProcessor) processLogsWithBodyContext(ld plog.Logs) (plog.Logs, error) {
+// processLogsWithBodyContext processes incoming logs with body context.
+func (p *lookupProcessor) processLogsWithBodyContext(ctx context.Context, ld plog.Logs) (plog.Logs, error) {
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		resource := ld.ResourceLogs().At(i)
 		for j := 0; j < resource.ScopeLogs().Len(); j++ {
@@ -143,41 +204,38 @@ func (p *lookupProcessor) processLogsWithBodyContext(ld plog.Logs) (plog.Logs, e
 				if logs.Body().Type() != pcommon.ValueTypeMap {
 					continue
 				}
-
 				body := logs.Body().Map()
-				p.addLookupValues(body)
+				p.addLookupValues(ctx, body)
 			}
 		}
 	}
-
 	return ld, nil
 }
 
-// processTraces processes incoming traces
-func (p *lookupProcessor) processTraces(_ context.Context, td ptrace.Traces) (ptrace.Traces, error) {
+// processTraces processes incoming traces.
+func (p *lookupProcessor) processTraces(ctx context.Context, td ptrace.Traces) (ptrace.Traces, error) {
 	switch p.context {
 	case attributesContext:
-		return p.processTracesWithAttributesContext(td)
+		return p.processTracesWithAttributesContext(ctx, td)
 	case resourceContext:
-		return p.processTracesWithResourceContext(td)
+		return p.processTracesWithResourceContext(ctx, td)
 	default:
 		return td, errInvalidContext
 	}
 }
 
-// processTracesWithResourceContext processes incoming traces with resource context
-func (p *lookupProcessor) processTracesWithResourceContext(td ptrace.Traces) (ptrace.Traces, error) {
+// processTracesWithResourceContext processes incoming traces with resource context.
+func (p *lookupProcessor) processTracesWithResourceContext(ctx context.Context, td ptrace.Traces) (ptrace.Traces, error) {
 	for i := 0; i < td.ResourceSpans().Len(); i++ {
 		resource := td.ResourceSpans().At(i)
 		attrs := resource.Resource().Attributes()
-		p.addLookupValues(attrs)
+		p.addLookupValues(ctx, attrs)
 	}
-
 	return td, nil
 }
 
-// processTracesWithAttributesContext processes incoming traces with attributes context
-func (p *lookupProcessor) processTracesWithAttributesContext(td ptrace.Traces) (ptrace.Traces, error) {
+// processTracesWithAttributesContext processes incoming traces with attributes context.
+func (p *lookupProcessor) processTracesWithAttributesContext(ctx context.Context, td ptrace.Traces) (ptrace.Traces, error) {
 	for i := 0; i < td.ResourceSpans().Len(); i++ {
 		resource := td.ResourceSpans().At(i)
 		for j := 0; j < resource.ScopeSpans().Len(); j++ {
@@ -185,39 +243,37 @@ func (p *lookupProcessor) processTracesWithAttributesContext(td ptrace.Traces) (
 			for k := 0; k < scope.Spans().Len(); k++ {
 				spans := scope.Spans().At(k)
 				attrs := spans.Attributes()
-				p.addLookupValues(attrs)
+				p.addLookupValues(ctx, attrs)
 			}
 		}
 	}
-
 	return td, nil
 }
 
-// processMetrics processes incoming metrics
-func (p *lookupProcessor) processMetrics(_ context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
+// processMetrics processes incoming metrics.
+func (p *lookupProcessor) processMetrics(ctx context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
 	switch p.context {
 	case attributesContext:
-		return p.processMetricsWithAttributesContext(md)
+		return p.processMetricsWithAttributesContext(ctx, md)
 	case resourceContext:
-		return p.processMetricsWithResourceContext(md)
+		return p.processMetricsWithResourceContext(ctx, md)
 	default:
 		return md, errInvalidContext
 	}
 }
 
-// processMetricsWithResourceContext processes incoming metrics with resource context
-func (p *lookupProcessor) processMetricsWithResourceContext(md pmetric.Metrics) (pmetric.Metrics, error) {
+// processMetricsWithResourceContext processes incoming metrics with resource context.
+func (p *lookupProcessor) processMetricsWithResourceContext(ctx context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
 	for i := 0; i < md.ResourceMetrics().Len(); i++ {
 		resource := md.ResourceMetrics().At(i)
 		attrs := resource.Resource().Attributes()
-		p.addLookupValues(attrs)
+		p.addLookupValues(ctx, attrs)
 	}
-
 	return md, nil
 }
 
-// processMetricsWithAttributesContext processes incoming metrics with attributes context
-func (p *lookupProcessor) processMetricsWithAttributesContext(md pmetric.Metrics) (pmetric.Metrics, error) {
+// processMetricsWithAttributesContext processes incoming metrics with attributes context.
+func (p *lookupProcessor) processMetricsWithAttributesContext(ctx context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
 	for i := 0; i < md.ResourceMetrics().Len(); i++ {
 		resource := md.ResourceMetrics().At(i)
 		for j := 0; j < resource.ScopeMetrics().Len(); j++ {
@@ -227,70 +283,69 @@ func (p *lookupProcessor) processMetricsWithAttributesContext(md pmetric.Metrics
 
 				switch metrics.Type() {
 				case pmetric.MetricTypeSum:
-					p.processSumMetrics(metrics)
+					p.processSumMetrics(ctx, metrics)
 				case pmetric.MetricTypeGauge:
-					p.processGaugeMetrics(metrics)
+					p.processGaugeMetrics(ctx, metrics)
 				case pmetric.MetricTypeSummary:
-					p.processSummaryMetrics(metrics)
+					p.processSummaryMetrics(ctx, metrics)
 				case pmetric.MetricTypeHistogram:
-					p.processHistogramMetrics(metrics)
+					p.processHistogramMetrics(ctx, metrics)
 				case pmetric.MetricTypeExponentialHistogram:
-					p.processExponentialHistogramMetrics(metrics)
+					p.processExponentialHistogramMetrics(ctx, metrics)
 				}
 			}
 		}
 	}
-
 	return md, nil
 }
 
-// processSumMetrics processes incoming sum metrics
-func (p *lookupProcessor) processSumMetrics(metrics pmetric.Metric) {
+// processSumMetrics processes incoming sum metrics.
+func (p *lookupProcessor) processSumMetrics(ctx context.Context, metrics pmetric.Metric) {
 	sum := metrics.Sum()
 	for i := 0; i < sum.DataPoints().Len(); i++ {
 		attrs := sum.DataPoints().At(i).Attributes()
-		p.addLookupValues(attrs)
+		p.addLookupValues(ctx, attrs)
 	}
 }
 
-// processGaugeMetrics processes incoming gauge metrics
-func (p *lookupProcessor) processGaugeMetrics(metrics pmetric.Metric) {
+// processGaugeMetrics processes incoming gauge metrics.
+func (p *lookupProcessor) processGaugeMetrics(ctx context.Context, metrics pmetric.Metric) {
 	gauge := metrics.Gauge()
 	for i := 0; i < gauge.DataPoints().Len(); i++ {
 		attrs := gauge.DataPoints().At(i).Attributes()
-		p.addLookupValues(attrs)
+		p.addLookupValues(ctx, attrs)
 	}
 }
 
-// processSummaryMetrics processes incoming summary metrics
-func (p *lookupProcessor) processSummaryMetrics(metrics pmetric.Metric) {
+// processSummaryMetrics processes incoming summary metrics.
+func (p *lookupProcessor) processSummaryMetrics(ctx context.Context, metrics pmetric.Metric) {
 	summary := metrics.Summary()
 	for i := 0; i < summary.DataPoints().Len(); i++ {
 		attrs := summary.DataPoints().At(i).Attributes()
-		p.addLookupValues(attrs)
+		p.addLookupValues(ctx, attrs)
 	}
 }
 
-// processHistogramMetrics processes incoming histogram metrics
-func (p *lookupProcessor) processHistogramMetrics(metrics pmetric.Metric) {
+// processHistogramMetrics processes incoming histogram metrics.
+func (p *lookupProcessor) processHistogramMetrics(ctx context.Context, metrics pmetric.Metric) {
 	histogram := metrics.Histogram()
 	for i := 0; i < histogram.DataPoints().Len(); i++ {
 		attrs := histogram.DataPoints().At(i).Attributes()
-		p.addLookupValues(attrs)
+		p.addLookupValues(ctx, attrs)
 	}
 }
 
-// processExponentialHistogramMetrics processes incoming exponential histogram metrics
-func (p *lookupProcessor) processExponentialHistogramMetrics(metrics pmetric.Metric) {
+// processExponentialHistogramMetrics processes incoming exponential histogram metrics.
+func (p *lookupProcessor) processExponentialHistogramMetrics(ctx context.Context, metrics pmetric.Metric) {
 	exponentialHistogram := metrics.ExponentialHistogram()
 	for i := 0; i < exponentialHistogram.DataPoints().Len(); i++ {
 		attrs := exponentialHistogram.DataPoints().At(i).Attributes()
-		p.addLookupValues(attrs)
+		p.addLookupValues(ctx, attrs)
 	}
 }
 
-// addLookupValues adds lookup values to the source map
-func (p *lookupProcessor) addLookupValues(source pcommon.Map) {
+// addLookupValues adds lookup values to the source map.
+func (p *lookupProcessor) addLookupValues(ctx context.Context, source pcommon.Map) {
 	lookupValue, ok := source.Get(p.field)
 	if !ok {
 		return
@@ -300,9 +355,9 @@ func (p *lookupProcessor) addLookupValues(source pcommon.Map) {
 		return
 	}
 
-	mappedValues, err := p.csvFile.Lookup(lookupValue.AsString())
+	mappedValues, err := p.source.Lookup(ctx, lookupValue.AsString())
 	if err != nil {
-		p.logger.Debug("Could not find value in CSV", zap.String("value", lookupValue.AsString()), zap.Error(err))
+		p.logger.Debug("Could not find value in source", zap.String("value", lookupValue.AsString()), zap.Error(err))
 		return
 	}
 
