@@ -60,22 +60,37 @@ type Config struct {
 }
 
 // APIConfig is the configuration for API-based lookups.
+//
+// Timeout bounds a single HTTP request attempt. LookupTimeout bounds the full
+// Lookup including retries — without it, a chain of retried slow requests can
+// exceed Timeout*MaxRetries before failing. MaxRetries/InitialDelay/RetryMultiplier
+// govern the exponential backoff schedule between attempts.
 type APIConfig struct {
 	URL             string            `mapstructure:"url"`
 	Method          string            `mapstructure:"method"`
 	Headers         map[string]string `mapstructure:"headers"`
 	Timeout         time.Duration     `mapstructure:"timeout"`
+	LookupTimeout   time.Duration     `mapstructure:"lookup_timeout"`
+	MaxRetries      int               `mapstructure:"max_retries"`
+	InitialDelay    time.Duration     `mapstructure:"initial_delay"`
+	RetryMultiplier int               `mapstructure:"retry_multiplier"`
 	ResponseMapping map[string]string `mapstructure:"response_mapping"`
 }
 
 // RedisConfig is the configuration for Redis-based lookups.
+//
+// DialTimeout bounds the initial TCP/TLS dial; LookupTimeout bounds each call
+// against a connected server. Both have defaults applied by the source if left
+// unset.
 type RedisConfig struct {
-	Address   string `mapstructure:"address"`
-	Username  string `mapstructure:"username"`
-	Password  string `mapstructure:"password"`
-	DB        int    `mapstructure:"db"`
-	TLS       bool   `mapstructure:"tls"`
-	KeyPrefix string `mapstructure:"key_prefix"`
+	Address       string        `mapstructure:"address"`
+	Username      string        `mapstructure:"username"`
+	Password      string        `mapstructure:"password"`
+	DB            int           `mapstructure:"db"`
+	TLS           bool          `mapstructure:"tls"`
+	KeyPrefix     string        `mapstructure:"key_prefix"`
+	DialTimeout   time.Duration `mapstructure:"dial_timeout"`
+	LookupTimeout time.Duration `mapstructure:"lookup_timeout"`
 }
 
 // Validate validates the processor configuration.

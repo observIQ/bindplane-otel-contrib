@@ -47,18 +47,29 @@ source and adding the resulting fields to the configured `context`.
 | ---   | ---    | ---     | --- |
 | csv   | string | ` `     | Filesystem path to a CSV file. The first row is the header. Reloaded every minute. |
 
+The top-level `field` setting doubles as the CSV column name used to look up
+rows. The remaining columns of the matching row are added to the configured
+`context`.
+
 ### Redis source
-| Field      | Type   | Default | Description |
-| ---        | ---    | ---     | --- |
-| address    | string | ` `     | Redis server address `host:port`. |
-| username   | string | ` `     | Optional username. |
-| password   | string | ` `     | Optional password. |
-| db         | int    | `0`     | Redis database index. |
-| tls        | bool   | `false` | Use TLS (TLS 1.2+) for the connection. |
-| key_prefix | string | ` `     | Optional prefix joined to the lookup key with `:`. |
+| Field          | Type     | Default | Description |
+| ---            | ---      | ---     | --- |
+| address        | string   | ` `     | Redis server address `host:port`. |
+| username       | string   | ` `     | Optional username. |
+| password       | string   | ` `     | Optional password. |
+| db             | int      | `0`     | Redis database index. |
+| tls            | bool     | `false` | Use TLS (TLS 1.2+) for the connection. |
+| key_prefix     | string   | ` `     | Optional prefix joined to the lookup key with `:`. |
+| dial_timeout   | duration | `2s`    | Bounds the initial TCP/TLS dial. Protects against slow DNS or unreachable servers. |
+| lookup_timeout | duration | `5s`    | Bounds each Redis call (`HGETALL` + JSON `GET` fallback) so a slow server cannot stall the pipeline. |
 
 The processor first tries `HGETALL` on the resolved key. If no fields are
 returned, it falls back to `GET` and decodes the value as JSON `map[string]string`.
+
+On startup, the source performs a `PING` (bounded by `dial_timeout`). A failed
+`PING` aborts processor start so a misconfigured Redis (bad address, auth
+failure, unreachable host) surfaces immediately rather than masking the issue
+until the first lookup.
 
 ### API source
 | Field            | Type              | Default | Description |
@@ -66,10 +77,22 @@ returned, it falls back to `GET` and decodes the value as JSON `map[string]strin
 | url              | string            | ` `     | URL template. `$fieldValue`, `${fieldValue}`, `$key`, or `${key}` are substituted with the URL-encoded lookup key. |
 | method           | string            | `GET`   | HTTP method. |
 | headers          | map[string]string | `nil`   | Request headers. |
-| timeout          | duration          | `10s`   | HTTP timeout. |
+| timeout          | duration          | `10s`   | Per-request HTTP timeout (single attempt). |
+| lookup_timeout   | duration          | `5s`    | Overall bound for one `Lookup`, including all retry attempts and backoff sleeps. Prevents a chain of slow requests from exceeding `timeout * max_retries`. |
+| max_retries      | int               | `3`     | Total attempts (initial + retries) for transient failures. Non-retryable HTTP statuses (`400`, `401`, `403`, `404`) abort immediately. |
+| initial_delay    | duration          | `100ms` | Backoff before the first retry. |
+| retry_multiplier | int               | `2`     | Multiplier applied to the backoff between retries. |
 | response_mapping | map[string]string | `nil`   | Maps output field names to dotted JSON paths in the response (e.g. `host: data.hostname`). When unset, the top-level response object is flattened. |
 
-The HTTP client makes up to 3 attempts (initial + 2 retries) with exponential backoff between attempts (100ms, then 200ms).
+Retry policy: `5xx`, `408`, and `429` responses are retried up to `max_retries`
+times with exponential backoff. `4xx` responses other than `408`/`429` are
+considered deterministic client errors and are not retried. Retry sleeps honor
+the caller's context — cancellation aborts a pending retry promptly.
+
+Response bodies are read through an `io.LimitReader` capped at 1 MiB to guard
+against misbehaving or hostile endpoints. Bodies embedded in error strings are
+further truncated to 256 bytes so a burst of failing lookups cannot bloat
+logs.
 
 ### Example: CSV
 ```yaml
@@ -83,13 +106,13 @@ processors:
         context: body
         field: ip
 exporters:
-    logging:
+    debug:
 service:
     pipelines:
         logs:
             receivers: [otlp]
             processors: [lookup]
-            exporters: [logging]
+            exporters: [debug]
 ```
 
 ```csv
@@ -119,7 +142,7 @@ service:
         logs:
             receivers: [otlp]
             processors: [lookup]
-            exporters: [logging]
+            exporters: [debug]
 ```
 
 ### Example: API
@@ -134,7 +157,25 @@ processors:
             headers:
                 Authorization: Bearer ${env:CMDB_TOKEN}
             timeout: 2s
+            lookup_timeout: 6s
+            max_retries: 4
+            initial_delay: 200ms
+            retry_multiplier: 2
             response_mapping:
                 team: data.owner.team
                 env:  data.environment
+```
+
+### Example: Redis (with custom timeouts)
+```yaml
+processors:
+    lookup:
+        context: attributes
+        field: user_id
+        redis:
+            address: redis.internal:6379
+            key_prefix: user
+            tls: true
+            dial_timeout: 3s
+            lookup_timeout: 2s
 ```

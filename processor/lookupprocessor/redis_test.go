@@ -68,16 +68,13 @@ func TestRedisSource_NotFound(t *testing.T) {
 	require.True(t, errors.Is(err, errRedisKeyNotFound))
 }
 
-func TestRedisSource_StartPingFailNonFatal_LookupErrors(t *testing.T) {
-	// 127.0.0.1:1 is reserved and refuses connections. Constructor must succeed
-	// (boot Ping failure is logged as a warning only); the error must surface
-	// on the first Lookup.
+func TestRedisSource_StartPingFailIsFatal(t *testing.T) {
+	// 127.0.0.1:1 is reserved and refuses connections. Constructor must fail
+	// fast so a misconfigured Redis aborts processor start instead of leaving
+	// lookups silently broken until the first request.
 	src, err := NewRedisSource(&RedisConfig{Address: "127.0.0.1:1"}, zap.NewNop())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = src.Close() })
-
-	_, err = src.Lookup(context.Background(), "any")
 	require.Error(t, err)
+	require.Nil(t, src)
 }
 
 func TestRedisSource_BuildKey(t *testing.T) {

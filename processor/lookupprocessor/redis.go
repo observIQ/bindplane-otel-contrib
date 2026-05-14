@@ -27,37 +27,51 @@ import (
 	"go.uber.org/zap"
 )
 
-// redisLookupTimeout bounds each Redis call so a slow or unreachable server
-// cannot stall pipeline processing indefinitely.
-const redisLookupTimeout = 5 * time.Second
+// redisDefaultLookupTimeout bounds each Redis call when the user has not set
+// RedisConfig.LookupTimeout. Keeps a slow or unreachable server from stalling
+// pipeline processing indefinitely.
+const redisDefaultLookupTimeout = 5 * time.Second
 
-// redisBootPingTimeout bounds the best-effort startup Ping. A failure here is
-// logged as a warning so config errors (bad address, auth) surface at boot,
-// but does not block source creation — the cache can serve through outages
-// and uncached keys will error per-lookup.
+// redisDefaultDialTimeout bounds the initial TCP/TLS dial when the user has
+// not set RedisConfig.DialTimeout.
+const redisDefaultDialTimeout = 2 * time.Second
+
+// redisBootPingTimeout bounds the startup Ping used to verify connectivity
+// and credentials. Failure here aborts source creation so a misconfigured
+// Redis surfaces immediately instead of after the first lookup.
 const redisBootPingTimeout = 2 * time.Second
 
 var errRedisKeyNotFound = errors.New("key not found in redis")
 
 // RedisSource implements LookupSource for Redis. Construction performs a
-// short, best-effort Ping so configuration errors surface at boot; a failed
-// Ping is logged as a warning but does not block source creation, so the
-// cache can serve through transient outages and uncached keys error per lookup.
+// short Ping so configuration errors (bad address, auth) fail the source
+// immediately rather than masking the problem until the first lookup.
 type RedisSource struct {
-	client    *redis.Client
-	keyPrefix string
-	logger    *zap.Logger
+	client       *redis.Client
+	keyPrefix    string
+	lookupBudget time.Duration
+	logger       *zap.Logger
 }
 
-// NewRedisSource creates a new RedisSource. A short best-effort Ping runs
-// against the configured server to surface address/auth errors in logs at
-// boot; failure is warned, never fatal.
+// NewRedisSource creates a new RedisSource. Returns an error if the initial
+// Ping fails so a misconfigured Redis aborts processor start.
 func NewRedisSource(cfg *RedisConfig, logger *zap.Logger) (*RedisSource, error) {
+	dialTimeout := cfg.DialTimeout
+	if dialTimeout <= 0 {
+		dialTimeout = redisDefaultDialTimeout
+	}
+
+	lookupBudget := cfg.LookupTimeout
+	if lookupBudget <= 0 {
+		lookupBudget = redisDefaultLookupTimeout
+	}
+
 	opts := &redis.Options{
-		Addr:     cfg.Address,
-		Username: cfg.Username,
-		Password: cfg.Password,
-		DB:       cfg.DB,
+		Addr:        cfg.Address,
+		Username:    cfg.Username,
+		Password:    cfg.Password,
+		DB:          cfg.DB,
+		DialTimeout: dialTimeout,
 	}
 
 	if cfg.TLS {
@@ -71,18 +85,17 @@ func NewRedisSource(cfg *RedisConfig, logger *zap.Logger) (*RedisSource, error) 
 	pingCtx, cancel := context.WithTimeout(context.Background(), redisBootPingTimeout)
 	defer cancel()
 	if err := client.Ping(pingCtx).Err(); err != nil {
-		logger.Warn("redis ping failed at start; source will retry per lookup, cached entries will still be served",
-			zap.String("address", cfg.Address),
-			zap.Error(err),
-		)
-	} else {
-		logger.Info("redis source ready", zap.String("address", cfg.Address))
+		_ = client.Close()
+		return nil, fmt.Errorf("redis ping failed for %s: %w", cfg.Address, err)
 	}
 
+	logger.Info("redis source ready", zap.String("address", cfg.Address))
+
 	return &RedisSource{
-		client:    client,
-		keyPrefix: cfg.KeyPrefix,
-		logger:    logger,
+		client:       client,
+		keyPrefix:    cfg.KeyPrefix,
+		lookupBudget: lookupBudget,
+		logger:       logger,
 	}, nil
 }
 
@@ -90,7 +103,7 @@ func NewRedisSource(cfg *RedisConfig, logger *zap.Logger) (*RedisSource, error) 
 // then falls back to GET with JSON decode if the key holds a string value.
 // Honors the caller's context and applies a per-call timeout.
 func (r *RedisSource) Lookup(ctx context.Context, key string) (map[string]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, redisLookupTimeout)
+	ctx, cancel := context.WithTimeout(ctx, r.lookupBudget)
 	defer cancel()
 
 	redisKey := r.buildKey(key)

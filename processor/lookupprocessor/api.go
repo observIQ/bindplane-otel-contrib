@@ -29,13 +29,20 @@ import (
 )
 
 const (
-	apiMaxRetries      = 3
-	apiInitialDelay    = 100 * time.Millisecond
-	apiRetryMultiplier = 2
+	apiDefaultMaxRetries      = 3
+	apiDefaultInitialDelay    = 100 * time.Millisecond
+	apiDefaultRetryMultiplier = 2
+	apiDefaultRequestTimeout  = 10 * time.Second
+	apiDefaultLookupTimeout   = 5 * time.Second
 
 	// apiMaxResponseBytes caps how much of a response body the source will read
 	// to protect against misbehaving or hostile endpoints returning huge payloads.
 	apiMaxResponseBytes = 1 << 20 // 1 MiB
+
+	// apiErrorBodyMax caps how many bytes of a failing response body are
+	// embedded in an error string. Without a cap, a burst of large failing
+	// lookups would allocate megabytes per error and bloat logs.
+	apiErrorBodyMax = 256
 )
 
 // nonRetryableStatusError signals an HTTP status that should not be retried.
@@ -54,6 +61,10 @@ type APISource struct {
 	method          string
 	headers         map[string]string
 	timeout         time.Duration
+	lookupTimeout   time.Duration
+	maxRetries      int
+	initialDelay    time.Duration
+	retryMultiplier int
 	responseMapping map[string]string
 	client          *http.Client
 	logger          *zap.Logger
@@ -68,7 +79,27 @@ func NewAPISource(cfg *APIConfig, logger *zap.Logger) (*APISource, error) {
 
 	timeout := cfg.Timeout
 	if timeout <= 0 {
-		timeout = 10 * time.Second
+		timeout = apiDefaultRequestTimeout
+	}
+
+	lookupTimeout := cfg.LookupTimeout
+	if lookupTimeout <= 0 {
+		lookupTimeout = apiDefaultLookupTimeout
+	}
+
+	maxRetries := cfg.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = apiDefaultMaxRetries
+	}
+
+	initialDelay := cfg.InitialDelay
+	if initialDelay <= 0 {
+		initialDelay = apiDefaultInitialDelay
+	}
+
+	retryMultiplier := cfg.RetryMultiplier
+	if retryMultiplier <= 0 {
+		retryMultiplier = apiDefaultRetryMultiplier
 	}
 
 	client := &http.Client{Timeout: timeout}
@@ -78,6 +109,10 @@ func NewAPISource(cfg *APIConfig, logger *zap.Logger) (*APISource, error) {
 		method:          method,
 		headers:         cfg.Headers,
 		timeout:         timeout,
+		lookupTimeout:   lookupTimeout,
+		maxRetries:      maxRetries,
+		initialDelay:    initialDelay,
+		retryMultiplier: retryMultiplier,
 		responseMapping: cfg.ResponseMapping,
 		client:          client,
 		logger:          logger,
@@ -85,7 +120,9 @@ func NewAPISource(cfg *APIConfig, logger *zap.Logger) (*APISource, error) {
 }
 
 // Lookup makes an API call with the key substituted in the URL. Honors the
-// caller's context; cancellation aborts pending retries promptly.
+// caller's context and applies an overall deadline (lookup_timeout) so a chain
+// of retried slow requests cannot exceed it. Non-retryable HTTP statuses abort
+// immediately; cancellation aborts pending retry sleeps promptly.
 func (a *APISource) Lookup(ctx context.Context, key string) (map[string]string, error) {
 	requestURL := a.substituteURL(key)
 
@@ -93,10 +130,13 @@ func (a *APISource) Lookup(ctx context.Context, key string) (map[string]string, 
 		return nil, fmt.Errorf("invalid URL after substitution: %w", err)
 	}
 
-	var lastErr error
-	delay := apiInitialDelay
+	ctx, cancel := context.WithTimeout(ctx, a.lookupTimeout)
+	defer cancel()
 
-	for attempt := 0; attempt < apiMaxRetries; attempt++ {
+	var lastErr error
+	delay := a.initialDelay
+
+	for attempt := 0; attempt < a.maxRetries; attempt++ {
 		if attempt > 0 {
 			a.logger.Debug("retrying API request", zap.Int("attempt", attempt), zap.Duration("delay", delay))
 			select {
@@ -104,7 +144,7 @@ func (a *APISource) Lookup(ctx context.Context, key string) (map[string]string, 
 				return nil, ctx.Err()
 			case <-time.After(delay):
 			}
-			delay *= apiRetryMultiplier
+			delay *= time.Duration(a.retryMultiplier)
 		}
 
 		data, err := a.makeRequest(ctx, requestURL)
@@ -122,7 +162,7 @@ func (a *APISource) Lookup(ctx context.Context, key string) (map[string]string, 
 		a.logger.Debug("API request failed", zap.Error(err), zap.Int("attempt", attempt+1))
 	}
 
-	return nil, fmt.Errorf("API request failed after %d attempts: %w", apiMaxRetries, lastErr)
+	return nil, fmt.Errorf("API request failed after %d attempts: %w", a.maxRetries, lastErr)
 }
 
 // Load is a no-op for API source.
@@ -146,6 +186,16 @@ func (a *APISource) substituteURL(key string) string {
 	result = strings.ReplaceAll(result, "${key}", encodedKey)
 	result = strings.ReplaceAll(result, "$key", encodedKey)
 	return result
+}
+
+// truncateForError returns a printable, length-capped snippet of a response
+// body suitable for embedding in an error string. Callers may pass arbitrary
+// (potentially binary or huge) bytes.
+func truncateForError(body []byte) string {
+	if len(body) <= apiErrorBodyMax {
+		return string(body)
+	}
+	return string(body[:apiErrorBodyMax]) + "...(truncated)"
 }
 
 // isRetryableStatus reports whether an HTTP status warrants a retry. 4xx is
@@ -189,10 +239,11 @@ func (a *APISource) makeRequest(parent context.Context, requestURL string) (map[
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		snippet := truncateForError(body)
 		if !isRetryableStatus(resp.StatusCode) {
-			return nil, &nonRetryableStatusError{status: resp.StatusCode, body: string(body)}
+			return nil, &nonRetryableStatusError{status: resp.StatusCode, body: snippet}
 		}
-		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, snippet)
 	}
 
 	var jsonData map[string]interface{}

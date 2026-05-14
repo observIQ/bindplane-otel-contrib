@@ -144,7 +144,7 @@ func TestAPISourceLookup_429Retried(t *testing.T) {
 
 	_, err = src.Lookup(context.Background(), "any")
 	require.Error(t, err)
-	require.EqualValues(t, apiMaxRetries, attempts.Load(), "429 must be retried up to max attempts")
+	require.EqualValues(t, apiDefaultMaxRetries, attempts.Load(), "429 must be retried up to max attempts")
 }
 
 func TestAPISourceLookup_ContextCancelAbortsRetry(t *testing.T) {
@@ -174,21 +174,51 @@ func TestAPISourceLookup_ContextCancelAbortsRetry(t *testing.T) {
 }
 
 func TestAPISourceLookup_BodyTruncatedAtLimit(t *testing.T) {
+	// Handler streams a payload whose size exceeds apiMaxResponseBytes. The
+	// LimitReader must cap the read; because the trimmed bytes are no longer
+	// valid JSON, the source surfaces a JSON parse error rather than reading
+	// the full body.
+	oversize := apiMaxResponseBytes + 4096
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		// Write a valid JSON whose total size stays under the cap but stream more
-		// bytes after to ensure LimitReader is applied. We just write a normal
-		// small body here — coverage of the cap is verified by the LimitReader
-		// call site; behavior with oversize bodies is "fail to decode JSON".
-		_, _ = fmt.Fprintln(w, `{"k":"v"}`)
+		w.Header().Set("Content-Type", "application/json")
+		// Open a JSON object then stream a long padding value that overflows the cap.
+		_, _ = w.Write([]byte(`{"padding":"`))
+		filler := make([]byte, 4096)
+		for i := range filler {
+			filler[i] = 'a'
+		}
+		written := len(`{"padding":"`)
+		for written < oversize {
+			n, err := w.Write(filler)
+			if err != nil {
+				return
+			}
+			written += n
+		}
+		// Server never closes the JSON object — but client should not see this
+		// because it stops reading at the cap.
 	}))
 	defer server.Close()
 
-	src, err := NewAPISource(&APIConfig{URL: server.URL, Timeout: time.Second}, zap.NewNop())
+	src, err := NewAPISource(&APIConfig{URL: server.URL, Timeout: 2 * time.Second}, zap.NewNop())
 	require.NoError(t, err)
 
-	got, err := src.Lookup(context.Background(), "any")
-	require.NoError(t, err)
-	require.Equal(t, map[string]string{"k": "v"}, got)
+	_, err = src.Lookup(context.Background(), "any")
+	require.Error(t, err, "oversize body truncated mid-JSON must fail to decode")
+	require.Contains(t, err.Error(), "failed to parse JSON response")
+}
+
+func TestTruncateForError(t *testing.T) {
+	short := []byte("oops")
+	require.Equal(t, "oops", truncateForError(short))
+
+	big := make([]byte, apiErrorBodyMax+128)
+	for i := range big {
+		big[i] = 'x'
+	}
+	got := truncateForError(big)
+	require.Len(t, got, apiErrorBodyMax+len("...(truncated)"))
+	require.Contains(t, got, "...(truncated)")
 }
 
 func TestAPISourceSubstituteURL(t *testing.T) {
