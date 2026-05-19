@@ -1,0 +1,10 @@
+type: opamp
+
+status:
+  class: exporter
+  stability:
+    alpha: [logs, metrics, traces]
+  distributions: [observiq]
+
+tests:
+  skip_lifecycle: true

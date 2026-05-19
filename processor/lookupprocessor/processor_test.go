@@ -131,12 +131,12 @@ func TestProcessLogs(t *testing.T) {
 
 			processor := lookupProcessor{
 				logger:  zap.NewNop(),
-				csvFile: csvFile,
+				source:  csvFile,
 				context: tc.context,
 				field:   tc.field,
 			}
 
-			results, err := processor.processLogs(nil, tc.createLogs())
+			results, err := processor.processLogs(context.Background(), tc.createLogs())
 			tc.validate(t, results, err)
 		})
 	}
@@ -231,12 +231,12 @@ func TestProcessTraces(t *testing.T) {
 
 			processor := lookupProcessor{
 				logger:  zap.NewNop(),
-				csvFile: csvFile,
+				source:  csvFile,
 				context: tc.context,
 				field:   tc.field,
 			}
 
-			results, err := processor.processTraces(nil, tc.createTraces())
+			results, err := processor.processTraces(context.Background(), tc.createTraces())
 			tc.validate(t, results, err)
 		})
 	}
@@ -365,12 +365,12 @@ func TestProcessMetrics(t *testing.T) {
 
 			processor := lookupProcessor{
 				logger:  zap.NewNop(),
-				csvFile: csvFile,
+				source:  csvFile,
 				context: tc.context,
 				field:   tc.field,
 			}
 
-			results, err := processor.processMetrics(nil, tc.createMetrics())
+			results, err := processor.processMetrics(context.Background(), tc.createMetrics())
 			tc.validate(t, results, err)
 		})
 	}
@@ -395,12 +395,12 @@ func TestAddLookupValues(t *testing.T) {
 	require.NoError(t, err)
 
 	processor := lookupProcessor{
-		logger:  zap.NewNop(),
-		csvFile: csvFile,
-		field:   "ip",
+		logger: zap.NewNop(),
+		source: csvFile,
+		field:  "ip",
 	}
 
-	processor.addLookupValues(sourceMap)
+	processor.addLookupValues(context.Background(), sourceMap)
 	expectedMap := map[string]any{
 		"ip":     "0.0.0.0",
 		"env":    "prod",

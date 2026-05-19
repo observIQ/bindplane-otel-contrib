@@ -17,6 +17,7 @@ package chronicleexporter
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/observiq/bindplane-otel-contrib/exporter/chronicleexporter/internal/metadata"
 	"go.opentelemetry.io/collector/component"
@@ -36,6 +37,7 @@ func NewFactory() exporter.Factory {
 
 const (
 	defaultEndpoint                  = "malachiteingestion-pa.googleapis.com"
+	defaultMetricsInterval           = 5 * time.Minute
 	defaultBatchRequestSizeLimitGRPC = 4000000
 	defaultBatchRequestSizeLimitHTTP = 4000000
 )
@@ -50,6 +52,7 @@ func createDefaultConfig() component.Config {
 		OverrideLogType:           true,
 		Compression:               noCompression,
 		CollectAgentMetrics:       true,
+		MetricsInterval:           defaultMetricsInterval,
 		Endpoint:                  defaultEndpoint,
 		BatchRequestSizeLimitGRPC: defaultBatchRequestSizeLimitGRPC,
 		BatchRequestSizeLimitHTTP: defaultBatchRequestSizeLimitHTTP,

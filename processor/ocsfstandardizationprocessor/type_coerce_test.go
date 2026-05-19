@@ -33,6 +33,8 @@ func TestCoerceType(t *testing.T) {
 		{name: "integer from int64", value: int64(42), typeName: "integer", expected: int(42)},
 		{name: "integer from bool true", value: true, typeName: "integer", expected: 1},
 		{name: "integer from bool false", value: false, typeName: "integer", expected: 0},
+		{name: "integer from hex string", value: "0x280", typeName: "integer", expected: 640},
+		{name: "integer from hex string uppercase", value: "0xC000006D", typeName: "integer", expected: 3221225581},
 		{name: "integer from invalid string", value: "abc", typeName: "integer", expected: "abc"},
 
 		{name: "long from int64", value: int64(1000), typeName: "long", expected: int64(1000)},
@@ -40,6 +42,8 @@ func TestCoerceType(t *testing.T) {
 		{name: "long from float64", value: 1000.7, typeName: "long", expected: int64(1000)},
 		{name: "long from string", value: "1000", typeName: "long", expected: int64(1000)},
 		{name: "long from bool true", value: true, typeName: "long", expected: int64(1)},
+		{name: "long from hex string", value: "0x3e7", typeName: "long", expected: int64(999)},
+		{name: "long from hex string large", value: "0x3e7000000", typeName: "long", expected: int64(16760438784)},
 		{name: "long from invalid string", value: "abc", typeName: "long", expected: "abc"},
 
 		{name: "float from float64", value: 3.14, typeName: "float", expected: 3.14},

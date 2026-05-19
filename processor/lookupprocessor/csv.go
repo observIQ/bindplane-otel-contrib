@@ -15,6 +15,7 @@
 package lookupprocessor
 
 import (
+	"context"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -67,8 +68,10 @@ func (c *CSVFile) Load() error {
 	return nil
 }
 
-// Lookup returns a row of data that matches the key in the provided column
-func (c *CSVFile) Lookup(key string) (map[string]string, error) {
+// Lookup returns a row of data that matches the key in the provided column.
+// The context is accepted to satisfy the LookupSource interface; CSV lookups
+// are in-memory and do not block on it.
+func (c *CSVFile) Lookup(_ context.Context, key string) (map[string]string, error) {
 	c.mux.RLock()
 	defer c.mux.RUnlock()
 
@@ -122,6 +125,13 @@ func findLookupIndex(headers []string, lookupColumn string) (int, error) {
 	}
 
 	return -1, errLookupColumnNotFound
+}
+
+// Close releases resources held by the CSVFile. CSV data is loaded on demand
+// and the file is closed after each Load, so this is a no-op kept for
+// LookupSource interface compliance.
+func (c *CSVFile) Close() error {
+	return nil
 }
 
 // NewCSVFile creates a new CSVFile

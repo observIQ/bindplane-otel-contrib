@@ -901,6 +901,82 @@ func TestRESTAPILogsReceiver_DeeplyNestedResponseField(t *testing.T) {
 	require.GreaterOrEqual(t, totalRecords, 3)
 }
 
+func TestRESTAPILogsReceiver_ArrayIndexedResponseField(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		response := map[string]any{
+			"intervals": []map[string]any{
+				{
+					"readings": []map[string]any{
+						{"id": "1", "message": "indexed 1"},
+						{"id": "2", "message": "indexed 2"},
+					},
+				},
+				{
+					"readings": []map[string]any{
+						{"id": "ignored", "message": "should not emit"},
+					},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:           server.URL,
+		ResponseField: "intervals[0].readings",
+		AuthMode:      authModeAPIKey,
+		APIKeyConfig: APIKeyConfig{
+			HeaderName: "X-API-Key",
+			Value:      "test-key",
+		},
+		Pagination: PaginationConfig{
+			Mode: paginationModeNone,
+		},
+		MaxPollInterval: 100 * time.Millisecond,
+		ClientConfig:    confighttp.ClientConfig{},
+	}
+
+	sink := new(consumertest.LogsSink)
+	params := receivertest.NewNopSettings(metadata.Type)
+	receiver, err := newRESTAPILogsReceiver(params, cfg, sink)
+	require.NoError(t, err)
+
+	host := componenttest.NewNopHost()
+	ctx := context.Background()
+
+	err = receiver.Start(ctx, host)
+	require.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	err = receiver.Shutdown(ctx)
+	require.NoError(t, err)
+
+	allLogs := sink.AllLogs()
+	require.Greater(t, len(allLogs), 0)
+
+	totalRecords := 0
+	for _, logs := range allLogs {
+		totalRecords += logs.LogRecordCount()
+	}
+	// Exactly the 2 readings under intervals[0]; intervals[1] must not be emitted.
+	require.GreaterOrEqual(t, totalRecords, 2)
+	for _, logs := range allLogs {
+		for i := 0; i < logs.ResourceLogs().Len(); i++ {
+			rl := logs.ResourceLogs().At(i)
+			for j := 0; j < rl.ScopeLogs().Len(); j++ {
+				sl := rl.ScopeLogs().At(j)
+				for k := 0; k < sl.LogRecords().Len(); k++ {
+					body := sl.LogRecords().At(k).Body().AsString()
+					require.NotContains(t, body, "should not emit")
+				}
+			}
+		}
+	}
+}
+
 func TestRESTAPILogsReceiver_AdaptivePolling_Backoff(t *testing.T) {
 	var requestCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -1355,6 +1431,96 @@ func TestGetNestedField(t *testing.T) {
 			path:     "",
 			expected: "empty key value",
 			found:    true,
+		},
+		{
+			name: "array index selects element",
+			data: map[string]any{
+				"intervals": []any{
+					map[string]any{"readings": []any{"a", "b"}},
+					map[string]any{"readings": []any{"c"}},
+				},
+			},
+			path:     "intervals[0].readings",
+			expected: []any{"a", "b"},
+			found:    true,
+		},
+		{
+			name: "array index then second index",
+			data: map[string]any{
+				"intervals": []any{
+					map[string]any{"readings": []any{"a", "b"}},
+					map[string]any{"readings": []any{"c"}},
+				},
+			},
+			path:     "intervals[1].readings",
+			expected: []any{"c"},
+			found:    true,
+		},
+		{
+			name: "chained indices on same segment",
+			data: map[string]any{
+				"matrix": []any{
+					[]any{"a", "b"},
+					[]any{"c", "d"},
+				},
+			},
+			path:     "matrix[1][0]",
+			expected: "c",
+			found:    true,
+		},
+		{
+			name: "terminal index selects single element",
+			data: map[string]any{
+				"data": []any{"first", "second"},
+			},
+			path:     "data[0]",
+			expected: "first",
+			found:    true,
+		},
+		{
+			name: "index out of bounds returns not found",
+			data: map[string]any{
+				"intervals": []any{map[string]any{"readings": []any{"a"}}},
+			},
+			path:     "intervals[5].readings",
+			expected: nil,
+			found:    false,
+		},
+		{
+			name: "indexing non-array returns not found",
+			data: map[string]any{
+				"field": "string value",
+			},
+			path:     "field[0]",
+			expected: nil,
+			found:    false,
+		},
+		{
+			name: "negative index is rejected as malformed",
+			data: map[string]any{
+				"data": []any{"a", "b"},
+			},
+			path:     "data[-1]",
+			expected: nil,
+			found:    false,
+		},
+		{
+			name: "missing closing bracket returns not found",
+			data: map[string]any{
+				"data": []any{"a"},
+			},
+			path:     "data[0",
+			expected: nil,
+			found:    false,
+		},
+		{
+			name: "non-integer index returns not found",
+			data: map[string]any{
+				"data": []any{"a"},
+			},
+			path:     "data[abc]",
+			expected: nil,
+			found:    false,
 		},
 	}
 

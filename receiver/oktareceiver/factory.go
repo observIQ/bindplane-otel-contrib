@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//      Okta://www.apache.org/licenses/LICENSE-2.0
+//      http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/okta/okta-sdk-golang/v6/okta"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/receiver"
@@ -41,16 +42,22 @@ func createLogsReceiver(
 	consumer consumer.Logs,
 ) (receiver.Logs, error) {
 	cfg := rConf.(*Config)
-	r, err := newOktaLogsReceiver(cfg, params.Logger, consumer)
+
+	oktaCfg, err := okta.NewConfiguration(
+		okta.WithOrgUrl("https://"+cfg.Domain),
+		okta.WithToken(string(cfg.APIToken)),
+		okta.WithCache(false),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create an Okta log receiver instance: %w", err)
+		return nil, fmt.Errorf("failed to create okta client configuration: %w", err)
 	}
-	return r, nil
+
+	client := okta.NewAPIClient(oktaCfg)
+	return newOktaLogsReceiver(cfg, params.Logger, consumer, client), nil
 }
 
 func createDefaultConfig() component.Config {
-	c := &Config{
+	return &Config{
 		PollInterval: defaultPollInterval,
 	}
-	return c
 }

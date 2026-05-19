@@ -16,10 +16,14 @@ package restapireceiver
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -394,23 +398,26 @@ func TestRESTAPIClient_GetJSON_OAuth2Auth_WithScopes(t *testing.T) {
 }
 
 func TestRESTAPIClient_GetJSON_AkamaiEdgeGridAuth(t *testing.T) {
-	// Create a test server
+	const (
+		clientToken  = "test-client-token"
+		accessToken  = "test-access-token"
+		clientSecret = "test-client-secret"
+	)
+
+	var capturedAuth, capturedQuery, capturedPath, capturedMethod, capturedScheme, capturedHost string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify Akamai EdgeGrid auth header format
-		authHeader := r.Header.Get("Authorization")
-		require.NotEmpty(t, authHeader)
-		require.Contains(t, authHeader, "EG1-HMAC-SHA256")
-		require.Contains(t, authHeader, "client_token=test-client-token")
-		require.Contains(t, authHeader, "access_token=test-access-token")
-		require.Contains(t, authHeader, "timestamp=")
-		require.Contains(t, authHeader, "nonce=")
-		require.Contains(t, authHeader, "signature=")
+		capturedAuth = r.Header.Get("Authorization")
+		capturedQuery = r.URL.RawQuery
+		capturedPath = r.URL.EscapedPath()
+		capturedMethod = r.Method
+		capturedScheme = "http" // httptest server is http
+		capturedHost = r.Host
 
 		response := []map[string]any{
 			{"id": "1"},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -418,9 +425,9 @@ func TestRESTAPIClient_GetJSON_AkamaiEdgeGridAuth(t *testing.T) {
 		URL:      server.URL,
 		AuthMode: authModeAkamaiEdgeGrid,
 		AkamaiEdgeGridConfig: AkamaiEdgeGridConfig{
-			AccessToken:  "test-access-token",
-			ClientToken:  "test-client-token",
-			ClientSecret: "test-client-secret",
+			AccessToken:  accessToken,
+			ClientToken:  clientToken,
+			ClientSecret: clientSecret,
 		},
 		ClientConfig: confighttp.ClientConfig{},
 	}
@@ -432,10 +439,102 @@ func TestRESTAPIClient_GetJSON_AkamaiEdgeGridAuth(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	params := url.Values{}
-	data, err := client.GetJSON(ctx, server.URL, params)
+	// Use an explicit path so the URL the client signs matches what the
+	// server sees. (httptest.Server.URL has no path; Go's http client sends
+	// "/" on the wire when Path is empty, which would make client-side
+	// EscapedPath ("") disagree with server-side EscapedPath ("/").)
+	requestURL := server.URL + "/siem/v1/configs/102889"
+	params := url.Values{"limit": []string{"10"}, "offset": []string{"0"}}
+	data, err := client.GetJSON(ctx, requestURL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
+
+	// Parse the captured auth header into its field=value pairs.
+	require.True(t, strings.HasPrefix(capturedAuth, "EG1-HMAC-SHA256 "),
+		"auth header must use EG1-HMAC-SHA256 scheme, got %q", capturedAuth)
+	fields := map[string]string{}
+	for _, kv := range strings.Split(strings.TrimPrefix(capturedAuth, "EG1-HMAC-SHA256 "), ";") {
+		kv = strings.TrimSpace(kv)
+		if kv == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(kv, "=")
+		require.True(t, ok, "malformed auth header field %q", kv)
+		fields[k] = v
+	}
+	require.Equal(t, clientToken, fields["client_token"])
+	require.Equal(t, accessToken, fields["access_token"])
+	require.NotEmpty(t, fields["timestamp"])
+	require.NotEmpty(t, fields["nonce"])
+	require.NotEmpty(t, fields["signature"])
+
+	// Recompute the expected signature using the same algorithm
+	// (method\tscheme\thost\tpath?query\t\tcontentHash\tauthHeaderPrefix)
+	// to assert byte-level parity with the Akamai spec. If the library's
+	// signature matches this independent computation, the request would
+	// have authenticated correctly against a real Akamai endpoint.
+	reqPath := capturedPath
+	if capturedQuery != "" {
+		reqPath = capturedPath + "?" + capturedQuery
+	}
+	authPrefix := "EG1-HMAC-SHA256 client_token=" + clientToken +
+		";access_token=" + accessToken +
+		";timestamp=" + fields["timestamp"] +
+		";nonce=" + fields["nonce"] + ";"
+	signingData := strings.Join([]string{
+		capturedMethod,
+		capturedScheme,
+		capturedHost,
+		reqPath,
+		"", // canonicalized headers
+		"", // content hash (GET body)
+		authPrefix,
+	}, "\t")
+
+	keyMac := hmac.New(sha256.New, []byte(clientSecret))
+	keyMac.Write([]byte(fields["timestamp"]))
+	signingKey := base64.StdEncoding.EncodeToString(keyMac.Sum(nil))
+
+	sigMac := hmac.New(sha256.New, []byte(signingKey))
+	sigMac.Write([]byte(signingData))
+	expectedSig := base64.StdEncoding.EncodeToString(sigMac.Sum(nil))
+
+	require.Equal(t, expectedSig, fields["signature"],
+		"signature must match independent HMAC-SHA256 computation per EdgeGrid spec")
+}
+
+func TestRESTAPIClient_GetJSON_AkamaiEdgeGridAuth_AccountKey(t *testing.T) {
+	var capturedQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "1"}})
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:      server.URL,
+		AuthMode: authModeAkamaiEdgeGrid,
+		AkamaiEdgeGridConfig: AkamaiEdgeGridConfig{
+			AccessToken:  "at",
+			ClientToken:  "ct",
+			ClientSecret: "cs",
+			AccountKey:   "partner-account-xyz",
+		},
+		ClientConfig: confighttp.ClientConfig{},
+	}
+
+	ctx := context.Background()
+	client, err := newRESTAPIClient(ctx, componenttest.NewNopTelemetrySettings(), cfg, componenttest.NewNopHost())
+	require.NoError(t, err)
+
+	_, err = client.GetJSON(ctx, server.URL, url.Values{"other": []string{"v"}})
+	require.NoError(t, err)
+
+	q, err := url.ParseQuery(capturedQuery)
+	require.NoError(t, err)
+	require.Equal(t, "partner-account-xyz", q.Get("accountSwitchKey"))
+	require.Equal(t, "v", q.Get("other"))
 }
 
 func TestRESTAPIClient_GetJSON_WithQueryParams(t *testing.T) {

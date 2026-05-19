@@ -15,6 +15,7 @@
 package lookupprocessor
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -31,12 +32,12 @@ func TestLookup(t *testing.T) {
 	err := csvFile.Load()
 	require.NoError(t, err)
 
-	results, err := csvFile.Lookup("0.0.0.0")
+	results, err := csvFile.Lookup(context.Background(), "0.0.0.0")
 	require.NoError(t, err)
 	require.Equal(t, "prod", results["env"])
 	require.Equal(t, "us-west", results["region"])
 
-	_, err = csvFile.Lookup("1.1.1.1")
+	_, err = csvFile.Lookup(context.Background(), "1.1.1.1")
 	require.Error(t, err)
 	require.ErrorIs(t, err, errKeyNotFound)
 }

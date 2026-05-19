@@ -5,3 +5,12 @@ status:
   stability:
     alpha: [logs]
   distributions: [observiq]
+
+tests:
+  config:
+    okta_domain: "test.okta.com"
+    api_token: "test-token"
+  goleak:
+    ignore:
+      top:
+        - "github.com/patrickmn/go-cache.(*janitor).Run"

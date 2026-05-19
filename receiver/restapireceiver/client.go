@@ -16,17 +16,13 @@ package restapireceiver
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
+	"github.com/akamai/AkamaiOPEN-edgegrid-golang/v13/pkg/edgegrid"
 	jsoniter "github.com/json-iterator/go"
 	"go.opentelemetry.io/collector/component"
 	"go.uber.org/zap"
@@ -393,78 +389,19 @@ func parseNDJSON(body []byte, metadataInBody bool, logger *zap.Logger) ([]map[st
 	return data, metadata, nil
 }
 
-// generateEdgeGridAuth generates the Akamai EdgeGrid authentication header.
-func (c *defaultRESTAPIClient) generateEdgeGridAuth(req *http.Request) (string, error) {
-	// Generate timestamp in ISO 8601 format
-	timestamp := time.Now().UTC().Format("20060102T15:04:05+0000")
-
-	// Generate nonce (random UUID-like string)
-	nonce, err := generateNonce()
-	if err != nil {
-		return "", fmt.Errorf("failed to generate nonce: %w", err)
+// signEdgeGridRequest applies Akamai EdgeGrid authentication to the request
+// using the official Akamai EdgeGrid Go library, which handles signing-string
+// construction, URL escaping, content hashing for request bodies, and adding
+// the accountSwitchKey query parameter when configured.
+func (c *defaultRESTAPIClient) signEdgeGridRequest(req *http.Request) {
+	egCfg := edgegrid.Config{
+		ClientToken:  string(c.cfg.AkamaiEdgeGridConfig.ClientToken),
+		ClientSecret: string(c.cfg.AkamaiEdgeGridConfig.ClientSecret),
+		AccessToken:  string(c.cfg.AkamaiEdgeGridConfig.AccessToken),
+		AccountKey:   c.cfg.AkamaiEdgeGridConfig.AccountKey,
+		MaxBody:      edgegrid.MaxBodySize,
 	}
-
-	// Create the data to sign
-	// Format: timestamp + "\t" + nonce + "\t" + method + "\t" + path + query + "\t" + headers + "\t" + body
-	path := req.URL.Path
-	if req.URL.RawQuery != "" {
-		path += "?" + req.URL.RawQuery
-	}
-
-	// For GET requests, body is empty
-	body := ""
-
-	// Construct the signing data
-	signingData := strings.Join([]string{
-		timestamp,
-		nonce,
-		req.Method,
-		path,
-		"", // headers (usually empty)
-		body,
-	}, "\t")
-
-	// Create signing key from client secret and timestamp
-	signingKey := makeSigningKey(timestamp, string(c.cfg.AkamaiEdgeGridConfig.ClientSecret))
-
-	// Create the signature
-	signature := makeSignature(signingData, signingKey)
-
-	// Construct the authorization header
-	authHeader := fmt.Sprintf(
-		"EG1-HMAC-SHA256 client_token=%s;access_token=%s;timestamp=%s;nonce=%s;signature=%s",
-		string(c.cfg.AkamaiEdgeGridConfig.ClientToken),
-		string(c.cfg.AkamaiEdgeGridConfig.AccessToken),
-		timestamp,
-		nonce,
-		signature,
-	)
-
-	return authHeader, nil
-}
-
-// generateNonce generates a random nonce for the EdgeGrid request.
-func generateNonce() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
-}
-
-// makeSigningKey creates the signing key from the timestamp and client secret.
-func makeSigningKey(timestamp, clientSecret string) string {
-	mac := hmac.New(sha256.New, []byte(clientSecret))
-	mac.Write([]byte(timestamp))
-	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
-}
-
-// makeSignature creates the HMAC-SHA256 signature.
-func makeSignature(data, key string) string {
-	keyBytes, _ := base64.StdEncoding.DecodeString(key)
-	mac := hmac.New(sha256.New, keyBytes)
-	mac.Write([]byte(data))
-	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	egCfg.SignRequest(req)
 }
 
 // createOAuth2TokenSource creates an OAuth2 token source for client credentials flow.
@@ -550,11 +487,7 @@ func (c *defaultRESTAPIClient) applyAuth(req *http.Request) error {
 		if string(c.cfg.AkamaiEdgeGridConfig.AccessToken) == "" || string(c.cfg.AkamaiEdgeGridConfig.ClientToken) == "" || string(c.cfg.AkamaiEdgeGridConfig.ClientSecret) == "" {
 			return fmt.Errorf("akamai edgegrid access token, client token, and client secret are required")
 		}
-		authHeader, err := c.generateEdgeGridAuth(req)
-		if err != nil {
-			return fmt.Errorf("failed to generate EdgeGrid auth: %w", err)
-		}
-		req.Header.Set("Authorization", authHeader)
+		c.signEdgeGridRequest(req)
 		return nil
 
 	default:

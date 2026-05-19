@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -623,23 +624,78 @@ func truncateRecord(record map[string]any) map[string]any {
 	return preview
 }
 
-// getNestedField retrieves a value from a nested map using dot notation.
-// For example, "response.data" will navigate to response["response"]["data"].
+// getNestedField retrieves a value from a nested map using dot notation with
+// optional array indexing. Segments are separated by "." and each segment may
+// have one or more trailing "[N]" indices to step into arrays. Examples:
+//
+//	"response.data"            -> response["response"]["data"]
+//	"intervals[0].readings"    -> response["intervals"][0]["readings"]
+//	"matrix[0][1]"             -> response["matrix"][0][1]
+//
+// Returns (nil, false) if any segment is missing, a type mismatch is hit, an
+// index is out of range, or the bracket syntax is malformed.
 func getNestedField(data map[string]any, path string) (any, bool) {
 	parts := strings.Split(path, ".")
 	current := any(data)
 
 	for _, part := range parts {
+		name, indices, ok := parsePathSegment(part)
+		if !ok {
+			return nil, false
+		}
+
 		m, ok := current.(map[string]any)
 		if !ok {
 			return nil, false
 		}
-		current, ok = m[part]
+		current, ok = m[name]
 		if !ok {
 			return nil, false
 		}
+
+		for _, idx := range indices {
+			arr, ok := current.([]any)
+			if !ok {
+				return nil, false
+			}
+			if idx >= len(arr) {
+				return nil, false
+			}
+			current = arr[idx]
+		}
 	}
 	return current, true
+}
+
+// parsePathSegment splits a single dot-notation segment into its field name
+// and any trailing array indices. "intervals[0][1]" -> ("intervals", [0, 1]).
+// A segment with no brackets returns (segment, nil, true). Malformed brackets
+// (missing "]", non-integer index, negative index) return ("", nil, false).
+func parsePathSegment(part string) (string, []int, bool) {
+	bracket := strings.IndexByte(part, '[')
+	if bracket == -1 {
+		return part, nil, true
+	}
+	name := part[:bracket]
+	rest := part[bracket:]
+
+	var indices []int
+	for len(rest) > 0 {
+		if rest[0] != '[' {
+			return "", nil, false
+		}
+		end := strings.IndexByte(rest, ']')
+		if end == -1 {
+			return "", nil, false
+		}
+		idx, err := strconv.Atoi(rest[1:end])
+		if err != nil || idx < 0 {
+			return "", nil, false
+		}
+		indices = append(indices, idx)
+		rest = rest[end+1:]
+	}
+	return name, indices, true
 }
 
 // extractDataFromResponse extracts the data array from the full response.
