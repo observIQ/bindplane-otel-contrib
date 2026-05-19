@@ -37,6 +37,11 @@ const (
 
 	// BlobFormatText indicates blobs contain raw text
 	BlobFormatText BlobFormat = "text"
+
+	// BlobFormatRecordsJSON indicates blobs contain a single JSON document with
+	// a top-level "records" array (e.g. Azure NSG flow logs and Azure diagnostic
+	// settings exports). Each element of the array becomes one log record.
+	BlobFormatRecordsJSON BlobFormat = "records-json"
 )
 
 // Config is the configuration for the azure blob polling receiver
@@ -108,8 +113,10 @@ type Config struct {
 	FilenamePattern string `mapstructure:"filename_pattern"`
 
 	// BlobFormat specifies the format of blob contents.
-	// Supported values: "otlp" (default), "json" (NDJSON), "text" (raw text).
-	// "json" and "text" are only supported for logs pipelines.
+	// Supported values: "otlp" (default), "json" (NDJSON), "text" (raw text),
+	// "records-json" (single JSON document with a top-level "records" array,
+	// e.g. Azure NSG flow logs).
+	// Non-"otlp" formats are only supported for logs pipelines.
 	BlobFormat BlobFormat `mapstructure:"blob_format"`
 }
 
@@ -180,14 +187,14 @@ func (c *Config) Validate() error {
 	// Validate blob_format if set
 	if c.BlobFormat != "" {
 		switch c.BlobFormat {
-		case BlobFormatOTLP, BlobFormatJSON, BlobFormatText:
+		case BlobFormatOTLP, BlobFormatJSON, BlobFormatText, BlobFormatRecordsJSON:
 			// valid
 		default:
-			return fmt.Errorf("blob_format must be one of: %s, %s, %s", BlobFormatOTLP, BlobFormatJSON, BlobFormatText)
+			return fmt.Errorf("blob_format must be one of: %s, %s, %s, %s", BlobFormatOTLP, BlobFormatJSON, BlobFormatText, BlobFormatRecordsJSON)
 		}
 
-		// blob_format json and text are only supported for logs pipelines
-		if (c.BlobFormat == BlobFormatJSON || c.BlobFormat == BlobFormatText) &&
+		// non-otlp formats are only supported for logs pipelines
+		if c.BlobFormat != BlobFormatOTLP &&
 			c.TelemetryType != "" && c.TelemetryType != "logs" {
 			return fmt.Errorf("blob_format %q is only supported for logs pipelines, got telemetry_type %q", c.BlobFormat, c.TelemetryType)
 		}

@@ -54,7 +54,8 @@ service:
 #   - root_folder uses a glob (*) so one receiver covers every NSG in the container.
 #   - The matched root is stripped from the blob name before time_pattern is applied,
 #     so the same time_pattern works for every NSG.
-#   - blob_format: json is required — NSG records are NDJSON, not OTLP.
+#   - blob_format: records-json unwraps the {"records":[...]} envelope that
+#     Azure writes for NSG flow logs (and most diagnostic-settings exports).
 #   - filename_pattern restricts ingestion to the hourly PT1H.json file.
 # ------------------------------------------------------------------------------
 receivers:
@@ -66,7 +67,7 @@ receivers:
     root_folder: "flowLogResourceID=/*/*"
     time_pattern: "y={year}/m={month}/d={day}/h={hour}/m={minute}"
     telemetry_type: "logs"
-    blob_format: "json"
+    blob_format: "records-json"
     filename_pattern: "PT1H\\.json$"
     storage: "file_storage"
     batch_size: 100

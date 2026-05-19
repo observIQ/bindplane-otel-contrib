@@ -1,6 +1,8 @@
 # Azure Blob Storage Polling Receiver
 
-Continuously polls Azure Blob Storage at configurable intervals and dynamically adjusts the time window to collect only new data from each interval. This receiver is designed for ongoing data collection from Azure Blob Storage that was stored using the Azure Blob Exporter [../../exporter/azureblobexporter/README.md].
+Continuously polls Azure Blob Storage at configurable intervals and dynamically adjusts the time window to collect only new data from each interval.
+
+The receiver was originally built to pair with the [Azure Blob Exporter](../../exporter/azureblobexporter/README.md), which writes OTLP JSON blobs under a `year=/month=/day=/hour=/minute=/` folder structure. It also supports arbitrary Azure Blob layouts via configurable [`time_pattern`](#mode-3-custom-time-pattern) / [`use_last_modified`](#mode-2-lastmodified-timestamp) modes, [glob `root_folder`](#glob-root-folders) expansion across multiple resource directories, and several [blob payload formats](#blob-format) (`otlp`, NDJSON, raw text, and `{"records":[...]}` envelopes used by Azure NSG flow logs and most diagnostic-settings exports).
 
 ## Important Note
 
@@ -75,13 +77,14 @@ This prevents duplicate processing of blobs and ensures data continuity across c
 
 By default, the receiver expects blobs to contain OTLP-formatted JSON (as written by the Azure Blob Exporter). The `blob_format` option allows the receiver to parse other formats.
 
-| Format | Description                                                                                                                                                                          |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `otlp` | (Default) OTLP JSON format. Blobs are unmarshaled using the standard OpenTelemetry `plog.JSONUnmarshaler`. Use this when blobs were written by the Azure Blob Exporter.             |
-| `json` | Newline-delimited JSON (NDJSON). Each line is parsed as a JSON object and becomes a separate log record with the parsed object as the body. Malformed lines are skipped with a warning. |
-| `text` | Raw text. The entire blob content is set as the body of a single log record.                                                                                                        |
+| Format         | Description                                                                                                                                                                                                                                                                                                                            |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `otlp`         | (Default) OTLP JSON format. Blobs are unmarshaled using the standard OpenTelemetry `plog.JSONUnmarshaler`. Use this when blobs were written by the Azure Blob Exporter.                                                                                                                                                                |
+| `json`         | Newline-delimited JSON (NDJSON). Each line is parsed as a JSON object and becomes a separate log record with the parsed object as the body. Malformed lines are skipped with a warning.                                                                                                                                               |
+| `text`         | Raw text. The entire blob content is set as the body of a single log record.                                                                                                                                                                                                                                                          |
+| `records-json` | Single JSON document with a top-level `records` array. Each element of the array becomes one log record with the element as the body. Use this for Azure NSG flow logs and most Azure diagnostic-settings exports, which ship as `{"records":[...]}`. Malformed records are skipped; an invalid top-level document is an error. |
 
-`json` and `text` are only supported on **logs** pipelines. Metrics and traces pipelines only support `otlp`.
+Non-`otlp` formats are only supported on **logs** pipelines. Metrics and traces pipelines only support `otlp`.
 
 ### NDJSON Example
 
@@ -134,6 +137,17 @@ Azure NSG flow logs are written to Blob Storage under a path structure that incl
 flowLogResourceID=/<SUB>_<RG>/<NSG>/y=YYYY/m=MM/d=DD/h=HH/m=MM/macAddress=.../PT1H.json
 ```
 
+Each `PT1H.json` blob is a single JSON document of the form:
+
+```json
+{
+  "records": [
+    { "time": "2026-05-16T16:00:00Z", "category": "NetworkSecurityGroupFlowEvent", "...": "..." },
+    { "time": "2026-05-16T16:01:00Z", "category": "NetworkSecurityGroupFlowEvent", "...": "..." }
+  ]
+}
+```
+
 This configuration ingests flow logs across every NSG in the container with a single receiver instance:
 
 ```yaml
@@ -144,7 +158,7 @@ azureblobpolling:
   root_folder: "flowLogResourceID=/*/*"      # one entry per NSG resource
   time_pattern: "y={year}/m={month}/d={day}/h={hour}/m={minute}"
   telemetry_type: "logs"
-  blob_format: "json"                         # NSG flow logs are JSON records
+  blob_format: "records-json"                 # unwrap the {"records":[...]} envelope
   filename_pattern: "PT1H\\.json$"            # only ingest the hourly flow-log file
   storage: "file_storage"
 ```
@@ -153,7 +167,7 @@ How the pieces fit together:
 
 - `root_folder: "flowLogResourceID=/*/*"` lists one directory per NSG (subscription/RG segment, then NSG segment). New NSGs added to Azure are picked up automatically on the next poll.
 - `time_pattern` extracts the timestamp from the `y=/m=/d=/h=/m=` segments. The matched `root_folder` is stripped before matching, so the same pattern works regardless of which NSG produced the blob.
-- `blob_format: "json"` parses each line of the blob as a JSON object. (The default `otlp` would reject NSG records since they are not OTLP-formatted.)
+- `blob_format: "records-json"` unwraps the `{"records":[...]}` envelope so each flow record becomes a separate log. (Use `json` only if the blobs are already NDJSON; use the default `otlp` only for blobs written by the Azure Blob Exporter.)
 - `filename_pattern` keeps the receiver from picking up any non-`PT1H.json` files Azure may write alongside the records.
 
 ## Example Configuration
