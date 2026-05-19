@@ -681,3 +681,37 @@ func TestPollingReceiver_MultiBatchNoDataLoss(t *testing.T) {
 		require.Equal(t, now.Add(-1*time.Second), *receiver.lastBlobTime)
 	})
 }
+
+func TestPollingReceiver_trimMatchedRoot(t *testing.T) {
+	t.Run("trims longest matching root and leading slash", func(t *testing.T) {
+		r := &pollingReceiver{
+			expandedRoots: []string{
+				"flowLogResourceID=/SUB_A_RG/NSG_A",
+				"flowLogResourceID=/SUB_B_RG/NSG_B",
+			},
+		}
+		got := r.trimMatchedRoot("flowLogResourceID=/SUB_A_RG/NSG_A/y=2026/m=05/d=16/h=16/m=00/macAddress=AA/PT1H.json")
+		require.Equal(t, "y=2026/m=05/d=16/h=16/m=00/macAddress=AA/PT1H.json", got)
+	})
+
+	t.Run("returns input unchanged when no root matches", func(t *testing.T) {
+		r := &pollingReceiver{
+			expandedRoots: []string{"some/other/prefix"},
+		}
+		input := "flowLogResourceID=/X/Y/y=2026/m=05/d=16/h=16/m=00/PT1H.json"
+		require.Equal(t, input, r.trimMatchedRoot(input))
+	})
+
+	t.Run("returns input unchanged when expandedRoots is empty", func(t *testing.T) {
+		r := &pollingReceiver{}
+		input := "year=2024/month=03/day=15/logs_data.json"
+		require.Equal(t, input, r.trimMatchedRoot(input))
+	})
+
+	t.Run("ignores empty root entries", func(t *testing.T) {
+		r := &pollingReceiver{
+			expandedRoots: []string{"", "logs"},
+		}
+		require.Equal(t, "2024/03/15/file.json", r.trimMatchedRoot("logs/2024/03/15/file.json"))
+	})
+}

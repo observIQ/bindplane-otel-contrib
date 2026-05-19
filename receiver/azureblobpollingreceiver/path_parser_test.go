@@ -157,4 +157,20 @@ func TestParseTimeFromPattern(t *testing.T) {
 		expected := time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC)
 		require.Equal(t, expected, *parsedTime)
 	})
+
+	t.Run("Placeholder pattern - matches anywhere in path (NSG flow-log layout)", func(t *testing.T) {
+		// Azure NSG flow logs are stored at paths like:
+		//   flowLogResourceID=/<SUB>_<RG>/<NSG>/y=YYYY/m=MM/d=DD/h=HH/m=MM/macAddress=.../PT1H.json
+		// The path before "y=..." varies per resource, so the pattern must be
+		// allowed to match somewhere other than the start of the blob name.
+		pattern := "y={year}/m={month}/d={day}/h={hour}/m={minute}"
+		blobPath := "flowLogResourceID=/00000000-0000-0000-0000-000000000000_EXAMPLERG/EXAMPLE_NSG/y=2026/m=05/d=16/h=16/m=00/macAddress=AABBCCDDEEFF/PT1H.json"
+
+		parsedTime, err := parseTimeFromPattern(blobPath, pattern)
+		require.NoError(t, err)
+		require.NotNil(t, parsedTime)
+
+		expected := time.Date(2026, 5, 16, 16, 0, 0, 0, time.UTC)
+		require.Equal(t, expected, *parsedTime)
+	})
 }

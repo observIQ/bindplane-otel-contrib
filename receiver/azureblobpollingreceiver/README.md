@@ -63,7 +63,7 @@ This prevents duplicate processing of blobs and ensures data continuity across c
 | connection_string | string   |                       | `true`   | The connection string to the Azure Blob Storage account. Can be found under the `Access keys` section of your storage account.                                              |
 | container         | string   |                       | `true`   | The name of the container to poll from.                                                                                                                                     |
 | poll_interval     | duration |                       | `true`   | The interval at which to poll for new blobs. Must be at least 1 minute. The receiver will continuously poll at this interval and collect blobs created since the last poll. |
-| root_folder       | string   |                       | `false`  | The root folder that prefixes the blob path. Should match the `root_folder` value of the Azure Blob Exporter.                                                               |
+| root_folder       | string   |                       | `false`  | The root folder that prefixes the blob path. Should match the `root_folder` value of the Azure Blob Exporter. Supports glob patterns (`*`, `?`, `[...]`) to match multiple directories — see [Glob Root Folders](#glob-root-folders). |
 | initial_lookback  | duration | same as poll_interval | `false`  | The duration to look back on the first poll when no checkpoint exists. For example, if set to `1h`, on first startup the receiver will look for blobs from the last hour.   |
 | delete_on_read    | bool     | `false`               | `false`  | If `true` the blob will be deleted after being processed.                                                                                                                   |
 | storage           | string   |                       | `false`  | The component ID of a storage extension. The storage extension persists checkpoint data across collector restarts, ensuring no data loss or duplication.                    |
@@ -125,6 +125,36 @@ azureblobpolling:
 ```
 
 The entire blob content is set as the string body of a single log record.
+
+### Azure NSG Flow Logs Example
+
+Azure NSG flow logs are written to Blob Storage under a path structure that includes the resource ID as a variable prefix and uses single-letter time segments:
+
+```
+flowLogResourceID=/<SUB>_<RG>/<NSG>/y=YYYY/m=MM/d=DD/h=HH/m=MM/macAddress=.../PT1H.json
+```
+
+This configuration ingests flow logs across every NSG in the container with a single receiver instance:
+
+```yaml
+azureblobpolling:
+  connection_string: "..."
+  container: "insights-logs-networksecuritygroupflowevent"
+  poll_interval: 5m
+  root_folder: "flowLogResourceID=/*/*"      # one entry per NSG resource
+  time_pattern: "y={year}/m={month}/d={day}/h={hour}/m={minute}"
+  telemetry_type: "logs"
+  blob_format: "json"                         # NSG flow logs are JSON records
+  filename_pattern: "PT1H\\.json$"            # only ingest the hourly flow-log file
+  storage: "file_storage"
+```
+
+How the pieces fit together:
+
+- `root_folder: "flowLogResourceID=/*/*"` lists one directory per NSG (subscription/RG segment, then NSG segment). New NSGs added to Azure are picked up automatically on the next poll.
+- `time_pattern` extracts the timestamp from the `y=/m=/d=/h=/m=` segments. The matched `root_folder` is stripped before matching, so the same pattern works regardless of which NSG produced the blob.
+- `blob_format: "json"` parses each line of the blob as a JSON object. (The default `otlp` would reject NSG records since they are not OTLP-formatted.)
+- `filename_pattern` keeps the receiver from picking up any non-`PT1H.json` files Azure may write alongside the records.
 
 ## Example Configuration
 
@@ -194,6 +224,36 @@ azureblobpolling:
   batch_size: 100
   page_size: 1000
 ```
+
+### Glob Root Folders
+
+`root_folder` supports glob patterns to match multiple directories in one receiver. Supported metacharacters are `*` (any sequence within a single path segment), `?` (any single character), and `[...]` (character class). They are expanded by listing directory prefixes from Azure at startup of each poll and re-evaluated on every poll, so newly created directories are picked up automatically.
+
+Use cases:
+
+- One Azure container holds data for many tenants/resources under sibling directories (e.g. Azure NSG flow logs, where each NSG has its own resource-ID subtree).
+- You want a single receiver instance instead of one per directory.
+
+Example container layout:
+
+```
+flowLogResourceID=/SUB_A_RG/NSG_A/y=2026/m=05/d=16/h=16/m=00/macAddress=AA/PT1H.json
+flowLogResourceID=/SUB_B_RG/NSG_B/y=2026/m=05/d=16/h=16/m=00/macAddress=BB/PT1H.json
+```
+
+```yaml
+azureblobpolling:
+  connection_string: "..."
+  container: "flow-logs"
+  poll_interval: 5m
+  root_folder: "flowLogResourceID=/*/*"
+```
+
+Notes:
+
+- The static portion of the pattern (everything before the first metacharacter) is used as the Azure listing prefix, so the directory listing scales with the number of matching subdirectories, not the entire container.
+- If a glob matches zero directories, the poll completes without listing any blobs and logs a warning.
+- When `time_pattern` is also set, the matched root prefix is automatically stripped from each blob name before the pattern is applied. This lets one `time_pattern` work across all matched directories regardless of the variable prefix in front of the time segment.
 
 ### Delete on Read Configuration
 
@@ -484,7 +544,7 @@ service:
 | Field                      | Type   | Default | Required | Description                                                                                                                                                                                                                                       |
 | -------------------------- | ------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | use_last_modified          | bool   | `false` | `false`  | When `true`, uses the blob's LastModified timestamp instead of parsing the folder structure. Can be combined with `time_pattern` when `use_time_pattern_as_prefix` is enabled.                                                                    |
-| time_pattern               | string |         | `false`  | Custom pattern for extracting timestamps from blob paths. Supports named placeholders and Go time format. Can be combined with `use_last_modified` when `use_time_pattern_as_prefix` is enabled.                                                  |
+| time_pattern               | string |         | `false`  | Custom pattern for extracting timestamps from blob paths. Supports named placeholders and Go time format. The pattern is matched anywhere in the blob name; if `root_folder` (or a glob expansion of it) is a prefix of the blob, that prefix is stripped before matching. Can be combined with `use_last_modified` when `use_time_pattern_as_prefix` is enabled.                                                                                              |
 | use_time_pattern_as_prefix | bool   | `false` | `false`  | When `true`, uses the `time_pattern` to generate efficient prefixes for Azure API calls, significantly reducing the number of blobs scanned. Requires `time_pattern` to be set. Can be combined with `use_last_modified` for optimal performance. |
 | telemetry_type             | string |         | `false`  | Explicitly sets the telemetry type (`logs`, `metrics`, or `traces`). Required when using `time_pattern` or `use_last_modified`. Falls back to pipeline type if not set.                                                                           |
 | filename_pattern           | string |         | `false`  | Regex pattern to filter blobs by filename. Only matching blobs are processed.                                                                                                                                                                     |

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -60,6 +61,14 @@ type pollingReceiver struct {
 
 	filenameRegex *regexp.Regexp
 	cancelFunc    context.CancelFunc
+
+	// expandedRoots holds the root_folder prefixes resolved for the current poll
+	// (after glob expansion, or the static root_folder if no glob was used).
+	// It is consulted by shouldProcessBlob to strip the matching root prefix
+	// from blob.Name before applying time_pattern, so a single time_pattern can
+	// be used across multiple resource directories (e.g. NSG flow logs).
+	// Written from generatePrefixes; read from shouldProcessBlob on the same poll goroutine.
+	expandedRoots []string
 }
 
 // newMetricsReceiver creates a new metrics specific receiver.
@@ -337,6 +346,7 @@ func (r *pollingReceiver) generatePrefixes(ctx context.Context, startingTime, en
 	// Returns nil when no root_folder is configured (scan everything),
 	// or an empty slice when a glob matched zero directories (scan nothing).
 	rootFolders := r.expandGlobRootFolders(ctx)
+	r.expandedRoots = rootFolders
 
 	if rootFolders != nil && len(rootFolders) == 0 {
 		// Glob matched zero directories — return empty to scan nothing
@@ -559,8 +569,11 @@ func (r *pollingReceiver) shouldProcessBlob(blob *azureblob.BlobInfo, startingTi
 	}
 
 	if r.cfg.TimePattern != "" {
-		// Use custom time pattern mode
-		parsedTime, err := parseTimeFromPattern(blob.Name, r.cfg.TimePattern)
+		// Use custom time pattern mode. When root_folder (or a glob expansion of
+		// it) matches the start of the blob name, trim that prefix so the pattern
+		// is applied to the path relative to the matched root.
+		pathForPattern := r.trimMatchedRoot(blob.Name)
+		parsedTime, err := parseTimeFromPattern(pathForPattern, r.cfg.TimePattern)
 		if err != nil {
 			r.logger.Debug("Skipping blob, failed to parse time from pattern",
 				zap.String("blob", blob.Name),
@@ -701,4 +714,24 @@ func (r *pollingReceiver) conditionallyDeleteBlob(ctx context.Context, blob *azu
 		return nil
 	}
 	return r.azureClient.DeleteBlob(ctx, r.cfg.Container, blob.Name)
+}
+
+// trimMatchedRoot returns blobName with the longest matching root prefix from
+// r.expandedRoots removed (along with one leading "/"). If no root matches,
+// blobName is returned unchanged.
+func (r *pollingReceiver) trimMatchedRoot(blobName string) string {
+	var matched string
+	for _, root := range r.expandedRoots {
+		if root == "" {
+			continue
+		}
+		if strings.HasPrefix(blobName, root) && len(root) > len(matched) {
+			matched = root
+		}
+	}
+	if matched == "" {
+		return blobName
+	}
+	trimmed := strings.TrimPrefix(blobName, matched)
+	return strings.TrimPrefix(trimmed, "/")
 }

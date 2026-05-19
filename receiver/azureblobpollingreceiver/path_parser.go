@@ -72,8 +72,11 @@ func parseWithPlaceholders(blobPath, pattern string) (*time.Time, error) {
 		i += end + 1
 	}
 
-	// Compile and match the regex
-	re, err := regexp.Compile("^" + regexPattern)
+	// Compile and match the regex. The pattern is intentionally not anchored
+	// so a time_pattern like "y={year}/m={month}/d={day}/h={hour}/m={minute}"
+	// can match anywhere in the blob path (e.g. Azure NSG flow-log layouts
+	// prefixed by flowLogResourceID=/<sub>/<resource>/...).
+	re, err := regexp.Compile(regexPattern)
 	if err != nil {
 		return nil, fmt.Errorf("invalid pattern: %w", err)
 	}
