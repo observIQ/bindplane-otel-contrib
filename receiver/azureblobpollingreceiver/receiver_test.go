@@ -363,13 +363,14 @@ func TestPollingReceiver_GlobExpansion(t *testing.T) {
 		mockClient.AssertExpectations(t)
 	})
 
-	t.Run("ListPrefixes error falls back to static prefix", func(t *testing.T) {
+	t.Run("ListPrefixes error with fallback_on_glob_failure=true falls back to static prefix", func(t *testing.T) {
 		logger := zap.NewNop()
 		cfg := &Config{
-			Container:       "test-container",
-			RootFolder:      "linux/*",
-			PollInterval:    1 * time.Minute,
-			InitialLookback: 5 * time.Minute,
+			Container:             "test-container",
+			RootFolder:            "linux/*",
+			PollInterval:          1 * time.Minute,
+			InitialLookback:       5 * time.Minute,
+			FallbackOnGlobFailure: true,
 		}
 
 		mockClient := new(azureblob.MockBlobClient)
@@ -402,6 +403,42 @@ func TestPollingReceiver_GlobExpansion(t *testing.T) {
 
 		receiver.runPoll(ctx)
 
+		mockClient.AssertExpectations(t)
+	})
+
+	t.Run("ListPrefixes error with default (no fallback) scans nothing", func(t *testing.T) {
+		logger := zap.NewNop()
+		cfg := &Config{
+			Container:       "test-container",
+			RootFolder:      "linux/*",
+			PollInterval:    1 * time.Minute,
+			InitialLookback: 5 * time.Minute,
+			// FallbackOnGlobFailure is intentionally left at default (false)
+		}
+
+		mockClient := new(azureblob.MockBlobClient)
+		receiver := &pollingReceiver{
+			logger:          logger,
+			cfg:             cfg,
+			azureClient:     mockClient,
+			checkpoint:      NewPollingCheckpoint(),
+			pollInterval:    cfg.PollInterval,
+			initialLookback: cfg.InitialLookback,
+			mut:             &sync.Mutex{},
+			wg:              &sync.WaitGroup{},
+		}
+
+		ctx := context.Background()
+
+		mockClient.On("ListPrefixes", mock.Anything, "test-container", "linux/").
+			Return([]string(nil), errors.New("network error"))
+
+		receiver.runPoll(ctx)
+
+		// StreamBlobs must NOT be called — without opt-in, listing nothing is
+		// safer than potentially scanning the entire container.
+		mockClient.AssertCalled(t, "ListPrefixes", mock.Anything, "test-container", "linux/")
+		mockClient.AssertNotCalled(t, "StreamBlobs", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 		mockClient.AssertExpectations(t)
 	})
 }
@@ -689,35 +726,42 @@ func TestPollingReceiver_MultiBatchNoDataLoss(t *testing.T) {
 }
 
 func TestPollingReceiver_trimMatchedRoot(t *testing.T) {
-	t.Run("trims longest matching root and leading slash", func(t *testing.T) {
+	t.Run("trims longest matching root and reports trimmed=true", func(t *testing.T) {
 		r := &pollingReceiver{
 			expandedRoots: []string{
 				"flowLogResourceID=/SUB_A_RG/NSG_A",
 				"flowLogResourceID=/SUB_B_RG/NSG_B",
 			},
 		}
-		got := r.trimMatchedRoot("flowLogResourceID=/SUB_A_RG/NSG_A/y=2026/m=05/d=16/h=16/m=00/macAddress=AA/PT1H.json")
+		got, trimmed := r.trimMatchedRoot("flowLogResourceID=/SUB_A_RG/NSG_A/y=2026/m=05/d=16/h=16/m=00/macAddress=AA/PT1H.json")
+		require.True(t, trimmed)
 		require.Equal(t, "y=2026/m=05/d=16/h=16/m=00/macAddress=AA/PT1H.json", got)
 	})
 
-	t.Run("returns input unchanged when no root matches", func(t *testing.T) {
+	t.Run("returns input unchanged and trimmed=false when no root matches", func(t *testing.T) {
 		r := &pollingReceiver{
 			expandedRoots: []string{"some/other/prefix"},
 		}
 		input := "flowLogResourceID=/X/Y/y=2026/m=05/d=16/h=16/m=00/PT1H.json"
-		require.Equal(t, input, r.trimMatchedRoot(input))
+		got, trimmed := r.trimMatchedRoot(input)
+		require.False(t, trimmed)
+		require.Equal(t, input, got)
 	})
 
-	t.Run("returns input unchanged when expandedRoots is empty", func(t *testing.T) {
+	t.Run("returns input unchanged and trimmed=false when expandedRoots is empty", func(t *testing.T) {
 		r := &pollingReceiver{}
 		input := "year=2024/month=03/day=15/logs_data.json"
-		require.Equal(t, input, r.trimMatchedRoot(input))
+		got, trimmed := r.trimMatchedRoot(input)
+		require.False(t, trimmed)
+		require.Equal(t, input, got)
 	})
 
 	t.Run("ignores empty root entries", func(t *testing.T) {
 		r := &pollingReceiver{
 			expandedRoots: []string{"", "logs"},
 		}
-		require.Equal(t, "2024/03/15/file.json", r.trimMatchedRoot("logs/2024/03/15/file.json"))
+		got, trimmed := r.trimMatchedRoot("logs/2024/03/15/file.json")
+		require.True(t, trimmed)
+		require.Equal(t, "2024/03/15/file.json", got)
 	})
 }

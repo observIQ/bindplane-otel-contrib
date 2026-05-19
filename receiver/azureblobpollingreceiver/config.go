@@ -60,6 +60,14 @@ type Config struct {
 	// RootFolder is the name of the root folder in path.
 	RootFolder string `mapstructure:"root_folder"`
 
+	// FallbackOnGlobFailure controls behavior when root_folder is a glob and
+	// the Azure ListPrefixes call used to expand it fails. When false (default),
+	// the poll lists nothing for that cycle and an error is logged. When true,
+	// the receiver falls back to listing under the static portion of the glob,
+	// which on large containers (e.g. NSG flow logs) can produce a full-container
+	// scan and is only safe when the static prefix is known to be narrow.
+	FallbackOnGlobFailure bool `mapstructure:"fallback_on_glob_failure"`
+
 	// PollInterval is the interval at which to poll for new blobs. (no default, required)
 	// The receiver will continuously poll at this interval and dynamically adjust the time window
 	// to collect only new data from each interval.

@@ -399,11 +399,18 @@ func (r *pollingReceiver) expandGlobRootFolders(ctx context.Context) []string {
 
 	prefixes, err := r.azureClient.ListPrefixes(ctx, r.cfg.Container, staticPrefix)
 	if err != nil {
-		r.logger.Warn("Failed to list prefixes for glob expansion, falling back to static prefix",
+		if r.cfg.FallbackOnGlobFailure {
+			r.logger.Error("Failed to list prefixes for glob expansion, falling back to static prefix (fallback_on_glob_failure=true)",
+				zap.String("root_folder", r.cfg.RootFolder),
+				zap.String("static_prefix", staticPrefix),
+				zap.Error(err))
+			return []string{staticPrefix}
+		}
+		r.logger.Error("Failed to list prefixes for glob expansion; skipping this poll (set fallback_on_glob_failure=true to scan under the static prefix instead)",
 			zap.String("root_folder", r.cfg.RootFolder),
 			zap.String("static_prefix", staticPrefix),
 			zap.Error(err))
-		return []string{staticPrefix}
+		return []string{}
 	}
 
 	var matched []string
@@ -573,10 +580,13 @@ func (r *pollingReceiver) shouldProcessBlob(blob *azureblob.BlobInfo, startingTi
 
 	if r.cfg.TimePattern != "" {
 		// Use custom time pattern mode. When root_folder (or a glob expansion of
-		// it) matches the start of the blob name, trim that prefix so the pattern
-		// is applied to the path relative to the matched root.
-		pathForPattern := r.trimMatchedRoot(blob.Name)
-		parsedTime, err := parseTimeFromPattern(pathForPattern, r.cfg.TimePattern)
+		// it) matches the start of the blob name, trim that prefix and parse the
+		// remainder unanchored — this lets a pattern like "y={year}/m={month}/..."
+		// work regardless of the variable prefix Azure prepends per resource.
+		// When no root matched, the pattern must anchor at the start of the blob
+		// name as before, to avoid accidental matches in arbitrary positions.
+		pathForPattern, rootTrimmed := r.trimMatchedRoot(blob.Name)
+		parsedTime, err := parseTimeFromPattern(pathForPattern, r.cfg.TimePattern, !rootTrimmed)
 		if err != nil {
 			r.logger.Debug("Skipping blob, failed to parse time from pattern",
 				zap.String("blob", blob.Name),
@@ -720,9 +730,10 @@ func (r *pollingReceiver) conditionallyDeleteBlob(ctx context.Context, blob *azu
 }
 
 // trimMatchedRoot returns blobName with the longest matching root prefix from
-// r.expandedRoots removed (along with one leading "/"). If no root matches,
-// blobName is returned unchanged.
-func (r *pollingReceiver) trimMatchedRoot(blobName string) string {
+// r.expandedRoots removed (along with one leading "/"), and a bool indicating
+// whether a root was trimmed. If no root matches, blobName is returned unchanged
+// and the bool is false.
+func (r *pollingReceiver) trimMatchedRoot(blobName string) (string, bool) {
 	var matched string
 	for _, root := range r.expandedRoots {
 		if root == "" {
@@ -733,8 +744,8 @@ func (r *pollingReceiver) trimMatchedRoot(blobName string) string {
 		}
 	}
 	if matched == "" {
-		return blobName
+		return blobName, false
 	}
 	trimmed := strings.TrimPrefix(blobName, matched)
-	return strings.TrimPrefix(trimmed, "/")
+	return strings.TrimPrefix(trimmed, "/"), true
 }
