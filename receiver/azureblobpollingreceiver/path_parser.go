@@ -26,10 +26,17 @@ import (
 // Supports two formats:
 // 1. Named placeholders: {year}/{month}/{day}/{hour}/{minute}
 // 2. Go time format: 2006/01/02/15/04
-func parseTimeFromPattern(blobPath, pattern string) (*time.Time, error) {
+//
+// When anchored is true, the placeholder pattern must match from the start of
+// blobPath. When false, the pattern is allowed to match anywhere in blobPath,
+// which is appropriate after a known root_folder prefix has been trimmed (so
+// the layout left behind is variable-prefixed, e.g. NSG flow-log paths).
+// The Go time format branch is unaffected — it always parses the leading
+// components of blobPath.
+func parseTimeFromPattern(blobPath, pattern string, anchored bool) (*time.Time, error) {
 	// Try named placeholders first
 	if strings.Contains(pattern, "{") {
-		return parseWithPlaceholders(blobPath, pattern)
+		return parseWithPlaceholders(blobPath, pattern, anchored)
 	}
 
 	// Try Go time format
@@ -37,7 +44,7 @@ func parseTimeFromPattern(blobPath, pattern string) (*time.Time, error) {
 }
 
 // parseWithPlaceholders parses using named placeholders like {year}, {month}, etc.
-func parseWithPlaceholders(blobPath, pattern string) (*time.Time, error) {
+func parseWithPlaceholders(blobPath, pattern string, anchored bool) (*time.Time, error) {
 	// Map placeholders to regex patterns
 	placeholderMap := map[string]string{
 		"{year}":   `(\d{4})`,
@@ -72,8 +79,15 @@ func parseWithPlaceholders(blobPath, pattern string) (*time.Time, error) {
 		i += end + 1
 	}
 
-	// Compile and match the regex
-	re, err := regexp.Compile("^" + regexPattern)
+	// Compile and match the regex. When anchored, the pattern must match from
+	// the start of blobPath (the default for blobs whose root folder is empty
+	// or unconfigured). When unanchored, the pattern can match anywhere in
+	// blobPath — used after a known root_folder prefix has been trimmed (e.g.
+	// for Azure NSG flow-log layouts prefixed by flowLogResourceID=/<sub>/<resource>/...).
+	if anchored {
+		regexPattern = "^" + regexPattern
+	}
+	re, err := regexp.Compile(regexPattern)
 	if err != nil {
 		return nil, fmt.Errorf("invalid pattern: %w", err)
 	}

@@ -16,10 +16,32 @@ package azureblobpollingreceiver //import "github.com/observiq/bindplane-otel-co
 
 import (
 	"errors"
+	"fmt"
+	"path"
 	"regexp"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/collector/component"
+)
+
+// BlobFormat represents the format of blob contents
+type BlobFormat string
+
+const (
+	// BlobFormatOTLP indicates blobs contain OTLP-formatted JSON
+	BlobFormatOTLP BlobFormat = "otlp"
+
+	// BlobFormatJSON indicates blobs contain newline-delimited JSON (NDJSON)
+	BlobFormatJSON BlobFormat = "json"
+
+	// BlobFormatText indicates blobs contain raw text
+	BlobFormatText BlobFormat = "text"
+
+	// BlobFormatRecordsJSON indicates blobs contain a single JSON document with
+	// a top-level "records" array (e.g. Azure NSG flow logs and Azure diagnostic
+	// settings exports). Each element of the array becomes one log record.
+	BlobFormatRecordsJSON BlobFormat = "records-json"
 )
 
 // Config is the configuration for the azure blob polling receiver
@@ -37,6 +59,14 @@ type Config struct {
 
 	// RootFolder is the name of the root folder in path.
 	RootFolder string `mapstructure:"root_folder"`
+
+	// FallbackOnGlobFailure controls behavior when root_folder is a glob and
+	// the Azure ListPrefixes call used to expand it fails. When false (default),
+	// the poll lists nothing for that cycle and an error is logged. When true,
+	// the receiver falls back to listing under the static portion of the glob,
+	// which on large containers (e.g. NSG flow logs) can produce a full-container
+	// scan and is only safe when the static prefix is known to be narrow.
+	FallbackOnGlobFailure bool `mapstructure:"fallback_on_glob_failure"`
 
 	// PollInterval is the interval at which to poll for new blobs. (no default, required)
 	// The receiver will continuously poll at this interval and dynamically adjust the time window
@@ -89,6 +119,13 @@ type Config struct {
 	//   "app-.*\\.log" matches "app-server.log", "app-client.log"
 	// If not specified, all blobs matching the time pattern will be processed
 	FilenamePattern string `mapstructure:"filename_pattern"`
+
+	// BlobFormat specifies the format of blob contents.
+	// Supported values: "otlp" (default), "json" (NDJSON), "text" (raw text),
+	// "records-json" (single JSON document with a top-level "records" array,
+	// e.g. Azure NSG flow logs).
+	// Non-"otlp" formats are only supported for logs pipelines.
+	BlobFormat BlobFormat `mapstructure:"blob_format"`
 }
 
 // Validate validates the config
@@ -140,11 +177,34 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Validate root_folder glob pattern if it contains glob characters
+	if c.RootFolder != "" && strings.ContainsAny(c.RootFolder, "*?[") {
+		if _, err := path.Match(c.RootFolder, ""); err != nil {
+			return errors.New("root_folder contains an invalid glob pattern: " + err.Error())
+		}
+	}
+
 	// Validate filename_pattern is a valid regex if set
 	if c.FilenamePattern != "" {
 		_, err := regexp.Compile(c.FilenamePattern)
 		if err != nil {
 			return errors.New("filename_pattern must be a valid regex: " + err.Error())
+		}
+	}
+
+	// Validate blob_format if set
+	if c.BlobFormat != "" {
+		switch c.BlobFormat {
+		case BlobFormatOTLP, BlobFormatJSON, BlobFormatText, BlobFormatRecordsJSON:
+			// valid
+		default:
+			return fmt.Errorf("blob_format must be one of: %s, %s, %s, %s", BlobFormatOTLP, BlobFormatJSON, BlobFormatText, BlobFormatRecordsJSON)
+		}
+
+		// non-otlp formats are only supported for logs pipelines
+		if c.BlobFormat != BlobFormatOTLP &&
+			c.TelemetryType != "" && c.TelemetryType != "logs" {
+			return fmt.Errorf("blob_format %q is only supported for logs pipelines, got telemetry_type %q", c.BlobFormat, c.TelemetryType)
 		}
 	}
 

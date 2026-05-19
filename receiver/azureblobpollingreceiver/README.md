@@ -1,6 +1,8 @@
 # Azure Blob Storage Polling Receiver
 
-Continuously polls Azure Blob Storage at configurable intervals and dynamically adjusts the time window to collect only new data from each interval. This receiver is designed for ongoing data collection from Azure Blob Storage that was stored using the Azure Blob Exporter [../../exporter/azureblobexporter/README.md].
+Continuously polls Azure Blob Storage at configurable intervals and dynamically adjusts the time window to collect only new data from each interval.
+
+The receiver was originally built to pair with the [Azure Blob Exporter](../../exporter/azureblobexporter/README.md), which writes OTLP JSON blobs under a `year=/month=/day=/hour=/minute=/` folder structure. It also supports arbitrary Azure Blob layouts via configurable [`time_pattern`](#mode-3-custom-time-pattern) / [`use_last_modified`](#mode-2-lastmodified-timestamp) modes, [glob `root_folder`](#glob-root-folders) expansion across multiple resource directories, and several [blob payload formats](#blob-format) (`otlp`, NDJSON, raw text, and `{"records":[...]}` envelopes used by Azure NSG flow logs and most diagnostic-settings exports).
 
 ## Important Note
 
@@ -63,12 +65,110 @@ This prevents duplicate processing of blobs and ensures data continuity across c
 | connection_string | string   |                       | `true`   | The connection string to the Azure Blob Storage account. Can be found under the `Access keys` section of your storage account.                                              |
 | container         | string   |                       | `true`   | The name of the container to poll from.                                                                                                                                     |
 | poll_interval     | duration |                       | `true`   | The interval at which to poll for new blobs. Must be at least 1 minute. The receiver will continuously poll at this interval and collect blobs created since the last poll. |
-| root_folder       | string   |                       | `false`  | The root folder that prefixes the blob path. Should match the `root_folder` value of the Azure Blob Exporter.                                                               |
+| root_folder       | string   |                       | `false`  | The root folder that prefixes the blob path. Should match the `root_folder` value of the Azure Blob Exporter. Supports glob patterns (`*`, `?`, `[...]`) to match multiple directories — see [Glob Root Folders](#glob-root-folders). |
 | initial_lookback  | duration | same as poll_interval | `false`  | The duration to look back on the first poll when no checkpoint exists. For example, if set to `1h`, on first startup the receiver will look for blobs from the last hour.   |
 | delete_on_read    | bool     | `false`               | `false`  | If `true` the blob will be deleted after being processed.                                                                                                                   |
 | storage           | string   |                       | `false`  | The component ID of a storage extension. The storage extension persists checkpoint data across collector restarts, ensuring no data loss or duplication.                    |
 | batch_size        | int      | `30`                  | `false`  | The number of blobs to download and process in the pipeline simultaneously. This parameter directly impacts performance by controlling the concurrent blob download limit.  |
 | page_size         | int      | `1000`                | `false`  | The maximum number of blob information to request in a single API call.                                                                                                     |
+| blob_format       | string   | `otlp`                | `false`  | The format of blob contents. Supported values: `otlp`, `json`, `text`. See [Blob Format](#blob-format) below.                                                              |
+
+## Blob Format
+
+By default, the receiver expects blobs to contain OTLP-formatted JSON (as written by the Azure Blob Exporter). The `blob_format` option allows the receiver to parse other formats.
+
+| Format         | Description                                                                                                                                                                                                                                                                                                                            |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `otlp`         | (Default) OTLP JSON format. Blobs are unmarshaled using the standard OpenTelemetry `plog.JSONUnmarshaler`. Use this when blobs were written by the Azure Blob Exporter.                                                                                                                                                                |
+| `json`         | Newline-delimited JSON (NDJSON). Each line is parsed as a JSON object and becomes a separate log record with the parsed object as the body. Malformed lines are skipped with a warning.                                                                                                                                               |
+| `text`         | Raw text. The entire blob content is set as the body of a single log record.                                                                                                                                                                                                                                                          |
+| `records-json` | Single JSON document with a top-level `records` array. Each element of the array becomes one log record with the element as the body. Use this for Azure NSG flow logs and most Azure diagnostic-settings exports, which ship as `{"records":[...]}`. Malformed records are skipped; an invalid top-level document is an error. |
+
+Non-`otlp` formats are only supported on **logs** pipelines. Metrics and traces pipelines only support `otlp`.
+
+### NDJSON Example
+
+For blobs containing newline-delimited JSON such as:
+
+```json
+{"_time":1770273621.586,"host":"server1","_raw":"Connection established"}
+{"_time":1770273622.100,"host":"server2","_raw":"Request completed"}
+```
+
+Configure the receiver with `blob_format: json`:
+
+```yaml
+azureblobpolling:
+  connection_string: "..."
+  container: "raw-logs"
+  poll_interval: 1m
+  use_last_modified: true
+  telemetry_type: "logs"
+  blob_format: "json"
+  storage: "file_storage"
+```
+
+Each JSON line becomes a log record with:
+- **Body**: A map containing the parsed JSON fields (e.g., `_time`, `host`, `_raw`)
+- **ObservedTimestamp**: Set to the time the blob was processed
+
+### Raw Text Example
+
+For blobs containing plain text (e.g., raw syslog):
+
+```yaml
+azureblobpolling:
+  connection_string: "..."
+  container: "syslog-archive"
+  poll_interval: 5m
+  use_last_modified: true
+  telemetry_type: "logs"
+  blob_format: "text"
+  storage: "file_storage"
+```
+
+The entire blob content is set as the string body of a single log record.
+
+### Azure NSG Flow Logs Example
+
+Azure NSG flow logs are written to Blob Storage under a path structure that includes the resource ID as a variable prefix and uses single-letter time segments:
+
+```
+flowLogResourceID=/<SUB>_<RG>/<NSG>/y=YYYY/m=MM/d=DD/h=HH/m=MM/macAddress=.../PT1H.json
+```
+
+Each `PT1H.json` blob is a single JSON document of the form:
+
+```json
+{
+  "records": [
+    { "time": "2026-05-16T16:00:00Z", "category": "NetworkSecurityGroupFlowEvent", "...": "..." },
+    { "time": "2026-05-16T16:01:00Z", "category": "NetworkSecurityGroupFlowEvent", "...": "..." }
+  ]
+}
+```
+
+This configuration ingests flow logs across every NSG in the container with a single receiver instance:
+
+```yaml
+azureblobpolling:
+  connection_string: "..."
+  container: "insights-logs-networksecuritygroupflowevent"
+  poll_interval: 5m
+  root_folder: "flowLogResourceID=/*/*"      # one entry per NSG resource
+  time_pattern: "y={year}/m={month}/d={day}/h={hour}/m={minute}"
+  telemetry_type: "logs"
+  blob_format: "records-json"                 # unwrap the {"records":[...]} envelope
+  filename_pattern: "PT1H\\.json$"            # only ingest the hourly flow-log file
+  storage: "file_storage"
+```
+
+How the pieces fit together:
+
+- `root_folder: "flowLogResourceID=/*/*"` lists one directory per NSG (subscription/RG segment, then NSG segment). New NSGs added to Azure are picked up automatically on the next poll.
+- `time_pattern` extracts the timestamp from the `y=/m=/d=/h=/m=` segments. The matched `root_folder` is stripped before matching, so the same pattern works regardless of which NSG produced the blob.
+- `blob_format: "records-json"` unwraps the `{"records":[...]}` envelope so each flow record becomes a separate log. (Use `json` only if the blobs are already NDJSON; use the default `otlp` only for blobs written by the Azure Blob Exporter.)
+- `filename_pattern` keeps the receiver from picking up any non-`PT1H.json` files Azure may write alongside the records.
 
 ## Example Configuration
 
@@ -138,6 +238,37 @@ azureblobpolling:
   batch_size: 100
   page_size: 1000
 ```
+
+### Glob Root Folders
+
+`root_folder` supports glob patterns to match multiple directories in one receiver. Supported metacharacters are `*` (any sequence within a single path segment), `?` (any single character), and `[...]` (character class). They are expanded by listing directory prefixes from Azure at startup of each poll and re-evaluated on every poll, so newly created directories are picked up automatically.
+
+Use cases:
+
+- One Azure container holds data for many tenants/resources under sibling directories (e.g. Azure NSG flow logs, where each NSG has its own resource-ID subtree).
+- You want a single receiver instance instead of one per directory.
+
+Example container layout:
+
+```
+flowLogResourceID=/SUB_A_RG/NSG_A/y=2026/m=05/d=16/h=16/m=00/macAddress=AA/PT1H.json
+flowLogResourceID=/SUB_B_RG/NSG_B/y=2026/m=05/d=16/h=16/m=00/macAddress=BB/PT1H.json
+```
+
+```yaml
+azureblobpolling:
+  connection_string: "..."
+  container: "flow-logs"
+  poll_interval: 5m
+  root_folder: "flowLogResourceID=/*/*"
+```
+
+Notes:
+
+- The static portion of the pattern (everything before the first metacharacter) is used as the Azure listing prefix, so the directory listing scales with the number of matching subdirectories, not the entire container.
+- If a glob matches zero directories, the poll completes without listing any blobs and logs a warning.
+- When `time_pattern` is also set, the matched root prefix is automatically stripped from each blob name before the pattern is applied. This lets one `time_pattern` work across all matched directories regardless of the variable prefix in front of the time segment.
+- If the `ListPrefixes` call used to expand the glob fails (Azure transient error, throttling, etc.), the poll lists **nothing** for that cycle and logs an error. Set `fallback_on_glob_failure: true` to instead fall back to scanning under the static portion of the glob. The fallback is opt-in because on broad globs (e.g. `flowLogResourceID=/*/*`) the static prefix can list the entire container, which is rarely what you want as a silent failure mode.
 
 ### Delete on Read Configuration
 
@@ -428,7 +559,8 @@ service:
 | Field                      | Type   | Default | Required | Description                                                                                                                                                                                                                                       |
 | -------------------------- | ------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | use_last_modified          | bool   | `false` | `false`  | When `true`, uses the blob's LastModified timestamp instead of parsing the folder structure. Can be combined with `time_pattern` when `use_time_pattern_as_prefix` is enabled.                                                                    |
-| time_pattern               | string |         | `false`  | Custom pattern for extracting timestamps from blob paths. Supports named placeholders and Go time format. Can be combined with `use_last_modified` when `use_time_pattern_as_prefix` is enabled.                                                  |
+| time_pattern               | string |         | `false`  | Custom pattern for extracting timestamps from blob paths. Supports named placeholders and Go time format. When `root_folder` (or a glob expansion of it) is a prefix of the blob name, that prefix is stripped and the pattern is matched anywhere in the remainder; otherwise the pattern is anchored to the start of the blob name. Can be combined with `use_last_modified` when `use_time_pattern_as_prefix` is enabled.                                |
+| fallback_on_glob_failure   | bool   | `false` | `false`  | When `true` and `root_folder` is a glob, a failure of the Azure `ListPrefixes` call used to expand the glob falls back to scanning under the static portion of the pattern. When `false` (default), the poll lists nothing for that cycle and logs an error. Leave this off on broad globs to avoid silent full-container scans.                                                                                                                            |
 | use_time_pattern_as_prefix | bool   | `false` | `false`  | When `true`, uses the `time_pattern` to generate efficient prefixes for Azure API calls, significantly reducing the number of blobs scanned. Requires `time_pattern` to be set. Can be combined with `use_last_modified` for optimal performance. |
 | telemetry_type             | string |         | `false`  | Explicitly sets the telemetry type (`logs`, `metrics`, or `traces`). Required when using `time_pattern` or `use_last_modified`. Falls back to pipeline type if not set.                                                                           |
 | filename_pattern           | string |         | `false`  | Regex pattern to filter blobs by filename. Only matching blobs are processed.                                                                                                                                                                     |

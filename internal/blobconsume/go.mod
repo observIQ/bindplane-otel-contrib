@@ -9,6 +9,7 @@ require (
 	go.opentelemetry.io/collector/consumer v1.57.0
 	go.opentelemetry.io/collector/consumer/consumertest v0.151.0
 	go.opentelemetry.io/collector/pdata v1.57.0
+	go.uber.org/zap v1.28.0
 )
 
 require (
@@ -23,7 +24,6 @@ require (
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
-	go.uber.org/zap v1.28.0 // indirect
 )
 
 require (
