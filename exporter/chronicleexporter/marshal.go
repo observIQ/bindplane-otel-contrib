@@ -312,18 +312,15 @@ func (m *protoMarshaler) getHTTPIngestionLabels(logRecord plog.LogRecord) (map[s
 		return nil, fmt.Errorf("get chronicle ingestion labels: %w", err)
 	}
 
-	if len(ingestionLabels) != 0 {
-		return ingestionLabels, nil
-	}
-
-	// use labels defined in the config if needed
-	configLabels := make(map[string]*api.Log_LogLabel)
+	// merge in labels defined in config, using the labels defined in the log record if they exist
 	for key, value := range m.cfg.IngestionLabels {
-		configLabels[key] = &api.Log_LogLabel{
-			Value: value,
+		if _, exists := ingestionLabels[key]; !exists {
+			ingestionLabels[key] = &api.Log_LogLabel{
+				Value: value,
+			}
 		}
 	}
-	return configLabels, nil
+	return ingestionLabels, nil
 }
 
 // getRawField is a helper function to get the raw value of a field from a log record
