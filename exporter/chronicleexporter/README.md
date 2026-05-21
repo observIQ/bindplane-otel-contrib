@@ -72,7 +72,7 @@ If the `attributes["chronicle_log_type"]` field is present in the log, its value
 
 If the `attributes["chronicle_namespace"]` field is present in the log, its value will be used in the payload instead of the `namespace` in the config.
 
-Ingested labels defined in `attributes["chronicle_ingestion_label"]` are merged with the `ingestion_labels` in the config. When the same label key is set in both places, the value from the log record attribute takes precedence.
+Any labels defined by key value pairs in a nested map at `attributes["chronicle_ingestion_label"]` are merged with the `ingestion_labels` in the config. When the same label key is set in both places, the value from the attribute takes precedence over that from the config.
 
 ## Credentials
 
