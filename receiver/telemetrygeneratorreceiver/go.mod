@@ -1,8 +1,9 @@
 module github.com/observiq/bindplane-otel-contrib/receiver/telemetrygeneratorreceiver
 
-go 1.25.9
+go 1.26.0
 
 require (
+	github.com/observiq/blitz v0.19.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden v0.153.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest v0.153.0
 	github.com/stretchr/testify v1.11.1
