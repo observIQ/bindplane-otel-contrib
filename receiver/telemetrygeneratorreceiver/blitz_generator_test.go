@@ -16,7 +16,9 @@ package telemetrygeneratorreceiver
 
 import (
 	"context"
+	"io/fs"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/observiq/blitz/embed"
@@ -294,6 +296,33 @@ metrics:
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "hostmetrics", "rejection error should mention the rejected module type")
 }
+
+func TestAssertEmbeddedLibraryAvailable(t *testing.T) {
+	t.Run("populated FS passes", func(t *testing.T) {
+		populated := fstest.MapFS{"syslog_generic/sample.log": &fstest.MapFile{Data: []byte("ok")}}
+		assert.NoError(t, assertEmbeddedLibraryAvailable(populated))
+	})
+	t.Run("empty fstest.MapFS passes (non-zero entries)", func(t *testing.T) {
+		// Sanity: fstest.MapFS with one entry yields a non-empty ReadDir.
+		assert.NoError(t, assertEmbeddedLibraryAvailable(fstest.MapFS{"a": &fstest.MapFile{}}))
+	})
+	t.Run("ReadDir-erroring FS fails with build-tag hint", func(t *testing.T) {
+		err := assertEmbeddedLibraryAvailable(erroringFS{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "-tags embed_library")
+	})
+	t.Run("truly empty FS fails", func(t *testing.T) {
+		err := assertEmbeddedLibraryAvailable(fstest.MapFS{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "-tags embed_library")
+	})
+}
+
+// erroringFS mimics the embeddedlibrary off-tag stub: every Open call
+// returns fs.ErrNotExist, which propagates through fs.ReadDir.
+type erroringFS struct{}
+
+func (erroringFS) Open(string) (fs.File, error) { return nil, fs.ErrNotExist }
 
 func TestBuildBlitzModules_MissingShape(t *testing.T) {
 	logger := zaptest.NewLogger(t)

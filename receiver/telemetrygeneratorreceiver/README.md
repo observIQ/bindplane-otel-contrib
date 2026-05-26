@@ -166,3 +166,90 @@ telemetrygeneratorreceiver:
     generators:
         - type: windows_events          
 ```       
+
+### Blitz Generator (logs only)
+
+The `blitz` generator type pulls structured telemetry from the [blitz](https://github.com/observIQ/blitz) embed package and converts it to OTel `pdata`. v1 of this integration is **logs-only** and supports two complementary configuration shapes — curated recipes and pasted blitz YAML. See [PIPE-1017](https://linear.app/bindplane/issue/PIPE-1017) for context and [docs/embed.md](https://github.com/observIQ/blitz/blob/main/docs/embed.md) in the blitz repo for the underlying contract.
+
+#### Build requirement
+
+**Any binary that links this receiver MUST be built with `-tags embed_library`.** The tag bakes the blitz filegen data library into the binary so `package:<name>` references in `blitz_yaml` configs resolve without an on-disk install of `data_library/`. The receiver fails fast at Start time if the tag was omitted and any `Type: "blitz"` entries are configured.
+
+For BDOT goreleaser builds, add `-tags embed_library` to the build flags. For local development:
+
+```sh
+go build -tags embed_library ./...
+go test -tags embed_library ./...
+```
+
+#### Supported pipelines
+
+`Type: "blitz"` is only valid on a **logs** pipeline. The receiver factory rejects `blitz` entries on metrics or traces pipelines at startup with a clear error. Metric and trace support arrives in a follow-up after blitz v0.17.0 ships the migrations.
+
+#### Configuration shapes
+
+##### Recipe (named, parameterized)
+
+| Field                              | Type      | Default       | Required | Description |
+|------------------------------------|-----------|---------------|----------|-------------|
+| `additional_config.recipe`         | string    |               | `true` (one of `recipe`/`blitz_yaml`) | Recipe name. v1 ships `apache`, `apache-combined`, `apache-error`, `nginx`, `kubernetes-cluster`, `pii-stress`. |
+| `additional_config.recipe_params.workers` | int  | recipe default | `false` | Per-generator worker count for the recipe's modules. Recipes use `1` (or `2` for `pii-stress`) when omitted. |
+| `additional_config.recipe_params.rate` | string  | recipe default | `false` | Per-generator emission interval (Go duration string, e.g. `100ms`). Recipes use `1s` (or `100ms` for `pii-stress`) when omitted. |
+
+##### Custom blitz YAML
+
+| Field                          | Type     | Default | Required | Description |
+|--------------------------------|----------|---------|----------|-------------|
+| `additional_config.blitz_yaml` | string   |         | `true` (one of `recipe`/`blitz_yaml`) | A verbatim blitz YAML config string. Parsed by blitz's public `config.LoadModules` API; supports every blitz log-producing generator (apache common/combined/error, filegen, json, kubernetes, nginx, okta, palo-alto, postgres). Non-log generators (`hostmetrics`, `traces`, `winevt`) are rejected with a clear error at startup. |
+
+Users wanting env-driven values inside `blitz_yaml` use the OTel collector's native env-substitution syntax at collector-config time — the receiver does not forward process env into the blitz loader.
+
+#### v1 limitations
+
+- `embed.LogRecord` at blitz v0.16.1 has no per-record resource or attributes; receiver-config `resource_attributes` / `attributes` are the sole source of those values on the outgoing plog. [PIPE-1021](https://linear.app/bindplane/issue/PIPE-1021) tracks the blitz contract expansion that adds uniform per-record metadata across all signal types. A follow-up receiver enhancement consumes it.
+- Metrics, traces, and the new `wel` Windows generator are deferred to a v2 receiver follow-up once blitz v0.17.0 ships.
+
+#### Example — recipe
+
+```yaml
+telemetrygeneratorreceiver:
+    payloads_per_second: 1
+    generators:
+        - type: blitz
+          resource_attributes:
+              service.name: my-app
+              deployment.environment: staging
+          attributes:
+              log.source: apache
+          additional_config:
+              recipe: apache-combined
+              recipe_params:
+                  workers: 2
+                  rate: 100ms
+```
+
+#### Example — custom blitz YAML
+
+```yaml
+telemetrygeneratorreceiver:
+    payloads_per_second: 1
+    generators:
+        - type: blitz
+          resource_attributes:
+              service.name: my-cluster
+          additional_config:
+              blitz_yaml: |
+                  generators:
+                    - type: apache-common
+                      apache-common: {workers: 1, rate: 100ms}
+                    - type: json
+                      json: {workers: 1, rate: 100ms, type: default}
+                    - type: kubernetes
+                      kubernetes: {workers: 1, rate: 100ms}
+                  output:
+                    type: nop
+                  logging:
+                    type: stdout
+                  metrics:
+                    port: 19000
+```

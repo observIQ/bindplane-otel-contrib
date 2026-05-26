@@ -43,6 +43,7 @@ func newMetricsReceiver(ctx context.Context, logger *zap.Logger, cfg *Config, ne
 	if err != nil {
 		return nil, fmt.Errorf("new metrics generators: %w", err)
 	}
+	mr.hasTickerGenerators = len(mr.generators) > 0
 
 	return mr, nil
 }

@@ -17,6 +17,7 @@ package telemetrygeneratorreceiver //import "github.com/observiq/bindplane-otel-
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/observiq/bindplane-otel-contrib/receiver/telemetrygeneratorreceiver/internal/metadata"
 	"go.opentelemetry.io/collector/component"
@@ -51,6 +52,9 @@ func createMetricsReceiver(ctx context.Context, params receiver.Settings, conf c
 	if !ok {
 		return nil, errImproperCfgType
 	}
+	if err := rejectBlitzOnNonLogsSignal(cfg, "metrics"); err != nil {
+		return nil, err
+	}
 
 	return newMetricsReceiver(ctx, params.Logger, cfg, nextConsumer)
 }
@@ -71,6 +75,23 @@ func createTracesReceiver(ctx context.Context, params receiver.Settings, conf co
 	if !ok {
 		return nil, errImproperCfgType
 	}
+	if err := rejectBlitzOnNonLogsSignal(cfg, "traces"); err != nil {
+		return nil, err
+	}
 
 	return newTracesReceiver(ctx, params.Logger, cfg, nextConsumer)
+}
+
+// rejectBlitzOnNonLogsSignal fails fast if a Type: "blitz" generator
+// entry is configured on a non-logs receiver instance. v1 of the blitz
+// embed integration is logs-only (PIPE-1017); metric and trace adapters
+// land in a follow-up once blitz v0.17.0 migrates hostmetrics and
+// traces to the embed contract.
+func rejectBlitzOnNonLogsSignal(cfg *Config, signal string) error {
+	for _, g := range cfg.Generators {
+		if g.Type == generatorTypeBlitz {
+			return fmt.Errorf("generator type %q is logs-only in v1 of the telemetrygeneratorreceiver blitz integration (PIPE-1017); remove it from the %s pipeline or use one of the receiver's existing generator types", generatorTypeBlitz, signal)
+		}
+	}
+	return nil
 }
