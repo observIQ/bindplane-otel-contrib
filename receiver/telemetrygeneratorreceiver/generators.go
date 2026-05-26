@@ -41,6 +41,10 @@ const (
 
 	// generatorTypeOTLP is the generator type for OTLP
 	generatorTypeOTLP generatorType = "otlp"
+
+	// generatorTypeBlitz is the generator type for blitz embed sources.
+	// Logs-only at v1; see PIPE-1017.
+	generatorTypeBlitz generatorType = "blitz"
 )
 
 type metricGenerator interface {
