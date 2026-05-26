@@ -17,6 +17,7 @@ package telemetrygeneratorreceiver //import "github.com/observiq/bindplane-otel-
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"time"
 
@@ -43,6 +44,21 @@ const (
 	// handle parsing.
 	blitzKeyParseBody = "parse_body"
 )
+
+// assertEmbeddedLibraryAvailable verifies the blitz filegen data
+// library snapshot was compiled into the binary. The binary MUST be
+// built with `-tags embed_library`; without the tag,
+// embeddedlibrary.FS() returns an empty stub that cannot be walked, and
+// any filegen reference in a blitz_yaml config that uses `package:`
+// names will fail at runtime with a confusing error. Catching the
+// missing tag at Start time turns that into a clear actionable message.
+func assertEmbeddedLibraryAvailable(lib fs.FS) error {
+	entries, err := fs.ReadDir(lib, ".")
+	if err != nil || len(entries) == 0 {
+		return errors.New("blitz embedded data library is empty — this receiver requires the binary be built with `-tags embed_library`; see the receiver README for details")
+	}
+	return nil
+}
 
 // validateBlitzGeneratorConfig checks the shape of a Type: "blitz"
 // generator entry without constructing any modules. The full module

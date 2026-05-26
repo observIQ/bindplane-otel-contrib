@@ -15,9 +15,13 @@
 package telemetrygeneratorreceiver //import "github.com/observiq/bindplane-otel-contrib/receiver/telemetrygeneratorreceiver"
 
 import (
+	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/consumer/consumertest"
+	"go.opentelemetry.io/collector/receiver/receivertest"
 )
 
 func Test_createDefaultConfig(t *testing.T) {
@@ -29,4 +33,52 @@ func Test_createDefaultConfig(t *testing.T) {
 	actualCfg, ok := componentCfg.(*Config)
 	require.True(t, ok)
 	require.Equal(t, expectedCfg, actualCfg)
+}
+
+func Test_createMetricsReceiver_RejectsBlitzEntries(t *testing.T) {
+	factory := NewFactory()
+	cfg := &Config{
+		PayloadsPerSecond: 1,
+		Generators: []GeneratorConfig{{
+			Type:             generatorTypeBlitz,
+			AdditionalConfig: map[string]any{"recipe": "apache"},
+		}},
+	}
+	_, err := factory.CreateMetrics(context.Background(), receivertest.NewNopSettings(factory.Type()), cfg, consumertest.NewNop())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "logs-only in v1")
+	assert.Contains(t, err.Error(), "metrics pipeline")
+}
+
+func Test_createTracesReceiver_RejectsBlitzEntries(t *testing.T) {
+	factory := NewFactory()
+	cfg := &Config{
+		PayloadsPerSecond: 1,
+		Generators: []GeneratorConfig{{
+			Type:             generatorTypeBlitz,
+			AdditionalConfig: map[string]any{"recipe": "apache"},
+		}},
+	}
+	_, err := factory.CreateTraces(context.Background(), receivertest.NewNopSettings(factory.Type()), cfg, consumertest.NewNop())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "logs-only in v1")
+	assert.Contains(t, err.Error(), "traces pipeline")
+}
+
+func Test_createMetricsReceiver_StillAcceptsNonBlitzEntries(t *testing.T) {
+	// Regression check: factory rejection logic must only trigger on
+	// Type: "blitz" — existing receiver types still work on metrics.
+	factory := NewFactory()
+	cfg := &Config{
+		PayloadsPerSecond: 1,
+		Generators: []GeneratorConfig{{
+			Type: generatorTypeHostMetrics,
+			AdditionalConfig: map[string]any{
+				"host_name": "test.example.com",
+			},
+		}},
+	}
+	r, err := factory.CreateMetrics(context.Background(), receivertest.NewNopSettings(factory.Type()), cfg, consumertest.NewNop())
+	require.NoError(t, err)
+	require.NotNil(t, r)
 }

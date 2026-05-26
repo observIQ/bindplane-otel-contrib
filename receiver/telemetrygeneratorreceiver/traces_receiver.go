@@ -44,6 +44,7 @@ func newTracesReceiver(ctx context.Context, logger *zap.Logger, cfg *Config, nex
 	if err != nil {
 		return nil, fmt.Errorf("new traces generators: %w", err)
 	}
+	tr.hasTickerGenerators = len(tr.generators) > 0
 
 	return tr, nil
 }
