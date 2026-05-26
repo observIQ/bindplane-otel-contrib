@@ -4,7 +4,7 @@ go 1.25.9
 
 require (
 	cloud.google.com/go/pubsub v1.50.2
-	cloud.google.com/go/storage v1.62.1
+	cloud.google.com/go/storage v1.62.2
 	github.com/google/go-cmp v0.7.0
 	github.com/linkedin/goavro/v2 v2.15.0
 	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.6.0
