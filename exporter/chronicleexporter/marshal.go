@@ -17,6 +17,7 @@ package chronicleexporter
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -172,10 +173,7 @@ func (m *protoMarshaler) processLogRecord(ctx context.Context, logRecord plog.Lo
 	if err != nil {
 		return "", "", "", nil, err
 	}
-	ingestionLabels, err := m.getIngestionLabels(logRecord)
-	if err != nil {
-		return "", "", "", nil, err
-	}
+	ingestionLabels := m.getGRPCIngestionLabels(logRecord)
 	return rawLog, logType, namespace, ingestionLabels, nil
 }
 
@@ -193,11 +191,7 @@ func (m *protoMarshaler) processHTTPLogRecord(ctx context.Context, logRecord plo
 	if err != nil {
 		return "", "", "", nil, err
 	}
-	ingestionLabels, err := m.getHTTPIngestionLabels(logRecord)
-	if err != nil {
-		return "", "", "", nil, err
-	}
-
+	ingestionLabels := m.getHTTPIngestionLabels(logRecord)
 	return rawLog, logType, namespace, ingestionLabels, nil
 }
 
@@ -279,48 +273,49 @@ func (m *protoMarshaler) getNamespace(ctx context.Context, logRecord plog.LogRec
 	return m.cfg.Namespace, nil
 }
 
-func (m *protoMarshaler) getIngestionLabels(logRecord plog.LogRecord) ([]*api.Label, error) {
-	// check for labels in attributes["chronicle_ingestion_labels"]
-	ingestionLabels, err := m.getRawNestedFields(chronicleIngestionLabelsPrefix, logRecord)
-	if err != nil {
-		return []*api.Label{}, fmt.Errorf("get chronicle ingestion labels: %w", err)
-	}
+// aggregateIngestionLabels returns the union of config-defined ingestion labels and those present in the log record's attributes.
+// In the case of key conflicts, the log record attribute labels take precedence over the config labels.
+func (m *protoMarshaler) aggregateIngestionLabels(logRecord plog.LogRecord) map[string]string {
+	mergedLabels := make(map[string]string, len(m.cfg.IngestionLabels))
+	maps.Copy(mergedLabels, m.cfg.IngestionLabels)
 
-	// merge in labels defined in config, using the labels defined in the log record if they exist
-	configLabels := make([]*api.Label, 0)
-	for key, value := range m.cfg.IngestionLabels {
-		if _, exists := ingestionLabels[key]; !exists {
-			configLabels = append(configLabels, &api.Label{
-				Key:   key,
-				Value: value,
-			})
+	logRecord.Attributes().Range(func(key string, value pcommon.Value) bool {
+		if !strings.HasPrefix(key, chronicleIngestionLabelsPrefix) {
+			return true
 		}
-	}
-	for key, value := range ingestionLabels {
-		configLabels = append(configLabels, &api.Label{
-			Key:   key,
-			Value: value,
-		})
-	}
-	return configLabels, nil
+		cleanKey := strings.Trim(key[len(chronicleIngestionLabelsPrefix):], `[]"`)
+		var jsonMap map[string]string
+		if err := json.Unmarshal([]byte(value.AsString()), &jsonMap); err == nil {
+			maps.Copy(mergedLabels, jsonMap)
+		} else {
+			mergedLabels[cleanKey] = value.AsString()
+		}
+		return true
+	})
+	return mergedLabels
 }
 
-func (m *protoMarshaler) getHTTPIngestionLabels(logRecord plog.LogRecord) (map[string]*api.Log_LogLabel, error) {
-	// Check for labels in attributes["chronicle_ingestion_labels"]
-	ingestionLabels, err := m.getHTTPRawNestedFields(chronicleIngestionLabelsPrefix, logRecord)
-	if err != nil {
-		return nil, fmt.Errorf("get chronicle ingestion labels: %w", err)
+func (m *protoMarshaler) getGRPCIngestionLabels(logRecord plog.LogRecord) []*api.Label {
+	mergedLabels := m.aggregateIngestionLabels(logRecord)
+	labels := make([]*api.Label, 0, len(mergedLabels))
+	for k, v := range mergedLabels {
+		labels = append(labels, &api.Label{
+			Key:   k,
+			Value: v,
+		})
 	}
+	return labels
+}
 
-	// merge in labels defined in config, using the labels defined in the log record if they exist
-	for key, value := range m.cfg.IngestionLabels {
-		if _, exists := ingestionLabels[key]; !exists {
-			ingestionLabels[key] = &api.Log_LogLabel{
-				Value: value,
-			}
+func (m *protoMarshaler) getHTTPIngestionLabels(logRecord plog.LogRecord) map[string]*api.Log_LogLabel {
+	mergedLabels := m.aggregateIngestionLabels(logRecord)
+	labels := make(map[string]*api.Log_LogLabel, len(mergedLabels))
+	for k, v := range mergedLabels {
+		labels[k] = &api.Log_LogLabel{
+			Value: v,
 		}
 	}
-	return ingestionLabels, nil
+	return labels
 }
 
 // getRawField is a helper function to get the raw value of a field from a log record
@@ -407,57 +402,6 @@ func (m *protoMarshaler) getRawField(ctx context.Context, field string, logRecor
 	default:
 		return "", fmt.Errorf("unsupported log record expression result type: %T", lrExprResult)
 	}
-}
-
-func (m *protoMarshaler) getRawNestedFields(field string, logRecord plog.LogRecord) (map[string]string, error) {
-	nestedFields := make(map[string]string)
-	logRecord.Attributes().Range(func(key string, value pcommon.Value) bool {
-		if !strings.HasPrefix(key, field) {
-			return true
-		}
-		// Extract the key name from the nested field
-		cleanKey := strings.Trim(key[len(field):], `[]"`)
-		var jsonMap map[string]string
-
-		// If needs to be parsed as JSON
-		if err := json.Unmarshal([]byte(value.AsString()), &jsonMap); err == nil {
-			for k, v := range jsonMap {
-				nestedFields[k] = v
-			}
-		} else {
-			nestedFields[cleanKey] = value.AsString()
-		}
-		return true
-	})
-	return nestedFields, nil
-}
-
-func (m *protoMarshaler) getHTTPRawNestedFields(field string, logRecord plog.LogRecord) (map[string]*api.Log_LogLabel, error) {
-	nestedFields := make(map[string]*api.Log_LogLabel) // Map with key as string and value as Log_LogLabel
-	logRecord.Attributes().Range(func(key string, value pcommon.Value) bool {
-		if !strings.HasPrefix(key, field) {
-			return true
-		}
-		// Extract the key name from the nested field
-		cleanKey := strings.Trim(key[len(field):], `[]"`)
-		var jsonMap map[string]string
-
-		// If needs to be parsed as JSON
-		if err := json.Unmarshal([]byte(value.AsString()), &jsonMap); err == nil {
-			for k, v := range jsonMap {
-				nestedFields[k] = &api.Log_LogLabel{
-					Value: v,
-				}
-			}
-		} else {
-			nestedFields[cleanKey] = &api.Log_LogLabel{
-				Value: value.AsString(),
-			}
-		}
-		return true
-	})
-
-	return nestedFields, nil
 }
 
 func (m *protoMarshaler) constructPayloads(logGrouper *logGrouper) []*api.BatchCreateLogsRequest {
