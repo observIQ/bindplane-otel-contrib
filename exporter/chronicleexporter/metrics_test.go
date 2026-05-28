@@ -31,6 +31,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -219,7 +220,7 @@ func TestMetricsReporterBuildRequest(t *testing.T) {
 	mr.recordSent(10)
 	mr.recordDropped(2)
 
-	req := mr.buildRequest()
+	req, _ := mr.drainRequest(timestamppb.Now())
 	require.NotNil(t, req)
 	require.NotNil(t, req.Batch)
 
@@ -245,9 +246,9 @@ func TestMetricsReporterBuildRequestUniqueBatchIDs(t *testing.T) {
 	mr, err := newMetricsReporter(newTestConfig(), componenttest.NewNopTelemetrySettings(), "test-exporter", noopSend)
 	require.NoError(t, err)
 
-	first := mr.buildRequest().Batch.Id
-	second := mr.buildRequest().Batch.Id
-	assert.NotEqual(t, first, second)
+	first, _ := mr.drainRequest(timestamppb.Now())
+	second, _ := mr.drainRequest(timestamppb.Now())
+	assert.NotEqual(t, first.Batch.Id, second.Batch.Id)
 }
 
 func TestMetricsReporterCollectHostMetrics(t *testing.T) {
@@ -353,7 +354,7 @@ func TestMetricsReporterConcurrency(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 10 {
-		wg.Add(3)
+		wg.Add(2)
 		go func() {
 			defer wg.Done()
 			mr.recordSent(1)
@@ -362,13 +363,100 @@ func TestMetricsReporterConcurrency(t *testing.T) {
 			defer wg.Done()
 			mr.recordDropped(1)
 		}()
-		go func() {
-			defer wg.Done()
-			_ = mr.buildRequest()
-		}()
 	}
 	wg.Wait()
 
 	assert.Equal(t, int64(10), mr.agentStats.ExporterStats[0].AcceptedSpans)
 	assert.Equal(t, int64(10), mr.agentStats.ExporterStats[0].RefusedSpans)
+}
+
+func TestMetricsReporterDrainRequestMarshalRace(t *testing.T) {
+	mr, err := newMetricsReporter(newTestConfig(), componenttest.NewNopTelemetrySettings(), "test-exporter", noopSend)
+	require.NoError(t, err)
+
+	const iterations = 1000
+	var drainedAccepted, drainedRefused int64
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	// Marshal each drained request without the lock, exactly as send() does.
+	go func() {
+		defer wg.Done()
+		for range iterations {
+			req, _ := mr.drainRequest(timestamppb.Now())
+			_, err := proto.Marshal(req)
+			assert.NoError(t, err)
+			stats := req.Batch.Events[0].GetAgentStats().ExporterStats[0]
+			drainedAccepted += stats.AcceptedSpans
+			drainedRefused += stats.RefusedSpans
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range iterations {
+			mr.recordSent(1)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range iterations {
+			mr.recordDropped(1)
+		}
+	}()
+
+	wg.Wait()
+
+	// Add counts still sitting in the open window.
+	drainedAccepted += mr.agentStats.ExporterStats[0].AcceptedSpans
+	drainedRefused += mr.agentStats.ExporterStats[0].RefusedSpans
+
+	assert.Equal(t, int64(iterations), drainedAccepted, "no accepted spans lost across concurrent drains")
+	assert.Equal(t, int64(iterations), drainedRefused, "no refused spans lost across concurrent drains")
+}
+
+func TestMetricsReporterDrainNoCountsLost(t *testing.T) {
+	mr, err := newMetricsReporter(newTestConfig(), componenttest.NewNopTelemetrySettings(), "test-exporter", noopSend)
+	require.NoError(t, err)
+
+	mr.recordSent(10)
+	mr.recordDropped(2)
+
+	req1, _ := mr.drainRequest(timestamppb.Now())
+	s1 := req1.Batch.Events[0].GetAgentStats().ExporterStats[0]
+	assert.Equal(t, int64(10), s1.AcceptedSpans)
+	assert.Equal(t, int64(2), s1.RefusedSpans)
+
+	// Recorded after the drain; must carry into the next window, not be dropped.
+	mr.recordSent(3)
+	mr.recordDropped(1)
+
+	req2, _ := mr.drainRequest(timestamppb.Now())
+	s2 := req2.Batch.Events[0].GetAgentStats().ExporterStats[0]
+	assert.Equal(t, int64(3), s2.AcceptedSpans, "gap counts must carry into the next window")
+	assert.Equal(t, int64(1), s2.RefusedSpans)
+
+	assert.Equal(t, int64(13), s1.AcceptedSpans+s2.AcceptedSpans, "no accepted spans lost")
+	assert.Equal(t, int64(3), s1.RefusedSpans+s2.RefusedSpans, "no refused spans lost")
+}
+
+func TestMetricsReporterRestoreOnFailure(t *testing.T) {
+	mr, err := newMetricsReporter(newTestConfig(), componenttest.NewNopTelemetrySettings(), "test-exporter", noopSend)
+	require.NoError(t, err)
+
+	initialWindow := mr.agentStats.WindowStartTime
+	mr.recordSent(7)
+	mr.recordDropped(3)
+
+	req, sent := mr.drainRequest(timestamppb.Now())
+	require.NotNil(t, req)
+	assert.Equal(t, int64(0), mr.agentStats.ExporterStats[0].AcceptedSpans, "drain starts a fresh window")
+
+	// Recorded after the drain, then the send fails and we restore.
+	mr.recordSent(2)
+	mr.restore(sent)
+
+	assert.Equal(t, int64(9), mr.agentStats.ExporterStats[0].AcceptedSpans, "restored 7 + gap 2")
+	assert.Equal(t, int64(3), mr.agentStats.ExporterStats[0].RefusedSpans)
+	assert.Equal(t, initialWindow, mr.agentStats.WindowStartTime, "restore rewinds the window start")
 }

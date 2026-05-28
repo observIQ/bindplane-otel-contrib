@@ -102,31 +102,29 @@ func (hmr *metricsReporter) start() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				err := hmr.collectHostMetrics()
-				if err != nil {
+				if err := hmr.collectHostMetrics(); err != nil {
 					hmr.set.Logger.Error("Failed to collect host metrics", zap.Error(err))
 				}
-				request := hmr.buildRequest()
-				err = hmr.send(ctx, request)
-				if err != nil {
+				request, sent := hmr.drainRequest(timestamppb.Now())
+				if err := hmr.send(ctx, request); err != nil {
 					hmr.set.Logger.Error("Failed to upload metrics", zap.Error(err))
-				} else {
-					hmr.resetWindow(timestamppb.Now())
+					hmr.restore(sent) // retry these counters in the next window
 				}
 			}
 		}
 	}()
 }
 
-// buildRequest builds the create events request object
-func (hmr *metricsReporter) buildRequest() *api.BatchCreateEventsRequest {
+// drainRequest snapshots the current window into a request and starts a fresh one atomically.
+func (hmr *metricsReporter) drainRequest(windowStartTime *timestamppb.Timestamp) (*api.BatchCreateEventsRequest, *api.AgentStatsEvent) {
 	hmr.mutex.Lock()
 	defer hmr.mutex.Unlock()
 
+	stats := hmr.agentStats
 	now := timestamppb.Now()
 	batchID := uuid.New()
 
-	return &api.BatchCreateEventsRequest{
+	request := &api.BatchCreateEventsRequest{
 		Batch: &api.EventBatch{
 			Id:        batchID[:],
 			Source:    hmr.source,
@@ -138,12 +136,28 @@ func (hmr *metricsReporter) buildRequest() *api.BatchCreateEventsRequest {
 					CollectionTime: now,
 					Source:         hmr.source,
 					Payload: &api.Event_AgentStats{
-						AgentStats: hmr.agentStats,
+						AgentStats: stats,
 					},
 				},
 			},
 		},
 	}
+
+	hmr.agentStats = newAgentStats(hmr.agentID, hmr.startTime, windowStartTime, hmr.exporterID)
+	return request, stats
+}
+
+// restore merges a failed upload's counters back so they retry next window.
+func (hmr *metricsReporter) restore(failed *api.AgentStatsEvent) {
+	hmr.mutex.Lock()
+	defer hmr.mutex.Unlock()
+
+	if len(hmr.agentStats.ExporterStats) == 0 || len(failed.ExporterStats) == 0 {
+		return
+	}
+	hmr.agentStats.ExporterStats[0].AcceptedSpans += failed.ExporterStats[0].AcceptedSpans
+	hmr.agentStats.ExporterStats[0].RefusedSpans += failed.ExporterStats[0].RefusedSpans
+	hmr.agentStats.WindowStartTime = failed.WindowStartTime
 }
 
 func (hmr *metricsReporter) shutdown() {
@@ -195,13 +209,18 @@ func (hmr *metricsReporter) resetWindow(windowStartTime *timestamppb.Timestamp) 
 	hmr.mutex.Lock()
 	defer hmr.mutex.Unlock()
 
-	hmr.agentStats = &api.AgentStatsEvent{
-		AgentId:         hmr.agentID,
-		StartTime:       hmr.startTime,
+	hmr.agentStats = newAgentStats(hmr.agentID, hmr.startTime, windowStartTime, hmr.exporterID)
+}
+
+// newAgentStats returns a fresh agent stats object for a new window.
+func newAgentStats(agentID []byte, startTime, windowStartTime *timestamppb.Timestamp, exporterID string) *api.AgentStatsEvent {
+	return &api.AgentStatsEvent{
+		AgentId:         agentID,
+		StartTime:       startTime,
 		WindowStartTime: windowStartTime,
 		ExporterStats: []*api.ExporterStats{
 			{
-				Name: hmr.exporterID,
+				Name: exporterID,
 			},
 		},
 	}
