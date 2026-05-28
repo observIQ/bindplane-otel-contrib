@@ -220,7 +220,7 @@ func TestMetricsReporterBuildRequest(t *testing.T) {
 	mr.recordSent(10)
 	mr.recordDropped(2)
 
-	req, _ := mr.drainRequest(timestamppb.Now())
+	req, _ := mr.drainRequest()
 	require.NotNil(t, req)
 	require.NotNil(t, req.Batch)
 
@@ -246,8 +246,8 @@ func TestMetricsReporterBuildRequestUniqueBatchIDs(t *testing.T) {
 	mr, err := newMetricsReporter(newTestConfig(), componenttest.NewNopTelemetrySettings(), "test-exporter", noopSend)
 	require.NoError(t, err)
 
-	first, _ := mr.drainRequest(timestamppb.Now())
-	second, _ := mr.drainRequest(timestamppb.Now())
+	first, _ := mr.drainRequest()
+	second, _ := mr.drainRequest()
 	assert.NotEqual(t, first.Batch.Id, second.Batch.Id)
 }
 
@@ -384,7 +384,7 @@ func TestMetricsReporterDrainRequestMarshalRace(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range iterations {
-			req, _ := mr.drainRequest(timestamppb.Now())
+			req, _ := mr.drainRequest()
 			_, err := proto.Marshal(req)
 			assert.NoError(t, err)
 			stats := req.Batch.Events[0].GetAgentStats().ExporterStats[0]
@@ -422,7 +422,7 @@ func TestMetricsReporterDrainNoCountsLost(t *testing.T) {
 	mr.recordSent(10)
 	mr.recordDropped(2)
 
-	req1, _ := mr.drainRequest(timestamppb.Now())
+	req1, _ := mr.drainRequest()
 	s1 := req1.Batch.Events[0].GetAgentStats().ExporterStats[0]
 	assert.Equal(t, int64(10), s1.AcceptedSpans)
 	assert.Equal(t, int64(2), s1.RefusedSpans)
@@ -431,7 +431,7 @@ func TestMetricsReporterDrainNoCountsLost(t *testing.T) {
 	mr.recordSent(3)
 	mr.recordDropped(1)
 
-	req2, _ := mr.drainRequest(timestamppb.Now())
+	req2, _ := mr.drainRequest()
 	s2 := req2.Batch.Events[0].GetAgentStats().ExporterStats[0]
 	assert.Equal(t, int64(3), s2.AcceptedSpans, "gap counts must carry into the next window")
 	assert.Equal(t, int64(1), s2.RefusedSpans)
@@ -448,7 +448,7 @@ func TestMetricsReporterRestoreOnFailure(t *testing.T) {
 	mr.recordSent(7)
 	mr.recordDropped(3)
 
-	req, sent := mr.drainRequest(timestamppb.Now())
+	req, sent := mr.drainRequest()
 	require.NotNil(t, req)
 	assert.Equal(t, int64(0), mr.agentStats.ExporterStats[0].AcceptedSpans, "drain starts a fresh window")
 

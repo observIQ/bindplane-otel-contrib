@@ -105,7 +105,7 @@ func (hmr *metricsReporter) start() {
 				if err := hmr.collectHostMetrics(); err != nil {
 					hmr.set.Logger.Error("Failed to collect host metrics", zap.Error(err))
 				}
-				request, sent := hmr.drainRequest(timestamppb.Now())
+				request, sent := hmr.drainRequest()
 				if err := hmr.send(ctx, request); err != nil {
 					hmr.set.Logger.Error("Failed to upload metrics", zap.Error(err))
 					hmr.restore(sent) // retry these counters in the next window
@@ -116,7 +116,7 @@ func (hmr *metricsReporter) start() {
 }
 
 // drainRequest snapshots the current window into a request and starts a fresh one atomically.
-func (hmr *metricsReporter) drainRequest(windowStartTime *timestamppb.Timestamp) (*api.BatchCreateEventsRequest, *api.AgentStatsEvent) {
+func (hmr *metricsReporter) drainRequest() (*api.BatchCreateEventsRequest, *api.AgentStatsEvent) {
 	hmr.mutex.Lock()
 	defer hmr.mutex.Unlock()
 
@@ -143,7 +143,7 @@ func (hmr *metricsReporter) drainRequest(windowStartTime *timestamppb.Timestamp)
 		},
 	}
 
-	hmr.agentStats = newAgentStats(hmr.agentID, hmr.startTime, windowStartTime, hmr.exporterID)
+	hmr.agentStats = newAgentStats(hmr.agentID, hmr.startTime, now, hmr.exporterID)
 	return request, stats
 }
 
