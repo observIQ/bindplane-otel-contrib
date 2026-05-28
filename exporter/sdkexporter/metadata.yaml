@@ -1,0 +1,10 @@
+type: sdk
+
+status:
+  class: exporter
+  stability:
+    alpha: [metrics]
+  distributions: [observiq]
+
+tests:
+  skip_lifecycle: true
