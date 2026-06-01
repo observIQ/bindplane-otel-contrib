@@ -3,7 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/exporter/chronicleforwarderexp
 go 1.25.9
 
 require (
-	github.com/observiq/bindplane-otel-contrib/pkg/expr v1.6.0
+	github.com/observiq/bindplane-otel-contrib/pkg/expr v1.7.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl v0.153.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.59.0
