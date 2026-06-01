@@ -38,9 +38,9 @@ The number of users who have interacted with a OneDrive file, by action, in the 
 
 #### Attributes
 
-| Name | Description | Values | Requirement Level |
-| ---- | ----------- | ------ | -------- |
-| activity | The OneDrive user activity types. | Str: ``view_edit``, ``synced``, ``internal_share``, ``external_share`` | Recommended |
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| activity | The OneDrive user activity types. | Str: ``view_edit``, ``synced``, ``internal_share``, ``external_share`` | Recommended | - |
 
 ### m365.outlook.app.user.count
 
@@ -52,9 +52,9 @@ The number of unique users per app over the period of time in the organization O
 
 #### Attributes
 
-| Name | Description | Values | Requirement Level |
-| ---- | ----------- | ------ | -------- |
-| app | The number of users of Outlook apps. | Str: ``pop3``, ``imap4``, ``smtp``, ``windows``, ``mac``, ``web``, ``mobile``, ``other_mobile`` | Recommended |
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| app | The number of users of Outlook apps. | Str: ``pop3``, ``imap4``, ``smtp``, ``windows``, ``mac``, ``web``, ``mobile``, ``other_mobile`` | Recommended | - |
 
 ### m365.outlook.email_activity.count
 
@@ -66,9 +66,9 @@ The number of email actions by members over the period of time in the organizati
 
 #### Attributes
 
-| Name | Description | Values | Requirement Level |
-| ---- | ----------- | ------ | -------- |
-| activity | The Outlook user activity types. | Str: ``read``, ``sent``, ``received`` | Recommended |
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| activity | The Outlook user activity types. | Str: ``read``, ``sent``, ``received`` | Recommended | - |
 
 ### m365.outlook.mailboxes.active.count
 
@@ -88,9 +88,9 @@ The number of mailboxes in the various quota statuses over the period of time in
 
 #### Attributes
 
-| Name | Description | Values | Requirement Level |
-| ---- | ----------- | ------ | -------- |
-| state | The types of Outlook quota states. | Str: ``under_limit``, ``warning``, ``send_prohibited``, ``send_receive_prohibited``, ``indeterminate`` | Recommended |
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| state | The types of Outlook quota states. | Str: ``under_limit``, ``warning``, ``send_prohibited``, ``send_receive_prohibited``, ``indeterminate`` | Recommended | - |
 
 ### m365.outlook.storage.used
 
@@ -166,9 +166,9 @@ The number of unique users by device/platform that have used Teams in the last 7
 
 #### Attributes
 
-| Name | Description | Values | Requirement Level |
-| ---- | ----------- | ------ | -------- |
-| device | The device types. | Str: ``Android``, ``iOS``, ``Mac``, ``Windows``, ``Chrome OS``, ``Linux``, ``Web`` | Recommended |
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| device | The device types. | Str: ``Android``, ``iOS``, ``Mac``, ``Windows``, ``Chrome OS``, ``Linux``, ``Web`` | Recommended | - |
 
 ### m365.teams.meetings.count
 
@@ -196,6 +196,6 @@ The number of MS Teams team-messages sent by users in the organization in the la
 
 ## Resource Attributes
 
-| Name | Description | Values | Enabled |
-| ---- | ----------- | ------ | ------- |
-| m365.tenant.id | The Office 365 tenant. | Any Str | true |
+| Name | Description | Values | Enabled | Semantic Convention |
+| ---- | ----------- | ------ | ------- | ------------------- |
+| m365.tenant.id | The Office 365 tenant. | Any Str | true | - |

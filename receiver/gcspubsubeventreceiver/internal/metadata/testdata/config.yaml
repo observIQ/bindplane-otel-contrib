@@ -5,6 +5,12 @@ all_set:
       enabled: true
     gcs.object:
       enabled: true
+reaggregate_set:
+  resource_attributes:
+    gcs.bucket:
+      enabled: true
+    gcs.object:
+      enabled: true
 none_set:
   resource_attributes:
     gcs.bucket:

@@ -24,8 +24,7 @@ telemetry:
     gcsevent.batch_size:
       enabled: true
       description: The number of logs in a batch.
-      stability:
-        level: alpha
+      stability: alpha
       unit: "{logs}"
       histogram:
         value_type: int
@@ -34,8 +33,7 @@ telemetry:
     gcsevent.dlq_file_not_found_errors:
       enabled: true
       description: The number of file not found errors that triggered DLQ processing
-      stability:
-        level: alpha
+      stability: alpha
       unit: "{errors}"
       sum:
         value_type: int
@@ -46,8 +44,7 @@ telemetry:
     gcsevent.dlq_iam_errors:
       enabled: true
       description: The number of IAM permission denied errors that triggered DLQ processing
-      stability:
-        level: alpha
+      stability: alpha
       unit: "{errors}"
       sum:
         value_type: int
@@ -58,8 +55,7 @@ telemetry:
     gcsevent.dlq_unsupported_file_errors:
       enabled: true
       description: The number of unsupported file type errors that triggered DLQ processing
-      stability:
-        level: alpha
+      stability: alpha
       unit: "{errors}"
       sum:
         value_type: int
@@ -70,8 +66,7 @@ telemetry:
     gcsevent.failures:
       enabled: true
       description: The number of failures encountered while processing GCS objects
-      stability:
-        level: alpha
+      stability: alpha
       unit: "{failures}"
       sum:
         value_type: int
@@ -82,8 +77,7 @@ telemetry:
     gcsevent.objects_handled:
       enabled: true
       description: The number of GCS objects processed by the receiver
-      stability:
-        level: alpha
+      stability: alpha
       unit: "{objects}"
       sum:
         value_type: int
@@ -94,8 +88,7 @@ telemetry:
     gcsevent.parse_errors:
       enabled: true
       description: The number of individual log records skipped due to parse errors within a GCS object
-      stability:
-        level: alpha
+      stability: alpha
       unit: "{errors}"
       sum:
         value_type: int

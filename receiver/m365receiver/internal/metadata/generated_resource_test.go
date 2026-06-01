@@ -29,11 +29,10 @@ func TestResourceBuilder(t *testing.T) {
 			default:
 				assert.Failf(t, "unexpected test case: %s", tt)
 			}
-
-			val, ok := res.Attributes().Get("m365.tenant.id")
+			m365TenantIDAttrVal, ok := res.Attributes().Get("m365.tenant.id")
 			assert.True(t, ok)
 			if ok {
-				assert.Equal(t, "m365.tenant.id-val", val.Str())
+				assert.Equal(t, "m365.tenant.id-val", m365TenantIDAttrVal.Str())
 			}
 		})
 	}

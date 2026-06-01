@@ -31,21 +31,20 @@ func TestResourceBuilder(t *testing.T) {
 			default:
 				assert.Failf(t, "unexpected test case: %s", tt)
 			}
-
-			val, ok := res.Attributes().Get("sapnetweaver.SID")
+			sapnetweaverSIDAttrVal, ok := res.Attributes().Get("sapnetweaver.SID")
 			assert.True(t, ok)
 			if ok {
-				assert.Equal(t, "sapnetweaver.SID-val", val.Str())
+				assert.Equal(t, "sapnetweaver.SID-val", sapnetweaverSIDAttrVal.Str())
 			}
-			val, ok = res.Attributes().Get("sapnetweaver.instance")
+			sapnetweaverInstanceAttrVal, ok := res.Attributes().Get("sapnetweaver.instance")
 			assert.True(t, ok)
 			if ok {
-				assert.Equal(t, "sapnetweaver.instance-val", val.Str())
+				assert.Equal(t, "sapnetweaver.instance-val", sapnetweaverInstanceAttrVal.Str())
 			}
-			val, ok = res.Attributes().Get("sapnetweaver.node")
+			sapnetweaverNodeAttrVal, ok := res.Attributes().Get("sapnetweaver.node")
 			assert.True(t, ok)
 			if ok {
-				assert.Equal(t, "sapnetweaver.node-val", val.Str())
+				assert.Equal(t, "sapnetweaver.node-val", sapnetweaverNodeAttrVal.Str())
 			}
 		})
 	}

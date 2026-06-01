@@ -30,16 +30,15 @@ func TestResourceBuilder(t *testing.T) {
 			default:
 				assert.Failf(t, "unexpected test case: %s", tt)
 			}
-
-			val, ok := res.Attributes().Get("aws.s3.bucket")
+			awsS3BucketAttrVal, ok := res.Attributes().Get("aws.s3.bucket")
 			assert.True(t, ok)
 			if ok {
-				assert.Equal(t, "aws.s3.bucket-val", val.Str())
+				assert.Equal(t, "aws.s3.bucket-val", awsS3BucketAttrVal.Str())
 			}
-			val, ok = res.Attributes().Get("aws.s3.key")
+			awsS3KeyAttrVal, ok := res.Attributes().Get("aws.s3.key")
 			assert.True(t, ok)
 			if ok {
-				assert.Equal(t, "aws.s3.key-val", val.Str())
+				assert.Equal(t, "aws.s3.key-val", awsS3KeyAttrVal.Str())
 			}
 		})
 	}

@@ -4,7 +4,6 @@ package gcspubsubeventreceiver
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,17 +23,6 @@ func TestComponentFactoryType(t *testing.T) {
 
 func TestComponentConfigStruct(t *testing.T) {
 	require.NoError(t, componenttest.CheckConfigStruct(NewFactory().CreateDefaultConfig()))
-}
-
-// hasGCPCredentials returns true if real GCP credentials or an emulator are configured.
-func hasGCPCredentials() bool {
-	if _, ok := os.LookupEnv("PUBSUB_EMULATOR_HOST"); ok {
-		return true
-	}
-	if _, ok := os.LookupEnv("GOOGLE_APPLICATION_CREDENTIALS"); ok {
-		return true
-	}
-	return false
 }
 
 func TestComponentLifecycle(t *testing.T) {
@@ -68,9 +56,6 @@ func TestComponentLifecycle(t *testing.T) {
 			require.NoError(t, err)
 		})
 		t.Run(tt.name+"-lifecycle", func(t *testing.T) {
-			if !hasGCPCredentials() {
-				t.Skip("Skipping lifecycle test: no GCP credentials or emulator configured")
-			}
 			firstRcvr, err := tt.createFn(context.Background(), receivertest.NewNopSettings(typ), cfg)
 			require.NoError(t, err)
 			host := newMdatagenNopHost()

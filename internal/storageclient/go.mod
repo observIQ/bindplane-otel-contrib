@@ -3,12 +3,12 @@ module github.com/observiq/bindplane-otel-contrib/internal/storageclient
 go 1.25.9
 
 require (
-	github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.152.0
+	github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.153.0
 	github.com/stretchr/testify v1.11.1
-	go.opentelemetry.io/collector/component v1.58.0
-	go.opentelemetry.io/collector/extension v1.58.0
-	go.opentelemetry.io/collector/extension/xextension v0.152.0
-	go.opentelemetry.io/collector/pipeline v1.58.0
+	go.opentelemetry.io/collector/component v1.59.0
+	go.opentelemetry.io/collector/extension v1.59.0
+	go.opentelemetry.io/collector/extension/xextension v0.153.0
+	go.opentelemetry.io/collector/pipeline v1.59.0
 )
 
 require (
@@ -21,15 +21,15 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
-	go.opentelemetry.io/collector/featuregate v1.58.0 // indirect
-	go.opentelemetry.io/collector/internal/componentalias v0.152.0 // indirect
-	go.opentelemetry.io/collector/pdata v1.58.0 // indirect
+	go.opentelemetry.io/collector/featuregate v1.59.0 // indirect
+	go.opentelemetry.io/collector/internal/componentalias v0.153.0 // indirect
+	go.opentelemetry.io/collector/pdata v1.59.0 // indirect
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

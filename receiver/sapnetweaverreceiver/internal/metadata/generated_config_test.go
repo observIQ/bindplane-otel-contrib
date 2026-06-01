@@ -9,7 +9,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/require"
-
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/confmap/confmaptest"
 )
@@ -21,50 +20,144 @@ func TestMetricsBuilderConfig(t *testing.T) {
 	}{
 		{
 			name: "default",
-			want: DefaultMetricsBuilderConfig(),
+			want: NewDefaultMetricsBuilderConfig(),
 		},
 		{
 			name: "all_set",
 			want: MetricsBuilderConfig{
 				Metrics: MetricsConfig{
-					SapnetweaverAbapUpdateStatus:            MetricConfig{Enabled: true},
-					SapnetweaverCacheEvictions:              MetricConfig{Enabled: true},
-					SapnetweaverCacheHits:                   MetricConfig{Enabled: true},
-					SapnetweaverConnectionErrorCount:        MetricConfig{Enabled: true},
-					SapnetweaverCPUSystemUtilization:        MetricConfig{Enabled: true},
-					SapnetweaverCPUUtilization:              MetricConfig{Enabled: true},
-					SapnetweaverDatabaseDialogRequestTime:   MetricConfig{Enabled: true},
-					SapnetweaverHostMemoryVirtualOverhead:   MetricConfig{Enabled: true},
-					SapnetweaverHostMemoryVirtualSwap:       MetricConfig{Enabled: true},
-					SapnetweaverHostSpoolListUtilization:    MetricConfig{Enabled: true},
-					SapnetweaverLocksDequeueErrorsCount:     MetricConfig{Enabled: true},
-					SapnetweaverLocksEnqueueCurrentCount:    MetricConfig{Enabled: true},
-					SapnetweaverLocksEnqueueErrorsCount:     MetricConfig{Enabled: true},
-					SapnetweaverLocksEnqueueHighCount:       MetricConfig{Enabled: true},
-					SapnetweaverLocksEnqueueLockTime:        MetricConfig{Enabled: true},
-					SapnetweaverLocksEnqueueLockWaitTime:    MetricConfig{Enabled: true},
-					SapnetweaverLocksEnqueueMaxCount:        MetricConfig{Enabled: true},
-					SapnetweaverMemoryConfigured:            MetricConfig{Enabled: true},
-					SapnetweaverMemoryFree:                  MetricConfig{Enabled: true},
-					SapnetweaverMemorySwapSpaceUtilization:  MetricConfig{Enabled: true},
-					SapnetweaverProcessAvailability:         MetricConfig{Enabled: true},
-					SapnetweaverQueueCount:                  MetricConfig{Enabled: true},
-					SapnetweaverQueueMaxCount:               MetricConfig{Enabled: true},
-					SapnetweaverQueuePeakCount:              MetricConfig{Enabled: true},
-					SapnetweaverRequestCount:                MetricConfig{Enabled: true},
-					SapnetweaverRequestTimeoutCount:         MetricConfig{Enabled: true},
-					SapnetweaverResponseDuration:            MetricConfig{Enabled: true},
-					SapnetweaverSessionCount:                MetricConfig{Enabled: true},
-					SapnetweaverSessionsBrowserCount:        MetricConfig{Enabled: true},
-					SapnetweaverSessionsEjbCount:            MetricConfig{Enabled: true},
-					SapnetweaverSessionsHTTPCount:           MetricConfig{Enabled: true},
-					SapnetweaverSessionsSecurityCount:       MetricConfig{Enabled: true},
-					SapnetweaverSessionsWebCount:            MetricConfig{Enabled: true},
-					SapnetweaverShortDumpsRate:              MetricConfig{Enabled: true},
-					SapnetweaverSpoolRequestErrorCount:      MetricConfig{Enabled: true},
-					SapnetweaverSystemInstanceAvailability:  MetricConfig{Enabled: true},
-					SapnetweaverWorkProcessActiveCount:      MetricConfig{Enabled: true},
-					SapnetweaverWorkProcessJobAbortedStatus: MetricConfig{Enabled: true},
+					SapnetweaverAbapUpdateStatus: SapnetweaverAbapUpdateStatusMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverAbapUpdateStatusMetricAttributeKey{SapnetweaverAbapUpdateStatusMetricAttributeKeyControlState},
+					},
+					SapnetweaverCacheEvictions: SapnetweaverCacheEvictionsMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverCacheHits: SapnetweaverCacheHitsMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverConnectionErrorCount: SapnetweaverConnectionErrorCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverCPUSystemUtilization: SapnetweaverCPUSystemUtilizationMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverCPUUtilization: SapnetweaverCPUUtilizationMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverDatabaseDialogRequestTime: SapnetweaverDatabaseDialogRequestTimeMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverHostMemoryVirtualOverhead: SapnetweaverHostMemoryVirtualOverheadMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverHostMemoryVirtualSwap: SapnetweaverHostMemoryVirtualSwapMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverHostSpoolListUtilization: SapnetweaverHostSpoolListUtilizationMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverLocksDequeueErrorsCount: SapnetweaverLocksDequeueErrorsCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverLocksEnqueueCurrentCount: SapnetweaverLocksEnqueueCurrentCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverLocksEnqueueErrorsCount: SapnetweaverLocksEnqueueErrorsCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverLocksEnqueueHighCount: SapnetweaverLocksEnqueueHighCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverLocksEnqueueLockTime: SapnetweaverLocksEnqueueLockTimeMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverLocksEnqueueLockWaitTime: SapnetweaverLocksEnqueueLockWaitTimeMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverLocksEnqueueMaxCount: SapnetweaverLocksEnqueueMaxCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverMemoryConfigured: SapnetweaverMemoryConfiguredMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverMemoryFree: SapnetweaverMemoryFreeMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverMemorySwapSpaceUtilization: SapnetweaverMemorySwapSpaceUtilizationMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverProcessAvailability: SapnetweaverProcessAvailabilityMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverProcessAvailabilityMetricAttributeKey{SapnetweaverProcessAvailabilityMetricAttributeKeyProcessName, SapnetweaverProcessAvailabilityMetricAttributeKeyProcessDescription, SapnetweaverProcessAvailabilityMetricAttributeKeyControlState},
+					},
+					SapnetweaverQueueCount: SapnetweaverQueueCountMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverQueueCountMetricAttributeKey{SapnetweaverQueueCountMetricAttributeKeyWpType},
+					},
+					SapnetweaverQueueMaxCount: SapnetweaverQueueMaxCountMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverQueueMaxCountMetricAttributeKey{SapnetweaverQueueMaxCountMetricAttributeKeyWpType},
+					},
+					SapnetweaverQueuePeakCount: SapnetweaverQueuePeakCountMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverQueuePeakCountMetricAttributeKey{SapnetweaverQueuePeakCountMetricAttributeKeyWpType},
+					},
+					SapnetweaverRequestCount: SapnetweaverRequestCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverRequestTimeoutCount: SapnetweaverRequestTimeoutCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverResponseDuration: SapnetweaverResponseDurationMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverResponseDurationMetricAttributeKey{SapnetweaverResponseDurationMetricAttributeKeyResponseType},
+					},
+					SapnetweaverSessionCount: SapnetweaverSessionCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverSessionsBrowserCount: SapnetweaverSessionsBrowserCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverSessionsEjbCount: SapnetweaverSessionsEjbCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverSessionsHTTPCount: SapnetweaverSessionsHTTPCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverSessionsSecurityCount: SapnetweaverSessionsSecurityCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverSessionsWebCount: SapnetweaverSessionsWebCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverShortDumpsRate: SapnetweaverShortDumpsRateMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverSpoolRequestErrorCount: SapnetweaverSpoolRequestErrorCountMetricConfig{
+						Enabled: true,
+					},
+					SapnetweaverSystemInstanceAvailability: SapnetweaverSystemInstanceAvailabilityMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverSystemInstanceAvailabilityMetricAttributeKey{SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyHostname, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyInstanceNumber, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyFeature, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyControlState},
+					},
+					SapnetweaverWorkProcessActiveCount: SapnetweaverWorkProcessActiveCountMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverWorkProcessActiveCountMetricAttributeKey{SapnetweaverWorkProcessActiveCountMetricAttributeKeyInstance, SapnetweaverWorkProcessActiveCountMetricAttributeKeyWpType, SapnetweaverWorkProcessActiveCountMetricAttributeKeyWpStatus},
+					},
+					SapnetweaverWorkProcessJobAbortedStatus: SapnetweaverWorkProcessJobAbortedStatusMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverWorkProcessJobAbortedStatusMetricAttributeKey{SapnetweaverWorkProcessJobAbortedStatusMetricAttributeKeyControlState},
+					},
 				},
 				ResourceAttributes: ResourceAttributesConfig{
 					SapnetweaverSID:      ResourceAttributeConfig{Enabled: true},
@@ -77,44 +170,138 @@ func TestMetricsBuilderConfig(t *testing.T) {
 			name: "none_set",
 			want: MetricsBuilderConfig{
 				Metrics: MetricsConfig{
-					SapnetweaverAbapUpdateStatus:            MetricConfig{Enabled: false},
-					SapnetweaverCacheEvictions:              MetricConfig{Enabled: false},
-					SapnetweaverCacheHits:                   MetricConfig{Enabled: false},
-					SapnetweaverConnectionErrorCount:        MetricConfig{Enabled: false},
-					SapnetweaverCPUSystemUtilization:        MetricConfig{Enabled: false},
-					SapnetweaverCPUUtilization:              MetricConfig{Enabled: false},
-					SapnetweaverDatabaseDialogRequestTime:   MetricConfig{Enabled: false},
-					SapnetweaverHostMemoryVirtualOverhead:   MetricConfig{Enabled: false},
-					SapnetweaverHostMemoryVirtualSwap:       MetricConfig{Enabled: false},
-					SapnetweaverHostSpoolListUtilization:    MetricConfig{Enabled: false},
-					SapnetweaverLocksDequeueErrorsCount:     MetricConfig{Enabled: false},
-					SapnetweaverLocksEnqueueCurrentCount:    MetricConfig{Enabled: false},
-					SapnetweaverLocksEnqueueErrorsCount:     MetricConfig{Enabled: false},
-					SapnetweaverLocksEnqueueHighCount:       MetricConfig{Enabled: false},
-					SapnetweaverLocksEnqueueLockTime:        MetricConfig{Enabled: false},
-					SapnetweaverLocksEnqueueLockWaitTime:    MetricConfig{Enabled: false},
-					SapnetweaverLocksEnqueueMaxCount:        MetricConfig{Enabled: false},
-					SapnetweaverMemoryConfigured:            MetricConfig{Enabled: false},
-					SapnetweaverMemoryFree:                  MetricConfig{Enabled: false},
-					SapnetweaverMemorySwapSpaceUtilization:  MetricConfig{Enabled: false},
-					SapnetweaverProcessAvailability:         MetricConfig{Enabled: false},
-					SapnetweaverQueueCount:                  MetricConfig{Enabled: false},
-					SapnetweaverQueueMaxCount:               MetricConfig{Enabled: false},
-					SapnetweaverQueuePeakCount:              MetricConfig{Enabled: false},
-					SapnetweaverRequestCount:                MetricConfig{Enabled: false},
-					SapnetweaverRequestTimeoutCount:         MetricConfig{Enabled: false},
-					SapnetweaverResponseDuration:            MetricConfig{Enabled: false},
-					SapnetweaverSessionCount:                MetricConfig{Enabled: false},
-					SapnetweaverSessionsBrowserCount:        MetricConfig{Enabled: false},
-					SapnetweaverSessionsEjbCount:            MetricConfig{Enabled: false},
-					SapnetweaverSessionsHTTPCount:           MetricConfig{Enabled: false},
-					SapnetweaverSessionsSecurityCount:       MetricConfig{Enabled: false},
-					SapnetweaverSessionsWebCount:            MetricConfig{Enabled: false},
-					SapnetweaverShortDumpsRate:              MetricConfig{Enabled: false},
-					SapnetweaverSpoolRequestErrorCount:      MetricConfig{Enabled: false},
-					SapnetweaverSystemInstanceAvailability:  MetricConfig{Enabled: false},
-					SapnetweaverWorkProcessActiveCount:      MetricConfig{Enabled: false},
-					SapnetweaverWorkProcessJobAbortedStatus: MetricConfig{Enabled: false},
+					SapnetweaverAbapUpdateStatus: SapnetweaverAbapUpdateStatusMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverAbapUpdateStatusMetricAttributeKey{SapnetweaverAbapUpdateStatusMetricAttributeKeyControlState},
+					},
+					SapnetweaverCacheEvictions: SapnetweaverCacheEvictionsMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverCacheHits: SapnetweaverCacheHitsMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverConnectionErrorCount: SapnetweaverConnectionErrorCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverCPUSystemUtilization: SapnetweaverCPUSystemUtilizationMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverCPUUtilization: SapnetweaverCPUUtilizationMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverDatabaseDialogRequestTime: SapnetweaverDatabaseDialogRequestTimeMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverHostMemoryVirtualOverhead: SapnetweaverHostMemoryVirtualOverheadMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverHostMemoryVirtualSwap: SapnetweaverHostMemoryVirtualSwapMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverHostSpoolListUtilization: SapnetweaverHostSpoolListUtilizationMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverLocksDequeueErrorsCount: SapnetweaverLocksDequeueErrorsCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverLocksEnqueueCurrentCount: SapnetweaverLocksEnqueueCurrentCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverLocksEnqueueErrorsCount: SapnetweaverLocksEnqueueErrorsCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverLocksEnqueueHighCount: SapnetweaverLocksEnqueueHighCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverLocksEnqueueLockTime: SapnetweaverLocksEnqueueLockTimeMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverLocksEnqueueLockWaitTime: SapnetweaverLocksEnqueueLockWaitTimeMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverLocksEnqueueMaxCount: SapnetweaverLocksEnqueueMaxCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverMemoryConfigured: SapnetweaverMemoryConfiguredMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverMemoryFree: SapnetweaverMemoryFreeMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverMemorySwapSpaceUtilization: SapnetweaverMemorySwapSpaceUtilizationMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverProcessAvailability: SapnetweaverProcessAvailabilityMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverProcessAvailabilityMetricAttributeKey{SapnetweaverProcessAvailabilityMetricAttributeKeyProcessName, SapnetweaverProcessAvailabilityMetricAttributeKeyProcessDescription, SapnetweaverProcessAvailabilityMetricAttributeKeyControlState},
+					},
+					SapnetweaverQueueCount: SapnetweaverQueueCountMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverQueueCountMetricAttributeKey{SapnetweaverQueueCountMetricAttributeKeyWpType},
+					},
+					SapnetweaverQueueMaxCount: SapnetweaverQueueMaxCountMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverQueueMaxCountMetricAttributeKey{SapnetweaverQueueMaxCountMetricAttributeKeyWpType},
+					},
+					SapnetweaverQueuePeakCount: SapnetweaverQueuePeakCountMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverQueuePeakCountMetricAttributeKey{SapnetweaverQueuePeakCountMetricAttributeKeyWpType},
+					},
+					SapnetweaverRequestCount: SapnetweaverRequestCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverRequestTimeoutCount: SapnetweaverRequestTimeoutCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverResponseDuration: SapnetweaverResponseDurationMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverResponseDurationMetricAttributeKey{SapnetweaverResponseDurationMetricAttributeKeyResponseType},
+					},
+					SapnetweaverSessionCount: SapnetweaverSessionCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverSessionsBrowserCount: SapnetweaverSessionsBrowserCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverSessionsEjbCount: SapnetweaverSessionsEjbCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverSessionsHTTPCount: SapnetweaverSessionsHTTPCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverSessionsSecurityCount: SapnetweaverSessionsSecurityCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverSessionsWebCount: SapnetweaverSessionsWebCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverShortDumpsRate: SapnetweaverShortDumpsRateMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverSpoolRequestErrorCount: SapnetweaverSpoolRequestErrorCountMetricConfig{
+						Enabled: false,
+					},
+					SapnetweaverSystemInstanceAvailability: SapnetweaverSystemInstanceAvailabilityMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverSystemInstanceAvailabilityMetricAttributeKey{SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyHostname, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyInstanceNumber, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyFeature, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyControlState},
+					},
+					SapnetweaverWorkProcessActiveCount: SapnetweaverWorkProcessActiveCountMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverWorkProcessActiveCountMetricAttributeKey{SapnetweaverWorkProcessActiveCountMetricAttributeKeyInstance, SapnetweaverWorkProcessActiveCountMetricAttributeKeyWpType, SapnetweaverWorkProcessActiveCountMetricAttributeKeyWpStatus},
+					},
+					SapnetweaverWorkProcessJobAbortedStatus: SapnetweaverWorkProcessJobAbortedStatusMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []SapnetweaverWorkProcessJobAbortedStatusMetricAttributeKey{SapnetweaverWorkProcessJobAbortedStatusMetricAttributeKeyControlState},
+					},
 				},
 				ResourceAttributes: ResourceAttributesConfig{
 					SapnetweaverSID:      ResourceAttributeConfig{Enabled: false},
@@ -127,7 +314,7 @@ func TestMetricsBuilderConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := loadMetricsBuilderConfig(t, tt.name)
-			diff := cmp.Diff(tt.want, cfg, cmpopts.IgnoreUnexported(MetricConfig{}, ResourceAttributeConfig{}))
+			diff := cmp.Diff(tt.want, cfg, cmpopts.IgnoreUnexported(SapnetweaverAbapUpdateStatusMetricConfig{}, SapnetweaverCacheEvictionsMetricConfig{}, SapnetweaverCacheHitsMetricConfig{}, SapnetweaverConnectionErrorCountMetricConfig{}, SapnetweaverCPUSystemUtilizationMetricConfig{}, SapnetweaverCPUUtilizationMetricConfig{}, SapnetweaverDatabaseDialogRequestTimeMetricConfig{}, SapnetweaverHostMemoryVirtualOverheadMetricConfig{}, SapnetweaverHostMemoryVirtualSwapMetricConfig{}, SapnetweaverHostSpoolListUtilizationMetricConfig{}, SapnetweaverLocksDequeueErrorsCountMetricConfig{}, SapnetweaverLocksEnqueueCurrentCountMetricConfig{}, SapnetweaverLocksEnqueueErrorsCountMetricConfig{}, SapnetweaverLocksEnqueueHighCountMetricConfig{}, SapnetweaverLocksEnqueueLockTimeMetricConfig{}, SapnetweaverLocksEnqueueLockWaitTimeMetricConfig{}, SapnetweaverLocksEnqueueMaxCountMetricConfig{}, SapnetweaverMemoryConfiguredMetricConfig{}, SapnetweaverMemoryFreeMetricConfig{}, SapnetweaverMemorySwapSpaceUtilizationMetricConfig{}, SapnetweaverProcessAvailabilityMetricConfig{}, SapnetweaverQueueCountMetricConfig{}, SapnetweaverQueueMaxCountMetricConfig{}, SapnetweaverQueuePeakCountMetricConfig{}, SapnetweaverRequestCountMetricConfig{}, SapnetweaverRequestTimeoutCountMetricConfig{}, SapnetweaverResponseDurationMetricConfig{}, SapnetweaverSessionCountMetricConfig{}, SapnetweaverSessionsBrowserCountMetricConfig{}, SapnetweaverSessionsEjbCountMetricConfig{}, SapnetweaverSessionsHTTPCountMetricConfig{}, SapnetweaverSessionsSecurityCountMetricConfig{}, SapnetweaverSessionsWebCountMetricConfig{}, SapnetweaverShortDumpsRateMetricConfig{}, SapnetweaverSpoolRequestErrorCountMetricConfig{}, SapnetweaverSystemInstanceAvailabilityMetricConfig{}, SapnetweaverWorkProcessActiveCountMetricConfig{}, SapnetweaverWorkProcessJobAbortedStatusMetricConfig{}, ResourceAttributeConfig{}))
 			require.Emptyf(t, diff, "Config mismatch (-expected +actual):\n%s", diff)
 		})
 	}
@@ -138,7 +325,7 @@ func loadMetricsBuilderConfig(t *testing.T, name string) MetricsBuilderConfig {
 	require.NoError(t, err)
 	sub, err := cm.Sub(name)
 	require.NoError(t, err)
-	cfg := DefaultMetricsBuilderConfig()
+	cfg := NewDefaultMetricsBuilderConfig()
 	require.NoError(t, sub.Unmarshal(&cfg, confmap.WithIgnoreUnused()))
 	return cfg
 }

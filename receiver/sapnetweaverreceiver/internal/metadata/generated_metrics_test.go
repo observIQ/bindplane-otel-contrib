@@ -19,6 +19,7 @@ const (
 	testDataSetDefault testDataSet = iota
 	testDataSetAll
 	testDataSetNone
+	testDataSetReag
 )
 
 func TestMetricsBuilder(t *testing.T) {
@@ -35,6 +36,11 @@ func TestMetricsBuilder(t *testing.T) {
 			name:        "all_set",
 			metricsSet:  testDataSetAll,
 			resAttrsSet: testDataSetAll,
+		},
+		{
+			name:        "reaggregate_set",
+			metricsSet:  testDataSetReag,
+			resAttrsSet: testDataSetReag,
 		},
 		{
 			name:        "none_set",
@@ -60,9 +66,21 @@ func TestMetricsBuilder(t *testing.T) {
 			settings := receivertest.NewNopSettings(receivertest.NopType)
 			settings.Logger = zap.New(observedZapCore)
 			mb := NewMetricsBuilder(loadMetricsBuilderConfig(t, tt.name), settings, WithStartTime(start))
+			aggMap := make(map[string]string) // contains the aggregation strategies for each metric name
+			aggMap["sapnetweaver.abap.update.status"] = mb.metricSapnetweaverAbapUpdateStatus.config.AggregationStrategy
+			aggMap["sapnetweaver.process_availability"] = mb.metricSapnetweaverProcessAvailability.config.AggregationStrategy
+			aggMap["sapnetweaver.queue.count"] = mb.metricSapnetweaverQueueCount.config.AggregationStrategy
+			aggMap["sapnetweaver.queue_max.count"] = mb.metricSapnetweaverQueueMaxCount.config.AggregationStrategy
+			aggMap["sapnetweaver.queue_peak.count"] = mb.metricSapnetweaverQueuePeakCount.config.AggregationStrategy
+			aggMap["sapnetweaver.response.duration"] = mb.metricSapnetweaverResponseDuration.config.AggregationStrategy
+			aggMap["sapnetweaver.system.instance_availability"] = mb.metricSapnetweaverSystemInstanceAvailability.config.AggregationStrategy
+			aggMap["sapnetweaver.work_process.active.count"] = mb.metricSapnetweaverWorkProcessActiveCount.config.AggregationStrategy
+			aggMap["sapnetweaver.work_process.job.aborted.status"] = mb.metricSapnetweaverWorkProcessJobAbortedStatus.config.AggregationStrategy
 
 			expectedWarnings := 0
-			assert.Equal(t, expectedWarnings, observedLogs.Len())
+			if tt.metricsSet != testDataSetReag {
+				assert.Equal(t, expectedWarnings, observedLogs.Len())
+			}
 
 			defaultMetricsCount := 0
 			allMetricsCount := 0
@@ -70,6 +88,9 @@ func TestMetricsBuilder(t *testing.T) {
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverAbapUpdateStatusDataPoint(ts, 1, AttributeControlStateGray)
+			if tt.name == "reaggregate_set" {
+				mb.RecordSapnetweaverAbapUpdateStatusDataPoint(ts, 3, AttributeControlStateGreen)
+			}
 
 			defaultMetricsCount++
 			allMetricsCount++
@@ -150,18 +171,30 @@ func TestMetricsBuilder(t *testing.T) {
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverProcessAvailabilityDataPoint(ts, 1, "process_name-val", "process_description-val", AttributeControlStateGray)
+			if tt.name == "reaggregate_set" {
+				mb.RecordSapnetweaverProcessAvailabilityDataPoint(ts, 3, "process_name-val-2", "process_description-val-2", AttributeControlStateGreen)
+			}
 
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverQueueCountDataPoint(ts, 1, "wp_type-val")
+			if tt.name == "reaggregate_set" {
+				mb.RecordSapnetweaverQueueCountDataPoint(ts, 3, "wp_type-val-2")
+			}
 
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverQueueMaxCountDataPoint(ts, 1, "wp_type-val")
+			if tt.name == "reaggregate_set" {
+				mb.RecordSapnetweaverQueueMaxCountDataPoint(ts, 3, "wp_type-val-2")
+			}
 
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverQueuePeakCountDataPoint(ts, 1, "wp_type-val")
+			if tt.name == "reaggregate_set" {
+				mb.RecordSapnetweaverQueuePeakCountDataPoint(ts, 3, "wp_type-val-2")
+			}
 
 			defaultMetricsCount++
 			allMetricsCount++
@@ -174,6 +207,9 @@ func TestMetricsBuilder(t *testing.T) {
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverResponseDurationDataPoint(ts, "1", AttributeResponseTypeTransaction)
+			if tt.name == "reaggregate_set" {
+				mb.RecordSapnetweaverResponseDurationDataPoint(ts, "3", AttributeResponseTypeDialog)
+			}
 
 			defaultMetricsCount++
 			allMetricsCount++
@@ -210,14 +246,23 @@ func TestMetricsBuilder(t *testing.T) {
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverSystemInstanceAvailabilityDataPoint(ts, 1, "hostname-val", 15, "feature-val", AttributeControlStateGray)
+			if tt.name == "reaggregate_set" {
+				mb.RecordSapnetweaverSystemInstanceAvailabilityDataPoint(ts, 3, "hostname-val-2", 16, "feature-val-2", AttributeControlStateGreen)
+			}
 
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverWorkProcessActiveCountDataPoint(ts, 1, "instance-val", "wp_type-val", "wp_status-val")
+			if tt.name == "reaggregate_set" {
+				mb.RecordSapnetweaverWorkProcessActiveCountDataPoint(ts, 3, "instance-val-2", "wp_type-val-2", "wp_status-val-2")
+			}
 
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverWorkProcessJobAbortedStatusDataPoint(ts, 1, AttributeControlStateGray)
+			if tt.name == "reaggregate_set" {
+				mb.RecordSapnetweaverWorkProcessJobAbortedStatusDataPoint(ts, 3, AttributeControlStateGreen)
+			}
 
 			rb := mb.NewResourceBuilder()
 			rb.SetSapnetweaverSID("sapnetweaver.SID-val")
@@ -225,53 +270,97 @@ func TestMetricsBuilder(t *testing.T) {
 			rb.SetSapnetweaverNode("sapnetweaver.node-val")
 			res := rb.Emit()
 			metrics := mb.Emit(WithResource(res))
+			if tt.name == "reaggregate_set" {
+				assert.Empty(t, mb.metricSapnetweaverAbapUpdateStatus.aggDataPoints)
+				assert.Empty(t, mb.metricSapnetweaverProcessAvailability.aggDataPoints)
+				assert.Empty(t, mb.metricSapnetweaverQueueCount.aggDataPoints)
+				assert.Empty(t, mb.metricSapnetweaverQueueMaxCount.aggDataPoints)
+				assert.Empty(t, mb.metricSapnetweaverQueuePeakCount.aggDataPoints)
+				assert.Empty(t, mb.metricSapnetweaverResponseDuration.aggDataPoints)
+				assert.Empty(t, mb.metricSapnetweaverSystemInstanceAvailability.aggDataPoints)
+				assert.Empty(t, mb.metricSapnetweaverWorkProcessActiveCount.aggDataPoints)
+				assert.Empty(t, mb.metricSapnetweaverWorkProcessJobAbortedStatus.aggDataPoints)
+			}
 
 			if tt.expectEmpty {
 				assert.Equal(t, 0, metrics.ResourceMetrics().Len())
 				return
 			}
 
-			assert.Equal(t, 1, metrics.ResourceMetrics().Len())
-			rm := metrics.ResourceMetrics().At(0)
-			assert.Equal(t, res, rm.Resource())
-			assert.Equal(t, 1, rm.ScopeMetrics().Len())
-			ms := rm.ScopeMetrics().At(0).Metrics()
+			var allMetricsList []pmetric.Metric
+			totalMetricsCount := 0
+			for ri := 0; ri < metrics.ResourceMetrics().Len(); ri++ {
+				rm := metrics.ResourceMetrics().At(ri)
+				assert.Equal(t, 1, rm.ScopeMetrics().Len())
+				ms := rm.ScopeMetrics().At(0).Metrics()
+				totalMetricsCount += ms.Len()
+				for mi := 0; mi < ms.Len(); mi++ {
+					allMetricsList = append(allMetricsList, ms.At(mi))
+				}
+			}
 			if tt.metricsSet == testDataSetDefault {
-				assert.Equal(t, defaultMetricsCount, ms.Len())
+				assert.Equal(t, defaultMetricsCount, totalMetricsCount)
 			}
 			if tt.metricsSet == testDataSetAll {
-				assert.Equal(t, allMetricsCount, ms.Len())
+				assert.Equal(t, allMetricsCount, totalMetricsCount)
 			}
 			validatedMetrics := make(map[string]bool)
-			for i := 0; i < ms.Len(); i++ {
-				switch ms.At(i).Name() {
+			for _, mi := range allMetricsList {
+				switch mi.Name() {
 				case "sapnetweaver.abap.update.status":
-					assert.False(t, validatedMetrics["sapnetweaver.abap.update.status"], "Found a duplicate in the metrics slice: sapnetweaver.abap.update.status")
-					validatedMetrics["sapnetweaver.abap.update.status"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The status of the ABAP update process.", ms.At(i).Description())
-					assert.Equal(t, "1", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
-					assert.Equal(t, start, dp.StartTimestamp())
-					assert.Equal(t, ts, dp.Timestamp())
-					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
-					assert.Equal(t, int64(1), dp.IntValue())
-					attrVal, ok := dp.Attributes().Get("state")
-					assert.True(t, ok)
-					assert.Equal(t, "gray", attrVal.Str())
+					if tt.name != "reaggregate_set" {
+						assert.False(t, validatedMetrics["sapnetweaver.abap.update.status"], "Found a duplicate in the metrics slice: sapnetweaver.abap.update.status")
+						validatedMetrics["sapnetweaver.abap.update.status"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The status of the ABAP update process.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						assert.Equal(t, int64(1), dp.IntValue())
+						controlStateAttrVal, ok := dp.Attributes().Get("state")
+						assert.True(t, ok)
+						assert.Equal(t, "gray", controlStateAttrVal.Str())
+					} else {
+						assert.False(t, validatedMetrics["sapnetweaver.abap.update.status"], "Found a duplicate in the metrics slice: sapnetweaver.abap.update.status")
+						validatedMetrics["sapnetweaver.abap.update.status"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The status of the ABAP update process.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						switch aggMap["sapnetweaver.abap.update.status"] {
+						case "sum":
+							assert.Equal(t, int64(4), dp.IntValue())
+						case "avg":
+							assert.Equal(t, int64(2), dp.IntValue())
+						case "min":
+							assert.Equal(t, int64(1), dp.IntValue())
+						case "max":
+							assert.Equal(t, int64(3), dp.IntValue())
+						}
+						_, ok := dp.Attributes().Get("state")
+						assert.False(t, ok)
+					}
 				case "sapnetweaver.cache.evictions":
 					assert.False(t, validatedMetrics["sapnetweaver.cache.evictions"], "Found a duplicate in the metrics slice: sapnetweaver.cache.evictions")
 					validatedMetrics["sapnetweaver.cache.evictions"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The number of evicted entries.", ms.At(i).Description())
-					assert.Equal(t, "{entries}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The number of evicted entries.", mi.Description())
+					assert.Equal(t, "{entries}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -279,11 +368,11 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.cache.hits":
 					assert.False(t, validatedMetrics["sapnetweaver.cache.hits"], "Found a duplicate in the metrics slice: sapnetweaver.cache.hits")
 					validatedMetrics["sapnetweaver.cache.hits"] = true
-					assert.Equal(t, pmetric.MetricTypeGauge, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Gauge().DataPoints().Len())
-					assert.Equal(t, "The cache hit percentage.", ms.At(i).Description())
-					assert.Equal(t, "%", ms.At(i).Unit())
-					dp := ms.At(i).Gauge().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+					assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+					assert.Equal(t, "The cache hit percentage.", mi.Description())
+					assert.Equal(t, "%", mi.Unit())
+					dp := mi.Gauge().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -291,13 +380,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.connection.error.count":
 					assert.False(t, validatedMetrics["sapnetweaver.connection.error.count"], "Found a duplicate in the metrics slice: sapnetweaver.connection.error.count")
 					validatedMetrics["sapnetweaver.connection.error.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The amount of connection errors.", ms.At(i).Description())
-					assert.Equal(t, "{connections}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The amount of connection errors.", mi.Description())
+					assert.Equal(t, "{connections}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -305,11 +394,11 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.cpu.system.utilization":
 					assert.False(t, validatedMetrics["sapnetweaver.cpu.system.utilization"], "Found a duplicate in the metrics slice: sapnetweaver.cpu.system.utilization")
 					validatedMetrics["sapnetweaver.cpu.system.utilization"] = true
-					assert.Equal(t, pmetric.MetricTypeGauge, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Gauge().DataPoints().Len())
-					assert.Equal(t, "The system CPU utilization percentage.", ms.At(i).Description())
-					assert.Equal(t, "%", ms.At(i).Unit())
-					dp := ms.At(i).Gauge().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+					assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+					assert.Equal(t, "The system CPU utilization percentage.", mi.Description())
+					assert.Equal(t, "%", mi.Unit())
+					dp := mi.Gauge().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -317,11 +406,11 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.cpu.utilization":
 					assert.False(t, validatedMetrics["sapnetweaver.cpu.utilization"], "Found a duplicate in the metrics slice: sapnetweaver.cpu.utilization")
 					validatedMetrics["sapnetweaver.cpu.utilization"] = true
-					assert.Equal(t, pmetric.MetricTypeGauge, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Gauge().DataPoints().Len())
-					assert.Equal(t, "The CPU utilization percentage.", ms.At(i).Description())
-					assert.Equal(t, "%", ms.At(i).Unit())
-					dp := ms.At(i).Gauge().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+					assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+					assert.Equal(t, "The CPU utilization percentage.", mi.Description())
+					assert.Equal(t, "%", mi.Unit())
+					dp := mi.Gauge().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -329,13 +418,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.database.dialog.request.time":
 					assert.False(t, validatedMetrics["sapnetweaver.database.dialog.request.time"], "Found a duplicate in the metrics slice: sapnetweaver.database.dialog.request.time")
 					validatedMetrics["sapnetweaver.database.dialog.request.time"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The average time for processing logical database requests calls to the SAP database interface.", ms.At(i).Description())
-					assert.Equal(t, "ms", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The average time for processing logical database requests calls to the SAP database interface.", mi.Description())
+					assert.Equal(t, "ms", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -343,11 +432,11 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.host.memory.virtual.overhead":
 					assert.False(t, validatedMetrics["sapnetweaver.host.memory.virtual.overhead"], "Found a duplicate in the metrics slice: sapnetweaver.host.memory.virtual.overhead")
 					validatedMetrics["sapnetweaver.host.memory.virtual.overhead"] = true
-					assert.Equal(t, pmetric.MetricTypeGauge, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Gauge().DataPoints().Len())
-					assert.Equal(t, "Virtualization System Memory Overhead.", ms.At(i).Description())
-					assert.Equal(t, "By", ms.At(i).Unit())
-					dp := ms.At(i).Gauge().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+					assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+					assert.Equal(t, "Virtualization System Memory Overhead.", mi.Description())
+					assert.Equal(t, "By", mi.Unit())
+					dp := mi.Gauge().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -355,11 +444,11 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.host.memory.virtual.swap":
 					assert.False(t, validatedMetrics["sapnetweaver.host.memory.virtual.swap"], "Found a duplicate in the metrics slice: sapnetweaver.host.memory.virtual.swap")
 					validatedMetrics["sapnetweaver.host.memory.virtual.swap"] = true
-					assert.Equal(t, pmetric.MetricTypeGauge, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Gauge().DataPoints().Len())
-					assert.Equal(t, "Virtualization System Swap Memory.", ms.At(i).Description())
-					assert.Equal(t, "By", ms.At(i).Unit())
-					dp := ms.At(i).Gauge().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+					assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+					assert.Equal(t, "Virtualization System Swap Memory.", mi.Description())
+					assert.Equal(t, "By", mi.Unit())
+					dp := mi.Gauge().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -367,11 +456,11 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.host.spool_list.utilization":
 					assert.False(t, validatedMetrics["sapnetweaver.host.spool_list.utilization"], "Found a duplicate in the metrics slice: sapnetweaver.host.spool_list.utilization")
 					validatedMetrics["sapnetweaver.host.spool_list.utilization"] = true
-					assert.Equal(t, pmetric.MetricTypeGauge, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Gauge().DataPoints().Len())
-					assert.Equal(t, "The host spool list used percentage.", ms.At(i).Description())
-					assert.Equal(t, "%", ms.At(i).Unit())
-					dp := ms.At(i).Gauge().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+					assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+					assert.Equal(t, "The host spool list used percentage.", mi.Description())
+					assert.Equal(t, "%", mi.Unit())
+					dp := mi.Gauge().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -379,13 +468,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.locks.dequeue.errors.count":
 					assert.False(t, validatedMetrics["sapnetweaver.locks.dequeue.errors.count"], "Found a duplicate in the metrics slice: sapnetweaver.locks.dequeue.errors.count")
 					validatedMetrics["sapnetweaver.locks.dequeue.errors.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The dequeued locks error count.", ms.At(i).Description())
-					assert.Equal(t, "{errors}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The dequeued locks error count.", mi.Description())
+					assert.Equal(t, "{errors}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -393,13 +482,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.locks.enqueue.current.count":
 					assert.False(t, validatedMetrics["sapnetweaver.locks.enqueue.current.count"], "Found a duplicate in the metrics slice: sapnetweaver.locks.enqueue.current.count")
 					validatedMetrics["sapnetweaver.locks.enqueue.current.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The current number of enqueued locks.", ms.At(i).Description())
-					assert.Equal(t, "{locks}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The current number of enqueued locks.", mi.Description())
+					assert.Equal(t, "{locks}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -407,13 +496,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.locks.enqueue.errors.count":
 					assert.False(t, validatedMetrics["sapnetweaver.locks.enqueue.errors.count"], "Found a duplicate in the metrics slice: sapnetweaver.locks.enqueue.errors.count")
 					validatedMetrics["sapnetweaver.locks.enqueue.errors.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The enqueued locks error count.", ms.At(i).Description())
-					assert.Equal(t, "{errors}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The enqueued locks error count.", mi.Description())
+					assert.Equal(t, "{errors}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -421,13 +510,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.locks.enqueue.high.count":
 					assert.False(t, validatedMetrics["sapnetweaver.locks.enqueue.high.count"], "Found a duplicate in the metrics slice: sapnetweaver.locks.enqueue.high.count")
 					validatedMetrics["sapnetweaver.locks.enqueue.high.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The high number of enqueued locks.", ms.At(i).Description())
-					assert.Equal(t, "{locks}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The high number of enqueued locks.", mi.Description())
+					assert.Equal(t, "{locks}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -435,13 +524,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.locks.enqueue.lock_time":
 					assert.False(t, validatedMetrics["sapnetweaver.locks.enqueue.lock_time"], "Found a duplicate in the metrics slice: sapnetweaver.locks.enqueue.lock_time")
 					validatedMetrics["sapnetweaver.locks.enqueue.lock_time"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The enqueued locks time.", ms.At(i).Description())
-					assert.Equal(t, "ms", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The enqueued locks time.", mi.Description())
+					assert.Equal(t, "ms", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -449,13 +538,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.locks.enqueue.lock_wait_time":
 					assert.False(t, validatedMetrics["sapnetweaver.locks.enqueue.lock_wait_time"], "Found a duplicate in the metrics slice: sapnetweaver.locks.enqueue.lock_wait_time")
 					validatedMetrics["sapnetweaver.locks.enqueue.lock_wait_time"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The enqueued locks wait time.", ms.At(i).Description())
-					assert.Equal(t, "ms", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The enqueued locks wait time.", mi.Description())
+					assert.Equal(t, "ms", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -463,13 +552,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.locks.enqueue.max.count":
 					assert.False(t, validatedMetrics["sapnetweaver.locks.enqueue.max.count"], "Found a duplicate in the metrics slice: sapnetweaver.locks.enqueue.max.count")
 					validatedMetrics["sapnetweaver.locks.enqueue.max.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The max number of enqueued locks.", ms.At(i).Description())
-					assert.Equal(t, "{locks}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The max number of enqueued locks.", mi.Description())
+					assert.Equal(t, "{locks}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -477,13 +566,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.memory.configured":
 					assert.False(t, validatedMetrics["sapnetweaver.memory.configured"], "Found a duplicate in the metrics slice: sapnetweaver.memory.configured")
 					validatedMetrics["sapnetweaver.memory.configured"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The amount of configured memory.", ms.At(i).Description())
-					assert.Equal(t, "By", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The amount of configured memory.", mi.Description())
+					assert.Equal(t, "By", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -491,13 +580,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.memory.free":
 					assert.False(t, validatedMetrics["sapnetweaver.memory.free"], "Found a duplicate in the metrics slice: sapnetweaver.memory.free")
 					validatedMetrics["sapnetweaver.memory.free"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The amount of free memory.", ms.At(i).Description())
-					assert.Equal(t, "By", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The amount of free memory.", mi.Description())
+					assert.Equal(t, "By", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -505,99 +594,211 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.memory.swap_space.utilization":
 					assert.False(t, validatedMetrics["sapnetweaver.memory.swap_space.utilization"], "Found a duplicate in the metrics slice: sapnetweaver.memory.swap_space.utilization")
 					validatedMetrics["sapnetweaver.memory.swap_space.utilization"] = true
-					assert.Equal(t, pmetric.MetricTypeGauge, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Gauge().DataPoints().Len())
-					assert.Equal(t, "The swap space utilization percentage.", ms.At(i).Description())
-					assert.Equal(t, "%", ms.At(i).Unit())
-					dp := ms.At(i).Gauge().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+					assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+					assert.Equal(t, "The swap space utilization percentage.", mi.Description())
+					assert.Equal(t, "%", mi.Unit())
+					dp := mi.Gauge().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
 					assert.Equal(t, int64(1), dp.IntValue())
 				case "sapnetweaver.process_availability":
-					assert.False(t, validatedMetrics["sapnetweaver.process_availability"], "Found a duplicate in the metrics slice: sapnetweaver.process_availability")
-					validatedMetrics["sapnetweaver.process_availability"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The processes availability directly started by the sapstartsrv Web service.", ms.At(i).Description())
-					assert.Equal(t, "1", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
-					assert.Equal(t, start, dp.StartTimestamp())
-					assert.Equal(t, ts, dp.Timestamp())
-					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
-					assert.Equal(t, int64(1), dp.IntValue())
-					attrVal, ok := dp.Attributes().Get("process_name")
-					assert.True(t, ok)
-					assert.Equal(t, "process_name-val", attrVal.Str())
-					attrVal, ok = dp.Attributes().Get("process_description")
-					assert.True(t, ok)
-					assert.Equal(t, "process_description-val", attrVal.Str())
-					attrVal, ok = dp.Attributes().Get("state")
-					assert.True(t, ok)
-					assert.Equal(t, "gray", attrVal.Str())
+					if tt.name != "reaggregate_set" {
+						assert.False(t, validatedMetrics["sapnetweaver.process_availability"], "Found a duplicate in the metrics slice: sapnetweaver.process_availability")
+						validatedMetrics["sapnetweaver.process_availability"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The processes availability directly started by the sapstartsrv Web service.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						assert.Equal(t, int64(1), dp.IntValue())
+						processNameAttrVal, ok := dp.Attributes().Get("process_name")
+						assert.True(t, ok)
+						assert.Equal(t, "process_name-val", processNameAttrVal.Str())
+						processDescriptionAttrVal, ok := dp.Attributes().Get("process_description")
+						assert.True(t, ok)
+						assert.Equal(t, "process_description-val", processDescriptionAttrVal.Str())
+						controlStateAttrVal, ok := dp.Attributes().Get("state")
+						assert.True(t, ok)
+						assert.Equal(t, "gray", controlStateAttrVal.Str())
+					} else {
+						assert.False(t, validatedMetrics["sapnetweaver.process_availability"], "Found a duplicate in the metrics slice: sapnetweaver.process_availability")
+						validatedMetrics["sapnetweaver.process_availability"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The processes availability directly started by the sapstartsrv Web service.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						switch aggMap["sapnetweaver.process_availability"] {
+						case "sum":
+							assert.Equal(t, int64(4), dp.IntValue())
+						case "avg":
+							assert.Equal(t, int64(2), dp.IntValue())
+						case "min":
+							assert.Equal(t, int64(1), dp.IntValue())
+						case "max":
+							assert.Equal(t, int64(3), dp.IntValue())
+						}
+						_, ok := dp.Attributes().Get("process_name")
+						assert.False(t, ok)
+						_, ok = dp.Attributes().Get("process_description")
+						assert.False(t, ok)
+						_, ok = dp.Attributes().Get("state")
+						assert.False(t, ok)
+					}
 				case "sapnetweaver.queue.count":
-					assert.False(t, validatedMetrics["sapnetweaver.queue.count"], "Found a duplicate in the metrics slice: sapnetweaver.queue.count")
-					validatedMetrics["sapnetweaver.queue.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The queue length.", ms.At(i).Description())
-					assert.Equal(t, "1", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
-					assert.Equal(t, start, dp.StartTimestamp())
-					assert.Equal(t, ts, dp.Timestamp())
-					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
-					assert.Equal(t, int64(1), dp.IntValue())
-					attrVal, ok := dp.Attributes().Get("wp_type")
-					assert.True(t, ok)
-					assert.Equal(t, "wp_type-val", attrVal.Str())
+					if tt.name != "reaggregate_set" {
+						assert.False(t, validatedMetrics["sapnetweaver.queue.count"], "Found a duplicate in the metrics slice: sapnetweaver.queue.count")
+						validatedMetrics["sapnetweaver.queue.count"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The queue length.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						assert.Equal(t, int64(1), dp.IntValue())
+						wpTypeAttrVal, ok := dp.Attributes().Get("wp_type")
+						assert.True(t, ok)
+						assert.Equal(t, "wp_type-val", wpTypeAttrVal.Str())
+					} else {
+						assert.False(t, validatedMetrics["sapnetweaver.queue.count"], "Found a duplicate in the metrics slice: sapnetweaver.queue.count")
+						validatedMetrics["sapnetweaver.queue.count"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The queue length.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						switch aggMap["sapnetweaver.queue.count"] {
+						case "sum":
+							assert.Equal(t, int64(4), dp.IntValue())
+						case "avg":
+							assert.Equal(t, int64(2), dp.IntValue())
+						case "min":
+							assert.Equal(t, int64(1), dp.IntValue())
+						case "max":
+							assert.Equal(t, int64(3), dp.IntValue())
+						}
+						_, ok := dp.Attributes().Get("wp_type")
+						assert.False(t, ok)
+					}
 				case "sapnetweaver.queue_max.count":
-					assert.False(t, validatedMetrics["sapnetweaver.queue_max.count"], "Found a duplicate in the metrics slice: sapnetweaver.queue_max.count")
-					validatedMetrics["sapnetweaver.queue_max.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The max queue length.", ms.At(i).Description())
-					assert.Equal(t, "1", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
-					assert.Equal(t, start, dp.StartTimestamp())
-					assert.Equal(t, ts, dp.Timestamp())
-					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
-					assert.Equal(t, int64(1), dp.IntValue())
-					attrVal, ok := dp.Attributes().Get("wp_type")
-					assert.True(t, ok)
-					assert.Equal(t, "wp_type-val", attrVal.Str())
+					if tt.name != "reaggregate_set" {
+						assert.False(t, validatedMetrics["sapnetweaver.queue_max.count"], "Found a duplicate in the metrics slice: sapnetweaver.queue_max.count")
+						validatedMetrics["sapnetweaver.queue_max.count"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The max queue length.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						assert.Equal(t, int64(1), dp.IntValue())
+						wpTypeAttrVal, ok := dp.Attributes().Get("wp_type")
+						assert.True(t, ok)
+						assert.Equal(t, "wp_type-val", wpTypeAttrVal.Str())
+					} else {
+						assert.False(t, validatedMetrics["sapnetweaver.queue_max.count"], "Found a duplicate in the metrics slice: sapnetweaver.queue_max.count")
+						validatedMetrics["sapnetweaver.queue_max.count"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The max queue length.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						switch aggMap["sapnetweaver.queue_max.count"] {
+						case "sum":
+							assert.Equal(t, int64(4), dp.IntValue())
+						case "avg":
+							assert.Equal(t, int64(2), dp.IntValue())
+						case "min":
+							assert.Equal(t, int64(1), dp.IntValue())
+						case "max":
+							assert.Equal(t, int64(3), dp.IntValue())
+						}
+						_, ok := dp.Attributes().Get("wp_type")
+						assert.False(t, ok)
+					}
 				case "sapnetweaver.queue_peak.count":
-					assert.False(t, validatedMetrics["sapnetweaver.queue_peak.count"], "Found a duplicate in the metrics slice: sapnetweaver.queue_peak.count")
-					validatedMetrics["sapnetweaver.queue_peak.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The peak queue length.", ms.At(i).Description())
-					assert.Equal(t, "1", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
-					assert.Equal(t, start, dp.StartTimestamp())
-					assert.Equal(t, ts, dp.Timestamp())
-					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
-					assert.Equal(t, int64(1), dp.IntValue())
-					attrVal, ok := dp.Attributes().Get("wp_type")
-					assert.True(t, ok)
-					assert.Equal(t, "wp_type-val", attrVal.Str())
+					if tt.name != "reaggregate_set" {
+						assert.False(t, validatedMetrics["sapnetweaver.queue_peak.count"], "Found a duplicate in the metrics slice: sapnetweaver.queue_peak.count")
+						validatedMetrics["sapnetweaver.queue_peak.count"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The peak queue length.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						assert.Equal(t, int64(1), dp.IntValue())
+						wpTypeAttrVal, ok := dp.Attributes().Get("wp_type")
+						assert.True(t, ok)
+						assert.Equal(t, "wp_type-val", wpTypeAttrVal.Str())
+					} else {
+						assert.False(t, validatedMetrics["sapnetweaver.queue_peak.count"], "Found a duplicate in the metrics slice: sapnetweaver.queue_peak.count")
+						validatedMetrics["sapnetweaver.queue_peak.count"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The peak queue length.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						switch aggMap["sapnetweaver.queue_peak.count"] {
+						case "sum":
+							assert.Equal(t, int64(4), dp.IntValue())
+						case "avg":
+							assert.Equal(t, int64(2), dp.IntValue())
+						case "min":
+							assert.Equal(t, int64(1), dp.IntValue())
+						case "max":
+							assert.Equal(t, int64(3), dp.IntValue())
+						}
+						_, ok := dp.Attributes().Get("wp_type")
+						assert.False(t, ok)
+					}
 				case "sapnetweaver.request.count":
 					assert.False(t, validatedMetrics["sapnetweaver.request.count"], "Found a duplicate in the metrics slice: sapnetweaver.request.count")
 					validatedMetrics["sapnetweaver.request.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The amount of requests made.", ms.At(i).Description())
-					assert.Equal(t, "{requests}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The amount of requests made.", mi.Description())
+					assert.Equal(t, "{requests}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -605,44 +806,71 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.request.timeout.count":
 					assert.False(t, validatedMetrics["sapnetweaver.request.timeout.count"], "Found a duplicate in the metrics slice: sapnetweaver.request.timeout.count")
 					validatedMetrics["sapnetweaver.request.timeout.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The amount of timed out requests.", ms.At(i).Description())
-					assert.Equal(t, "{timeouts}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The amount of timed out requests.", mi.Description())
+					assert.Equal(t, "{timeouts}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
 					assert.Equal(t, int64(1), dp.IntValue())
 				case "sapnetweaver.response.duration":
-					assert.False(t, validatedMetrics["sapnetweaver.response.duration"], "Found a duplicate in the metrics slice: sapnetweaver.response.duration")
-					validatedMetrics["sapnetweaver.response.duration"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The response time duration.", ms.At(i).Description())
-					assert.Equal(t, "ms", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
-					assert.Equal(t, start, dp.StartTimestamp())
-					assert.Equal(t, ts, dp.Timestamp())
-					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
-					assert.Equal(t, int64(1), dp.IntValue())
-					attrVal, ok := dp.Attributes().Get("response_type")
-					assert.True(t, ok)
-					assert.Equal(t, "transaction", attrVal.Str())
+					if tt.name != "reaggregate_set" {
+						assert.False(t, validatedMetrics["sapnetweaver.response.duration"], "Found a duplicate in the metrics slice: sapnetweaver.response.duration")
+						validatedMetrics["sapnetweaver.response.duration"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The response time duration.", mi.Description())
+						assert.Equal(t, "ms", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						assert.Equal(t, int64(1), dp.IntValue())
+						responseTypeAttrVal, ok := dp.Attributes().Get("response_type")
+						assert.True(t, ok)
+						assert.Equal(t, "transaction", responseTypeAttrVal.Str())
+					} else {
+						assert.False(t, validatedMetrics["sapnetweaver.response.duration"], "Found a duplicate in the metrics slice: sapnetweaver.response.duration")
+						validatedMetrics["sapnetweaver.response.duration"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The response time duration.", mi.Description())
+						assert.Equal(t, "ms", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						switch aggMap["sapnetweaver.response.duration"] {
+						case "sum":
+							assert.Equal(t, int64(4), dp.IntValue())
+						case "avg":
+							assert.Equal(t, int64(2), dp.IntValue())
+						case "min":
+							assert.Equal(t, int64(1), dp.IntValue())
+						case "max":
+							assert.Equal(t, int64(3), dp.IntValue())
+						}
+						_, ok := dp.Attributes().Get("response_type")
+						assert.False(t, ok)
+					}
 				case "sapnetweaver.session.count":
 					assert.False(t, validatedMetrics["sapnetweaver.session.count"], "Found a duplicate in the metrics slice: sapnetweaver.session.count")
 					validatedMetrics["sapnetweaver.session.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The amount of sessions created.", ms.At(i).Description())
-					assert.Equal(t, "{sessions}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The amount of sessions created.", mi.Description())
+					assert.Equal(t, "{sessions}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -650,13 +878,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.sessions.browser.count":
 					assert.False(t, validatedMetrics["sapnetweaver.sessions.browser.count"], "Found a duplicate in the metrics slice: sapnetweaver.sessions.browser.count")
 					validatedMetrics["sapnetweaver.sessions.browser.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The number of Browser Sessions.", ms.At(i).Description())
-					assert.Equal(t, "{sessions}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The number of Browser Sessions.", mi.Description())
+					assert.Equal(t, "{sessions}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -664,13 +892,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.sessions.ejb.count":
 					assert.False(t, validatedMetrics["sapnetweaver.sessions.ejb.count"], "Found a duplicate in the metrics slice: sapnetweaver.sessions.ejb.count")
 					validatedMetrics["sapnetweaver.sessions.ejb.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The number of EJB Sessions.", ms.At(i).Description())
-					assert.Equal(t, "{sessions}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The number of EJB Sessions.", mi.Description())
+					assert.Equal(t, "{sessions}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -678,13 +906,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.sessions.http.count":
 					assert.False(t, validatedMetrics["sapnetweaver.sessions.http.count"], "Found a duplicate in the metrics slice: sapnetweaver.sessions.http.count")
 					validatedMetrics["sapnetweaver.sessions.http.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The number of HTTP Sessions.", ms.At(i).Description())
-					assert.Equal(t, "{sessions}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The number of HTTP Sessions.", mi.Description())
+					assert.Equal(t, "{sessions}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -692,13 +920,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.sessions.security.count":
 					assert.False(t, validatedMetrics["sapnetweaver.sessions.security.count"], "Found a duplicate in the metrics slice: sapnetweaver.sessions.security.count")
 					validatedMetrics["sapnetweaver.sessions.security.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The number of Security Sessions.", ms.At(i).Description())
-					assert.Equal(t, "{sessions}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The number of Security Sessions.", mi.Description())
+					assert.Equal(t, "{sessions}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -706,13 +934,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.sessions.web.count":
 					assert.False(t, validatedMetrics["sapnetweaver.sessions.web.count"], "Found a duplicate in the metrics slice: sapnetweaver.sessions.web.count")
 					validatedMetrics["sapnetweaver.sessions.web.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The number of Web Sessions.", ms.At(i).Description())
-					assert.Equal(t, "{sessions}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The number of Web Sessions.", mi.Description())
+					assert.Equal(t, "{sessions}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -720,13 +948,13 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.short_dumps.rate":
 					assert.False(t, validatedMetrics["sapnetweaver.short_dumps.rate"], "Found a duplicate in the metrics slice: sapnetweaver.short_dumps.rate")
 					validatedMetrics["sapnetweaver.short_dumps.rate"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The rate of Short Dumps.", ms.At(i).Description())
-					assert.Equal(t, "{dumps}/min", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The rate of Short Dumps.", mi.Description())
+					assert.Equal(t, "{dumps}/min", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
@@ -734,83 +962,174 @@ func TestMetricsBuilder(t *testing.T) {
 				case "sapnetweaver.spool.request.error.count":
 					assert.False(t, validatedMetrics["sapnetweaver.spool.request.error.count"], "Found a duplicate in the metrics slice: sapnetweaver.spool.request.error.count")
 					validatedMetrics["sapnetweaver.spool.request.error.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The number of spool work processes that have encountered errors.", ms.At(i).Description())
-					assert.Equal(t, "{errors}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "The number of spool work processes that have encountered errors.", mi.Description())
+					assert.Equal(t, "{errors}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())
 					assert.Equal(t, ts, dp.Timestamp())
 					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
 					assert.Equal(t, int64(1), dp.IntValue())
 				case "sapnetweaver.system.instance_availability":
-					assert.False(t, validatedMetrics["sapnetweaver.system.instance_availability"], "Found a duplicate in the metrics slice: sapnetweaver.system.instance_availability")
-					validatedMetrics["sapnetweaver.system.instance_availability"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The availability status of each system instance.", ms.At(i).Description())
-					assert.Equal(t, "1", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
-					assert.Equal(t, start, dp.StartTimestamp())
-					assert.Equal(t, ts, dp.Timestamp())
-					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
-					assert.Equal(t, int64(1), dp.IntValue())
-					attrVal, ok := dp.Attributes().Get("hostname")
-					assert.True(t, ok)
-					assert.Equal(t, "hostname-val", attrVal.Str())
-					attrVal, ok = dp.Attributes().Get("instance_number")
-					assert.True(t, ok)
-					assert.EqualValues(t, 15, attrVal.Int())
-					attrVal, ok = dp.Attributes().Get("feature")
-					assert.True(t, ok)
-					assert.Equal(t, "feature-val", attrVal.Str())
-					attrVal, ok = dp.Attributes().Get("state")
-					assert.True(t, ok)
-					assert.Equal(t, "gray", attrVal.Str())
+					if tt.name != "reaggregate_set" {
+						assert.False(t, validatedMetrics["sapnetweaver.system.instance_availability"], "Found a duplicate in the metrics slice: sapnetweaver.system.instance_availability")
+						validatedMetrics["sapnetweaver.system.instance_availability"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The availability status of each system instance.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						assert.Equal(t, int64(1), dp.IntValue())
+						hostnameAttrVal, ok := dp.Attributes().Get("hostname")
+						assert.True(t, ok)
+						assert.Equal(t, "hostname-val", hostnameAttrVal.Str())
+						instanceNumberAttrVal, ok := dp.Attributes().Get("instance_number")
+						assert.True(t, ok)
+						assert.EqualValues(t, 15, instanceNumberAttrVal.Int())
+						featureAttrVal, ok := dp.Attributes().Get("feature")
+						assert.True(t, ok)
+						assert.Equal(t, "feature-val", featureAttrVal.Str())
+						controlStateAttrVal, ok := dp.Attributes().Get("state")
+						assert.True(t, ok)
+						assert.Equal(t, "gray", controlStateAttrVal.Str())
+					} else {
+						assert.False(t, validatedMetrics["sapnetweaver.system.instance_availability"], "Found a duplicate in the metrics slice: sapnetweaver.system.instance_availability")
+						validatedMetrics["sapnetweaver.system.instance_availability"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The availability status of each system instance.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						switch aggMap["sapnetweaver.system.instance_availability"] {
+						case "sum":
+							assert.Equal(t, int64(4), dp.IntValue())
+						case "avg":
+							assert.Equal(t, int64(2), dp.IntValue())
+						case "min":
+							assert.Equal(t, int64(1), dp.IntValue())
+						case "max":
+							assert.Equal(t, int64(3), dp.IntValue())
+						}
+						_, ok := dp.Attributes().Get("hostname")
+						assert.False(t, ok)
+						_, ok = dp.Attributes().Get("instance_number")
+						assert.False(t, ok)
+						_, ok = dp.Attributes().Get("feature")
+						assert.False(t, ok)
+						_, ok = dp.Attributes().Get("state")
+						assert.False(t, ok)
+					}
 				case "sapnetweaver.work_process.active.count":
-					assert.False(t, validatedMetrics["sapnetweaver.work_process.active.count"], "Found a duplicate in the metrics slice: sapnetweaver.work_process.active.count")
-					validatedMetrics["sapnetweaver.work_process.active.count"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The number of free ABAP work processes in the system.", ms.At(i).Description())
-					assert.Equal(t, "{work_processes}", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
-					assert.Equal(t, start, dp.StartTimestamp())
-					assert.Equal(t, ts, dp.Timestamp())
-					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
-					assert.Equal(t, int64(1), dp.IntValue())
-					attrVal, ok := dp.Attributes().Get("instance")
-					assert.True(t, ok)
-					assert.Equal(t, "instance-val", attrVal.Str())
-					attrVal, ok = dp.Attributes().Get("wp_type")
-					assert.True(t, ok)
-					assert.Equal(t, "wp_type-val", attrVal.Str())
-					attrVal, ok = dp.Attributes().Get("wp_status")
-					assert.True(t, ok)
-					assert.Equal(t, "wp_status-val", attrVal.Str())
+					if tt.name != "reaggregate_set" {
+						assert.False(t, validatedMetrics["sapnetweaver.work_process.active.count"], "Found a duplicate in the metrics slice: sapnetweaver.work_process.active.count")
+						validatedMetrics["sapnetweaver.work_process.active.count"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The number of free ABAP work processes in the system.", mi.Description())
+						assert.Equal(t, "{work_processes}", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						assert.Equal(t, int64(1), dp.IntValue())
+						instanceAttrVal, ok := dp.Attributes().Get("instance")
+						assert.True(t, ok)
+						assert.Equal(t, "instance-val", instanceAttrVal.Str())
+						wpTypeAttrVal, ok := dp.Attributes().Get("wp_type")
+						assert.True(t, ok)
+						assert.Equal(t, "wp_type-val", wpTypeAttrVal.Str())
+						wpStatusAttrVal, ok := dp.Attributes().Get("wp_status")
+						assert.True(t, ok)
+						assert.Equal(t, "wp_status-val", wpStatusAttrVal.Str())
+					} else {
+						assert.False(t, validatedMetrics["sapnetweaver.work_process.active.count"], "Found a duplicate in the metrics slice: sapnetweaver.work_process.active.count")
+						validatedMetrics["sapnetweaver.work_process.active.count"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The number of free ABAP work processes in the system.", mi.Description())
+						assert.Equal(t, "{work_processes}", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						switch aggMap["sapnetweaver.work_process.active.count"] {
+						case "sum":
+							assert.Equal(t, int64(4), dp.IntValue())
+						case "avg":
+							assert.Equal(t, int64(2), dp.IntValue())
+						case "min":
+							assert.Equal(t, int64(1), dp.IntValue())
+						case "max":
+							assert.Equal(t, int64(3), dp.IntValue())
+						}
+						_, ok := dp.Attributes().Get("instance")
+						assert.False(t, ok)
+						_, ok = dp.Attributes().Get("wp_type")
+						assert.False(t, ok)
+						_, ok = dp.Attributes().Get("wp_status")
+						assert.False(t, ok)
+					}
 				case "sapnetweaver.work_process.job.aborted.status":
-					assert.False(t, validatedMetrics["sapnetweaver.work_process.job.aborted.status"], "Found a duplicate in the metrics slice: sapnetweaver.work_process.job.aborted.status")
-					validatedMetrics["sapnetweaver.work_process.job.aborted.status"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, ms.At(i).Type())
-					assert.Equal(t, 1, ms.At(i).Sum().DataPoints().Len())
-					assert.Equal(t, "The status of aborted jobs on an application server.", ms.At(i).Description())
-					assert.Equal(t, "1", ms.At(i).Unit())
-					assert.False(t, ms.At(i).Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, ms.At(i).Sum().AggregationTemporality())
-					dp := ms.At(i).Sum().DataPoints().At(0)
-					assert.Equal(t, start, dp.StartTimestamp())
-					assert.Equal(t, ts, dp.Timestamp())
-					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
-					assert.Equal(t, int64(1), dp.IntValue())
-					attrVal, ok := dp.Attributes().Get("state")
-					assert.True(t, ok)
-					assert.Equal(t, "gray", attrVal.Str())
+					if tt.name != "reaggregate_set" {
+						assert.False(t, validatedMetrics["sapnetweaver.work_process.job.aborted.status"], "Found a duplicate in the metrics slice: sapnetweaver.work_process.job.aborted.status")
+						validatedMetrics["sapnetweaver.work_process.job.aborted.status"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The status of aborted jobs on an application server.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						assert.Equal(t, int64(1), dp.IntValue())
+						controlStateAttrVal, ok := dp.Attributes().Get("state")
+						assert.True(t, ok)
+						assert.Equal(t, "gray", controlStateAttrVal.Str())
+					} else {
+						assert.False(t, validatedMetrics["sapnetweaver.work_process.job.aborted.status"], "Found a duplicate in the metrics slice: sapnetweaver.work_process.job.aborted.status")
+						validatedMetrics["sapnetweaver.work_process.job.aborted.status"] = true
+						assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+						assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+						assert.Equal(t, "The status of aborted jobs on an application server.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						assert.False(t, mi.Sum().IsMonotonic())
+						assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+						dp := mi.Sum().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						switch aggMap["sapnetweaver.work_process.job.aborted.status"] {
+						case "sum":
+							assert.Equal(t, int64(4), dp.IntValue())
+						case "avg":
+							assert.Equal(t, int64(2), dp.IntValue())
+						case "min":
+							assert.Equal(t, int64(1), dp.IntValue())
+						case "max":
+							assert.Equal(t, int64(3), dp.IntValue())
+						}
+						_, ok := dp.Attributes().Get("state")
+						assert.False(t, ok)
+					}
 				}
 			}
 		})

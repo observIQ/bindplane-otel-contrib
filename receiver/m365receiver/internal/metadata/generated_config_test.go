@@ -9,7 +9,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/require"
-
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/confmap/confmaptest"
 )
@@ -21,31 +20,79 @@ func TestMetricsBuilderConfig(t *testing.T) {
 	}{
 		{
 			name: "default",
-			want: DefaultMetricsBuilderConfig(),
+			want: NewDefaultMetricsBuilderConfig(),
 		},
 		{
 			name: "all_set",
 			want: MetricsBuilderConfig{
 				Metrics: MetricsConfig{
-					M365OnedriveFilesActiveCount:    MetricConfig{Enabled: true},
-					M365OnedriveFilesCount:          MetricConfig{Enabled: true},
-					M365OnedriveUserActivityCount:   MetricConfig{Enabled: true},
-					M365OutlookAppUserCount:         MetricConfig{Enabled: true},
-					M365OutlookEmailActivityCount:   MetricConfig{Enabled: true},
-					M365OutlookMailboxesActiveCount: MetricConfig{Enabled: true},
-					M365OutlookQuotaStatusCount:     MetricConfig{Enabled: true},
-					M365OutlookStorageUsed:          MetricConfig{Enabled: true},
-					M365SharepointFilesActiveCount:  MetricConfig{Enabled: true},
-					M365SharepointFilesCount:        MetricConfig{Enabled: true},
-					M365SharepointPagesUniqueCount:  MetricConfig{Enabled: true},
-					M365SharepointPagesViewedCount:  MetricConfig{Enabled: true},
-					M365SharepointSiteStorageUsed:   MetricConfig{Enabled: true},
-					M365SharepointSitesActiveCount:  MetricConfig{Enabled: true},
-					M365TeamsCallsCount:             MetricConfig{Enabled: true},
-					M365TeamsDeviceUsageUsers:       MetricConfig{Enabled: true},
-					M365TeamsMeetingsCount:          MetricConfig{Enabled: true},
-					M365TeamsMessagesPrivateCount:   MetricConfig{Enabled: true},
-					M365TeamsMessagesTeamCount:      MetricConfig{Enabled: true},
+					M365OnedriveFilesActiveCount: M365OnedriveFilesActiveCountMetricConfig{
+						Enabled: true,
+					},
+					M365OnedriveFilesCount: M365OnedriveFilesCountMetricConfig{
+						Enabled: true,
+					},
+					M365OnedriveUserActivityCount: M365OnedriveUserActivityCountMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []M365OnedriveUserActivityCountMetricAttributeKey{M365OnedriveUserActivityCountMetricAttributeKeyOnedriveActivity},
+					},
+					M365OutlookAppUserCount: M365OutlookAppUserCountMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []M365OutlookAppUserCountMetricAttributeKey{M365OutlookAppUserCountMetricAttributeKeyOutlookApps},
+					},
+					M365OutlookEmailActivityCount: M365OutlookEmailActivityCountMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []M365OutlookEmailActivityCountMetricAttributeKey{M365OutlookEmailActivityCountMetricAttributeKeyOutlookActivity},
+					},
+					M365OutlookMailboxesActiveCount: M365OutlookMailboxesActiveCountMetricConfig{
+						Enabled: true,
+					},
+					M365OutlookQuotaStatusCount: M365OutlookQuotaStatusCountMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []M365OutlookQuotaStatusCountMetricAttributeKey{M365OutlookQuotaStatusCountMetricAttributeKeyOutlookQuotas},
+					},
+					M365OutlookStorageUsed: M365OutlookStorageUsedMetricConfig{
+						Enabled: true,
+					},
+					M365SharepointFilesActiveCount: M365SharepointFilesActiveCountMetricConfig{
+						Enabled: true,
+					},
+					M365SharepointFilesCount: M365SharepointFilesCountMetricConfig{
+						Enabled: true,
+					},
+					M365SharepointPagesUniqueCount: M365SharepointPagesUniqueCountMetricConfig{
+						Enabled: true,
+					},
+					M365SharepointPagesViewedCount: M365SharepointPagesViewedCountMetricConfig{
+						Enabled: true,
+					},
+					M365SharepointSiteStorageUsed: M365SharepointSiteStorageUsedMetricConfig{
+						Enabled: true,
+					},
+					M365SharepointSitesActiveCount: M365SharepointSitesActiveCountMetricConfig{
+						Enabled: true,
+					},
+					M365TeamsCallsCount: M365TeamsCallsCountMetricConfig{
+						Enabled: true,
+					},
+					M365TeamsDeviceUsageUsers: M365TeamsDeviceUsageUsersMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []M365TeamsDeviceUsageUsersMetricAttributeKey{M365TeamsDeviceUsageUsersMetricAttributeKeyTeamsDevices},
+					},
+					M365TeamsMeetingsCount: M365TeamsMeetingsCountMetricConfig{
+						Enabled: true,
+					},
+					M365TeamsMessagesPrivateCount: M365TeamsMessagesPrivateCountMetricConfig{
+						Enabled: true,
+					},
+					M365TeamsMessagesTeamCount: M365TeamsMessagesTeamCountMetricConfig{
+						Enabled: true,
+					},
 				},
 				ResourceAttributes: ResourceAttributesConfig{
 					M365TenantID: ResourceAttributeConfig{Enabled: true},
@@ -56,25 +103,73 @@ func TestMetricsBuilderConfig(t *testing.T) {
 			name: "none_set",
 			want: MetricsBuilderConfig{
 				Metrics: MetricsConfig{
-					M365OnedriveFilesActiveCount:    MetricConfig{Enabled: false},
-					M365OnedriveFilesCount:          MetricConfig{Enabled: false},
-					M365OnedriveUserActivityCount:   MetricConfig{Enabled: false},
-					M365OutlookAppUserCount:         MetricConfig{Enabled: false},
-					M365OutlookEmailActivityCount:   MetricConfig{Enabled: false},
-					M365OutlookMailboxesActiveCount: MetricConfig{Enabled: false},
-					M365OutlookQuotaStatusCount:     MetricConfig{Enabled: false},
-					M365OutlookStorageUsed:          MetricConfig{Enabled: false},
-					M365SharepointFilesActiveCount:  MetricConfig{Enabled: false},
-					M365SharepointFilesCount:        MetricConfig{Enabled: false},
-					M365SharepointPagesUniqueCount:  MetricConfig{Enabled: false},
-					M365SharepointPagesViewedCount:  MetricConfig{Enabled: false},
-					M365SharepointSiteStorageUsed:   MetricConfig{Enabled: false},
-					M365SharepointSitesActiveCount:  MetricConfig{Enabled: false},
-					M365TeamsCallsCount:             MetricConfig{Enabled: false},
-					M365TeamsDeviceUsageUsers:       MetricConfig{Enabled: false},
-					M365TeamsMeetingsCount:          MetricConfig{Enabled: false},
-					M365TeamsMessagesPrivateCount:   MetricConfig{Enabled: false},
-					M365TeamsMessagesTeamCount:      MetricConfig{Enabled: false},
+					M365OnedriveFilesActiveCount: M365OnedriveFilesActiveCountMetricConfig{
+						Enabled: false,
+					},
+					M365OnedriveFilesCount: M365OnedriveFilesCountMetricConfig{
+						Enabled: false,
+					},
+					M365OnedriveUserActivityCount: M365OnedriveUserActivityCountMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []M365OnedriveUserActivityCountMetricAttributeKey{M365OnedriveUserActivityCountMetricAttributeKeyOnedriveActivity},
+					},
+					M365OutlookAppUserCount: M365OutlookAppUserCountMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []M365OutlookAppUserCountMetricAttributeKey{M365OutlookAppUserCountMetricAttributeKeyOutlookApps},
+					},
+					M365OutlookEmailActivityCount: M365OutlookEmailActivityCountMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []M365OutlookEmailActivityCountMetricAttributeKey{M365OutlookEmailActivityCountMetricAttributeKeyOutlookActivity},
+					},
+					M365OutlookMailboxesActiveCount: M365OutlookMailboxesActiveCountMetricConfig{
+						Enabled: false,
+					},
+					M365OutlookQuotaStatusCount: M365OutlookQuotaStatusCountMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []M365OutlookQuotaStatusCountMetricAttributeKey{M365OutlookQuotaStatusCountMetricAttributeKeyOutlookQuotas},
+					},
+					M365OutlookStorageUsed: M365OutlookStorageUsedMetricConfig{
+						Enabled: false,
+					},
+					M365SharepointFilesActiveCount: M365SharepointFilesActiveCountMetricConfig{
+						Enabled: false,
+					},
+					M365SharepointFilesCount: M365SharepointFilesCountMetricConfig{
+						Enabled: false,
+					},
+					M365SharepointPagesUniqueCount: M365SharepointPagesUniqueCountMetricConfig{
+						Enabled: false,
+					},
+					M365SharepointPagesViewedCount: M365SharepointPagesViewedCountMetricConfig{
+						Enabled: false,
+					},
+					M365SharepointSiteStorageUsed: M365SharepointSiteStorageUsedMetricConfig{
+						Enabled: false,
+					},
+					M365SharepointSitesActiveCount: M365SharepointSitesActiveCountMetricConfig{
+						Enabled: false,
+					},
+					M365TeamsCallsCount: M365TeamsCallsCountMetricConfig{
+						Enabled: false,
+					},
+					M365TeamsDeviceUsageUsers: M365TeamsDeviceUsageUsersMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategySum,
+						EnabledAttributes:   []M365TeamsDeviceUsageUsersMetricAttributeKey{M365TeamsDeviceUsageUsersMetricAttributeKeyTeamsDevices},
+					},
+					M365TeamsMeetingsCount: M365TeamsMeetingsCountMetricConfig{
+						Enabled: false,
+					},
+					M365TeamsMessagesPrivateCount: M365TeamsMessagesPrivateCountMetricConfig{
+						Enabled: false,
+					},
+					M365TeamsMessagesTeamCount: M365TeamsMessagesTeamCountMetricConfig{
+						Enabled: false,
+					},
 				},
 				ResourceAttributes: ResourceAttributesConfig{
 					M365TenantID: ResourceAttributeConfig{Enabled: false},
@@ -85,7 +180,7 @@ func TestMetricsBuilderConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := loadMetricsBuilderConfig(t, tt.name)
-			diff := cmp.Diff(tt.want, cfg, cmpopts.IgnoreUnexported(MetricConfig{}, ResourceAttributeConfig{}))
+			diff := cmp.Diff(tt.want, cfg, cmpopts.IgnoreUnexported(M365OnedriveFilesActiveCountMetricConfig{}, M365OnedriveFilesCountMetricConfig{}, M365OnedriveUserActivityCountMetricConfig{}, M365OutlookAppUserCountMetricConfig{}, M365OutlookEmailActivityCountMetricConfig{}, M365OutlookMailboxesActiveCountMetricConfig{}, M365OutlookQuotaStatusCountMetricConfig{}, M365OutlookStorageUsedMetricConfig{}, M365SharepointFilesActiveCountMetricConfig{}, M365SharepointFilesCountMetricConfig{}, M365SharepointPagesUniqueCountMetricConfig{}, M365SharepointPagesViewedCountMetricConfig{}, M365SharepointSiteStorageUsedMetricConfig{}, M365SharepointSitesActiveCountMetricConfig{}, M365TeamsCallsCountMetricConfig{}, M365TeamsDeviceUsageUsersMetricConfig{}, M365TeamsMeetingsCountMetricConfig{}, M365TeamsMessagesPrivateCountMetricConfig{}, M365TeamsMessagesTeamCountMetricConfig{}, ResourceAttributeConfig{}))
 			require.Emptyf(t, diff, "Config mismatch (-expected +actual):\n%s", diff)
 		})
 	}
@@ -96,7 +191,7 @@ func loadMetricsBuilderConfig(t *testing.T, name string) MetricsBuilderConfig {
 	require.NoError(t, err)
 	sub, err := cm.Sub(name)
 	require.NoError(t, err)
-	cfg := DefaultMetricsBuilderConfig()
+	cfg := NewDefaultMetricsBuilderConfig()
 	require.NoError(t, sub.Unmarshal(&cfg, confmap.WithIgnoreUnused()))
 	return cfg
 }

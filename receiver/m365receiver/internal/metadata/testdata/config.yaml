@@ -7,14 +7,18 @@ all_set:
       enabled: true
     m365.onedrive.user_activity.count:
       enabled: true
+      attributes: ["activity"]
     m365.outlook.app.user.count:
       enabled: true
+      attributes: ["app"]
     m365.outlook.email_activity.count:
       enabled: true
+      attributes: ["activity"]
     m365.outlook.mailboxes.active.count:
       enabled: true
     m365.outlook.quota_status.count:
       enabled: true
+      attributes: ["state"]
     m365.outlook.storage.used:
       enabled: true
     m365.sharepoint.files.active.count:
@@ -33,6 +37,55 @@ all_set:
       enabled: true
     m365.teams.device_usage.users:
       enabled: true
+      attributes: ["device"]
+    m365.teams.meetings.count:
+      enabled: true
+    m365.teams.messages.private.count:
+      enabled: true
+    m365.teams.messages.team.count:
+      enabled: true
+  resource_attributes:
+    m365.tenant.id:
+      enabled: true
+reaggregate_set:
+  metrics:
+    m365.onedrive.files.active.count:
+      enabled: true
+    m365.onedrive.files.count:
+      enabled: true
+    m365.onedrive.user_activity.count:
+      enabled: true
+      attributes: []
+    m365.outlook.app.user.count:
+      enabled: true
+      attributes: []
+    m365.outlook.email_activity.count:
+      enabled: true
+      attributes: []
+    m365.outlook.mailboxes.active.count:
+      enabled: true
+    m365.outlook.quota_status.count:
+      enabled: true
+      attributes: []
+    m365.outlook.storage.used:
+      enabled: true
+    m365.sharepoint.files.active.count:
+      enabled: true
+    m365.sharepoint.files.count:
+      enabled: true
+    m365.sharepoint.pages.unique.count:
+      enabled: true
+    m365.sharepoint.pages.viewed.count:
+      enabled: true
+    m365.sharepoint.site.storage.used:
+      enabled: true
+    m365.sharepoint.sites.active.count:
+      enabled: true
+    m365.teams.calls.count:
+      enabled: true
+    m365.teams.device_usage.users:
+      enabled: true
+      attributes: []
     m365.teams.meetings.count:
       enabled: true
     m365.teams.messages.private.count:
@@ -50,14 +103,18 @@ none_set:
       enabled: false
     m365.onedrive.user_activity.count:
       enabled: false
+      attributes: ["activity"]
     m365.outlook.app.user.count:
       enabled: false
+      attributes: ["app"]
     m365.outlook.email_activity.count:
       enabled: false
+      attributes: ["activity"]
     m365.outlook.mailboxes.active.count:
       enabled: false
     m365.outlook.quota_status.count:
       enabled: false
+      attributes: ["state"]
     m365.outlook.storage.used:
       enabled: false
     m365.sharepoint.files.active.count:
@@ -76,6 +133,7 @@ none_set:
       enabled: false
     m365.teams.device_usage.users:
       enabled: false
+      attributes: ["device"]
     m365.teams.meetings.count:
       enabled: false
     m365.teams.messages.private.count:

@@ -4,10 +4,10 @@
 
 ## Resource Attributes
 
-| Name | Description | Values | Enabled |
-| ---- | ----------- | ------ | ------- |
-| gcs.bucket | The name of the GCS bucket containing the processed object | Any Str | true |
-| gcs.object | The name of the GCS object that was processed | Any Str | true |
+| Name | Description | Values | Enabled | Semantic Convention |
+| ---- | ----------- | ------ | ------- | ------------------- |
+| gcs.bucket | The name of the GCS bucket containing the processed object | Any Str | true | - |
+| gcs.object | The name of the GCS object that was processed | Any Str | true | - |
 
 ## Internal Telemetry
 
@@ -15,7 +15,7 @@ The following telemetry is emitted by this component.
 
 ### otelcol_gcsevent.batch_size
 
-The number of logs in a batch. [Alpha]
+The number of logs in a batch.
 
 | Unit | Metric Type | Value Type | Stability |
 | ---- | ----------- | ---------- | --------- |
@@ -23,7 +23,7 @@ The number of logs in a batch. [Alpha]
 
 ### otelcol_gcsevent.dlq_file_not_found_errors
 
-The number of file not found errors that triggered DLQ processing [Alpha]
+The number of file not found errors that triggered DLQ processing
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
@@ -31,7 +31,7 @@ The number of file not found errors that triggered DLQ processing [Alpha]
 
 ### otelcol_gcsevent.dlq_iam_errors
 
-The number of IAM permission denied errors that triggered DLQ processing [Alpha]
+The number of IAM permission denied errors that triggered DLQ processing
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
@@ -39,7 +39,7 @@ The number of IAM permission denied errors that triggered DLQ processing [Alpha]
 
 ### otelcol_gcsevent.dlq_unsupported_file_errors
 
-The number of unsupported file type errors that triggered DLQ processing [Alpha]
+The number of unsupported file type errors that triggered DLQ processing
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
@@ -47,7 +47,7 @@ The number of unsupported file type errors that triggered DLQ processing [Alpha]
 
 ### otelcol_gcsevent.failures
 
-The number of failures encountered while processing GCS objects [Alpha]
+The number of failures encountered while processing GCS objects
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
@@ -55,7 +55,7 @@ The number of failures encountered while processing GCS objects [Alpha]
 
 ### otelcol_gcsevent.objects_handled
 
-The number of GCS objects processed by the receiver [Alpha]
+The number of GCS objects processed by the receiver
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
@@ -63,7 +63,7 @@ The number of GCS objects processed by the receiver [Alpha]
 
 ### otelcol_gcsevent.parse_errors
 
-The number of individual log records skipped due to parse errors within a GCS object [Alpha]
+The number of individual log records skipped due to parse errors within a GCS object
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |

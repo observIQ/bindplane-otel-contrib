@@ -33,8 +33,7 @@ telemetry:
     exporter_payload_size:
       enabled: true
       description: The size of the marshaled and optionally compressed payload in bytes.
-      stability:
-        level: alpha
+      stability: alpha
       unit: By
       histogram:
         value_type: int
@@ -47,8 +46,7 @@ telemetry:
     exporter_request_duration:
       enabled: true
       description: The duration of the GCS upload request in milliseconds.
-      stability:
-        level: alpha
+      stability: alpha
       unit: ms
       histogram:
         value_type: int
@@ -62,8 +60,7 @@ telemetry:
     exporter_timeout_total:
       enabled: true
       description: The number of upload requests that resulted in a timeout.
-      stability:
-        level: alpha
+      stability: alpha
       unit: "{requests}"
       sum:
         monotonic: true
@@ -74,8 +71,7 @@ telemetry:
     exporter_upload_bytes_total:
       enabled: true
       description: The cumulative number of bytes uploaded to GCS.
-      stability:
-        level: alpha
+      stability: alpha
       unit: By
       sum:
         monotonic: true
@@ -86,8 +82,7 @@ telemetry:
     exporter_upload_inflight:
       enabled: true
       description: The number of uploads currently in flight.
-      stability:
-        level: alpha
+      stability: alpha
       unit: "{uploads}"
       sum:
         value_type: int

@@ -8,7 +8,7 @@ The following telemetry is emitted by this component.
 
 ### otelcol_opampgateway.connections
 
-The number of connections. [Alpha]
+The number of connections.
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
@@ -16,13 +16,13 @@ The number of connections. [Alpha]
 
 #### Attributes
 
-| Name | Description | Values |
-| ---- | ----------- | ------ |
-| direction | The direction of the messages, upstream or downstream. | Str: ``upstream``, ``downstream`` |
+| Name | Description | Values | Semantic Convention |
+| ---- | ----------- | ------ | ------------------- |
+| direction | The direction of the messages, upstream or downstream. | Str: ``upstream``, ``downstream`` | - |
 
 ### otelcol_opampgateway.messages
 
-The number of messages. [Alpha]
+The number of messages.
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
@@ -30,13 +30,13 @@ The number of messages. [Alpha]
 
 #### Attributes
 
-| Name | Description | Values |
-| ---- | ----------- | ------ |
-| direction | The direction of the messages, upstream or downstream. | Str: ``upstream``, ``downstream`` |
+| Name | Description | Values | Semantic Convention |
+| ---- | ----------- | ------ | ------------------- |
+| direction | The direction of the messages, upstream or downstream. | Str: ``upstream``, ``downstream`` | - |
 
 ### otelcol_opampgateway.messages.bytes
 
-The total size of the upstream messages. [Alpha]
+The total size of the upstream messages.
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
@@ -44,13 +44,13 @@ The total size of the upstream messages. [Alpha]
 
 #### Attributes
 
-| Name | Description | Values |
-| ---- | ----------- | ------ |
-| direction | The direction of the messages, upstream or downstream. | Str: ``upstream``, ``downstream`` |
+| Name | Description | Values | Semantic Convention |
+| ---- | ----------- | ------ | ------------------- |
+| direction | The direction of the messages, upstream or downstream. | Str: ``upstream``, ``downstream`` | - |
 
 ### otelcol_opampgateway.messages.latency
 
-The latency imposed by the gateway forwarding a message. [Alpha]
+The latency imposed by the gateway forwarding a message.
 
 | Unit | Metric Type | Value Type | Stability |
 | ---- | ----------- | ---------- | --------- |
@@ -58,6 +58,6 @@ The latency imposed by the gateway forwarding a message. [Alpha]
 
 #### Attributes
 
-| Name | Description | Values |
-| ---- | ----------- | ------ |
-| direction | The direction of the messages, upstream or downstream. | Str: ``upstream``, ``downstream`` |
+| Name | Description | Values | Semantic Convention |
+| ---- | ----------- | ------ | ------------------- |
+| direction | The direction of the messages, upstream or downstream. | Str: ``upstream``, ``downstream`` | - |

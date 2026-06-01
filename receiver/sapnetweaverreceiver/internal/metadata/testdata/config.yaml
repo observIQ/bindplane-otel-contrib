@@ -3,6 +3,7 @@ all_set:
   metrics:
     sapnetweaver.abap.update.status:
       enabled: true
+      attributes: ["state"]
     sapnetweaver.cache.evictions:
       enabled: true
     sapnetweaver.cache.hits:
@@ -43,18 +44,23 @@ all_set:
       enabled: true
     sapnetweaver.process_availability:
       enabled: true
+      attributes: ["process_name","process_description","state"]
     sapnetweaver.queue.count:
       enabled: true
+      attributes: ["wp_type"]
     sapnetweaver.queue_max.count:
       enabled: true
+      attributes: ["wp_type"]
     sapnetweaver.queue_peak.count:
       enabled: true
+      attributes: ["wp_type"]
     sapnetweaver.request.count:
       enabled: true
     sapnetweaver.request.timeout.count:
       enabled: true
     sapnetweaver.response.duration:
       enabled: true
+      attributes: ["response_type"]
     sapnetweaver.session.count:
       enabled: true
     sapnetweaver.sessions.browser.count:
@@ -73,10 +79,107 @@ all_set:
       enabled: true
     sapnetweaver.system.instance_availability:
       enabled: true
+      attributes: ["hostname","instance_number","feature","state"]
     sapnetweaver.work_process.active.count:
       enabled: true
+      attributes: ["instance","wp_type","wp_status"]
     sapnetweaver.work_process.job.aborted.status:
       enabled: true
+      attributes: ["state"]
+  resource_attributes:
+    sapnetweaver.SID:
+      enabled: true
+    sapnetweaver.instance:
+      enabled: true
+    sapnetweaver.node:
+      enabled: true
+reaggregate_set:
+  metrics:
+    sapnetweaver.abap.update.status:
+      enabled: true
+      attributes: []
+    sapnetweaver.cache.evictions:
+      enabled: true
+    sapnetweaver.cache.hits:
+      enabled: true
+    sapnetweaver.connection.error.count:
+      enabled: true
+    sapnetweaver.cpu.system.utilization:
+      enabled: true
+    sapnetweaver.cpu.utilization:
+      enabled: true
+    sapnetweaver.database.dialog.request.time:
+      enabled: true
+    sapnetweaver.host.memory.virtual.overhead:
+      enabled: true
+    sapnetweaver.host.memory.virtual.swap:
+      enabled: true
+    sapnetweaver.host.spool_list.utilization:
+      enabled: true
+    sapnetweaver.locks.dequeue.errors.count:
+      enabled: true
+    sapnetweaver.locks.enqueue.current.count:
+      enabled: true
+    sapnetweaver.locks.enqueue.errors.count:
+      enabled: true
+    sapnetweaver.locks.enqueue.high.count:
+      enabled: true
+    sapnetweaver.locks.enqueue.lock_time:
+      enabled: true
+    sapnetweaver.locks.enqueue.lock_wait_time:
+      enabled: true
+    sapnetweaver.locks.enqueue.max.count:
+      enabled: true
+    sapnetweaver.memory.configured:
+      enabled: true
+    sapnetweaver.memory.free:
+      enabled: true
+    sapnetweaver.memory.swap_space.utilization:
+      enabled: true
+    sapnetweaver.process_availability:
+      enabled: true
+      attributes: []
+    sapnetweaver.queue.count:
+      enabled: true
+      attributes: []
+    sapnetweaver.queue_max.count:
+      enabled: true
+      attributes: []
+    sapnetweaver.queue_peak.count:
+      enabled: true
+      attributes: []
+    sapnetweaver.request.count:
+      enabled: true
+    sapnetweaver.request.timeout.count:
+      enabled: true
+    sapnetweaver.response.duration:
+      enabled: true
+      attributes: []
+    sapnetweaver.session.count:
+      enabled: true
+    sapnetweaver.sessions.browser.count:
+      enabled: true
+    sapnetweaver.sessions.ejb.count:
+      enabled: true
+    sapnetweaver.sessions.http.count:
+      enabled: true
+    sapnetweaver.sessions.security.count:
+      enabled: true
+    sapnetweaver.sessions.web.count:
+      enabled: true
+    sapnetweaver.short_dumps.rate:
+      enabled: true
+    sapnetweaver.spool.request.error.count:
+      enabled: true
+    sapnetweaver.system.instance_availability:
+      enabled: true
+      attributes: []
+    sapnetweaver.work_process.active.count:
+      enabled: true
+      attributes: []
+    sapnetweaver.work_process.job.aborted.status:
+      enabled: true
+      attributes: []
   resource_attributes:
     sapnetweaver.SID:
       enabled: true
@@ -88,6 +191,7 @@ none_set:
   metrics:
     sapnetweaver.abap.update.status:
       enabled: false
+      attributes: ["state"]
     sapnetweaver.cache.evictions:
       enabled: false
     sapnetweaver.cache.hits:
@@ -128,18 +232,23 @@ none_set:
       enabled: false
     sapnetweaver.process_availability:
       enabled: false
+      attributes: ["process_name","process_description","state"]
     sapnetweaver.queue.count:
       enabled: false
+      attributes: ["wp_type"]
     sapnetweaver.queue_max.count:
       enabled: false
+      attributes: ["wp_type"]
     sapnetweaver.queue_peak.count:
       enabled: false
+      attributes: ["wp_type"]
     sapnetweaver.request.count:
       enabled: false
     sapnetweaver.request.timeout.count:
       enabled: false
     sapnetweaver.response.duration:
       enabled: false
+      attributes: ["response_type"]
     sapnetweaver.session.count:
       enabled: false
     sapnetweaver.sessions.browser.count:
@@ -158,10 +267,13 @@ none_set:
       enabled: false
     sapnetweaver.system.instance_availability:
       enabled: false
+      attributes: ["hostname","instance_number","feature","state"]
     sapnetweaver.work_process.active.count:
       enabled: false
+      attributes: ["instance","wp_type","wp_status"]
     sapnetweaver.work_process.job.aborted.status:
       enabled: false
+      attributes: ["state"]
   resource_attributes:
     sapnetweaver.SID:
       enabled: false

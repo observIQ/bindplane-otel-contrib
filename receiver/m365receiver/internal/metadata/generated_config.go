@@ -3,17 +3,519 @@
 package metadata
 
 import (
+	"fmt"
+
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/filter"
 )
 
-// MetricConfig provides common config for a particular metric.
-type MetricConfig struct {
+// M365OnedriveFilesActiveCountMetricConfig provides config for the m365.onedrive.files.active.count metric.
+type M365OnedriveFilesActiveCountMetricConfig struct {
 	Enabled          bool `mapstructure:"enabled"`
 	enabledSetByUser bool
 }
 
-func (ms *MetricConfig) Unmarshal(parser *confmap.Conf) error {
+func (ms *M365OnedriveFilesActiveCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// M365OnedriveFilesCountMetricConfig provides config for the m365.onedrive.files.count metric.
+type M365OnedriveFilesCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *M365OnedriveFilesCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// M365OnedriveUserActivityCountMetricAttributeKey specifies the key of an attribute for the m365.onedrive.user_activity.count metric.
+type M365OnedriveUserActivityCountMetricAttributeKey string
+
+const (
+	M365OnedriveUserActivityCountMetricAttributeKeyOnedriveActivity M365OnedriveUserActivityCountMetricAttributeKey = "activity"
+)
+
+// M365OnedriveUserActivityCountMetricConfig provides config for the m365.onedrive.user_activity.count metric.
+type M365OnedriveUserActivityCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                            `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []M365OnedriveUserActivityCountMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *M365OnedriveUserActivityCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *M365OnedriveUserActivityCountMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case M365OnedriveUserActivityCountMetricAttributeKeyOnedriveActivity:
+		default:
+			return fmt.Errorf("metric m365.onedrive.user_activity.count doesn't have an attribute %v, valid attributes: [activity]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
+// M365OutlookAppUserCountMetricAttributeKey specifies the key of an attribute for the m365.outlook.app.user.count metric.
+type M365OutlookAppUserCountMetricAttributeKey string
+
+const (
+	M365OutlookAppUserCountMetricAttributeKeyOutlookApps M365OutlookAppUserCountMetricAttributeKey = "app"
+)
+
+// M365OutlookAppUserCountMetricConfig provides config for the m365.outlook.app.user.count metric.
+type M365OutlookAppUserCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                      `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []M365OutlookAppUserCountMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *M365OutlookAppUserCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *M365OutlookAppUserCountMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case M365OutlookAppUserCountMetricAttributeKeyOutlookApps:
+		default:
+			return fmt.Errorf("metric m365.outlook.app.user.count doesn't have an attribute %v, valid attributes: [app]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
+// M365OutlookEmailActivityCountMetricAttributeKey specifies the key of an attribute for the m365.outlook.email_activity.count metric.
+type M365OutlookEmailActivityCountMetricAttributeKey string
+
+const (
+	M365OutlookEmailActivityCountMetricAttributeKeyOutlookActivity M365OutlookEmailActivityCountMetricAttributeKey = "activity"
+)
+
+// M365OutlookEmailActivityCountMetricConfig provides config for the m365.outlook.email_activity.count metric.
+type M365OutlookEmailActivityCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                            `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []M365OutlookEmailActivityCountMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *M365OutlookEmailActivityCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *M365OutlookEmailActivityCountMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case M365OutlookEmailActivityCountMetricAttributeKeyOutlookActivity:
+		default:
+			return fmt.Errorf("metric m365.outlook.email_activity.count doesn't have an attribute %v, valid attributes: [activity]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
+// M365OutlookMailboxesActiveCountMetricConfig provides config for the m365.outlook.mailboxes.active.count metric.
+type M365OutlookMailboxesActiveCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *M365OutlookMailboxesActiveCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// M365OutlookQuotaStatusCountMetricAttributeKey specifies the key of an attribute for the m365.outlook.quota_status.count metric.
+type M365OutlookQuotaStatusCountMetricAttributeKey string
+
+const (
+	M365OutlookQuotaStatusCountMetricAttributeKeyOutlookQuotas M365OutlookQuotaStatusCountMetricAttributeKey = "state"
+)
+
+// M365OutlookQuotaStatusCountMetricConfig provides config for the m365.outlook.quota_status.count metric.
+type M365OutlookQuotaStatusCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                          `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []M365OutlookQuotaStatusCountMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *M365OutlookQuotaStatusCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *M365OutlookQuotaStatusCountMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case M365OutlookQuotaStatusCountMetricAttributeKeyOutlookQuotas:
+		default:
+			return fmt.Errorf("metric m365.outlook.quota_status.count doesn't have an attribute %v, valid attributes: [state]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
+// M365OutlookStorageUsedMetricConfig provides config for the m365.outlook.storage.used metric.
+type M365OutlookStorageUsedMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *M365OutlookStorageUsedMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// M365SharepointFilesActiveCountMetricConfig provides config for the m365.sharepoint.files.active.count metric.
+type M365SharepointFilesActiveCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *M365SharepointFilesActiveCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// M365SharepointFilesCountMetricConfig provides config for the m365.sharepoint.files.count metric.
+type M365SharepointFilesCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *M365SharepointFilesCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// M365SharepointPagesUniqueCountMetricConfig provides config for the m365.sharepoint.pages.unique.count metric.
+type M365SharepointPagesUniqueCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *M365SharepointPagesUniqueCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// M365SharepointPagesViewedCountMetricConfig provides config for the m365.sharepoint.pages.viewed.count metric.
+type M365SharepointPagesViewedCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *M365SharepointPagesViewedCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// M365SharepointSiteStorageUsedMetricConfig provides config for the m365.sharepoint.site.storage.used metric.
+type M365SharepointSiteStorageUsedMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *M365SharepointSiteStorageUsedMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// M365SharepointSitesActiveCountMetricConfig provides config for the m365.sharepoint.sites.active.count metric.
+type M365SharepointSitesActiveCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *M365SharepointSitesActiveCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// M365TeamsCallsCountMetricConfig provides config for the m365.teams.calls.count metric.
+type M365TeamsCallsCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *M365TeamsCallsCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// M365TeamsDeviceUsageUsersMetricAttributeKey specifies the key of an attribute for the m365.teams.device_usage.users metric.
+type M365TeamsDeviceUsageUsersMetricAttributeKey string
+
+const (
+	M365TeamsDeviceUsageUsersMetricAttributeKeyTeamsDevices M365TeamsDeviceUsageUsersMetricAttributeKey = "device"
+)
+
+// M365TeamsDeviceUsageUsersMetricConfig provides config for the m365.teams.device_usage.users metric.
+type M365TeamsDeviceUsageUsersMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                        `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []M365TeamsDeviceUsageUsersMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *M365TeamsDeviceUsageUsersMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *M365TeamsDeviceUsageUsersMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case M365TeamsDeviceUsageUsersMetricAttributeKeyTeamsDevices:
+		default:
+			return fmt.Errorf("metric m365.teams.device_usage.users doesn't have an attribute %v, valid attributes: [device]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
+// M365TeamsMeetingsCountMetricConfig provides config for the m365.teams.meetings.count metric.
+type M365TeamsMeetingsCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *M365TeamsMeetingsCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// M365TeamsMessagesPrivateCountMetricConfig provides config for the m365.teams.messages.private.count metric.
+type M365TeamsMessagesPrivateCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *M365TeamsMessagesPrivateCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// M365TeamsMessagesTeamCountMetricConfig provides config for the m365.teams.messages.team.count metric.
+type M365TeamsMessagesTeamCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *M365TeamsMessagesTeamCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
 	if parser == nil {
 		return nil
 	}
@@ -29,84 +531,94 @@ func (ms *MetricConfig) Unmarshal(parser *confmap.Conf) error {
 
 // MetricsConfig provides config for m365 metrics.
 type MetricsConfig struct {
-	M365OnedriveFilesActiveCount    MetricConfig `mapstructure:"m365.onedrive.files.active.count"`
-	M365OnedriveFilesCount          MetricConfig `mapstructure:"m365.onedrive.files.count"`
-	M365OnedriveUserActivityCount   MetricConfig `mapstructure:"m365.onedrive.user_activity.count"`
-	M365OutlookAppUserCount         MetricConfig `mapstructure:"m365.outlook.app.user.count"`
-	M365OutlookEmailActivityCount   MetricConfig `mapstructure:"m365.outlook.email_activity.count"`
-	M365OutlookMailboxesActiveCount MetricConfig `mapstructure:"m365.outlook.mailboxes.active.count"`
-	M365OutlookQuotaStatusCount     MetricConfig `mapstructure:"m365.outlook.quota_status.count"`
-	M365OutlookStorageUsed          MetricConfig `mapstructure:"m365.outlook.storage.used"`
-	M365SharepointFilesActiveCount  MetricConfig `mapstructure:"m365.sharepoint.files.active.count"`
-	M365SharepointFilesCount        MetricConfig `mapstructure:"m365.sharepoint.files.count"`
-	M365SharepointPagesUniqueCount  MetricConfig `mapstructure:"m365.sharepoint.pages.unique.count"`
-	M365SharepointPagesViewedCount  MetricConfig `mapstructure:"m365.sharepoint.pages.viewed.count"`
-	M365SharepointSiteStorageUsed   MetricConfig `mapstructure:"m365.sharepoint.site.storage.used"`
-	M365SharepointSitesActiveCount  MetricConfig `mapstructure:"m365.sharepoint.sites.active.count"`
-	M365TeamsCallsCount             MetricConfig `mapstructure:"m365.teams.calls.count"`
-	M365TeamsDeviceUsageUsers       MetricConfig `mapstructure:"m365.teams.device_usage.users"`
-	M365TeamsMeetingsCount          MetricConfig `mapstructure:"m365.teams.meetings.count"`
-	M365TeamsMessagesPrivateCount   MetricConfig `mapstructure:"m365.teams.messages.private.count"`
-	M365TeamsMessagesTeamCount      MetricConfig `mapstructure:"m365.teams.messages.team.count"`
+	M365OnedriveFilesActiveCount    M365OnedriveFilesActiveCountMetricConfig    `mapstructure:"m365.onedrive.files.active.count"`
+	M365OnedriveFilesCount          M365OnedriveFilesCountMetricConfig          `mapstructure:"m365.onedrive.files.count"`
+	M365OnedriveUserActivityCount   M365OnedriveUserActivityCountMetricConfig   `mapstructure:"m365.onedrive.user_activity.count"`
+	M365OutlookAppUserCount         M365OutlookAppUserCountMetricConfig         `mapstructure:"m365.outlook.app.user.count"`
+	M365OutlookEmailActivityCount   M365OutlookEmailActivityCountMetricConfig   `mapstructure:"m365.outlook.email_activity.count"`
+	M365OutlookMailboxesActiveCount M365OutlookMailboxesActiveCountMetricConfig `mapstructure:"m365.outlook.mailboxes.active.count"`
+	M365OutlookQuotaStatusCount     M365OutlookQuotaStatusCountMetricConfig     `mapstructure:"m365.outlook.quota_status.count"`
+	M365OutlookStorageUsed          M365OutlookStorageUsedMetricConfig          `mapstructure:"m365.outlook.storage.used"`
+	M365SharepointFilesActiveCount  M365SharepointFilesActiveCountMetricConfig  `mapstructure:"m365.sharepoint.files.active.count"`
+	M365SharepointFilesCount        M365SharepointFilesCountMetricConfig        `mapstructure:"m365.sharepoint.files.count"`
+	M365SharepointPagesUniqueCount  M365SharepointPagesUniqueCountMetricConfig  `mapstructure:"m365.sharepoint.pages.unique.count"`
+	M365SharepointPagesViewedCount  M365SharepointPagesViewedCountMetricConfig  `mapstructure:"m365.sharepoint.pages.viewed.count"`
+	M365SharepointSiteStorageUsed   M365SharepointSiteStorageUsedMetricConfig   `mapstructure:"m365.sharepoint.site.storage.used"`
+	M365SharepointSitesActiveCount  M365SharepointSitesActiveCountMetricConfig  `mapstructure:"m365.sharepoint.sites.active.count"`
+	M365TeamsCallsCount             M365TeamsCallsCountMetricConfig             `mapstructure:"m365.teams.calls.count"`
+	M365TeamsDeviceUsageUsers       M365TeamsDeviceUsageUsersMetricConfig       `mapstructure:"m365.teams.device_usage.users"`
+	M365TeamsMeetingsCount          M365TeamsMeetingsCountMetricConfig          `mapstructure:"m365.teams.meetings.count"`
+	M365TeamsMessagesPrivateCount   M365TeamsMessagesPrivateCountMetricConfig   `mapstructure:"m365.teams.messages.private.count"`
+	M365TeamsMessagesTeamCount      M365TeamsMessagesTeamCountMetricConfig      `mapstructure:"m365.teams.messages.team.count"`
 }
 
 func DefaultMetricsConfig() MetricsConfig {
 	return MetricsConfig{
-		M365OnedriveFilesActiveCount: MetricConfig{
+		M365OnedriveFilesActiveCount: M365OnedriveFilesActiveCountMetricConfig{
 			Enabled: true,
 		},
-		M365OnedriveFilesCount: MetricConfig{
+		M365OnedriveFilesCount: M365OnedriveFilesCountMetricConfig{
 			Enabled: true,
 		},
-		M365OnedriveUserActivityCount: MetricConfig{
+		M365OnedriveUserActivityCount: M365OnedriveUserActivityCountMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategySum,
+			EnabledAttributes:   []M365OnedriveUserActivityCountMetricAttributeKey{M365OnedriveUserActivityCountMetricAttributeKeyOnedriveActivity},
+		},
+		M365OutlookAppUserCount: M365OutlookAppUserCountMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategySum,
+			EnabledAttributes:   []M365OutlookAppUserCountMetricAttributeKey{M365OutlookAppUserCountMetricAttributeKeyOutlookApps},
+		},
+		M365OutlookEmailActivityCount: M365OutlookEmailActivityCountMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategySum,
+			EnabledAttributes:   []M365OutlookEmailActivityCountMetricAttributeKey{M365OutlookEmailActivityCountMetricAttributeKeyOutlookActivity},
+		},
+		M365OutlookMailboxesActiveCount: M365OutlookMailboxesActiveCountMetricConfig{
 			Enabled: true,
 		},
-		M365OutlookAppUserCount: MetricConfig{
+		M365OutlookQuotaStatusCount: M365OutlookQuotaStatusCountMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategySum,
+			EnabledAttributes:   []M365OutlookQuotaStatusCountMetricAttributeKey{M365OutlookQuotaStatusCountMetricAttributeKeyOutlookQuotas},
+		},
+		M365OutlookStorageUsed: M365OutlookStorageUsedMetricConfig{
 			Enabled: true,
 		},
-		M365OutlookEmailActivityCount: MetricConfig{
+		M365SharepointFilesActiveCount: M365SharepointFilesActiveCountMetricConfig{
 			Enabled: true,
 		},
-		M365OutlookMailboxesActiveCount: MetricConfig{
+		M365SharepointFilesCount: M365SharepointFilesCountMetricConfig{
 			Enabled: true,
 		},
-		M365OutlookQuotaStatusCount: MetricConfig{
+		M365SharepointPagesUniqueCount: M365SharepointPagesUniqueCountMetricConfig{
 			Enabled: true,
 		},
-		M365OutlookStorageUsed: MetricConfig{
+		M365SharepointPagesViewedCount: M365SharepointPagesViewedCountMetricConfig{
 			Enabled: true,
 		},
-		M365SharepointFilesActiveCount: MetricConfig{
+		M365SharepointSiteStorageUsed: M365SharepointSiteStorageUsedMetricConfig{
 			Enabled: true,
 		},
-		M365SharepointFilesCount: MetricConfig{
+		M365SharepointSitesActiveCount: M365SharepointSitesActiveCountMetricConfig{
 			Enabled: true,
 		},
-		M365SharepointPagesUniqueCount: MetricConfig{
+		M365TeamsCallsCount: M365TeamsCallsCountMetricConfig{
 			Enabled: true,
 		},
-		M365SharepointPagesViewedCount: MetricConfig{
+		M365TeamsDeviceUsageUsers: M365TeamsDeviceUsageUsersMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategySum,
+			EnabledAttributes:   []M365TeamsDeviceUsageUsersMetricAttributeKey{M365TeamsDeviceUsageUsersMetricAttributeKeyTeamsDevices},
+		},
+		M365TeamsMeetingsCount: M365TeamsMeetingsCountMetricConfig{
 			Enabled: true,
 		},
-		M365SharepointSiteStorageUsed: MetricConfig{
+		M365TeamsMessagesPrivateCount: M365TeamsMessagesPrivateCountMetricConfig{
 			Enabled: true,
 		},
-		M365SharepointSitesActiveCount: MetricConfig{
-			Enabled: true,
-		},
-		M365TeamsCallsCount: MetricConfig{
-			Enabled: true,
-		},
-		M365TeamsDeviceUsageUsers: MetricConfig{
-			Enabled: true,
-		},
-		M365TeamsMeetingsCount: MetricConfig{
-			Enabled: true,
-		},
-		M365TeamsMessagesPrivateCount: MetricConfig{
-			Enabled: true,
-		},
-		M365TeamsMessagesTeamCount: MetricConfig{
+		M365TeamsMessagesTeamCount: M365TeamsMessagesTeamCountMetricConfig{
 			Enabled: true,
 		},
 	}
@@ -157,9 +669,14 @@ type MetricsBuilderConfig struct {
 	ResourceAttributes ResourceAttributesConfig `mapstructure:"resource_attributes"`
 }
 
-func DefaultMetricsBuilderConfig() MetricsBuilderConfig {
+func NewDefaultMetricsBuilderConfig() MetricsBuilderConfig {
 	return MetricsBuilderConfig{
 		Metrics:            DefaultMetricsConfig(),
 		ResourceAttributes: DefaultResourceAttributesConfig(),
 	}
+}
+
+// Deprecated: Use NewDefaultMetricsBuilderConfig.
+func DefaultMetricsBuilderConfig() MetricsBuilderConfig {
+	return NewDefaultMetricsBuilderConfig()
 }

@@ -4,6 +4,7 @@ package metadata
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -12,6 +13,13 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/receiver"
+)
+
+const (
+	AggregationStrategySum = "sum"
+	AggregationStrategyAvg = "avg"
+	AggregationStrategyMin = "min"
+	AggregationStrategyMax = "max"
 )
 
 // AttributeControlState specifies the value control_state attribute.
@@ -245,9 +253,10 @@ type metricInfo struct {
 }
 
 type metricSapnetweaverAbapUpdateStatus struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data          pmetric.Metric                           // data buffer for generated metric.
+	config        SapnetweaverAbapUpdateStatusMetricConfig // metric config provided by user.
+	capacity      int                                      // max observed number of data points added to the metric.
+	aggDataPoints []int64                                  // slice containing number of aggregated datapoints at each index
 }
 
 // init fills sapnetweaver.abap.update.status metric with initial data.
@@ -259,17 +268,48 @@ func (m *metricSapnetweaverAbapUpdateStatus) init() {
 	m.data.Sum().SetIsMonotonic(false)
 	m.data.Sum().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 	m.data.Sum().DataPoints().EnsureCapacity(m.capacity)
+	m.aggDataPoints = m.aggDataPoints[:0]
 }
 
 func (m *metricSapnetweaverAbapUpdateStatus) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val int64, controlStateAttributeValue string) {
 	if !m.config.Enabled {
 		return
 	}
-	dp := m.data.Sum().DataPoints().AppendEmpty()
+
+	dp := pmetric.NewNumberDataPoint()
 	dp.SetStartTimestamp(start)
 	dp.SetTimestamp(ts)
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverAbapUpdateStatusMetricAttributeKeyControlState) {
+		dp.Attributes().PutStr("state", controlStateAttributeValue)
+	}
+
+	var s string
+	dps := m.data.Sum().DataPoints()
+	for i := 0; i < dps.Len(); i++ {
+		dpi := dps.At(i)
+		if dp.Attributes().Equal(dpi.Attributes()) && dp.StartTimestamp() == dpi.StartTimestamp() && dp.Timestamp() == dpi.Timestamp() {
+			switch s = m.config.AggregationStrategy; s {
+			case AggregationStrategySum, AggregationStrategyAvg:
+				dpi.SetIntValue(dpi.IntValue() + val)
+				m.aggDataPoints[i] += 1
+				return
+			case AggregationStrategyMin:
+				if dpi.IntValue() > val {
+					dpi.SetIntValue(val)
+				}
+				return
+			case AggregationStrategyMax:
+				if dpi.IntValue() < val {
+					dpi.SetIntValue(val)
+				}
+				return
+			}
+		}
+	}
+
 	dp.SetIntValue(val)
-	dp.Attributes().PutStr("state", controlStateAttributeValue)
+	m.aggDataPoints = append(m.aggDataPoints, 1)
+	dp.MoveTo(dps.AppendEmpty())
 }
 
 // updateCapacity saves max length of data point slices that will be used for the slice capacity.
@@ -282,13 +322,18 @@ func (m *metricSapnetweaverAbapUpdateStatus) updateCapacity() {
 // emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
 func (m *metricSapnetweaverAbapUpdateStatus) emit(metrics pmetric.MetricSlice) {
 	if m.config.Enabled && m.data.Sum().DataPoints().Len() > 0 {
+		if m.config.AggregationStrategy == AggregationStrategyAvg {
+			for i, aggCount := range m.aggDataPoints {
+				m.data.Sum().DataPoints().At(i).SetIntValue(m.data.Sum().DataPoints().At(i).IntValue() / aggCount)
+			}
+		}
 		m.updateCapacity()
 		m.data.MoveTo(metrics.AppendEmpty())
 		m.init()
 	}
 }
 
-func newMetricSapnetweaverAbapUpdateStatus(cfg MetricConfig) metricSapnetweaverAbapUpdateStatus {
+func newMetricSapnetweaverAbapUpdateStatus(cfg SapnetweaverAbapUpdateStatusMetricConfig) metricSapnetweaverAbapUpdateStatus {
 	m := metricSapnetweaverAbapUpdateStatus{config: cfg}
 
 	if cfg.Enabled {
@@ -299,9 +344,9 @@ func newMetricSapnetweaverAbapUpdateStatus(cfg MetricConfig) metricSapnetweaverA
 }
 
 type metricSapnetweaverCacheEvictions struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                         // data buffer for generated metric.
+	config   SapnetweaverCacheEvictionsMetricConfig // metric config provided by user.
+	capacity int                                    // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.cache.evictions metric with initial data.
@@ -340,7 +385,7 @@ func (m *metricSapnetweaverCacheEvictions) emit(metrics pmetric.MetricSlice) {
 	}
 }
 
-func newMetricSapnetweaverCacheEvictions(cfg MetricConfig) metricSapnetweaverCacheEvictions {
+func newMetricSapnetweaverCacheEvictions(cfg SapnetweaverCacheEvictionsMetricConfig) metricSapnetweaverCacheEvictions {
 	m := metricSapnetweaverCacheEvictions{config: cfg}
 
 	if cfg.Enabled {
@@ -351,9 +396,9 @@ func newMetricSapnetweaverCacheEvictions(cfg MetricConfig) metricSapnetweaverCac
 }
 
 type metricSapnetweaverCacheHits struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                    // data buffer for generated metric.
+	config   SapnetweaverCacheHitsMetricConfig // metric config provided by user.
+	capacity int                               // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.cache.hits metric with initial data.
@@ -390,7 +435,7 @@ func (m *metricSapnetweaverCacheHits) emit(metrics pmetric.MetricSlice) {
 	}
 }
 
-func newMetricSapnetweaverCacheHits(cfg MetricConfig) metricSapnetweaverCacheHits {
+func newMetricSapnetweaverCacheHits(cfg SapnetweaverCacheHitsMetricConfig) metricSapnetweaverCacheHits {
 	m := metricSapnetweaverCacheHits{config: cfg}
 
 	if cfg.Enabled {
@@ -401,9 +446,9 @@ func newMetricSapnetweaverCacheHits(cfg MetricConfig) metricSapnetweaverCacheHit
 }
 
 type metricSapnetweaverConnectionErrorCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                               // data buffer for generated metric.
+	config   SapnetweaverConnectionErrorCountMetricConfig // metric config provided by user.
+	capacity int                                          // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.connection.error.count metric with initial data.
@@ -442,7 +487,7 @@ func (m *metricSapnetweaverConnectionErrorCount) emit(metrics pmetric.MetricSlic
 	}
 }
 
-func newMetricSapnetweaverConnectionErrorCount(cfg MetricConfig) metricSapnetweaverConnectionErrorCount {
+func newMetricSapnetweaverConnectionErrorCount(cfg SapnetweaverConnectionErrorCountMetricConfig) metricSapnetweaverConnectionErrorCount {
 	m := metricSapnetweaverConnectionErrorCount{config: cfg}
 
 	if cfg.Enabled {
@@ -453,9 +498,9 @@ func newMetricSapnetweaverConnectionErrorCount(cfg MetricConfig) metricSapnetwea
 }
 
 type metricSapnetweaverCPUSystemUtilization struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                               // data buffer for generated metric.
+	config   SapnetweaverCPUSystemUtilizationMetricConfig // metric config provided by user.
+	capacity int                                          // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.cpu.system.utilization metric with initial data.
@@ -492,7 +537,7 @@ func (m *metricSapnetweaverCPUSystemUtilization) emit(metrics pmetric.MetricSlic
 	}
 }
 
-func newMetricSapnetweaverCPUSystemUtilization(cfg MetricConfig) metricSapnetweaverCPUSystemUtilization {
+func newMetricSapnetweaverCPUSystemUtilization(cfg SapnetweaverCPUSystemUtilizationMetricConfig) metricSapnetweaverCPUSystemUtilization {
 	m := metricSapnetweaverCPUSystemUtilization{config: cfg}
 
 	if cfg.Enabled {
@@ -503,9 +548,9 @@ func newMetricSapnetweaverCPUSystemUtilization(cfg MetricConfig) metricSapnetwea
 }
 
 type metricSapnetweaverCPUUtilization struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                         // data buffer for generated metric.
+	config   SapnetweaverCPUUtilizationMetricConfig // metric config provided by user.
+	capacity int                                    // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.cpu.utilization metric with initial data.
@@ -542,7 +587,7 @@ func (m *metricSapnetweaverCPUUtilization) emit(metrics pmetric.MetricSlice) {
 	}
 }
 
-func newMetricSapnetweaverCPUUtilization(cfg MetricConfig) metricSapnetweaverCPUUtilization {
+func newMetricSapnetweaverCPUUtilization(cfg SapnetweaverCPUUtilizationMetricConfig) metricSapnetweaverCPUUtilization {
 	m := metricSapnetweaverCPUUtilization{config: cfg}
 
 	if cfg.Enabled {
@@ -553,9 +598,9 @@ func newMetricSapnetweaverCPUUtilization(cfg MetricConfig) metricSapnetweaverCPU
 }
 
 type metricSapnetweaverDatabaseDialogRequestTime struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                                    // data buffer for generated metric.
+	config   SapnetweaverDatabaseDialogRequestTimeMetricConfig // metric config provided by user.
+	capacity int                                               // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.database.dialog.request.time metric with initial data.
@@ -594,7 +639,7 @@ func (m *metricSapnetweaverDatabaseDialogRequestTime) emit(metrics pmetric.Metri
 	}
 }
 
-func newMetricSapnetweaverDatabaseDialogRequestTime(cfg MetricConfig) metricSapnetweaverDatabaseDialogRequestTime {
+func newMetricSapnetweaverDatabaseDialogRequestTime(cfg SapnetweaverDatabaseDialogRequestTimeMetricConfig) metricSapnetweaverDatabaseDialogRequestTime {
 	m := metricSapnetweaverDatabaseDialogRequestTime{config: cfg}
 
 	if cfg.Enabled {
@@ -605,9 +650,9 @@ func newMetricSapnetweaverDatabaseDialogRequestTime(cfg MetricConfig) metricSapn
 }
 
 type metricSapnetweaverHostMemoryVirtualOverhead struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                                    // data buffer for generated metric.
+	config   SapnetweaverHostMemoryVirtualOverheadMetricConfig // metric config provided by user.
+	capacity int                                               // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.host.memory.virtual.overhead metric with initial data.
@@ -644,7 +689,7 @@ func (m *metricSapnetweaverHostMemoryVirtualOverhead) emit(metrics pmetric.Metri
 	}
 }
 
-func newMetricSapnetweaverHostMemoryVirtualOverhead(cfg MetricConfig) metricSapnetweaverHostMemoryVirtualOverhead {
+func newMetricSapnetweaverHostMemoryVirtualOverhead(cfg SapnetweaverHostMemoryVirtualOverheadMetricConfig) metricSapnetweaverHostMemoryVirtualOverhead {
 	m := metricSapnetweaverHostMemoryVirtualOverhead{config: cfg}
 
 	if cfg.Enabled {
@@ -655,9 +700,9 @@ func newMetricSapnetweaverHostMemoryVirtualOverhead(cfg MetricConfig) metricSapn
 }
 
 type metricSapnetweaverHostMemoryVirtualSwap struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                                // data buffer for generated metric.
+	config   SapnetweaverHostMemoryVirtualSwapMetricConfig // metric config provided by user.
+	capacity int                                           // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.host.memory.virtual.swap metric with initial data.
@@ -694,7 +739,7 @@ func (m *metricSapnetweaverHostMemoryVirtualSwap) emit(metrics pmetric.MetricSli
 	}
 }
 
-func newMetricSapnetweaverHostMemoryVirtualSwap(cfg MetricConfig) metricSapnetweaverHostMemoryVirtualSwap {
+func newMetricSapnetweaverHostMemoryVirtualSwap(cfg SapnetweaverHostMemoryVirtualSwapMetricConfig) metricSapnetweaverHostMemoryVirtualSwap {
 	m := metricSapnetweaverHostMemoryVirtualSwap{config: cfg}
 
 	if cfg.Enabled {
@@ -705,9 +750,9 @@ func newMetricSapnetweaverHostMemoryVirtualSwap(cfg MetricConfig) metricSapnetwe
 }
 
 type metricSapnetweaverHostSpoolListUtilization struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                                   // data buffer for generated metric.
+	config   SapnetweaverHostSpoolListUtilizationMetricConfig // metric config provided by user.
+	capacity int                                              // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.host.spool_list.utilization metric with initial data.
@@ -744,7 +789,7 @@ func (m *metricSapnetweaverHostSpoolListUtilization) emit(metrics pmetric.Metric
 	}
 }
 
-func newMetricSapnetweaverHostSpoolListUtilization(cfg MetricConfig) metricSapnetweaverHostSpoolListUtilization {
+func newMetricSapnetweaverHostSpoolListUtilization(cfg SapnetweaverHostSpoolListUtilizationMetricConfig) metricSapnetweaverHostSpoolListUtilization {
 	m := metricSapnetweaverHostSpoolListUtilization{config: cfg}
 
 	if cfg.Enabled {
@@ -755,9 +800,9 @@ func newMetricSapnetweaverHostSpoolListUtilization(cfg MetricConfig) metricSapne
 }
 
 type metricSapnetweaverLocksDequeueErrorsCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                                  // data buffer for generated metric.
+	config   SapnetweaverLocksDequeueErrorsCountMetricConfig // metric config provided by user.
+	capacity int                                             // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.locks.dequeue.errors.count metric with initial data.
@@ -796,7 +841,7 @@ func (m *metricSapnetweaverLocksDequeueErrorsCount) emit(metrics pmetric.MetricS
 	}
 }
 
-func newMetricSapnetweaverLocksDequeueErrorsCount(cfg MetricConfig) metricSapnetweaverLocksDequeueErrorsCount {
+func newMetricSapnetweaverLocksDequeueErrorsCount(cfg SapnetweaverLocksDequeueErrorsCountMetricConfig) metricSapnetweaverLocksDequeueErrorsCount {
 	m := metricSapnetweaverLocksDequeueErrorsCount{config: cfg}
 
 	if cfg.Enabled {
@@ -807,9 +852,9 @@ func newMetricSapnetweaverLocksDequeueErrorsCount(cfg MetricConfig) metricSapnet
 }
 
 type metricSapnetweaverLocksEnqueueCurrentCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                                   // data buffer for generated metric.
+	config   SapnetweaverLocksEnqueueCurrentCountMetricConfig // metric config provided by user.
+	capacity int                                              // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.locks.enqueue.current.count metric with initial data.
@@ -848,7 +893,7 @@ func (m *metricSapnetweaverLocksEnqueueCurrentCount) emit(metrics pmetric.Metric
 	}
 }
 
-func newMetricSapnetweaverLocksEnqueueCurrentCount(cfg MetricConfig) metricSapnetweaverLocksEnqueueCurrentCount {
+func newMetricSapnetweaverLocksEnqueueCurrentCount(cfg SapnetweaverLocksEnqueueCurrentCountMetricConfig) metricSapnetweaverLocksEnqueueCurrentCount {
 	m := metricSapnetweaverLocksEnqueueCurrentCount{config: cfg}
 
 	if cfg.Enabled {
@@ -859,9 +904,9 @@ func newMetricSapnetweaverLocksEnqueueCurrentCount(cfg MetricConfig) metricSapne
 }
 
 type metricSapnetweaverLocksEnqueueErrorsCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                                  // data buffer for generated metric.
+	config   SapnetweaverLocksEnqueueErrorsCountMetricConfig // metric config provided by user.
+	capacity int                                             // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.locks.enqueue.errors.count metric with initial data.
@@ -900,7 +945,7 @@ func (m *metricSapnetweaverLocksEnqueueErrorsCount) emit(metrics pmetric.MetricS
 	}
 }
 
-func newMetricSapnetweaverLocksEnqueueErrorsCount(cfg MetricConfig) metricSapnetweaverLocksEnqueueErrorsCount {
+func newMetricSapnetweaverLocksEnqueueErrorsCount(cfg SapnetweaverLocksEnqueueErrorsCountMetricConfig) metricSapnetweaverLocksEnqueueErrorsCount {
 	m := metricSapnetweaverLocksEnqueueErrorsCount{config: cfg}
 
 	if cfg.Enabled {
@@ -911,9 +956,9 @@ func newMetricSapnetweaverLocksEnqueueErrorsCount(cfg MetricConfig) metricSapnet
 }
 
 type metricSapnetweaverLocksEnqueueHighCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                                // data buffer for generated metric.
+	config   SapnetweaverLocksEnqueueHighCountMetricConfig // metric config provided by user.
+	capacity int                                           // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.locks.enqueue.high.count metric with initial data.
@@ -952,7 +997,7 @@ func (m *metricSapnetweaverLocksEnqueueHighCount) emit(metrics pmetric.MetricSli
 	}
 }
 
-func newMetricSapnetweaverLocksEnqueueHighCount(cfg MetricConfig) metricSapnetweaverLocksEnqueueHighCount {
+func newMetricSapnetweaverLocksEnqueueHighCount(cfg SapnetweaverLocksEnqueueHighCountMetricConfig) metricSapnetweaverLocksEnqueueHighCount {
 	m := metricSapnetweaverLocksEnqueueHighCount{config: cfg}
 
 	if cfg.Enabled {
@@ -963,9 +1008,9 @@ func newMetricSapnetweaverLocksEnqueueHighCount(cfg MetricConfig) metricSapnetwe
 }
 
 type metricSapnetweaverLocksEnqueueLockTime struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                               // data buffer for generated metric.
+	config   SapnetweaverLocksEnqueueLockTimeMetricConfig // metric config provided by user.
+	capacity int                                          // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.locks.enqueue.lock_time metric with initial data.
@@ -1004,7 +1049,7 @@ func (m *metricSapnetweaverLocksEnqueueLockTime) emit(metrics pmetric.MetricSlic
 	}
 }
 
-func newMetricSapnetweaverLocksEnqueueLockTime(cfg MetricConfig) metricSapnetweaverLocksEnqueueLockTime {
+func newMetricSapnetweaverLocksEnqueueLockTime(cfg SapnetweaverLocksEnqueueLockTimeMetricConfig) metricSapnetweaverLocksEnqueueLockTime {
 	m := metricSapnetweaverLocksEnqueueLockTime{config: cfg}
 
 	if cfg.Enabled {
@@ -1015,9 +1060,9 @@ func newMetricSapnetweaverLocksEnqueueLockTime(cfg MetricConfig) metricSapnetwea
 }
 
 type metricSapnetweaverLocksEnqueueLockWaitTime struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                                   // data buffer for generated metric.
+	config   SapnetweaverLocksEnqueueLockWaitTimeMetricConfig // metric config provided by user.
+	capacity int                                              // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.locks.enqueue.lock_wait_time metric with initial data.
@@ -1056,7 +1101,7 @@ func (m *metricSapnetweaverLocksEnqueueLockWaitTime) emit(metrics pmetric.Metric
 	}
 }
 
-func newMetricSapnetweaverLocksEnqueueLockWaitTime(cfg MetricConfig) metricSapnetweaverLocksEnqueueLockWaitTime {
+func newMetricSapnetweaverLocksEnqueueLockWaitTime(cfg SapnetweaverLocksEnqueueLockWaitTimeMetricConfig) metricSapnetweaverLocksEnqueueLockWaitTime {
 	m := metricSapnetweaverLocksEnqueueLockWaitTime{config: cfg}
 
 	if cfg.Enabled {
@@ -1067,9 +1112,9 @@ func newMetricSapnetweaverLocksEnqueueLockWaitTime(cfg MetricConfig) metricSapne
 }
 
 type metricSapnetweaverLocksEnqueueMaxCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                               // data buffer for generated metric.
+	config   SapnetweaverLocksEnqueueMaxCountMetricConfig // metric config provided by user.
+	capacity int                                          // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.locks.enqueue.max.count metric with initial data.
@@ -1108,7 +1153,7 @@ func (m *metricSapnetweaverLocksEnqueueMaxCount) emit(metrics pmetric.MetricSlic
 	}
 }
 
-func newMetricSapnetweaverLocksEnqueueMaxCount(cfg MetricConfig) metricSapnetweaverLocksEnqueueMaxCount {
+func newMetricSapnetweaverLocksEnqueueMaxCount(cfg SapnetweaverLocksEnqueueMaxCountMetricConfig) metricSapnetweaverLocksEnqueueMaxCount {
 	m := metricSapnetweaverLocksEnqueueMaxCount{config: cfg}
 
 	if cfg.Enabled {
@@ -1119,9 +1164,9 @@ func newMetricSapnetweaverLocksEnqueueMaxCount(cfg MetricConfig) metricSapnetwea
 }
 
 type metricSapnetweaverMemoryConfigured struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                           // data buffer for generated metric.
+	config   SapnetweaverMemoryConfiguredMetricConfig // metric config provided by user.
+	capacity int                                      // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.memory.configured metric with initial data.
@@ -1160,7 +1205,7 @@ func (m *metricSapnetweaverMemoryConfigured) emit(metrics pmetric.MetricSlice) {
 	}
 }
 
-func newMetricSapnetweaverMemoryConfigured(cfg MetricConfig) metricSapnetweaverMemoryConfigured {
+func newMetricSapnetweaverMemoryConfigured(cfg SapnetweaverMemoryConfiguredMetricConfig) metricSapnetweaverMemoryConfigured {
 	m := metricSapnetweaverMemoryConfigured{config: cfg}
 
 	if cfg.Enabled {
@@ -1171,9 +1216,9 @@ func newMetricSapnetweaverMemoryConfigured(cfg MetricConfig) metricSapnetweaverM
 }
 
 type metricSapnetweaverMemoryFree struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                     // data buffer for generated metric.
+	config   SapnetweaverMemoryFreeMetricConfig // metric config provided by user.
+	capacity int                                // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.memory.free metric with initial data.
@@ -1212,7 +1257,7 @@ func (m *metricSapnetweaverMemoryFree) emit(metrics pmetric.MetricSlice) {
 	}
 }
 
-func newMetricSapnetweaverMemoryFree(cfg MetricConfig) metricSapnetweaverMemoryFree {
+func newMetricSapnetweaverMemoryFree(cfg SapnetweaverMemoryFreeMetricConfig) metricSapnetweaverMemoryFree {
 	m := metricSapnetweaverMemoryFree{config: cfg}
 
 	if cfg.Enabled {
@@ -1223,9 +1268,9 @@ func newMetricSapnetweaverMemoryFree(cfg MetricConfig) metricSapnetweaverMemoryF
 }
 
 type metricSapnetweaverMemorySwapSpaceUtilization struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                                     // data buffer for generated metric.
+	config   SapnetweaverMemorySwapSpaceUtilizationMetricConfig // metric config provided by user.
+	capacity int                                                // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.memory.swap_space.utilization metric with initial data.
@@ -1262,7 +1307,7 @@ func (m *metricSapnetweaverMemorySwapSpaceUtilization) emit(metrics pmetric.Metr
 	}
 }
 
-func newMetricSapnetweaverMemorySwapSpaceUtilization(cfg MetricConfig) metricSapnetweaverMemorySwapSpaceUtilization {
+func newMetricSapnetweaverMemorySwapSpaceUtilization(cfg SapnetweaverMemorySwapSpaceUtilizationMetricConfig) metricSapnetweaverMemorySwapSpaceUtilization {
 	m := metricSapnetweaverMemorySwapSpaceUtilization{config: cfg}
 
 	if cfg.Enabled {
@@ -1273,9 +1318,10 @@ func newMetricSapnetweaverMemorySwapSpaceUtilization(cfg MetricConfig) metricSap
 }
 
 type metricSapnetweaverProcessAvailability struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data          pmetric.Metric                              // data buffer for generated metric.
+	config        SapnetweaverProcessAvailabilityMetricConfig // metric config provided by user.
+	capacity      int                                         // max observed number of data points added to the metric.
+	aggDataPoints []int64                                     // slice containing number of aggregated datapoints at each index
 }
 
 // init fills sapnetweaver.process_availability metric with initial data.
@@ -1287,19 +1333,54 @@ func (m *metricSapnetweaverProcessAvailability) init() {
 	m.data.Sum().SetIsMonotonic(false)
 	m.data.Sum().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 	m.data.Sum().DataPoints().EnsureCapacity(m.capacity)
+	m.aggDataPoints = m.aggDataPoints[:0]
 }
 
 func (m *metricSapnetweaverProcessAvailability) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val int64, processNameAttributeValue string, processDescriptionAttributeValue string, controlStateAttributeValue string) {
 	if !m.config.Enabled {
 		return
 	}
-	dp := m.data.Sum().DataPoints().AppendEmpty()
+
+	dp := pmetric.NewNumberDataPoint()
 	dp.SetStartTimestamp(start)
 	dp.SetTimestamp(ts)
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverProcessAvailabilityMetricAttributeKeyProcessName) {
+		dp.Attributes().PutStr("process_name", processNameAttributeValue)
+	}
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverProcessAvailabilityMetricAttributeKeyProcessDescription) {
+		dp.Attributes().PutStr("process_description", processDescriptionAttributeValue)
+	}
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverProcessAvailabilityMetricAttributeKeyControlState) {
+		dp.Attributes().PutStr("state", controlStateAttributeValue)
+	}
+
+	var s string
+	dps := m.data.Sum().DataPoints()
+	for i := 0; i < dps.Len(); i++ {
+		dpi := dps.At(i)
+		if dp.Attributes().Equal(dpi.Attributes()) && dp.StartTimestamp() == dpi.StartTimestamp() && dp.Timestamp() == dpi.Timestamp() {
+			switch s = m.config.AggregationStrategy; s {
+			case AggregationStrategySum, AggregationStrategyAvg:
+				dpi.SetIntValue(dpi.IntValue() + val)
+				m.aggDataPoints[i] += 1
+				return
+			case AggregationStrategyMin:
+				if dpi.IntValue() > val {
+					dpi.SetIntValue(val)
+				}
+				return
+			case AggregationStrategyMax:
+				if dpi.IntValue() < val {
+					dpi.SetIntValue(val)
+				}
+				return
+			}
+		}
+	}
+
 	dp.SetIntValue(val)
-	dp.Attributes().PutStr("process_name", processNameAttributeValue)
-	dp.Attributes().PutStr("process_description", processDescriptionAttributeValue)
-	dp.Attributes().PutStr("state", controlStateAttributeValue)
+	m.aggDataPoints = append(m.aggDataPoints, 1)
+	dp.MoveTo(dps.AppendEmpty())
 }
 
 // updateCapacity saves max length of data point slices that will be used for the slice capacity.
@@ -1312,13 +1393,18 @@ func (m *metricSapnetweaverProcessAvailability) updateCapacity() {
 // emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
 func (m *metricSapnetweaverProcessAvailability) emit(metrics pmetric.MetricSlice) {
 	if m.config.Enabled && m.data.Sum().DataPoints().Len() > 0 {
+		if m.config.AggregationStrategy == AggregationStrategyAvg {
+			for i, aggCount := range m.aggDataPoints {
+				m.data.Sum().DataPoints().At(i).SetIntValue(m.data.Sum().DataPoints().At(i).IntValue() / aggCount)
+			}
+		}
 		m.updateCapacity()
 		m.data.MoveTo(metrics.AppendEmpty())
 		m.init()
 	}
 }
 
-func newMetricSapnetweaverProcessAvailability(cfg MetricConfig) metricSapnetweaverProcessAvailability {
+func newMetricSapnetweaverProcessAvailability(cfg SapnetweaverProcessAvailabilityMetricConfig) metricSapnetweaverProcessAvailability {
 	m := metricSapnetweaverProcessAvailability{config: cfg}
 
 	if cfg.Enabled {
@@ -1329,9 +1415,10 @@ func newMetricSapnetweaverProcessAvailability(cfg MetricConfig) metricSapnetweav
 }
 
 type metricSapnetweaverQueueCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data          pmetric.Metric                     // data buffer for generated metric.
+	config        SapnetweaverQueueCountMetricConfig // metric config provided by user.
+	capacity      int                                // max observed number of data points added to the metric.
+	aggDataPoints []int64                            // slice containing number of aggregated datapoints at each index
 }
 
 // init fills sapnetweaver.queue.count metric with initial data.
@@ -1343,17 +1430,48 @@ func (m *metricSapnetweaverQueueCount) init() {
 	m.data.Sum().SetIsMonotonic(false)
 	m.data.Sum().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 	m.data.Sum().DataPoints().EnsureCapacity(m.capacity)
+	m.aggDataPoints = m.aggDataPoints[:0]
 }
 
 func (m *metricSapnetweaverQueueCount) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val int64, wpTypeAttributeValue string) {
 	if !m.config.Enabled {
 		return
 	}
-	dp := m.data.Sum().DataPoints().AppendEmpty()
+
+	dp := pmetric.NewNumberDataPoint()
 	dp.SetStartTimestamp(start)
 	dp.SetTimestamp(ts)
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverQueueCountMetricAttributeKeyWpType) {
+		dp.Attributes().PutStr("wp_type", wpTypeAttributeValue)
+	}
+
+	var s string
+	dps := m.data.Sum().DataPoints()
+	for i := 0; i < dps.Len(); i++ {
+		dpi := dps.At(i)
+		if dp.Attributes().Equal(dpi.Attributes()) && dp.StartTimestamp() == dpi.StartTimestamp() && dp.Timestamp() == dpi.Timestamp() {
+			switch s = m.config.AggregationStrategy; s {
+			case AggregationStrategySum, AggregationStrategyAvg:
+				dpi.SetIntValue(dpi.IntValue() + val)
+				m.aggDataPoints[i] += 1
+				return
+			case AggregationStrategyMin:
+				if dpi.IntValue() > val {
+					dpi.SetIntValue(val)
+				}
+				return
+			case AggregationStrategyMax:
+				if dpi.IntValue() < val {
+					dpi.SetIntValue(val)
+				}
+				return
+			}
+		}
+	}
+
 	dp.SetIntValue(val)
-	dp.Attributes().PutStr("wp_type", wpTypeAttributeValue)
+	m.aggDataPoints = append(m.aggDataPoints, 1)
+	dp.MoveTo(dps.AppendEmpty())
 }
 
 // updateCapacity saves max length of data point slices that will be used for the slice capacity.
@@ -1366,13 +1484,18 @@ func (m *metricSapnetweaverQueueCount) updateCapacity() {
 // emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
 func (m *metricSapnetweaverQueueCount) emit(metrics pmetric.MetricSlice) {
 	if m.config.Enabled && m.data.Sum().DataPoints().Len() > 0 {
+		if m.config.AggregationStrategy == AggregationStrategyAvg {
+			for i, aggCount := range m.aggDataPoints {
+				m.data.Sum().DataPoints().At(i).SetIntValue(m.data.Sum().DataPoints().At(i).IntValue() / aggCount)
+			}
+		}
 		m.updateCapacity()
 		m.data.MoveTo(metrics.AppendEmpty())
 		m.init()
 	}
 }
 
-func newMetricSapnetweaverQueueCount(cfg MetricConfig) metricSapnetweaverQueueCount {
+func newMetricSapnetweaverQueueCount(cfg SapnetweaverQueueCountMetricConfig) metricSapnetweaverQueueCount {
 	m := metricSapnetweaverQueueCount{config: cfg}
 
 	if cfg.Enabled {
@@ -1383,9 +1506,10 @@ func newMetricSapnetweaverQueueCount(cfg MetricConfig) metricSapnetweaverQueueCo
 }
 
 type metricSapnetweaverQueueMaxCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data          pmetric.Metric                        // data buffer for generated metric.
+	config        SapnetweaverQueueMaxCountMetricConfig // metric config provided by user.
+	capacity      int                                   // max observed number of data points added to the metric.
+	aggDataPoints []int64                               // slice containing number of aggregated datapoints at each index
 }
 
 // init fills sapnetweaver.queue_max.count metric with initial data.
@@ -1397,17 +1521,48 @@ func (m *metricSapnetweaverQueueMaxCount) init() {
 	m.data.Sum().SetIsMonotonic(false)
 	m.data.Sum().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 	m.data.Sum().DataPoints().EnsureCapacity(m.capacity)
+	m.aggDataPoints = m.aggDataPoints[:0]
 }
 
 func (m *metricSapnetweaverQueueMaxCount) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val int64, wpTypeAttributeValue string) {
 	if !m.config.Enabled {
 		return
 	}
-	dp := m.data.Sum().DataPoints().AppendEmpty()
+
+	dp := pmetric.NewNumberDataPoint()
 	dp.SetStartTimestamp(start)
 	dp.SetTimestamp(ts)
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverQueueMaxCountMetricAttributeKeyWpType) {
+		dp.Attributes().PutStr("wp_type", wpTypeAttributeValue)
+	}
+
+	var s string
+	dps := m.data.Sum().DataPoints()
+	for i := 0; i < dps.Len(); i++ {
+		dpi := dps.At(i)
+		if dp.Attributes().Equal(dpi.Attributes()) && dp.StartTimestamp() == dpi.StartTimestamp() && dp.Timestamp() == dpi.Timestamp() {
+			switch s = m.config.AggregationStrategy; s {
+			case AggregationStrategySum, AggregationStrategyAvg:
+				dpi.SetIntValue(dpi.IntValue() + val)
+				m.aggDataPoints[i] += 1
+				return
+			case AggregationStrategyMin:
+				if dpi.IntValue() > val {
+					dpi.SetIntValue(val)
+				}
+				return
+			case AggregationStrategyMax:
+				if dpi.IntValue() < val {
+					dpi.SetIntValue(val)
+				}
+				return
+			}
+		}
+	}
+
 	dp.SetIntValue(val)
-	dp.Attributes().PutStr("wp_type", wpTypeAttributeValue)
+	m.aggDataPoints = append(m.aggDataPoints, 1)
+	dp.MoveTo(dps.AppendEmpty())
 }
 
 // updateCapacity saves max length of data point slices that will be used for the slice capacity.
@@ -1420,13 +1575,18 @@ func (m *metricSapnetweaverQueueMaxCount) updateCapacity() {
 // emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
 func (m *metricSapnetweaverQueueMaxCount) emit(metrics pmetric.MetricSlice) {
 	if m.config.Enabled && m.data.Sum().DataPoints().Len() > 0 {
+		if m.config.AggregationStrategy == AggregationStrategyAvg {
+			for i, aggCount := range m.aggDataPoints {
+				m.data.Sum().DataPoints().At(i).SetIntValue(m.data.Sum().DataPoints().At(i).IntValue() / aggCount)
+			}
+		}
 		m.updateCapacity()
 		m.data.MoveTo(metrics.AppendEmpty())
 		m.init()
 	}
 }
 
-func newMetricSapnetweaverQueueMaxCount(cfg MetricConfig) metricSapnetweaverQueueMaxCount {
+func newMetricSapnetweaverQueueMaxCount(cfg SapnetweaverQueueMaxCountMetricConfig) metricSapnetweaverQueueMaxCount {
 	m := metricSapnetweaverQueueMaxCount{config: cfg}
 
 	if cfg.Enabled {
@@ -1437,9 +1597,10 @@ func newMetricSapnetweaverQueueMaxCount(cfg MetricConfig) metricSapnetweaverQueu
 }
 
 type metricSapnetweaverQueuePeakCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data          pmetric.Metric                         // data buffer for generated metric.
+	config        SapnetweaverQueuePeakCountMetricConfig // metric config provided by user.
+	capacity      int                                    // max observed number of data points added to the metric.
+	aggDataPoints []int64                                // slice containing number of aggregated datapoints at each index
 }
 
 // init fills sapnetweaver.queue_peak.count metric with initial data.
@@ -1451,17 +1612,48 @@ func (m *metricSapnetweaverQueuePeakCount) init() {
 	m.data.Sum().SetIsMonotonic(false)
 	m.data.Sum().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 	m.data.Sum().DataPoints().EnsureCapacity(m.capacity)
+	m.aggDataPoints = m.aggDataPoints[:0]
 }
 
 func (m *metricSapnetweaverQueuePeakCount) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val int64, wpTypeAttributeValue string) {
 	if !m.config.Enabled {
 		return
 	}
-	dp := m.data.Sum().DataPoints().AppendEmpty()
+
+	dp := pmetric.NewNumberDataPoint()
 	dp.SetStartTimestamp(start)
 	dp.SetTimestamp(ts)
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverQueuePeakCountMetricAttributeKeyWpType) {
+		dp.Attributes().PutStr("wp_type", wpTypeAttributeValue)
+	}
+
+	var s string
+	dps := m.data.Sum().DataPoints()
+	for i := 0; i < dps.Len(); i++ {
+		dpi := dps.At(i)
+		if dp.Attributes().Equal(dpi.Attributes()) && dp.StartTimestamp() == dpi.StartTimestamp() && dp.Timestamp() == dpi.Timestamp() {
+			switch s = m.config.AggregationStrategy; s {
+			case AggregationStrategySum, AggregationStrategyAvg:
+				dpi.SetIntValue(dpi.IntValue() + val)
+				m.aggDataPoints[i] += 1
+				return
+			case AggregationStrategyMin:
+				if dpi.IntValue() > val {
+					dpi.SetIntValue(val)
+				}
+				return
+			case AggregationStrategyMax:
+				if dpi.IntValue() < val {
+					dpi.SetIntValue(val)
+				}
+				return
+			}
+		}
+	}
+
 	dp.SetIntValue(val)
-	dp.Attributes().PutStr("wp_type", wpTypeAttributeValue)
+	m.aggDataPoints = append(m.aggDataPoints, 1)
+	dp.MoveTo(dps.AppendEmpty())
 }
 
 // updateCapacity saves max length of data point slices that will be used for the slice capacity.
@@ -1474,13 +1666,18 @@ func (m *metricSapnetweaverQueuePeakCount) updateCapacity() {
 // emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
 func (m *metricSapnetweaverQueuePeakCount) emit(metrics pmetric.MetricSlice) {
 	if m.config.Enabled && m.data.Sum().DataPoints().Len() > 0 {
+		if m.config.AggregationStrategy == AggregationStrategyAvg {
+			for i, aggCount := range m.aggDataPoints {
+				m.data.Sum().DataPoints().At(i).SetIntValue(m.data.Sum().DataPoints().At(i).IntValue() / aggCount)
+			}
+		}
 		m.updateCapacity()
 		m.data.MoveTo(metrics.AppendEmpty())
 		m.init()
 	}
 }
 
-func newMetricSapnetweaverQueuePeakCount(cfg MetricConfig) metricSapnetweaverQueuePeakCount {
+func newMetricSapnetweaverQueuePeakCount(cfg SapnetweaverQueuePeakCountMetricConfig) metricSapnetweaverQueuePeakCount {
 	m := metricSapnetweaverQueuePeakCount{config: cfg}
 
 	if cfg.Enabled {
@@ -1491,9 +1688,9 @@ func newMetricSapnetweaverQueuePeakCount(cfg MetricConfig) metricSapnetweaverQue
 }
 
 type metricSapnetweaverRequestCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                       // data buffer for generated metric.
+	config   SapnetweaverRequestCountMetricConfig // metric config provided by user.
+	capacity int                                  // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.request.count metric with initial data.
@@ -1532,7 +1729,7 @@ func (m *metricSapnetweaverRequestCount) emit(metrics pmetric.MetricSlice) {
 	}
 }
 
-func newMetricSapnetweaverRequestCount(cfg MetricConfig) metricSapnetweaverRequestCount {
+func newMetricSapnetweaverRequestCount(cfg SapnetweaverRequestCountMetricConfig) metricSapnetweaverRequestCount {
 	m := metricSapnetweaverRequestCount{config: cfg}
 
 	if cfg.Enabled {
@@ -1543,9 +1740,9 @@ func newMetricSapnetweaverRequestCount(cfg MetricConfig) metricSapnetweaverReque
 }
 
 type metricSapnetweaverRequestTimeoutCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                              // data buffer for generated metric.
+	config   SapnetweaverRequestTimeoutCountMetricConfig // metric config provided by user.
+	capacity int                                         // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.request.timeout.count metric with initial data.
@@ -1584,7 +1781,7 @@ func (m *metricSapnetweaverRequestTimeoutCount) emit(metrics pmetric.MetricSlice
 	}
 }
 
-func newMetricSapnetweaverRequestTimeoutCount(cfg MetricConfig) metricSapnetweaverRequestTimeoutCount {
+func newMetricSapnetweaverRequestTimeoutCount(cfg SapnetweaverRequestTimeoutCountMetricConfig) metricSapnetweaverRequestTimeoutCount {
 	m := metricSapnetweaverRequestTimeoutCount{config: cfg}
 
 	if cfg.Enabled {
@@ -1595,9 +1792,10 @@ func newMetricSapnetweaverRequestTimeoutCount(cfg MetricConfig) metricSapnetweav
 }
 
 type metricSapnetweaverResponseDuration struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data          pmetric.Metric                           // data buffer for generated metric.
+	config        SapnetweaverResponseDurationMetricConfig // metric config provided by user.
+	capacity      int                                      // max observed number of data points added to the metric.
+	aggDataPoints []int64                                  // slice containing number of aggregated datapoints at each index
 }
 
 // init fills sapnetweaver.response.duration metric with initial data.
@@ -1609,17 +1807,48 @@ func (m *metricSapnetweaverResponseDuration) init() {
 	m.data.Sum().SetIsMonotonic(false)
 	m.data.Sum().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 	m.data.Sum().DataPoints().EnsureCapacity(m.capacity)
+	m.aggDataPoints = m.aggDataPoints[:0]
 }
 
 func (m *metricSapnetweaverResponseDuration) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val int64, responseTypeAttributeValue string) {
 	if !m.config.Enabled {
 		return
 	}
-	dp := m.data.Sum().DataPoints().AppendEmpty()
+
+	dp := pmetric.NewNumberDataPoint()
 	dp.SetStartTimestamp(start)
 	dp.SetTimestamp(ts)
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverResponseDurationMetricAttributeKeyResponseType) {
+		dp.Attributes().PutStr("response_type", responseTypeAttributeValue)
+	}
+
+	var s string
+	dps := m.data.Sum().DataPoints()
+	for i := 0; i < dps.Len(); i++ {
+		dpi := dps.At(i)
+		if dp.Attributes().Equal(dpi.Attributes()) && dp.StartTimestamp() == dpi.StartTimestamp() && dp.Timestamp() == dpi.Timestamp() {
+			switch s = m.config.AggregationStrategy; s {
+			case AggregationStrategySum, AggregationStrategyAvg:
+				dpi.SetIntValue(dpi.IntValue() + val)
+				m.aggDataPoints[i] += 1
+				return
+			case AggregationStrategyMin:
+				if dpi.IntValue() > val {
+					dpi.SetIntValue(val)
+				}
+				return
+			case AggregationStrategyMax:
+				if dpi.IntValue() < val {
+					dpi.SetIntValue(val)
+				}
+				return
+			}
+		}
+	}
+
 	dp.SetIntValue(val)
-	dp.Attributes().PutStr("response_type", responseTypeAttributeValue)
+	m.aggDataPoints = append(m.aggDataPoints, 1)
+	dp.MoveTo(dps.AppendEmpty())
 }
 
 // updateCapacity saves max length of data point slices that will be used for the slice capacity.
@@ -1632,13 +1861,18 @@ func (m *metricSapnetweaverResponseDuration) updateCapacity() {
 // emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
 func (m *metricSapnetweaverResponseDuration) emit(metrics pmetric.MetricSlice) {
 	if m.config.Enabled && m.data.Sum().DataPoints().Len() > 0 {
+		if m.config.AggregationStrategy == AggregationStrategyAvg {
+			for i, aggCount := range m.aggDataPoints {
+				m.data.Sum().DataPoints().At(i).SetIntValue(m.data.Sum().DataPoints().At(i).IntValue() / aggCount)
+			}
+		}
 		m.updateCapacity()
 		m.data.MoveTo(metrics.AppendEmpty())
 		m.init()
 	}
 }
 
-func newMetricSapnetweaverResponseDuration(cfg MetricConfig) metricSapnetweaverResponseDuration {
+func newMetricSapnetweaverResponseDuration(cfg SapnetweaverResponseDurationMetricConfig) metricSapnetweaverResponseDuration {
 	m := metricSapnetweaverResponseDuration{config: cfg}
 
 	if cfg.Enabled {
@@ -1649,9 +1883,9 @@ func newMetricSapnetweaverResponseDuration(cfg MetricConfig) metricSapnetweaverR
 }
 
 type metricSapnetweaverSessionCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                       // data buffer for generated metric.
+	config   SapnetweaverSessionCountMetricConfig // metric config provided by user.
+	capacity int                                  // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.session.count metric with initial data.
@@ -1690,7 +1924,7 @@ func (m *metricSapnetweaverSessionCount) emit(metrics pmetric.MetricSlice) {
 	}
 }
 
-func newMetricSapnetweaverSessionCount(cfg MetricConfig) metricSapnetweaverSessionCount {
+func newMetricSapnetweaverSessionCount(cfg SapnetweaverSessionCountMetricConfig) metricSapnetweaverSessionCount {
 	m := metricSapnetweaverSessionCount{config: cfg}
 
 	if cfg.Enabled {
@@ -1701,9 +1935,9 @@ func newMetricSapnetweaverSessionCount(cfg MetricConfig) metricSapnetweaverSessi
 }
 
 type metricSapnetweaverSessionsBrowserCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                               // data buffer for generated metric.
+	config   SapnetweaverSessionsBrowserCountMetricConfig // metric config provided by user.
+	capacity int                                          // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.sessions.browser.count metric with initial data.
@@ -1742,7 +1976,7 @@ func (m *metricSapnetweaverSessionsBrowserCount) emit(metrics pmetric.MetricSlic
 	}
 }
 
-func newMetricSapnetweaverSessionsBrowserCount(cfg MetricConfig) metricSapnetweaverSessionsBrowserCount {
+func newMetricSapnetweaverSessionsBrowserCount(cfg SapnetweaverSessionsBrowserCountMetricConfig) metricSapnetweaverSessionsBrowserCount {
 	m := metricSapnetweaverSessionsBrowserCount{config: cfg}
 
 	if cfg.Enabled {
@@ -1753,9 +1987,9 @@ func newMetricSapnetweaverSessionsBrowserCount(cfg MetricConfig) metricSapnetwea
 }
 
 type metricSapnetweaverSessionsEjbCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                           // data buffer for generated metric.
+	config   SapnetweaverSessionsEjbCountMetricConfig // metric config provided by user.
+	capacity int                                      // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.sessions.ejb.count metric with initial data.
@@ -1794,7 +2028,7 @@ func (m *metricSapnetweaverSessionsEjbCount) emit(metrics pmetric.MetricSlice) {
 	}
 }
 
-func newMetricSapnetweaverSessionsEjbCount(cfg MetricConfig) metricSapnetweaverSessionsEjbCount {
+func newMetricSapnetweaverSessionsEjbCount(cfg SapnetweaverSessionsEjbCountMetricConfig) metricSapnetweaverSessionsEjbCount {
 	m := metricSapnetweaverSessionsEjbCount{config: cfg}
 
 	if cfg.Enabled {
@@ -1805,9 +2039,9 @@ func newMetricSapnetweaverSessionsEjbCount(cfg MetricConfig) metricSapnetweaverS
 }
 
 type metricSapnetweaverSessionsHTTPCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                            // data buffer for generated metric.
+	config   SapnetweaverSessionsHTTPCountMetricConfig // metric config provided by user.
+	capacity int                                       // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.sessions.http.count metric with initial data.
@@ -1846,7 +2080,7 @@ func (m *metricSapnetweaverSessionsHTTPCount) emit(metrics pmetric.MetricSlice) 
 	}
 }
 
-func newMetricSapnetweaverSessionsHTTPCount(cfg MetricConfig) metricSapnetweaverSessionsHTTPCount {
+func newMetricSapnetweaverSessionsHTTPCount(cfg SapnetweaverSessionsHTTPCountMetricConfig) metricSapnetweaverSessionsHTTPCount {
 	m := metricSapnetweaverSessionsHTTPCount{config: cfg}
 
 	if cfg.Enabled {
@@ -1857,9 +2091,9 @@ func newMetricSapnetweaverSessionsHTTPCount(cfg MetricConfig) metricSapnetweaver
 }
 
 type metricSapnetweaverSessionsSecurityCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                                // data buffer for generated metric.
+	config   SapnetweaverSessionsSecurityCountMetricConfig // metric config provided by user.
+	capacity int                                           // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.sessions.security.count metric with initial data.
@@ -1898,7 +2132,7 @@ func (m *metricSapnetweaverSessionsSecurityCount) emit(metrics pmetric.MetricSli
 	}
 }
 
-func newMetricSapnetweaverSessionsSecurityCount(cfg MetricConfig) metricSapnetweaverSessionsSecurityCount {
+func newMetricSapnetweaverSessionsSecurityCount(cfg SapnetweaverSessionsSecurityCountMetricConfig) metricSapnetweaverSessionsSecurityCount {
 	m := metricSapnetweaverSessionsSecurityCount{config: cfg}
 
 	if cfg.Enabled {
@@ -1909,9 +2143,9 @@ func newMetricSapnetweaverSessionsSecurityCount(cfg MetricConfig) metricSapnetwe
 }
 
 type metricSapnetweaverSessionsWebCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                           // data buffer for generated metric.
+	config   SapnetweaverSessionsWebCountMetricConfig // metric config provided by user.
+	capacity int                                      // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.sessions.web.count metric with initial data.
@@ -1950,7 +2184,7 @@ func (m *metricSapnetweaverSessionsWebCount) emit(metrics pmetric.MetricSlice) {
 	}
 }
 
-func newMetricSapnetweaverSessionsWebCount(cfg MetricConfig) metricSapnetweaverSessionsWebCount {
+func newMetricSapnetweaverSessionsWebCount(cfg SapnetweaverSessionsWebCountMetricConfig) metricSapnetweaverSessionsWebCount {
 	m := metricSapnetweaverSessionsWebCount{config: cfg}
 
 	if cfg.Enabled {
@@ -1961,9 +2195,9 @@ func newMetricSapnetweaverSessionsWebCount(cfg MetricConfig) metricSapnetweaverS
 }
 
 type metricSapnetweaverShortDumpsRate struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                         // data buffer for generated metric.
+	config   SapnetweaverShortDumpsRateMetricConfig // metric config provided by user.
+	capacity int                                    // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.short_dumps.rate metric with initial data.
@@ -2002,7 +2236,7 @@ func (m *metricSapnetweaverShortDumpsRate) emit(metrics pmetric.MetricSlice) {
 	}
 }
 
-func newMetricSapnetweaverShortDumpsRate(cfg MetricConfig) metricSapnetweaverShortDumpsRate {
+func newMetricSapnetweaverShortDumpsRate(cfg SapnetweaverShortDumpsRateMetricConfig) metricSapnetweaverShortDumpsRate {
 	m := metricSapnetweaverShortDumpsRate{config: cfg}
 
 	if cfg.Enabled {
@@ -2013,9 +2247,9 @@ func newMetricSapnetweaverShortDumpsRate(cfg MetricConfig) metricSapnetweaverSho
 }
 
 type metricSapnetweaverSpoolRequestErrorCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data     pmetric.Metric                                 // data buffer for generated metric.
+	config   SapnetweaverSpoolRequestErrorCountMetricConfig // metric config provided by user.
+	capacity int                                            // max observed number of data points added to the metric.
 }
 
 // init fills sapnetweaver.spool.request.error.count metric with initial data.
@@ -2054,7 +2288,7 @@ func (m *metricSapnetweaverSpoolRequestErrorCount) emit(metrics pmetric.MetricSl
 	}
 }
 
-func newMetricSapnetweaverSpoolRequestErrorCount(cfg MetricConfig) metricSapnetweaverSpoolRequestErrorCount {
+func newMetricSapnetweaverSpoolRequestErrorCount(cfg SapnetweaverSpoolRequestErrorCountMetricConfig) metricSapnetweaverSpoolRequestErrorCount {
 	m := metricSapnetweaverSpoolRequestErrorCount{config: cfg}
 
 	if cfg.Enabled {
@@ -2065,9 +2299,10 @@ func newMetricSapnetweaverSpoolRequestErrorCount(cfg MetricConfig) metricSapnetw
 }
 
 type metricSapnetweaverSystemInstanceAvailability struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data          pmetric.Metric                                     // data buffer for generated metric.
+	config        SapnetweaverSystemInstanceAvailabilityMetricConfig // metric config provided by user.
+	capacity      int                                                // max observed number of data points added to the metric.
+	aggDataPoints []int64                                            // slice containing number of aggregated datapoints at each index
 }
 
 // init fills sapnetweaver.system.instance_availability metric with initial data.
@@ -2079,20 +2314,57 @@ func (m *metricSapnetweaverSystemInstanceAvailability) init() {
 	m.data.Sum().SetIsMonotonic(false)
 	m.data.Sum().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 	m.data.Sum().DataPoints().EnsureCapacity(m.capacity)
+	m.aggDataPoints = m.aggDataPoints[:0]
 }
 
 func (m *metricSapnetweaverSystemInstanceAvailability) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val int64, hostnameAttributeValue string, instanceNumberAttributeValue int64, featureAttributeValue string, controlStateAttributeValue string) {
 	if !m.config.Enabled {
 		return
 	}
-	dp := m.data.Sum().DataPoints().AppendEmpty()
+
+	dp := pmetric.NewNumberDataPoint()
 	dp.SetStartTimestamp(start)
 	dp.SetTimestamp(ts)
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyHostname) {
+		dp.Attributes().PutStr("hostname", hostnameAttributeValue)
+	}
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyInstanceNumber) {
+		dp.Attributes().PutInt("instance_number", instanceNumberAttributeValue)
+	}
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyFeature) {
+		dp.Attributes().PutStr("feature", featureAttributeValue)
+	}
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyControlState) {
+		dp.Attributes().PutStr("state", controlStateAttributeValue)
+	}
+
+	var s string
+	dps := m.data.Sum().DataPoints()
+	for i := 0; i < dps.Len(); i++ {
+		dpi := dps.At(i)
+		if dp.Attributes().Equal(dpi.Attributes()) && dp.StartTimestamp() == dpi.StartTimestamp() && dp.Timestamp() == dpi.Timestamp() {
+			switch s = m.config.AggregationStrategy; s {
+			case AggregationStrategySum, AggregationStrategyAvg:
+				dpi.SetIntValue(dpi.IntValue() + val)
+				m.aggDataPoints[i] += 1
+				return
+			case AggregationStrategyMin:
+				if dpi.IntValue() > val {
+					dpi.SetIntValue(val)
+				}
+				return
+			case AggregationStrategyMax:
+				if dpi.IntValue() < val {
+					dpi.SetIntValue(val)
+				}
+				return
+			}
+		}
+	}
+
 	dp.SetIntValue(val)
-	dp.Attributes().PutStr("hostname", hostnameAttributeValue)
-	dp.Attributes().PutInt("instance_number", instanceNumberAttributeValue)
-	dp.Attributes().PutStr("feature", featureAttributeValue)
-	dp.Attributes().PutStr("state", controlStateAttributeValue)
+	m.aggDataPoints = append(m.aggDataPoints, 1)
+	dp.MoveTo(dps.AppendEmpty())
 }
 
 // updateCapacity saves max length of data point slices that will be used for the slice capacity.
@@ -2105,13 +2377,18 @@ func (m *metricSapnetweaverSystemInstanceAvailability) updateCapacity() {
 // emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
 func (m *metricSapnetweaverSystemInstanceAvailability) emit(metrics pmetric.MetricSlice) {
 	if m.config.Enabled && m.data.Sum().DataPoints().Len() > 0 {
+		if m.config.AggregationStrategy == AggregationStrategyAvg {
+			for i, aggCount := range m.aggDataPoints {
+				m.data.Sum().DataPoints().At(i).SetIntValue(m.data.Sum().DataPoints().At(i).IntValue() / aggCount)
+			}
+		}
 		m.updateCapacity()
 		m.data.MoveTo(metrics.AppendEmpty())
 		m.init()
 	}
 }
 
-func newMetricSapnetweaverSystemInstanceAvailability(cfg MetricConfig) metricSapnetweaverSystemInstanceAvailability {
+func newMetricSapnetweaverSystemInstanceAvailability(cfg SapnetweaverSystemInstanceAvailabilityMetricConfig) metricSapnetweaverSystemInstanceAvailability {
 	m := metricSapnetweaverSystemInstanceAvailability{config: cfg}
 
 	if cfg.Enabled {
@@ -2122,9 +2399,10 @@ func newMetricSapnetweaverSystemInstanceAvailability(cfg MetricConfig) metricSap
 }
 
 type metricSapnetweaverWorkProcessActiveCount struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data          pmetric.Metric                                 // data buffer for generated metric.
+	config        SapnetweaverWorkProcessActiveCountMetricConfig // metric config provided by user.
+	capacity      int                                            // max observed number of data points added to the metric.
+	aggDataPoints []int64                                        // slice containing number of aggregated datapoints at each index
 }
 
 // init fills sapnetweaver.work_process.active.count metric with initial data.
@@ -2136,19 +2414,54 @@ func (m *metricSapnetweaverWorkProcessActiveCount) init() {
 	m.data.Sum().SetIsMonotonic(false)
 	m.data.Sum().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 	m.data.Sum().DataPoints().EnsureCapacity(m.capacity)
+	m.aggDataPoints = m.aggDataPoints[:0]
 }
 
 func (m *metricSapnetweaverWorkProcessActiveCount) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val int64, instanceAttributeValue string, wpTypeAttributeValue string, wpStatusAttributeValue string) {
 	if !m.config.Enabled {
 		return
 	}
-	dp := m.data.Sum().DataPoints().AppendEmpty()
+
+	dp := pmetric.NewNumberDataPoint()
 	dp.SetStartTimestamp(start)
 	dp.SetTimestamp(ts)
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverWorkProcessActiveCountMetricAttributeKeyInstance) {
+		dp.Attributes().PutStr("instance", instanceAttributeValue)
+	}
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverWorkProcessActiveCountMetricAttributeKeyWpType) {
+		dp.Attributes().PutStr("wp_type", wpTypeAttributeValue)
+	}
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverWorkProcessActiveCountMetricAttributeKeyWpStatus) {
+		dp.Attributes().PutStr("wp_status", wpStatusAttributeValue)
+	}
+
+	var s string
+	dps := m.data.Sum().DataPoints()
+	for i := 0; i < dps.Len(); i++ {
+		dpi := dps.At(i)
+		if dp.Attributes().Equal(dpi.Attributes()) && dp.StartTimestamp() == dpi.StartTimestamp() && dp.Timestamp() == dpi.Timestamp() {
+			switch s = m.config.AggregationStrategy; s {
+			case AggregationStrategySum, AggregationStrategyAvg:
+				dpi.SetIntValue(dpi.IntValue() + val)
+				m.aggDataPoints[i] += 1
+				return
+			case AggregationStrategyMin:
+				if dpi.IntValue() > val {
+					dpi.SetIntValue(val)
+				}
+				return
+			case AggregationStrategyMax:
+				if dpi.IntValue() < val {
+					dpi.SetIntValue(val)
+				}
+				return
+			}
+		}
+	}
+
 	dp.SetIntValue(val)
-	dp.Attributes().PutStr("instance", instanceAttributeValue)
-	dp.Attributes().PutStr("wp_type", wpTypeAttributeValue)
-	dp.Attributes().PutStr("wp_status", wpStatusAttributeValue)
+	m.aggDataPoints = append(m.aggDataPoints, 1)
+	dp.MoveTo(dps.AppendEmpty())
 }
 
 // updateCapacity saves max length of data point slices that will be used for the slice capacity.
@@ -2161,13 +2474,18 @@ func (m *metricSapnetweaverWorkProcessActiveCount) updateCapacity() {
 // emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
 func (m *metricSapnetweaverWorkProcessActiveCount) emit(metrics pmetric.MetricSlice) {
 	if m.config.Enabled && m.data.Sum().DataPoints().Len() > 0 {
+		if m.config.AggregationStrategy == AggregationStrategyAvg {
+			for i, aggCount := range m.aggDataPoints {
+				m.data.Sum().DataPoints().At(i).SetIntValue(m.data.Sum().DataPoints().At(i).IntValue() / aggCount)
+			}
+		}
 		m.updateCapacity()
 		m.data.MoveTo(metrics.AppendEmpty())
 		m.init()
 	}
 }
 
-func newMetricSapnetweaverWorkProcessActiveCount(cfg MetricConfig) metricSapnetweaverWorkProcessActiveCount {
+func newMetricSapnetweaverWorkProcessActiveCount(cfg SapnetweaverWorkProcessActiveCountMetricConfig) metricSapnetweaverWorkProcessActiveCount {
 	m := metricSapnetweaverWorkProcessActiveCount{config: cfg}
 
 	if cfg.Enabled {
@@ -2178,9 +2496,10 @@ func newMetricSapnetweaverWorkProcessActiveCount(cfg MetricConfig) metricSapnetw
 }
 
 type metricSapnetweaverWorkProcessJobAbortedStatus struct {
-	data     pmetric.Metric // data buffer for generated metric.
-	config   MetricConfig   // metric config provided by user.
-	capacity int            // max observed number of data points added to the metric.
+	data          pmetric.Metric                                      // data buffer for generated metric.
+	config        SapnetweaverWorkProcessJobAbortedStatusMetricConfig // metric config provided by user.
+	capacity      int                                                 // max observed number of data points added to the metric.
+	aggDataPoints []int64                                             // slice containing number of aggregated datapoints at each index
 }
 
 // init fills sapnetweaver.work_process.job.aborted.status metric with initial data.
@@ -2192,17 +2511,48 @@ func (m *metricSapnetweaverWorkProcessJobAbortedStatus) init() {
 	m.data.Sum().SetIsMonotonic(false)
 	m.data.Sum().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 	m.data.Sum().DataPoints().EnsureCapacity(m.capacity)
+	m.aggDataPoints = m.aggDataPoints[:0]
 }
 
 func (m *metricSapnetweaverWorkProcessJobAbortedStatus) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val int64, controlStateAttributeValue string) {
 	if !m.config.Enabled {
 		return
 	}
-	dp := m.data.Sum().DataPoints().AppendEmpty()
+
+	dp := pmetric.NewNumberDataPoint()
 	dp.SetStartTimestamp(start)
 	dp.SetTimestamp(ts)
+	if slices.Contains(m.config.EnabledAttributes, SapnetweaverWorkProcessJobAbortedStatusMetricAttributeKeyControlState) {
+		dp.Attributes().PutStr("state", controlStateAttributeValue)
+	}
+
+	var s string
+	dps := m.data.Sum().DataPoints()
+	for i := 0; i < dps.Len(); i++ {
+		dpi := dps.At(i)
+		if dp.Attributes().Equal(dpi.Attributes()) && dp.StartTimestamp() == dpi.StartTimestamp() && dp.Timestamp() == dpi.Timestamp() {
+			switch s = m.config.AggregationStrategy; s {
+			case AggregationStrategySum, AggregationStrategyAvg:
+				dpi.SetIntValue(dpi.IntValue() + val)
+				m.aggDataPoints[i] += 1
+				return
+			case AggregationStrategyMin:
+				if dpi.IntValue() > val {
+					dpi.SetIntValue(val)
+				}
+				return
+			case AggregationStrategyMax:
+				if dpi.IntValue() < val {
+					dpi.SetIntValue(val)
+				}
+				return
+			}
+		}
+	}
+
 	dp.SetIntValue(val)
-	dp.Attributes().PutStr("state", controlStateAttributeValue)
+	m.aggDataPoints = append(m.aggDataPoints, 1)
+	dp.MoveTo(dps.AppendEmpty())
 }
 
 // updateCapacity saves max length of data point slices that will be used for the slice capacity.
@@ -2215,13 +2565,18 @@ func (m *metricSapnetweaverWorkProcessJobAbortedStatus) updateCapacity() {
 // emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
 func (m *metricSapnetweaverWorkProcessJobAbortedStatus) emit(metrics pmetric.MetricSlice) {
 	if m.config.Enabled && m.data.Sum().DataPoints().Len() > 0 {
+		if m.config.AggregationStrategy == AggregationStrategyAvg {
+			for i, aggCount := range m.aggDataPoints {
+				m.data.Sum().DataPoints().At(i).SetIntValue(m.data.Sum().DataPoints().At(i).IntValue() / aggCount)
+			}
+		}
 		m.updateCapacity()
 		m.data.MoveTo(metrics.AppendEmpty())
 		m.init()
 	}
 }
 
-func newMetricSapnetweaverWorkProcessJobAbortedStatus(cfg MetricConfig) metricSapnetweaverWorkProcessJobAbortedStatus {
+func newMetricSapnetweaverWorkProcessJobAbortedStatus(cfg SapnetweaverWorkProcessJobAbortedStatusMetricConfig) metricSapnetweaverWorkProcessJobAbortedStatus {
 	m := metricSapnetweaverWorkProcessJobAbortedStatus{config: cfg}
 
 	if cfg.Enabled {

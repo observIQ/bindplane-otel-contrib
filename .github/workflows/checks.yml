@@ -32,6 +32,7 @@ jobs:
     outputs:
       # if this file changed, run all checks. if the makefile changed, run all checks.
       go: ${{ steps.filter.outputs.go == 'true' || steps.filter.outputs.checks == 'true' || steps.filter.outputs.makefile == 'true'  }}
+      generate: ${{ steps.filter.outputs.generate == 'true' || steps.filter.outputs.checks == 'true' || steps.filter.outputs.makefile == 'true' }}
       scripts: ${{ steps.filter.outputs.scripts == 'true' || steps.filter.outputs.checks == 'true' || steps.filter.outputs.makefile == 'true' }}
       misspell: ${{ steps.filter.outputs.misspell == 'true' || steps.filter.outputs.checks == 'true' || steps.filter.outputs.makefile == 'true' }}
       gomod: ${{ steps.filter.outputs.gomod == 'true' || steps.filter.outputs.checks == 'true' || steps.filter.outputs.makefile == 'true' }}
@@ -53,6 +54,9 @@ jobs:
               - '**/*.go'
               - '**/go.mod'
               - '**/go.sum'
+            generate:
+              - '**/*.go'
+              - '**/metadata.yaml'
             scripts:
               - '**/*.sh'
             misspell:
@@ -232,6 +236,41 @@ jobs:
         run: make install-tools
       - name: Run Revive Linter
         run: make lint
+
+  check-generate:
+    if: needs.optimize_ci.outputs.skip != 'true' && github.actor != 'dependabot[bot]' && needs.detect-changes.outputs.generate == 'true'
+    runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    needs:
+      - optimize_ci
+      - setup-tools
+      - detect-changes
+    steps:
+      - name: Checkout Sources
+        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: "internal/tools/go.mod"
+          cache: false # Use Namespace caching instead
+      - name: Set up Go cache
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        with:
+          cache: go
+      - name: Cache Tools
+        id: tool-cache
+        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        with:
+          path: /home/runner/go/bin
+      - name: Install Tools
+        run: make install-tools
+      - name: Run Code Generation
+        run: make generate
+      - name: Check for Uncommitted Changes
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::Generated code is out of date. Run 'make generate' and commit the result."
+            exit 1
+          fi
 
   # Below checks don't need to run `make install-tools`
   check-mod-paths:

@@ -3,17 +3,29 @@
 package metadata
 
 import (
+	"fmt"
+
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/filter"
 )
 
-// MetricConfig provides common config for a particular metric.
-type MetricConfig struct {
+// SapnetweaverAbapUpdateStatusMetricAttributeKey specifies the key of an attribute for the sapnetweaver.abap.update.status metric.
+type SapnetweaverAbapUpdateStatusMetricAttributeKey string
+
+const (
+	SapnetweaverAbapUpdateStatusMetricAttributeKeyControlState SapnetweaverAbapUpdateStatusMetricAttributeKey = "state"
+)
+
+// SapnetweaverAbapUpdateStatusMetricConfig provides config for the sapnetweaver.abap.update.status metric.
+type SapnetweaverAbapUpdateStatusMetricConfig struct {
 	Enabled          bool `mapstructure:"enabled"`
 	enabledSetByUser bool
+
+	AggregationStrategy string                                           `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []SapnetweaverAbapUpdateStatusMetricAttributeKey `mapstructure:"attributes"`
 }
 
-func (ms *MetricConfig) Unmarshal(parser *confmap.Conf) error {
+func (ms *SapnetweaverAbapUpdateStatusMetricConfig) Unmarshal(parser *confmap.Conf) error {
 	if parser == nil {
 		return nil
 	}
@@ -27,163 +39,1170 @@ func (ms *MetricConfig) Unmarshal(parser *confmap.Conf) error {
 	return nil
 }
 
+func (ms *SapnetweaverAbapUpdateStatusMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case SapnetweaverAbapUpdateStatusMetricAttributeKeyControlState:
+		default:
+			return fmt.Errorf("metric sapnetweaver.abap.update.status doesn't have an attribute %v, valid attributes: [state]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
+// SapnetweaverCacheEvictionsMetricConfig provides config for the sapnetweaver.cache.evictions metric.
+type SapnetweaverCacheEvictionsMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverCacheEvictionsMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverCacheHitsMetricConfig provides config for the sapnetweaver.cache.hits metric.
+type SapnetweaverCacheHitsMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverCacheHitsMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverConnectionErrorCountMetricConfig provides config for the sapnetweaver.connection.error.count metric.
+type SapnetweaverConnectionErrorCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverConnectionErrorCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverCPUSystemUtilizationMetricConfig provides config for the sapnetweaver.cpu.system.utilization metric.
+type SapnetweaverCPUSystemUtilizationMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverCPUSystemUtilizationMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverCPUUtilizationMetricConfig provides config for the sapnetweaver.cpu.utilization metric.
+type SapnetweaverCPUUtilizationMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverCPUUtilizationMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverDatabaseDialogRequestTimeMetricConfig provides config for the sapnetweaver.database.dialog.request.time metric.
+type SapnetweaverDatabaseDialogRequestTimeMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverDatabaseDialogRequestTimeMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverHostMemoryVirtualOverheadMetricConfig provides config for the sapnetweaver.host.memory.virtual.overhead metric.
+type SapnetweaverHostMemoryVirtualOverheadMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverHostMemoryVirtualOverheadMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverHostMemoryVirtualSwapMetricConfig provides config for the sapnetweaver.host.memory.virtual.swap metric.
+type SapnetweaverHostMemoryVirtualSwapMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverHostMemoryVirtualSwapMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverHostSpoolListUtilizationMetricConfig provides config for the sapnetweaver.host.spool_list.utilization metric.
+type SapnetweaverHostSpoolListUtilizationMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverHostSpoolListUtilizationMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverLocksDequeueErrorsCountMetricConfig provides config for the sapnetweaver.locks.dequeue.errors.count metric.
+type SapnetweaverLocksDequeueErrorsCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverLocksDequeueErrorsCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverLocksEnqueueCurrentCountMetricConfig provides config for the sapnetweaver.locks.enqueue.current.count metric.
+type SapnetweaverLocksEnqueueCurrentCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverLocksEnqueueCurrentCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverLocksEnqueueErrorsCountMetricConfig provides config for the sapnetweaver.locks.enqueue.errors.count metric.
+type SapnetweaverLocksEnqueueErrorsCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverLocksEnqueueErrorsCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverLocksEnqueueHighCountMetricConfig provides config for the sapnetweaver.locks.enqueue.high.count metric.
+type SapnetweaverLocksEnqueueHighCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverLocksEnqueueHighCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverLocksEnqueueLockTimeMetricConfig provides config for the sapnetweaver.locks.enqueue.lock_time metric.
+type SapnetweaverLocksEnqueueLockTimeMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverLocksEnqueueLockTimeMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverLocksEnqueueLockWaitTimeMetricConfig provides config for the sapnetweaver.locks.enqueue.lock_wait_time metric.
+type SapnetweaverLocksEnqueueLockWaitTimeMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverLocksEnqueueLockWaitTimeMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverLocksEnqueueMaxCountMetricConfig provides config for the sapnetweaver.locks.enqueue.max.count metric.
+type SapnetweaverLocksEnqueueMaxCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverLocksEnqueueMaxCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverMemoryConfiguredMetricConfig provides config for the sapnetweaver.memory.configured metric.
+type SapnetweaverMemoryConfiguredMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverMemoryConfiguredMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverMemoryFreeMetricConfig provides config for the sapnetweaver.memory.free metric.
+type SapnetweaverMemoryFreeMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverMemoryFreeMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverMemorySwapSpaceUtilizationMetricConfig provides config for the sapnetweaver.memory.swap_space.utilization metric.
+type SapnetweaverMemorySwapSpaceUtilizationMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverMemorySwapSpaceUtilizationMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverProcessAvailabilityMetricAttributeKey specifies the key of an attribute for the sapnetweaver.process_availability metric.
+type SapnetweaverProcessAvailabilityMetricAttributeKey string
+
+const (
+	SapnetweaverProcessAvailabilityMetricAttributeKeyProcessName        SapnetweaverProcessAvailabilityMetricAttributeKey = "process_name"
+	SapnetweaverProcessAvailabilityMetricAttributeKeyProcessDescription SapnetweaverProcessAvailabilityMetricAttributeKey = "process_description"
+	SapnetweaverProcessAvailabilityMetricAttributeKeyControlState       SapnetweaverProcessAvailabilityMetricAttributeKey = "state"
+)
+
+// SapnetweaverProcessAvailabilityMetricConfig provides config for the sapnetweaver.process_availability metric.
+type SapnetweaverProcessAvailabilityMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                              `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []SapnetweaverProcessAvailabilityMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *SapnetweaverProcessAvailabilityMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *SapnetweaverProcessAvailabilityMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case SapnetweaverProcessAvailabilityMetricAttributeKeyProcessName, SapnetweaverProcessAvailabilityMetricAttributeKeyProcessDescription, SapnetweaverProcessAvailabilityMetricAttributeKeyControlState:
+		default:
+			return fmt.Errorf("metric sapnetweaver.process_availability doesn't have an attribute %v, valid attributes: [process_name, process_description, state]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
+// SapnetweaverQueueCountMetricAttributeKey specifies the key of an attribute for the sapnetweaver.queue.count metric.
+type SapnetweaverQueueCountMetricAttributeKey string
+
+const (
+	SapnetweaverQueueCountMetricAttributeKeyWpType SapnetweaverQueueCountMetricAttributeKey = "wp_type"
+)
+
+// SapnetweaverQueueCountMetricConfig provides config for the sapnetweaver.queue.count metric.
+type SapnetweaverQueueCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                     `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []SapnetweaverQueueCountMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *SapnetweaverQueueCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *SapnetweaverQueueCountMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case SapnetweaverQueueCountMetricAttributeKeyWpType:
+		default:
+			return fmt.Errorf("metric sapnetweaver.queue.count doesn't have an attribute %v, valid attributes: [wp_type]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
+// SapnetweaverQueueMaxCountMetricAttributeKey specifies the key of an attribute for the sapnetweaver.queue_max.count metric.
+type SapnetweaverQueueMaxCountMetricAttributeKey string
+
+const (
+	SapnetweaverQueueMaxCountMetricAttributeKeyWpType SapnetweaverQueueMaxCountMetricAttributeKey = "wp_type"
+)
+
+// SapnetweaverQueueMaxCountMetricConfig provides config for the sapnetweaver.queue_max.count metric.
+type SapnetweaverQueueMaxCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                        `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []SapnetweaverQueueMaxCountMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *SapnetweaverQueueMaxCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *SapnetweaverQueueMaxCountMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case SapnetweaverQueueMaxCountMetricAttributeKeyWpType:
+		default:
+			return fmt.Errorf("metric sapnetweaver.queue_max.count doesn't have an attribute %v, valid attributes: [wp_type]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
+// SapnetweaverQueuePeakCountMetricAttributeKey specifies the key of an attribute for the sapnetweaver.queue_peak.count metric.
+type SapnetweaverQueuePeakCountMetricAttributeKey string
+
+const (
+	SapnetweaverQueuePeakCountMetricAttributeKeyWpType SapnetweaverQueuePeakCountMetricAttributeKey = "wp_type"
+)
+
+// SapnetweaverQueuePeakCountMetricConfig provides config for the sapnetweaver.queue_peak.count metric.
+type SapnetweaverQueuePeakCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                         `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []SapnetweaverQueuePeakCountMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *SapnetweaverQueuePeakCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *SapnetweaverQueuePeakCountMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case SapnetweaverQueuePeakCountMetricAttributeKeyWpType:
+		default:
+			return fmt.Errorf("metric sapnetweaver.queue_peak.count doesn't have an attribute %v, valid attributes: [wp_type]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
+// SapnetweaverRequestCountMetricConfig provides config for the sapnetweaver.request.count metric.
+type SapnetweaverRequestCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverRequestCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverRequestTimeoutCountMetricConfig provides config for the sapnetweaver.request.timeout.count metric.
+type SapnetweaverRequestTimeoutCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverRequestTimeoutCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverResponseDurationMetricAttributeKey specifies the key of an attribute for the sapnetweaver.response.duration metric.
+type SapnetweaverResponseDurationMetricAttributeKey string
+
+const (
+	SapnetweaverResponseDurationMetricAttributeKeyResponseType SapnetweaverResponseDurationMetricAttributeKey = "response_type"
+)
+
+// SapnetweaverResponseDurationMetricConfig provides config for the sapnetweaver.response.duration metric.
+type SapnetweaverResponseDurationMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                           `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []SapnetweaverResponseDurationMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *SapnetweaverResponseDurationMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *SapnetweaverResponseDurationMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case SapnetweaverResponseDurationMetricAttributeKeyResponseType:
+		default:
+			return fmt.Errorf("metric sapnetweaver.response.duration doesn't have an attribute %v, valid attributes: [response_type]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
+// SapnetweaverSessionCountMetricConfig provides config for the sapnetweaver.session.count metric.
+type SapnetweaverSessionCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverSessionCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverSessionsBrowserCountMetricConfig provides config for the sapnetweaver.sessions.browser.count metric.
+type SapnetweaverSessionsBrowserCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverSessionsBrowserCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverSessionsEjbCountMetricConfig provides config for the sapnetweaver.sessions.ejb.count metric.
+type SapnetweaverSessionsEjbCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverSessionsEjbCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverSessionsHTTPCountMetricConfig provides config for the sapnetweaver.sessions.http.count metric.
+type SapnetweaverSessionsHTTPCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverSessionsHTTPCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverSessionsSecurityCountMetricConfig provides config for the sapnetweaver.sessions.security.count metric.
+type SapnetweaverSessionsSecurityCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverSessionsSecurityCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverSessionsWebCountMetricConfig provides config for the sapnetweaver.sessions.web.count metric.
+type SapnetweaverSessionsWebCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverSessionsWebCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverShortDumpsRateMetricConfig provides config for the sapnetweaver.short_dumps.rate metric.
+type SapnetweaverShortDumpsRateMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverShortDumpsRateMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverSpoolRequestErrorCountMetricConfig provides config for the sapnetweaver.spool.request.error.count metric.
+type SapnetweaverSpoolRequestErrorCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SapnetweaverSpoolRequestErrorCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+// SapnetweaverSystemInstanceAvailabilityMetricAttributeKey specifies the key of an attribute for the sapnetweaver.system.instance_availability metric.
+type SapnetweaverSystemInstanceAvailabilityMetricAttributeKey string
+
+const (
+	SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyHostname       SapnetweaverSystemInstanceAvailabilityMetricAttributeKey = "hostname"
+	SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyInstanceNumber SapnetweaverSystemInstanceAvailabilityMetricAttributeKey = "instance_number"
+	SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyFeature        SapnetweaverSystemInstanceAvailabilityMetricAttributeKey = "feature"
+	SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyControlState   SapnetweaverSystemInstanceAvailabilityMetricAttributeKey = "state"
+)
+
+// SapnetweaverSystemInstanceAvailabilityMetricConfig provides config for the sapnetweaver.system.instance_availability metric.
+type SapnetweaverSystemInstanceAvailabilityMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                                     `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []SapnetweaverSystemInstanceAvailabilityMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *SapnetweaverSystemInstanceAvailabilityMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *SapnetweaverSystemInstanceAvailabilityMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyHostname, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyInstanceNumber, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyFeature, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyControlState:
+		default:
+			return fmt.Errorf("metric sapnetweaver.system.instance_availability doesn't have an attribute %v, valid attributes: [hostname, instance_number, feature, state]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
+// SapnetweaverWorkProcessActiveCountMetricAttributeKey specifies the key of an attribute for the sapnetweaver.work_process.active.count metric.
+type SapnetweaverWorkProcessActiveCountMetricAttributeKey string
+
+const (
+	SapnetweaverWorkProcessActiveCountMetricAttributeKeyInstance SapnetweaverWorkProcessActiveCountMetricAttributeKey = "instance"
+	SapnetweaverWorkProcessActiveCountMetricAttributeKeyWpType   SapnetweaverWorkProcessActiveCountMetricAttributeKey = "wp_type"
+	SapnetweaverWorkProcessActiveCountMetricAttributeKeyWpStatus SapnetweaverWorkProcessActiveCountMetricAttributeKey = "wp_status"
+)
+
+// SapnetweaverWorkProcessActiveCountMetricConfig provides config for the sapnetweaver.work_process.active.count metric.
+type SapnetweaverWorkProcessActiveCountMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                                 `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []SapnetweaverWorkProcessActiveCountMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *SapnetweaverWorkProcessActiveCountMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *SapnetweaverWorkProcessActiveCountMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case SapnetweaverWorkProcessActiveCountMetricAttributeKeyInstance, SapnetweaverWorkProcessActiveCountMetricAttributeKeyWpType, SapnetweaverWorkProcessActiveCountMetricAttributeKeyWpStatus:
+		default:
+			return fmt.Errorf("metric sapnetweaver.work_process.active.count doesn't have an attribute %v, valid attributes: [instance, wp_type, wp_status]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
+// SapnetweaverWorkProcessJobAbortedStatusMetricAttributeKey specifies the key of an attribute for the sapnetweaver.work_process.job.aborted.status metric.
+type SapnetweaverWorkProcessJobAbortedStatusMetricAttributeKey string
+
+const (
+	SapnetweaverWorkProcessJobAbortedStatusMetricAttributeKeyControlState SapnetweaverWorkProcessJobAbortedStatusMetricAttributeKey = "state"
+)
+
+// SapnetweaverWorkProcessJobAbortedStatusMetricConfig provides config for the sapnetweaver.work_process.job.aborted.status metric.
+type SapnetweaverWorkProcessJobAbortedStatusMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                                      `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []SapnetweaverWorkProcessJobAbortedStatusMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *SapnetweaverWorkProcessJobAbortedStatusMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *SapnetweaverWorkProcessJobAbortedStatusMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case SapnetweaverWorkProcessJobAbortedStatusMetricAttributeKeyControlState:
+		default:
+			return fmt.Errorf("metric sapnetweaver.work_process.job.aborted.status doesn't have an attribute %v, valid attributes: [state]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
 // MetricsConfig provides config for sapnetweaver metrics.
 type MetricsConfig struct {
-	SapnetweaverAbapUpdateStatus            MetricConfig `mapstructure:"sapnetweaver.abap.update.status"`
-	SapnetweaverCacheEvictions              MetricConfig `mapstructure:"sapnetweaver.cache.evictions"`
-	SapnetweaverCacheHits                   MetricConfig `mapstructure:"sapnetweaver.cache.hits"`
-	SapnetweaverConnectionErrorCount        MetricConfig `mapstructure:"sapnetweaver.connection.error.count"`
-	SapnetweaverCPUSystemUtilization        MetricConfig `mapstructure:"sapnetweaver.cpu.system.utilization"`
-	SapnetweaverCPUUtilization              MetricConfig `mapstructure:"sapnetweaver.cpu.utilization"`
-	SapnetweaverDatabaseDialogRequestTime   MetricConfig `mapstructure:"sapnetweaver.database.dialog.request.time"`
-	SapnetweaverHostMemoryVirtualOverhead   MetricConfig `mapstructure:"sapnetweaver.host.memory.virtual.overhead"`
-	SapnetweaverHostMemoryVirtualSwap       MetricConfig `mapstructure:"sapnetweaver.host.memory.virtual.swap"`
-	SapnetweaverHostSpoolListUtilization    MetricConfig `mapstructure:"sapnetweaver.host.spool_list.utilization"`
-	SapnetweaverLocksDequeueErrorsCount     MetricConfig `mapstructure:"sapnetweaver.locks.dequeue.errors.count"`
-	SapnetweaverLocksEnqueueCurrentCount    MetricConfig `mapstructure:"sapnetweaver.locks.enqueue.current.count"`
-	SapnetweaverLocksEnqueueErrorsCount     MetricConfig `mapstructure:"sapnetweaver.locks.enqueue.errors.count"`
-	SapnetweaverLocksEnqueueHighCount       MetricConfig `mapstructure:"sapnetweaver.locks.enqueue.high.count"`
-	SapnetweaverLocksEnqueueLockTime        MetricConfig `mapstructure:"sapnetweaver.locks.enqueue.lock_time"`
-	SapnetweaverLocksEnqueueLockWaitTime    MetricConfig `mapstructure:"sapnetweaver.locks.enqueue.lock_wait_time"`
-	SapnetweaverLocksEnqueueMaxCount        MetricConfig `mapstructure:"sapnetweaver.locks.enqueue.max.count"`
-	SapnetweaverMemoryConfigured            MetricConfig `mapstructure:"sapnetweaver.memory.configured"`
-	SapnetweaverMemoryFree                  MetricConfig `mapstructure:"sapnetweaver.memory.free"`
-	SapnetweaverMemorySwapSpaceUtilization  MetricConfig `mapstructure:"sapnetweaver.memory.swap_space.utilization"`
-	SapnetweaverProcessAvailability         MetricConfig `mapstructure:"sapnetweaver.process_availability"`
-	SapnetweaverQueueCount                  MetricConfig `mapstructure:"sapnetweaver.queue.count"`
-	SapnetweaverQueueMaxCount               MetricConfig `mapstructure:"sapnetweaver.queue_max.count"`
-	SapnetweaverQueuePeakCount              MetricConfig `mapstructure:"sapnetweaver.queue_peak.count"`
-	SapnetweaverRequestCount                MetricConfig `mapstructure:"sapnetweaver.request.count"`
-	SapnetweaverRequestTimeoutCount         MetricConfig `mapstructure:"sapnetweaver.request.timeout.count"`
-	SapnetweaverResponseDuration            MetricConfig `mapstructure:"sapnetweaver.response.duration"`
-	SapnetweaverSessionCount                MetricConfig `mapstructure:"sapnetweaver.session.count"`
-	SapnetweaverSessionsBrowserCount        MetricConfig `mapstructure:"sapnetweaver.sessions.browser.count"`
-	SapnetweaverSessionsEjbCount            MetricConfig `mapstructure:"sapnetweaver.sessions.ejb.count"`
-	SapnetweaverSessionsHTTPCount           MetricConfig `mapstructure:"sapnetweaver.sessions.http.count"`
-	SapnetweaverSessionsSecurityCount       MetricConfig `mapstructure:"sapnetweaver.sessions.security.count"`
-	SapnetweaverSessionsWebCount            MetricConfig `mapstructure:"sapnetweaver.sessions.web.count"`
-	SapnetweaverShortDumpsRate              MetricConfig `mapstructure:"sapnetweaver.short_dumps.rate"`
-	SapnetweaverSpoolRequestErrorCount      MetricConfig `mapstructure:"sapnetweaver.spool.request.error.count"`
-	SapnetweaverSystemInstanceAvailability  MetricConfig `mapstructure:"sapnetweaver.system.instance_availability"`
-	SapnetweaverWorkProcessActiveCount      MetricConfig `mapstructure:"sapnetweaver.work_process.active.count"`
-	SapnetweaverWorkProcessJobAbortedStatus MetricConfig `mapstructure:"sapnetweaver.work_process.job.aborted.status"`
+	SapnetweaverAbapUpdateStatus            SapnetweaverAbapUpdateStatusMetricConfig            `mapstructure:"sapnetweaver.abap.update.status"`
+	SapnetweaverCacheEvictions              SapnetweaverCacheEvictionsMetricConfig              `mapstructure:"sapnetweaver.cache.evictions"`
+	SapnetweaverCacheHits                   SapnetweaverCacheHitsMetricConfig                   `mapstructure:"sapnetweaver.cache.hits"`
+	SapnetweaverConnectionErrorCount        SapnetweaverConnectionErrorCountMetricConfig        `mapstructure:"sapnetweaver.connection.error.count"`
+	SapnetweaverCPUSystemUtilization        SapnetweaverCPUSystemUtilizationMetricConfig        `mapstructure:"sapnetweaver.cpu.system.utilization"`
+	SapnetweaverCPUUtilization              SapnetweaverCPUUtilizationMetricConfig              `mapstructure:"sapnetweaver.cpu.utilization"`
+	SapnetweaverDatabaseDialogRequestTime   SapnetweaverDatabaseDialogRequestTimeMetricConfig   `mapstructure:"sapnetweaver.database.dialog.request.time"`
+	SapnetweaverHostMemoryVirtualOverhead   SapnetweaverHostMemoryVirtualOverheadMetricConfig   `mapstructure:"sapnetweaver.host.memory.virtual.overhead"`
+	SapnetweaverHostMemoryVirtualSwap       SapnetweaverHostMemoryVirtualSwapMetricConfig       `mapstructure:"sapnetweaver.host.memory.virtual.swap"`
+	SapnetweaverHostSpoolListUtilization    SapnetweaverHostSpoolListUtilizationMetricConfig    `mapstructure:"sapnetweaver.host.spool_list.utilization"`
+	SapnetweaverLocksDequeueErrorsCount     SapnetweaverLocksDequeueErrorsCountMetricConfig     `mapstructure:"sapnetweaver.locks.dequeue.errors.count"`
+	SapnetweaverLocksEnqueueCurrentCount    SapnetweaverLocksEnqueueCurrentCountMetricConfig    `mapstructure:"sapnetweaver.locks.enqueue.current.count"`
+	SapnetweaverLocksEnqueueErrorsCount     SapnetweaverLocksEnqueueErrorsCountMetricConfig     `mapstructure:"sapnetweaver.locks.enqueue.errors.count"`
+	SapnetweaverLocksEnqueueHighCount       SapnetweaverLocksEnqueueHighCountMetricConfig       `mapstructure:"sapnetweaver.locks.enqueue.high.count"`
+	SapnetweaverLocksEnqueueLockTime        SapnetweaverLocksEnqueueLockTimeMetricConfig        `mapstructure:"sapnetweaver.locks.enqueue.lock_time"`
+	SapnetweaverLocksEnqueueLockWaitTime    SapnetweaverLocksEnqueueLockWaitTimeMetricConfig    `mapstructure:"sapnetweaver.locks.enqueue.lock_wait_time"`
+	SapnetweaverLocksEnqueueMaxCount        SapnetweaverLocksEnqueueMaxCountMetricConfig        `mapstructure:"sapnetweaver.locks.enqueue.max.count"`
+	SapnetweaverMemoryConfigured            SapnetweaverMemoryConfiguredMetricConfig            `mapstructure:"sapnetweaver.memory.configured"`
+	SapnetweaverMemoryFree                  SapnetweaverMemoryFreeMetricConfig                  `mapstructure:"sapnetweaver.memory.free"`
+	SapnetweaverMemorySwapSpaceUtilization  SapnetweaverMemorySwapSpaceUtilizationMetricConfig  `mapstructure:"sapnetweaver.memory.swap_space.utilization"`
+	SapnetweaverProcessAvailability         SapnetweaverProcessAvailabilityMetricConfig         `mapstructure:"sapnetweaver.process_availability"`
+	SapnetweaverQueueCount                  SapnetweaverQueueCountMetricConfig                  `mapstructure:"sapnetweaver.queue.count"`
+	SapnetweaverQueueMaxCount               SapnetweaverQueueMaxCountMetricConfig               `mapstructure:"sapnetweaver.queue_max.count"`
+	SapnetweaverQueuePeakCount              SapnetweaverQueuePeakCountMetricConfig              `mapstructure:"sapnetweaver.queue_peak.count"`
+	SapnetweaverRequestCount                SapnetweaverRequestCountMetricConfig                `mapstructure:"sapnetweaver.request.count"`
+	SapnetweaverRequestTimeoutCount         SapnetweaverRequestTimeoutCountMetricConfig         `mapstructure:"sapnetweaver.request.timeout.count"`
+	SapnetweaverResponseDuration            SapnetweaverResponseDurationMetricConfig            `mapstructure:"sapnetweaver.response.duration"`
+	SapnetweaverSessionCount                SapnetweaverSessionCountMetricConfig                `mapstructure:"sapnetweaver.session.count"`
+	SapnetweaverSessionsBrowserCount        SapnetweaverSessionsBrowserCountMetricConfig        `mapstructure:"sapnetweaver.sessions.browser.count"`
+	SapnetweaverSessionsEjbCount            SapnetweaverSessionsEjbCountMetricConfig            `mapstructure:"sapnetweaver.sessions.ejb.count"`
+	SapnetweaverSessionsHTTPCount           SapnetweaverSessionsHTTPCountMetricConfig           `mapstructure:"sapnetweaver.sessions.http.count"`
+	SapnetweaverSessionsSecurityCount       SapnetweaverSessionsSecurityCountMetricConfig       `mapstructure:"sapnetweaver.sessions.security.count"`
+	SapnetweaverSessionsWebCount            SapnetweaverSessionsWebCountMetricConfig            `mapstructure:"sapnetweaver.sessions.web.count"`
+	SapnetweaverShortDumpsRate              SapnetweaverShortDumpsRateMetricConfig              `mapstructure:"sapnetweaver.short_dumps.rate"`
+	SapnetweaverSpoolRequestErrorCount      SapnetweaverSpoolRequestErrorCountMetricConfig      `mapstructure:"sapnetweaver.spool.request.error.count"`
+	SapnetweaverSystemInstanceAvailability  SapnetweaverSystemInstanceAvailabilityMetricConfig  `mapstructure:"sapnetweaver.system.instance_availability"`
+	SapnetweaverWorkProcessActiveCount      SapnetweaverWorkProcessActiveCountMetricConfig      `mapstructure:"sapnetweaver.work_process.active.count"`
+	SapnetweaverWorkProcessJobAbortedStatus SapnetweaverWorkProcessJobAbortedStatusMetricConfig `mapstructure:"sapnetweaver.work_process.job.aborted.status"`
 }
 
 func DefaultMetricsConfig() MetricsConfig {
 	return MetricsConfig{
-		SapnetweaverAbapUpdateStatus: MetricConfig{
+		SapnetweaverAbapUpdateStatus: SapnetweaverAbapUpdateStatusMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategySum,
+			EnabledAttributes:   []SapnetweaverAbapUpdateStatusMetricAttributeKey{SapnetweaverAbapUpdateStatusMetricAttributeKeyControlState},
+		},
+		SapnetweaverCacheEvictions: SapnetweaverCacheEvictionsMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverCacheEvictions: MetricConfig{
+		SapnetweaverCacheHits: SapnetweaverCacheHitsMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverCacheHits: MetricConfig{
+		SapnetweaverConnectionErrorCount: SapnetweaverConnectionErrorCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverConnectionErrorCount: MetricConfig{
+		SapnetweaverCPUSystemUtilization: SapnetweaverCPUSystemUtilizationMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverCPUSystemUtilization: MetricConfig{
+		SapnetweaverCPUUtilization: SapnetweaverCPUUtilizationMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverCPUUtilization: MetricConfig{
+		SapnetweaverDatabaseDialogRequestTime: SapnetweaverDatabaseDialogRequestTimeMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverDatabaseDialogRequestTime: MetricConfig{
+		SapnetweaverHostMemoryVirtualOverhead: SapnetweaverHostMemoryVirtualOverheadMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverHostMemoryVirtualOverhead: MetricConfig{
+		SapnetweaverHostMemoryVirtualSwap: SapnetweaverHostMemoryVirtualSwapMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverHostMemoryVirtualSwap: MetricConfig{
+		SapnetweaverHostSpoolListUtilization: SapnetweaverHostSpoolListUtilizationMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverHostSpoolListUtilization: MetricConfig{
+		SapnetweaverLocksDequeueErrorsCount: SapnetweaverLocksDequeueErrorsCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverLocksDequeueErrorsCount: MetricConfig{
+		SapnetweaverLocksEnqueueCurrentCount: SapnetweaverLocksEnqueueCurrentCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverLocksEnqueueCurrentCount: MetricConfig{
+		SapnetweaverLocksEnqueueErrorsCount: SapnetweaverLocksEnqueueErrorsCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverLocksEnqueueErrorsCount: MetricConfig{
+		SapnetweaverLocksEnqueueHighCount: SapnetweaverLocksEnqueueHighCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverLocksEnqueueHighCount: MetricConfig{
+		SapnetweaverLocksEnqueueLockTime: SapnetweaverLocksEnqueueLockTimeMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverLocksEnqueueLockTime: MetricConfig{
+		SapnetweaverLocksEnqueueLockWaitTime: SapnetweaverLocksEnqueueLockWaitTimeMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverLocksEnqueueLockWaitTime: MetricConfig{
+		SapnetweaverLocksEnqueueMaxCount: SapnetweaverLocksEnqueueMaxCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverLocksEnqueueMaxCount: MetricConfig{
+		SapnetweaverMemoryConfigured: SapnetweaverMemoryConfiguredMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverMemoryConfigured: MetricConfig{
+		SapnetweaverMemoryFree: SapnetweaverMemoryFreeMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverMemoryFree: MetricConfig{
+		SapnetweaverMemorySwapSpaceUtilization: SapnetweaverMemorySwapSpaceUtilizationMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverMemorySwapSpaceUtilization: MetricConfig{
+		SapnetweaverProcessAvailability: SapnetweaverProcessAvailabilityMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategySum,
+			EnabledAttributes:   []SapnetweaverProcessAvailabilityMetricAttributeKey{SapnetweaverProcessAvailabilityMetricAttributeKeyProcessName, SapnetweaverProcessAvailabilityMetricAttributeKeyProcessDescription, SapnetweaverProcessAvailabilityMetricAttributeKeyControlState},
+		},
+		SapnetweaverQueueCount: SapnetweaverQueueCountMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategySum,
+			EnabledAttributes:   []SapnetweaverQueueCountMetricAttributeKey{SapnetweaverQueueCountMetricAttributeKeyWpType},
+		},
+		SapnetweaverQueueMaxCount: SapnetweaverQueueMaxCountMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategySum,
+			EnabledAttributes:   []SapnetweaverQueueMaxCountMetricAttributeKey{SapnetweaverQueueMaxCountMetricAttributeKeyWpType},
+		},
+		SapnetweaverQueuePeakCount: SapnetweaverQueuePeakCountMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategySum,
+			EnabledAttributes:   []SapnetweaverQueuePeakCountMetricAttributeKey{SapnetweaverQueuePeakCountMetricAttributeKeyWpType},
+		},
+		SapnetweaverRequestCount: SapnetweaverRequestCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverProcessAvailability: MetricConfig{
+		SapnetweaverRequestTimeoutCount: SapnetweaverRequestTimeoutCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverQueueCount: MetricConfig{
+		SapnetweaverResponseDuration: SapnetweaverResponseDurationMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategySum,
+			EnabledAttributes:   []SapnetweaverResponseDurationMetricAttributeKey{SapnetweaverResponseDurationMetricAttributeKeyResponseType},
+		},
+		SapnetweaverSessionCount: SapnetweaverSessionCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverQueueMaxCount: MetricConfig{
+		SapnetweaverSessionsBrowserCount: SapnetweaverSessionsBrowserCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverQueuePeakCount: MetricConfig{
+		SapnetweaverSessionsEjbCount: SapnetweaverSessionsEjbCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverRequestCount: MetricConfig{
+		SapnetweaverSessionsHTTPCount: SapnetweaverSessionsHTTPCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverRequestTimeoutCount: MetricConfig{
+		SapnetweaverSessionsSecurityCount: SapnetweaverSessionsSecurityCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverResponseDuration: MetricConfig{
+		SapnetweaverSessionsWebCount: SapnetweaverSessionsWebCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverSessionCount: MetricConfig{
+		SapnetweaverShortDumpsRate: SapnetweaverShortDumpsRateMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverSessionsBrowserCount: MetricConfig{
+		SapnetweaverSpoolRequestErrorCount: SapnetweaverSpoolRequestErrorCountMetricConfig{
 			Enabled: true,
 		},
-		SapnetweaverSessionsEjbCount: MetricConfig{
-			Enabled: true,
+		SapnetweaverSystemInstanceAvailability: SapnetweaverSystemInstanceAvailabilityMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategySum,
+			EnabledAttributes:   []SapnetweaverSystemInstanceAvailabilityMetricAttributeKey{SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyHostname, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyInstanceNumber, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyFeature, SapnetweaverSystemInstanceAvailabilityMetricAttributeKeyControlState},
 		},
-		SapnetweaverSessionsHTTPCount: MetricConfig{
-			Enabled: true,
+		SapnetweaverWorkProcessActiveCount: SapnetweaverWorkProcessActiveCountMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategySum,
+			EnabledAttributes:   []SapnetweaverWorkProcessActiveCountMetricAttributeKey{SapnetweaverWorkProcessActiveCountMetricAttributeKeyInstance, SapnetweaverWorkProcessActiveCountMetricAttributeKeyWpType, SapnetweaverWorkProcessActiveCountMetricAttributeKeyWpStatus},
 		},
-		SapnetweaverSessionsSecurityCount: MetricConfig{
-			Enabled: true,
-		},
-		SapnetweaverSessionsWebCount: MetricConfig{
-			Enabled: true,
-		},
-		SapnetweaverShortDumpsRate: MetricConfig{
-			Enabled: true,
-		},
-		SapnetweaverSpoolRequestErrorCount: MetricConfig{
-			Enabled: true,
-		},
-		SapnetweaverSystemInstanceAvailability: MetricConfig{
-			Enabled: true,
-		},
-		SapnetweaverWorkProcessActiveCount: MetricConfig{
-			Enabled: true,
-		},
-		SapnetweaverWorkProcessJobAbortedStatus: MetricConfig{
-			Enabled: true,
+		SapnetweaverWorkProcessJobAbortedStatus: SapnetweaverWorkProcessJobAbortedStatusMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategySum,
+			EnabledAttributes:   []SapnetweaverWorkProcessJobAbortedStatusMetricAttributeKey{SapnetweaverWorkProcessJobAbortedStatusMetricAttributeKeyControlState},
 		},
 	}
 }
@@ -241,9 +1260,14 @@ type MetricsBuilderConfig struct {
 	ResourceAttributes ResourceAttributesConfig `mapstructure:"resource_attributes"`
 }
 
-func DefaultMetricsBuilderConfig() MetricsBuilderConfig {
+func NewDefaultMetricsBuilderConfig() MetricsBuilderConfig {
 	return MetricsBuilderConfig{
 		Metrics:            DefaultMetricsConfig(),
 		ResourceAttributes: DefaultResourceAttributesConfig(),
 	}
+}
+
+// Deprecated: Use NewDefaultMetricsBuilderConfig.
+func DefaultMetricsBuilderConfig() MetricsBuilderConfig {
+	return NewDefaultMetricsBuilderConfig()
 }

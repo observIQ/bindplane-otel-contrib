@@ -8,7 +8,7 @@ The following telemetry is emitted by this component.
 
 ### otelcol_exporter_payload_size
 
-The size of the marshaled and optionally compressed payload in bytes. [Alpha]
+The size of the marshaled and optionally compressed payload in bytes.
 
 | Unit | Metric Type | Value Type | Stability |
 | ---- | ----------- | ---------- | --------- |
@@ -16,14 +16,14 @@ The size of the marshaled and optionally compressed payload in bytes. [Alpha]
 
 #### Attributes
 
-| Name | Description | Values |
-| ---- | ----------- | ------ |
-| encoding | The encoding applied to the payload (e.g. json, json/gzip). | Any Str |
-| bucket | The name of the GCS bucket. | Any Str |
+| Name | Description | Values | Semantic Convention |
+| ---- | ----------- | ------ | ------------------- |
+| encoding | The encoding applied to the payload (e.g. json, json/gzip). | Any Str | - |
+| bucket | The name of the GCS bucket. | Any Str | - |
 
 ### otelcol_exporter_request_duration
 
-The duration of the GCS upload request in milliseconds. [Alpha]
+The duration of the GCS upload request in milliseconds.
 
 | Unit | Metric Type | Value Type | Stability |
 | ---- | ----------- | ---------- | --------- |
@@ -31,15 +31,15 @@ The duration of the GCS upload request in milliseconds. [Alpha]
 
 #### Attributes
 
-| Name | Description | Values |
-| ---- | ----------- | ------ |
-| error | The error classification for the request. | Str: ``none``, ``timeout``, ``unknown`` |
-| bucket | The name of the GCS bucket. | Any Str |
-| location | The GCS bucket location. | Any Str |
+| Name | Description | Values | Semantic Convention |
+| ---- | ----------- | ------ | ------------------- |
+| error | The error classification for the request. | Str: ``none``, ``timeout``, ``unknown`` | - |
+| bucket | The name of the GCS bucket. | Any Str | - |
+| location | The GCS bucket location. | Any Str | - |
 
 ### otelcol_exporter_timeout_total
 
-The number of upload requests that resulted in a timeout. [Alpha]
+The number of upload requests that resulted in a timeout.
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
@@ -47,13 +47,13 @@ The number of upload requests that resulted in a timeout. [Alpha]
 
 #### Attributes
 
-| Name | Description | Values |
-| ---- | ----------- | ------ |
-| bucket | The name of the GCS bucket. | Any Str |
+| Name | Description | Values | Semantic Convention |
+| ---- | ----------- | ------ | ------------------- |
+| bucket | The name of the GCS bucket. | Any Str | - |
 
 ### otelcol_exporter_upload_bytes_total
 
-The cumulative number of bytes uploaded to GCS. [Alpha]
+The cumulative number of bytes uploaded to GCS.
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
@@ -61,13 +61,13 @@ The cumulative number of bytes uploaded to GCS. [Alpha]
 
 #### Attributes
 
-| Name | Description | Values |
-| ---- | ----------- | ------ |
-| bucket | The name of the GCS bucket. | Any Str |
+| Name | Description | Values | Semantic Convention |
+| ---- | ----------- | ------ | ------------------- |
+| bucket | The name of the GCS bucket. | Any Str | - |
 
 ### otelcol_exporter_upload_inflight
 
-The number of uploads currently in flight. [Alpha]
+The number of uploads currently in flight.
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
@@ -75,6 +75,6 @@ The number of uploads currently in flight. [Alpha]
 
 #### Attributes
 
-| Name | Description | Values |
-| ---- | ----------- | ------ |
-| bucket | The name of the GCS bucket. | Any Str |
+| Name | Description | Values | Semantic Convention |
+| ---- | ----------- | ------ | ------------------- |
+| bucket | The name of the GCS bucket. | Any Str | - |

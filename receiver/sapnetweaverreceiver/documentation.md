@@ -24,9 +24,9 @@ Collected from SAPControl Web Service Interface > GetAlertTree > R3Services > Up
 
 #### Attributes
 
-| Name | Description | Values | Requirement Level |
-| ---- | ----------- | ------ | -------- |
-| state | The control state color. | Str: ``gray``, ``green``, ``yellow``, ``red`` | Recommended |
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| state | The control state color. | Str: ``gray``, ``green``, ``yellow``, ``red`` | Recommended | - |
 
 ### sapnetweaver.cache.evictions
 
@@ -230,11 +230,11 @@ Collected from SAPControl Web Service Interface > GetProcessList.
 
 #### Attributes
 
-| Name | Description | Values | Requirement Level |
-| ---- | ----------- | ------ | -------- |
-| process_name | The name value from GetProcessList. | Any Str | Recommended |
-| process_description | The description value from GetProcessList. | Any Str | Recommended |
-| state | The control state color. | Str: ``gray``, ``green``, ``yellow``, ``red`` | Recommended |
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| process_name | The name value from GetProcessList. | Any Str | Recommended | - |
+| process_description | The description value from GetProcessList. | Any Str | Recommended | - |
+| state | The control state color. | Str: ``gray``, ``green``, ``yellow``, ``red`` | Recommended | - |
 
 ### sapnetweaver.queue.count
 
@@ -248,9 +248,9 @@ Collected from SAPControl Web Service Interface > GetQueueStatistic.
 
 #### Attributes
 
-| Name | Description | Values | Requirement Level |
-| ---- | ----------- | ------ | -------- |
-| wp_type | The work processor type. | Any Str | Recommended |
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| wp_type | The work processor type. | Any Str | Recommended | - |
 
 ### sapnetweaver.queue_max.count
 
@@ -264,9 +264,9 @@ Collected from SAPControl Web Service Interface > GetQueueStatistic.
 
 #### Attributes
 
-| Name | Description | Values | Requirement Level |
-| ---- | ----------- | ------ | -------- |
-| wp_type | The work processor type. | Any Str | Recommended |
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| wp_type | The work processor type. | Any Str | Recommended | - |
 
 ### sapnetweaver.queue_peak.count
 
@@ -280,9 +280,9 @@ Collected from SAPControl Web Service Interface > GetQueueStatistic.
 
 #### Attributes
 
-| Name | Description | Values | Requirement Level |
-| ---- | ----------- | ------ | -------- |
-| wp_type | The work processor type. | Any Str | Recommended |
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| wp_type | The work processor type. | Any Str | Recommended | - |
 
 ### sapnetweaver.request.count
 
@@ -314,9 +314,9 @@ The response time duration.
 
 #### Attributes
 
-| Name | Description | Values | Requirement Level |
-| ---- | ----------- | ------ | -------- |
-| response_type | The response type. | Str: ``transaction``, ``dialog``, ``dialogRFC``, ``http`` | Recommended |
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| response_type | The response type. | Str: ``transaction``, ``dialog``, ``dialogRFC``, ``http`` | Recommended | - |
 
 ### sapnetweaver.session.count
 
@@ -410,12 +410,12 @@ Collected from SAPControl Web Service Interface > GetSystemInstanceList.
 
 #### Attributes
 
-| Name | Description | Values | Requirement Level |
-| ---- | ----------- | ------ | -------- |
-| hostname | The SAP hostname. | Any Str | Recommended |
-| instance_number | The instance number | Any Int | Recommended |
-| feature | The service availability. | Any Str | Recommended |
-| state | The control state color. | Str: ``gray``, ``green``, ``yellow``, ``red`` | Recommended |
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| hostname | The SAP hostname. | Any Str | Recommended | - |
+| instance_number | The instance number | Any Int | Recommended | - |
+| feature | The service availability. | Any Str | Recommended | - |
+| state | The control state color. | Str: ``gray``, ``green``, ``yellow``, ``red`` | Recommended | - |
 
 ### sapnetweaver.work_process.active.count
 
@@ -429,11 +429,11 @@ Collected from SAPControl Web Service Interface > ABAPGetSystemWPTable.
 
 #### Attributes
 
-| Name | Description | Values | Requirement Level |
-| ---- | ----------- | ------ | -------- |
-| instance | The SAP instance name. | Any Str | Recommended |
-| wp_type | The work processor type. | Any Str | Recommended |
-| wp_status | The work processor status. | Any Str | Recommended |
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| instance | The SAP instance name. | Any Str | Recommended | - |
+| wp_type | The work processor type. | Any Str | Recommended | - |
+| wp_status | The work processor status. | Any Str | Recommended | - |
 
 ### sapnetweaver.work_process.job.aborted.status
 
@@ -447,14 +447,14 @@ Collected from SAPControl Web Service Interface > GetAlertTree > R3Services > Ba
 
 #### Attributes
 
-| Name | Description | Values | Requirement Level |
-| ---- | ----------- | ------ | -------- |
-| state | The control state color. | Str: ``gray``, ``green``, ``yellow``, ``red`` | Recommended |
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| state | The control state color. | Str: ``gray``, ``green``, ``yellow``, ``red`` | Recommended | - |
 
 ## Resource Attributes
 
-| Name | Description | Values | Enabled |
-| ---- | ----------- | ------ | ------- |
-| sapnetweaver.SID | The SAP Netweaver SID. | Any Str | true |
-| sapnetweaver.instance | The SAP Netweaver instance. | Any Str | true |
-| sapnetweaver.node | The SAP Netweaver node. | Any Str | true |
+| Name | Description | Values | Enabled | Semantic Convention |
+| ---- | ----------- | ------ | ------- | ------------------- |
+| sapnetweaver.SID | The SAP Netweaver SID. | Any Str | true | - |
+| sapnetweaver.instance | The SAP Netweaver instance. | Any Str | true | - |
+| sapnetweaver.node | The SAP Netweaver node. | Any Str | true | - |
