@@ -9,5 +9,6 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	setupTestEnvironment()
 	goleak.VerifyTestMain(m)
 }

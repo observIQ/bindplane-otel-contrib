@@ -9,6 +9,11 @@ tests:
   config:
     project_id: "test-project"
     subscription_id: "test-subscription"
+  goleak:
+    # Point the GCP client libraries at fake credentials so the generated
+    # lifecycle test can construct the (lazy) Pub/Sub and GCS clients without
+    # real ADC. See setupTestEnvironment in setup_test.go.
+    setup: setupTestEnvironment()
 
 resource_attributes:
   gcs.bucket:
