@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.17
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.101.0
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.42.27
-	github.com/aws/smithy-go v1.25.1
+	github.com/aws/smithy-go v1.26.0
 	github.com/google/go-cmp v0.7.0
 	github.com/linkedin/goavro/v2 v2.15.0
 	github.com/observiq/bindplane-otel-contrib/internal/aws v1.7.0
