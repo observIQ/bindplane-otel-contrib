@@ -210,10 +210,11 @@ func TestValidateBlitz_ParseBody(t *testing.T) {
 }
 
 func TestValidateBlitz_AttributesAndResourceAttributes(t *testing.T) {
-	// Receiver-config Attributes and ResourceAttributes go through
+	// Receiver-config Attributes and ResourceAttributes are parsed
+	// with per-key locking semantics (simple scalars + structured `{value, lock}`
+	// forms), then the effective base values go through
 	// pcommon.NewMap().FromRaw() to validate they're representable as
-	// pcommon.Map. Invalid raw shapes (e.g., a map with a chan value)
-	// should be rejected; valid raw shapes pass through.
+	// pcommon.Map.
 	cfg := &GeneratorConfig{
 		Type:               generatorTypeBlitz,
 		ResourceAttributes: map[string]any{"service.name": "blitz-test"},
@@ -221,6 +222,77 @@ func TestValidateBlitz_AttributesAndResourceAttributes(t *testing.T) {
 		AdditionalConfig:   map[string]any{"recipe": "apache"},
 	}
 	assert.NoError(t, validateBlitzGeneratorConfig(cfg))
+}
+
+func TestValidateBlitz_LockableAttrShapes(t *testing.T) {
+	cases := []struct {
+		name      string
+		resource  map[string]any
+		attrs     map[string]any
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name: "structured locked resource attr",
+			resource: map[string]any{
+				"host.name": map[string]any{"value": "pinned", "lock": true},
+			},
+			wantErr: false,
+		},
+		{
+			name: "structured form mixed with simple form",
+			resource: map[string]any{
+				"host.name": map[string]any{"value": "pinned", "lock": true},
+				"os.type":   "linux",
+			},
+			attrs: map[string]any{
+				"service.team": map[string]any{"value": "ops", "lock": true},
+				"run.id":       "r1",
+			},
+			wantErr: false,
+		},
+		{
+			name: "map without value sub-key rejected",
+			resource: map[string]any{
+				"host.name": map[string]any{"locked": true},
+			},
+			wantErr:   true,
+			errSubstr: "resource_attributes.host.name",
+		},
+		{
+			name: "unknown sub-key rejected",
+			attrs: map[string]any{
+				"a": map[string]any{"value": "v", "sticky": true},
+			},
+			wantErr:   true,
+			errSubstr: `unknown sub-key "sticky"`,
+		},
+		{
+			name: "non-boolean lock rejected",
+			attrs: map[string]any{
+				"a": map[string]any{"value": "v", "lock": "yes"},
+			},
+			wantErr:   true,
+			errSubstr: "must be a boolean",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &GeneratorConfig{
+				Type:               generatorTypeBlitz,
+				ResourceAttributes: tc.resource,
+				Attributes:         tc.attrs,
+				AdditionalConfig:   map[string]any{"recipe": "apache"},
+			}
+			err := validateBlitzGeneratorConfig(cfg)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errSubstr)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
 }
 
 func TestParseRecipeParams_AcceptsRecipeDefaults(t *testing.T) {

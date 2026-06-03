@@ -27,6 +27,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.uber.org/zap"
 
+	"github.com/observiq/bindplane-otel-contrib/receiver/telemetrygeneratorreceiver/internal/blitzpdata"
 	"github.com/observiq/bindplane-otel-contrib/receiver/telemetrygeneratorreceiver/internal/recipes"
 )
 
@@ -70,10 +71,23 @@ func assertEmbeddedLibraryAvailable(lib fs.FS) error {
 // (collector startup still fails with a clear message) and avoids the
 // duplication.
 func validateBlitzGeneratorConfig(g *GeneratorConfig) error {
-	if err := pcommon.NewMap().FromRaw(g.Attributes); err != nil {
+	// Blitz entries interpret resource_attributes / attributes with per-key locking
+	// per-key locking semantics: each key is either a simple scalar
+	// (unlocked) or a structured `{value: ..., lock: bool}` map. Parse
+	// to validate the shape, then check the effective base values
+	// are pcommon-representable.
+	attrsCfg, err := blitzpdata.ParseLockableAttrs(g.Attributes, "attributes")
+	if err != nil {
+		return err
+	}
+	if err := pcommon.NewMap().FromRaw(attrsCfg.Base); err != nil {
 		return fmt.Errorf("error in attributes config: %s", err)
 	}
-	if err := pcommon.NewMap().FromRaw(g.ResourceAttributes); err != nil {
+	resourceCfg, err := blitzpdata.ParseLockableAttrs(g.ResourceAttributes, "resource_attributes")
+	if err != nil {
+		return err
+	}
+	if err := pcommon.NewMap().FromRaw(resourceCfg.Base); err != nil {
 		return fmt.Errorf("error in resource_attributes config: %s", err)
 	}
 

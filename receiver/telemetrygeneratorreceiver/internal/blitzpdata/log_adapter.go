@@ -40,68 +40,109 @@ const scopeName = "github.com/observiq/bindplane-otel-contrib/receiver/telemetry
 // a fresh plog.Logs from the batch and pushes it to the receiver's
 // downstream consumer.
 //
-// The adapter is constructed once per receiver Start cycle. Resource
-// and per-record attribute maps are drawn from receiver config at
-// construction time and remain stable for the session; the v0.16.1
-// embed.LogRecord contract has no per-record attributes or resource
-// of its own (PIPE-1021 will lift this), so receiver config is the
-// sole source today.
+// The adapter holds per-receiver-entry LockableAttrs maps for the resource
+// and per-record attributes. At ConsumeLogs time, blitz's per-record
+// `Metadata.Resource` and `Metadata.Attributes` (PIPE-1021, available
+// in blitz v0.18.0+) merge over the configured base maps with locked keys
+// preserved from the receiver-config side. Records whose merged
+// resource maps fingerprint differently are emitted under separate
+// `ResourceLogs` (resource grouping); records that share a
+// fingerprint share a single `ResourceLogs`.
 type LogAdapter struct {
-	consumer      consumer.Logs
-	resourceAttrs map[string]any
-	attrs         map[string]any
-	parseBody     bool
-	logger        *zap.Logger
+	consumer  consumer.Logs
+	resource  LockableAttrs
+	attrs     LockableAttrs
+	parseBody bool
+	logger    *zap.Logger
 }
 
 // NewLogAdapter constructs an adapter that emits to the given consumer.
 //
-// resourceAttrs is written onto every outgoing plog.ResourceLogs.
-// attrs is written onto every outgoing log record. Either map may be
-// nil; nil means "no attributes of that kind on the output."
+// resource and attrs are parsed per-key-lockable config maps (see LockableAttrs). Either
+// may be a zero-value LockableAttrs; an empty config contributes no base
+// values and locks no keys — blitz's per-record metadata flows through
+// unmodified.
 //
 // parseBody controls whether the adapter calls LogRecord.ParseFunc
 // (when set) to build a structured map body. The default for the
 // receiver is false — emit the raw Message string as the body and let
 // downstream processors parse if needed. parseBody=true opts into the
-// structured-map path with raw-string fallback on parser error or
-// empty result.
+// structured-map path with raw-string fallback on parser error, panic,
+// or empty result.
 //
 // logger is used for in-band warnings (failed attribute conversion,
 // ParseFunc errors). A nil logger yields a no-op logger.
-func NewLogAdapter(c consumer.Logs, resourceAttrs, attrs map[string]any, parseBody bool, logger *zap.Logger) *LogAdapter {
+func NewLogAdapter(c consumer.Logs, resource, attrs LockableAttrs, parseBody bool, logger *zap.Logger) *LogAdapter {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &LogAdapter{
-		consumer:      c,
-		resourceAttrs: resourceAttrs,
-		attrs:         attrs,
-		parseBody:     parseBody,
-		logger:        logger,
+		consumer:  c,
+		resource:  resource,
+		attrs:     attrs,
+		parseBody: parseBody,
+		logger:    logger,
 	}
 }
 
-// ConsumeLogs satisfies embed.LogConsumer. Each record in the batch
-// becomes one plog log record under a single shared resource + scope.
+// ConsumeLogs satisfies embed.LogConsumer.
 //
-// An empty batch is a no-op (returns nil without invoking the
-// downstream consumer); blitz framework allows producers to coalesce,
-// and the receiver should not push empty payloads downstream.
+// For each record in the batch:
+//  1. Compute the effective resource by merging blitz's per-record
+//     `Metadata.Resource` over the adapter's `resource` base
+//     (locked keys from the base are not overridden).
+//  2. Group records by the fingerprint of their effective resource —
+//     records sharing a fingerprint go under a single `ResourceLogs`
+//     with one `ScopeLogs`; records with distinct fingerprints get
+//     their own `ResourceLogs`.
+//  3. For each record, merge blitz's per-record `Metadata.Attributes`
+//     over the adapter's `attrs` base (same locking semantics) and
+//     write the result onto the outgoing `LogRecord.Attributes`.
+//
+// Empty batches are no-ops (return nil without invoking the downstream
+// consumer) — blitz allows producers to coalesce and the receiver
+// should not push empty payloads downstream.
 func (a *LogAdapter) ConsumeLogs(ctx context.Context, records []embed.LogRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
-	logs := plog.NewLogs()
-	rl := logs.ResourceLogs().AppendEmpty()
-	if err := rl.Resource().Attributes().FromRaw(a.resourceAttrs); err != nil {
-		a.logger.Warn("blitzpdata: failed to set resource attributes", zap.Error(err))
+
+	// Group records by their merged-resource fingerprint. Each group
+	// becomes one ResourceLogs in the outgoing plog.Logs. The order
+	// slice preserves first-occurrence ordering so the output is
+	// deterministic for a given input batch — useful for downstream
+	// pipelines that batch on consume order and for test assertions.
+	type group struct {
+		merged  map[string]any
+		records []int
 	}
-	sl := rl.ScopeLogs().AppendEmpty()
-	sl.Scope().SetName(scopeName)
-	observedNow := pcommon.NewTimestampFromTime(time.Now())
+	groups := make(map[string]*group)
+	order := make([]string, 0)
 	for i := range records {
-		a.appendRecord(sl.LogRecords().AppendEmpty(), &records[i], observedNow)
+		merged := a.resource.MergeWithStringOverlay(records[i].Metadata.Resource)
+		fp := FingerprintMap(merged)
+		g, exists := groups[fp]
+		if !exists {
+			g = &group{merged: merged}
+			groups[fp] = g
+			order = append(order, fp)
+		}
+		g.records = append(g.records, i)
+	}
+
+	logs := plog.NewLogs()
+	observedNow := pcommon.NewTimestampFromTime(time.Now())
+	for _, fp := range order {
+		g := groups[fp]
+		rl := logs.ResourceLogs().AppendEmpty()
+		if err := rl.Resource().Attributes().FromRaw(g.merged); err != nil {
+			a.logger.Warn("blitzpdata: failed to set resource attributes", zap.Error(err))
+		}
+		sl := rl.ScopeLogs().AppendEmpty()
+		sl.Scope().SetName(scopeName)
+		for _, idx := range g.records {
+			a.appendRecord(sl.LogRecords().AppendEmpty(), &records[idx], observedNow)
+		}
 	}
 	return a.consumer.ConsumeLogs(ctx, logs)
 }
@@ -125,7 +166,8 @@ func (a *LogAdapter) appendRecord(lr plog.LogRecord, rec *embed.LogRecord, obser
 
 	a.setBody(lr, rec)
 
-	if err := lr.Attributes().FromRaw(a.attrs); err != nil {
+	mergedAttrs := a.attrs.MergeWithAnyOverlay(rec.Metadata.Attributes)
+	if err := lr.Attributes().FromRaw(mergedAttrs); err != nil {
 		a.logger.Warn("blitzpdata: failed to set record attributes", zap.Error(err))
 	}
 }
