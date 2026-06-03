@@ -313,7 +313,7 @@ func TestBuildBlitzModules_RecipePath(t *testing.T) {
 			"recipe_params": map[string]any{"workers": 2, "rate": "100ms"},
 		},
 	}
-	mods, err := buildBlitzModules(logger, cfg, nopBlitzLogConsumer{})
+	mods, err := buildBlitzModules(logger, cfg, blitzConsumers{logs: nopBlitzLogConsumer{}})
 	require.NoError(t, err)
 	require.Len(t, mods, 1, "apache recipe should yield exactly one module")
 }
@@ -337,7 +337,7 @@ metrics:
 		Type:             generatorTypeBlitz,
 		AdditionalConfig: map[string]any{"blitz_yaml": yaml},
 	}
-	mods, err := buildBlitzModules(logger, cfg, nopBlitzLogConsumer{})
+	mods, err := buildBlitzModules(logger, cfg, blitzConsumers{logs: nopBlitzLogConsumer{}})
 	require.NoError(t, err)
 	require.Len(t, mods, 1)
 }
@@ -364,7 +364,7 @@ metrics:
 		Type:             generatorTypeBlitz,
 		AdditionalConfig: map[string]any{"blitz_yaml": yaml},
 	}
-	_, err := buildBlitzModules(logger, cfg, nopBlitzLogConsumer{})
+	_, err := buildBlitzModules(logger, cfg, blitzConsumers{logs: nopBlitzLogConsumer{}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "hostmetrics", "rejection error should mention the rejected module type")
 }
@@ -402,7 +402,7 @@ func TestBuildBlitzModules_MissingShape(t *testing.T) {
 		Type:             generatorTypeBlitz,
 		AdditionalConfig: map[string]any{},
 	}
-	_, err := buildBlitzModules(logger, cfg, nopBlitzLogConsumer{})
+	_, err := buildBlitzModules(logger, cfg, blitzConsumers{logs: nopBlitzLogConsumer{}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "neither a recipe nor blitz_yaml")
 }

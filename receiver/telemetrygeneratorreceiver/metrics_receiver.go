@@ -18,9 +18,12 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/observiq/blitz/embed"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.uber.org/zap"
+
+	"github.com/observiq/bindplane-otel-contrib/receiver/telemetrygeneratorreceiver/internal/blitzpdata"
 )
 
 type metricsGeneratorReceiver struct {
@@ -30,6 +33,12 @@ type metricsGeneratorReceiver struct {
 }
 
 // newMetricsReceiver creates a new metrics specific receiver.
+//
+// The Start/Shutdown lifecycle (including blitz runner orchestration
+// and ticker short-circuit) lives on the embedded
+// telemetryGeneratorReceiver — the constructor's only job is to
+// populate the fields that lifecycle reads: hasTickerGenerators and
+// blitzRunner.
 func newMetricsReceiver(ctx context.Context, logger *zap.Logger, cfg *Config, nextConsumer consumer.Metrics) (*metricsGeneratorReceiver, error) {
 	mr := &metricsGeneratorReceiver{
 		nextConsumer: nextConsumer,
@@ -45,7 +54,51 @@ func newMetricsReceiver(ctx context.Context, logger *zap.Logger, cfg *Config, ne
 	}
 	mr.hasTickerGenerators = len(mr.generators) > 0
 
+	if err := mr.buildBlitzRunner(logger, cfg); err != nil {
+		return nil, err
+	}
+
 	return mr, nil
+}
+
+// buildBlitzRunner constructs the embed.Runner from all Type: "blitz"
+// entries in cfg, if any. Each entry gets its own MetricAdapter
+// (preserving per-entry lockable resource + attribute config) wired into the
+// modules built for that entry; the modules from every entry are
+// aggregated into a single Runner stored on the embedded base type so
+// the shared Start/Shutdown lifecycle owns it.
+func (r *metricsGeneratorReceiver) buildBlitzRunner(logger *zap.Logger, cfg *Config) error {
+	var modules []embed.ProducerModule
+	for i, g := range cfg.Generators {
+		if g.Type != generatorTypeBlitz {
+			continue
+		}
+		// Attribute shapes were validated at config-validate time; re-parse
+		// here to build the adapter's base + locked-key structures.
+		resourceCfg, err := blitzpdata.ParseLockableAttrs(g.ResourceAttributes, "resource_attributes")
+		if err != nil {
+			return fmt.Errorf("blitz generator[%d]: %w", i, err)
+		}
+		attrsCfg, err := blitzpdata.ParseLockableAttrs(g.Attributes, "attributes")
+		if err != nil {
+			return fmt.Errorf("blitz generator[%d]: %w", i, err)
+		}
+		adapter := blitzpdata.NewMetricAdapter(r.nextConsumer, resourceCfg, attrsCfg, logger)
+		mods, err := buildBlitzModules(logger, g, blitzConsumers{metrics: adapter})
+		if err != nil {
+			return fmt.Errorf("blitz generator[%d]: %w", i, err)
+		}
+		modules = append(modules, mods...)
+	}
+	if len(modules) == 0 {
+		return nil
+	}
+	runner, err := embed.New(embed.Config{Modules: modules})
+	if err != nil {
+		return fmt.Errorf("construct blitz runner: %w", err)
+	}
+	r.blitzRunner = runner
+	return nil
 }
 
 // produce generates metrics from each generator and sends them to the next consumer

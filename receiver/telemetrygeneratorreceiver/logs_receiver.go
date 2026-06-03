@@ -90,7 +90,7 @@ func (r *logsGeneratorReceiver) buildBlitzRunner(logger *zap.Logger, cfg *Config
 			return fmt.Errorf("blitz generator[%d]: %w", i, err)
 		}
 		adapter := blitzpdata.NewLogAdapter(r.nextConsumer, resourceCfg, attrsCfg, parseBody, logger)
-		mods, err := buildBlitzModules(logger, g, adapter)
+		mods, err := buildBlitzModules(logger, g, blitzConsumers{logs: adapter})
 		if err != nil {
 			return fmt.Errorf("blitz generator[%d]: %w", i, err)
 		}

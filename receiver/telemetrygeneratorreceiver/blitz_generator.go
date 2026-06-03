@@ -168,18 +168,40 @@ func parseRecipeParams(raw any) (recipes.Params, error) {
 	return out, nil
 }
 
+// blitzConsumers bundles the signal-typed consumers a receiver
+// instance wires into blitz module construction. Each signal-type
+// receiver populates only its own slot (the logs receiver sets logs,
+// the metrics receiver sets metrics, etc.); the other slots stay nil.
+// blitz's LoadModules rejects any generator in a blitz_yaml whose
+// matching consumer is nil with a clear signal-type error — that
+// rejection IS the receiver's wrong-signal validation (e.g. a log
+// generator configured on a metrics receiver instance).
+type blitzConsumers struct {
+	logs    embed.LogConsumer
+	metrics embed.MetricConsumer
+	traces  embed.TraceConsumer
+}
+
 // buildBlitzModules resolves one blitz generator entry into a slice of
-// embed.ProducerModule instances wired to the supplied consumer.
+// embed.ProducerModule instances wired to the supplied consumers.
 //
-// Called by the logs receiver at Start time after the LogAdapter for
-// the entry has been constructed. Returns an error if the entry's
-// configured recipe or blitz_yaml fails to construct modules — in the
-// blitz_yaml case, this is where non-log generator-type rejections
-// (hostmetrics, traces, winevt) from blitz's LoadModules first reach
-// the receiver. The receiver surfaces the error verbatim so the
-// operator sees blitz's pointer to the v0.17.0 follow-up.
-func buildBlitzModules(logger *zap.Logger, g GeneratorConfig, consumer embed.LogConsumer) ([]embed.ProducerModule, error) {
+// Called by each signal-type receiver at Start time after the
+// signal-appropriate adapter for the entry has been constructed.
+// Returns an error if the entry's configured recipe or blitz_yaml
+// fails to construct modules — in the blitz_yaml case this is where
+// signal-type mismatches (a generator whose consumer slot is nil) and
+// non-embed-eligible generator rejections (winevt, nop) from blitz's
+// LoadModules reach the receiver. The receiver surfaces those errors
+// verbatim.
+func buildBlitzModules(logger *zap.Logger, g GeneratorConfig, consumers blitzConsumers) ([]embed.ProducerModule, error) {
 	if name, ok := g.AdditionalConfig[blitzKeyRecipe].(string); ok && name != "" {
+		// All curated recipes are log recipes; metric/trace generators
+		// are reachable via blitz_yaml only (recipes are an optional
+		// usability layer — curating metric/trace recipes waits on
+		// usage patterns against the v0.19.0 Producer set).
+		if consumers.logs == nil {
+			return nil, fmt.Errorf("recipe %q: curated recipes are log-only; use blitz_yaml for metric and trace generators", name)
+		}
 		fn, found := recipes.Get(name)
 		if !found {
 			return nil, fmt.Errorf("unknown recipe %q", name)
@@ -188,7 +210,7 @@ func buildBlitzModules(logger *zap.Logger, g GeneratorConfig, consumer embed.Log
 		if err != nil {
 			return nil, err
 		}
-		return fn(logger, consumer, params)
+		return fn(logger, consumers.logs, params)
 	}
 
 	raw, ok := g.AdditionalConfig[blitzKeyBlitzYAML].(string)
@@ -197,7 +219,9 @@ func buildBlitzModules(logger *zap.Logger, g GeneratorConfig, consumer embed.Log
 	}
 	return config.LoadModules([]byte(raw), config.EmbedOpts{
 		Logger:         logger,
-		LogConsumer:    consumer,
+		LogConsumer:    consumers.logs,
+		MetricConsumer: consumers.metrics,
+		TraceConsumer:  consumers.traces,
 		FileGenLibrary: embeddedlibrary.FS(),
 		// EnvOverrides intentionally nil: the receiver does not forward
 		// process env. Users who want env-driven values inside their
