@@ -123,7 +123,13 @@ _build-setup:
 	for dir in $$(find "$$CONTRIB_ROOT" -name "go.mod" -not -path "*/vendor/*" -not -path "*/internal/tools/*" -exec dirname {} \;); do \
 		go work use "$$dir"; \
 	done && \
+	go work edit -replace "go.opentelemetry.io/otel/metric/x=go.opentelemetry.io/otel/metric/x@v0.0.0-20260514180605-442cdbdd9466" && \
 	mkdir -p $(OUTDIR)
+
+# TODO: remove the go.opentelemetry.io/otel/metric/x replace above once the collector
+# repo no longer pins a pre-release go.opentelemetry.io/otel/sdk/metric. That pre-release
+# commit's go.mod requires metric/x at a placeholder version (v0.0.0-00010101000000-...)
+# that only resolves inside the otel repo itself, which breaks workspace-mode resolution.
 
 .PHONY: _cleanup-build
 _cleanup-build:
