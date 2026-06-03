@@ -77,7 +77,19 @@ func (r *logsGeneratorReceiver) buildBlitzRunner(logger *zap.Logger, cfg *Config
 		// type assertion here is safe — a non-bool would have been
 		// rejected at validation time. Absent → false (raw mode).
 		parseBody, _ := g.AdditionalConfig[blitzKeyParseBody].(bool)
-		adapter := blitzpdata.NewLogAdapter(r.nextConsumer, g.ResourceAttributes, g.Attributes, parseBody, logger)
+		// Z3 shapes were validated at config-validate time; re-parse
+		// here to build the adapter's base + locked-key structures.
+		// Errors are still checked (belt-and-suspenders) in case the
+		// entry bypassed validation in a test harness.
+		resourceZ3, err := blitzpdata.ParseZ3(g.ResourceAttributes, "resource_attributes")
+		if err != nil {
+			return fmt.Errorf("blitz generator[%d]: %w", i, err)
+		}
+		attrsZ3, err := blitzpdata.ParseZ3(g.Attributes, "attributes")
+		if err != nil {
+			return fmt.Errorf("blitz generator[%d]: %w", i, err)
+		}
+		adapter := blitzpdata.NewLogAdapter(r.nextConsumer, resourceZ3, attrsZ3, parseBody, logger)
 		mods, err := buildBlitzModules(logger, g, adapter)
 		if err != nil {
 			return fmt.Errorf("blitz generator[%d]: %w", i, err)
