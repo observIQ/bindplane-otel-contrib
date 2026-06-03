@@ -43,7 +43,9 @@ const (
 	generatorTypeOTLP generatorType = "otlp"
 
 	// generatorTypeBlitz is the generator type for blitz embed sources.
-	// Logs-only at v1; see PIPE-1017.
+	// Available on all three signal-type receiver instances (logs,
+	// metrics, traces); each builds its own signal-appropriate adapter.
+	// See PIPE-1017.
 	generatorTypeBlitz generatorType = "blitz"
 )
 
