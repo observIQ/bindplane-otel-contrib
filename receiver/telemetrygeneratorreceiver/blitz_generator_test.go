@@ -16,7 +16,9 @@ package telemetrygeneratorreceiver
 
 import (
 	"context"
+	"io/fs"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/observiq/blitz/embed"
@@ -208,10 +210,11 @@ func TestValidateBlitz_ParseBody(t *testing.T) {
 }
 
 func TestValidateBlitz_AttributesAndResourceAttributes(t *testing.T) {
-	// Receiver-config Attributes and ResourceAttributes go through
+	// Receiver-config Attributes and ResourceAttributes are parsed
+	// with per-key locking semantics (simple scalars + structured `{value, lock}`
+	// forms), then the effective base values go through
 	// pcommon.NewMap().FromRaw() to validate they're representable as
-	// pcommon.Map. Invalid raw shapes (e.g., a map with a chan value)
-	// should be rejected; valid raw shapes pass through.
+	// pcommon.Map.
 	cfg := &GeneratorConfig{
 		Type:               generatorTypeBlitz,
 		ResourceAttributes: map[string]any{"service.name": "blitz-test"},
@@ -219,6 +222,77 @@ func TestValidateBlitz_AttributesAndResourceAttributes(t *testing.T) {
 		AdditionalConfig:   map[string]any{"recipe": "apache"},
 	}
 	assert.NoError(t, validateBlitzGeneratorConfig(cfg))
+}
+
+func TestValidateBlitz_LockableAttrShapes(t *testing.T) {
+	cases := []struct {
+		name      string
+		resource  map[string]any
+		attrs     map[string]any
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name: "structured locked resource attr",
+			resource: map[string]any{
+				"host.name": map[string]any{"value": "pinned", "lock": true},
+			},
+			wantErr: false,
+		},
+		{
+			name: "structured form mixed with simple form",
+			resource: map[string]any{
+				"host.name": map[string]any{"value": "pinned", "lock": true},
+				"os.type":   "linux",
+			},
+			attrs: map[string]any{
+				"service.team": map[string]any{"value": "ops", "lock": true},
+				"run.id":       "r1",
+			},
+			wantErr: false,
+		},
+		{
+			name: "map without value sub-key rejected",
+			resource: map[string]any{
+				"host.name": map[string]any{"locked": true},
+			},
+			wantErr:   true,
+			errSubstr: "resource_attributes.host.name",
+		},
+		{
+			name: "unknown sub-key rejected",
+			attrs: map[string]any{
+				"a": map[string]any{"value": "v", "sticky": true},
+			},
+			wantErr:   true,
+			errSubstr: `unknown sub-key "sticky"`,
+		},
+		{
+			name: "non-boolean lock rejected",
+			attrs: map[string]any{
+				"a": map[string]any{"value": "v", "lock": "yes"},
+			},
+			wantErr:   true,
+			errSubstr: "must be a boolean",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &GeneratorConfig{
+				Type:               generatorTypeBlitz,
+				ResourceAttributes: tc.resource,
+				Attributes:         tc.attrs,
+				AdditionalConfig:   map[string]any{"recipe": "apache"},
+			}
+			err := validateBlitzGeneratorConfig(cfg)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errSubstr)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
 }
 
 func TestParseRecipeParams_AcceptsRecipeDefaults(t *testing.T) {
@@ -239,7 +313,7 @@ func TestBuildBlitzModules_RecipePath(t *testing.T) {
 			"recipe_params": map[string]any{"workers": 2, "rate": "100ms"},
 		},
 	}
-	mods, err := buildBlitzModules(logger, cfg, nopBlitzLogConsumer{})
+	mods, err := buildBlitzModules(logger, cfg, blitzConsumers{logs: nopBlitzLogConsumer{}})
 	require.NoError(t, err)
 	require.Len(t, mods, 1, "apache recipe should yield exactly one module")
 }
@@ -263,7 +337,7 @@ metrics:
 		Type:             generatorTypeBlitz,
 		AdditionalConfig: map[string]any{"blitz_yaml": yaml},
 	}
-	mods, err := buildBlitzModules(logger, cfg, nopBlitzLogConsumer{})
+	mods, err := buildBlitzModules(logger, cfg, blitzConsumers{logs: nopBlitzLogConsumer{}})
 	require.NoError(t, err)
 	require.Len(t, mods, 1)
 }
@@ -290,10 +364,37 @@ metrics:
 		Type:             generatorTypeBlitz,
 		AdditionalConfig: map[string]any{"blitz_yaml": yaml},
 	}
-	_, err := buildBlitzModules(logger, cfg, nopBlitzLogConsumer{})
+	_, err := buildBlitzModules(logger, cfg, blitzConsumers{logs: nopBlitzLogConsumer{}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "hostmetrics", "rejection error should mention the rejected module type")
 }
+
+func TestAssertEmbeddedLibraryAvailable(t *testing.T) {
+	t.Run("populated FS passes", func(t *testing.T) {
+		populated := fstest.MapFS{"syslog_generic/sample.log": &fstest.MapFile{Data: []byte("ok")}}
+		assert.NoError(t, assertEmbeddedLibraryAvailable(populated))
+	})
+	t.Run("empty fstest.MapFS passes (non-zero entries)", func(t *testing.T) {
+		// Sanity: fstest.MapFS with one entry yields a non-empty ReadDir.
+		assert.NoError(t, assertEmbeddedLibraryAvailable(fstest.MapFS{"a": &fstest.MapFile{}}))
+	})
+	t.Run("ReadDir-erroring FS fails with build-tag hint", func(t *testing.T) {
+		err := assertEmbeddedLibraryAvailable(erroringFS{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "-tags embed_library")
+	})
+	t.Run("truly empty FS fails", func(t *testing.T) {
+		err := assertEmbeddedLibraryAvailable(fstest.MapFS{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "-tags embed_library")
+	})
+}
+
+// erroringFS mimics the embeddedlibrary off-tag stub: every Open call
+// returns fs.ErrNotExist, which propagates through fs.ReadDir.
+type erroringFS struct{}
+
+func (erroringFS) Open(string) (fs.File, error) { return nil, fs.ErrNotExist }
 
 func TestBuildBlitzModules_MissingShape(t *testing.T) {
 	logger := zaptest.NewLogger(t)
@@ -301,7 +402,7 @@ func TestBuildBlitzModules_MissingShape(t *testing.T) {
 		Type:             generatorTypeBlitz,
 		AdditionalConfig: map[string]any{},
 	}
-	_, err := buildBlitzModules(logger, cfg, nopBlitzLogConsumer{})
+	_, err := buildBlitzModules(logger, cfg, blitzConsumers{logs: nopBlitzLogConsumer{}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "neither a recipe nor blitz_yaml")
 }

@@ -31,7 +31,7 @@ import (
 
 func TestLogAdapter_EmptyBatch_NoPush(t *testing.T) {
 	sink := &consumertest.LogsSink{}
-	a := NewLogAdapter(sink, nil, nil, false, zaptest.NewLogger(t))
+	a := NewLogAdapter(sink, LockableAttrs{}, LockableAttrs{}, false, zaptest.NewLogger(t))
 	require.NoError(t, a.ConsumeLogs(context.Background(), nil))
 	require.NoError(t, a.ConsumeLogs(context.Background(), []embed.LogRecord{}))
 	assert.Equal(t, 0, sink.LogRecordCount(), "empty batches must not produce a downstream consume call")
@@ -39,7 +39,7 @@ func TestLogAdapter_EmptyBatch_NoPush(t *testing.T) {
 
 func TestLogAdapter_RawMessage(t *testing.T) {
 	sink := &consumertest.LogsSink{}
-	a := NewLogAdapter(sink, nil, nil, false, zaptest.NewLogger(t))
+	a := NewLogAdapter(sink, LockableAttrs{}, LockableAttrs{}, false, zaptest.NewLogger(t))
 	ts := time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)
 	err := a.ConsumeLogs(context.Background(), []embed.LogRecord{{
 		Message: "hello world",
@@ -65,7 +65,7 @@ func TestLogAdapter_RawByDefault_IgnoresParseFunc(t *testing.T) {
 	// from receiving structured maps when the operator intended raw
 	// log lines (the typical telemetrygenerator-receiver use case).
 	sink := &consumertest.LogsSink{}
-	a := NewLogAdapter(sink, nil, nil, false, zaptest.NewLogger(t))
+	a := NewLogAdapter(sink, LockableAttrs{}, LockableAttrs{}, false, zaptest.NewLogger(t))
 	parseCalled := false
 	parseFunc := func(_ string) (map[string]any, error) {
 		parseCalled = true
@@ -83,7 +83,7 @@ func TestLogAdapter_RawByDefault_IgnoresParseFunc(t *testing.T) {
 
 func TestLogAdapter_ParseFunc_Success(t *testing.T) {
 	sink := &consumertest.LogsSink{}
-	a := NewLogAdapter(sink, nil, nil, true, zaptest.NewLogger(t))
+	a := NewLogAdapter(sink, LockableAttrs{}, LockableAttrs{}, true, zaptest.NewLogger(t))
 	parsed := map[string]any{"method": "GET", "status": int64(200), "path": "/healthz"}
 	parseFunc := func(msg string) (map[string]any, error) {
 		assert.Equal(t, "GET /healthz 200", msg)
@@ -105,7 +105,7 @@ func TestLogAdapter_ParseFunc_Success(t *testing.T) {
 
 func TestLogAdapter_ParseFunc_Error_FallsBackToRaw(t *testing.T) {
 	sink := &consumertest.LogsSink{}
-	a := NewLogAdapter(sink, nil, nil, true, zaptest.NewLogger(t))
+	a := NewLogAdapter(sink, LockableAttrs{}, LockableAttrs{}, true, zaptest.NewLogger(t))
 	parseFunc := func(_ string) (map[string]any, error) {
 		return nil, errors.New("malformed input")
 	}
@@ -120,7 +120,7 @@ func TestLogAdapter_ParseFunc_Error_FallsBackToRaw(t *testing.T) {
 
 func TestLogAdapter_ParseFunc_EmptyMap_FallsBackToRaw(t *testing.T) {
 	sink := &consumertest.LogsSink{}
-	a := NewLogAdapter(sink, nil, nil, true, zaptest.NewLogger(t))
+	a := NewLogAdapter(sink, LockableAttrs{}, LockableAttrs{}, true, zaptest.NewLogger(t))
 	parseFunc := func(_ string) (map[string]any, error) {
 		return map[string]any{}, nil
 	}
@@ -134,7 +134,7 @@ func TestLogAdapter_ParseFunc_EmptyMap_FallsBackToRaw(t *testing.T) {
 
 func TestLogAdapter_ParseFunc_Panic_FallsBackToRaw(t *testing.T) {
 	sink := &consumertest.LogsSink{}
-	a := NewLogAdapter(sink, nil, nil, true, zaptest.NewLogger(t))
+	a := NewLogAdapter(sink, LockableAttrs{}, LockableAttrs{}, true, zaptest.NewLogger(t))
 	parseFunc := func(_ string) (map[string]any, error) {
 		panic("recipe ParseFunc went sideways")
 	}
@@ -152,14 +152,14 @@ func TestLogAdapter_ParseFunc_Panic_FallsBackToRaw(t *testing.T) {
 
 func TestLogAdapter_ResourceAndRecordAttributes(t *testing.T) {
 	sink := &consumertest.LogsSink{}
-	resourceAttrs := map[string]any{
+	resource := LockableAttrs{Base: map[string]any{
 		"service.name": "blitz-test",
 		"deployment":   "ci",
-	}
-	attrs := map[string]any{
+	}}
+	attrs := LockableAttrs{Base: map[string]any{
 		"log.source": "apache",
-	}
-	a := NewLogAdapter(sink, resourceAttrs, attrs, false, zaptest.NewLogger(t))
+	}}
+	a := NewLogAdapter(sink, resource, attrs, false, zaptest.NewLogger(t))
 	require.NoError(t, a.ConsumeLogs(context.Background(), []embed.LogRecord{{
 		Message: "first",
 	}, {
@@ -184,7 +184,7 @@ func TestLogAdapter_ResourceAndRecordAttributes(t *testing.T) {
 
 func TestLogAdapter_ZeroTimestamp_FallsBackToNow(t *testing.T) {
 	sink := &consumertest.LogsSink{}
-	a := NewLogAdapter(sink, nil, nil, false, zaptest.NewLogger(t))
+	a := NewLogAdapter(sink, LockableAttrs{}, LockableAttrs{}, false, zaptest.NewLogger(t))
 	before := time.Now()
 	require.NoError(t, a.ConsumeLogs(context.Background(), []embed.LogRecord{{
 		Message: "no ts",
@@ -198,7 +198,7 @@ func TestLogAdapter_ZeroTimestamp_FallsBackToNow(t *testing.T) {
 
 func TestLogAdapter_NoSeverity_LeavesSeverityNumberUnspecified(t *testing.T) {
 	sink := &consumertest.LogsSink{}
-	a := NewLogAdapter(sink, nil, nil, false, zaptest.NewLogger(t))
+	a := NewLogAdapter(sink, LockableAttrs{}, LockableAttrs{}, false, zaptest.NewLogger(t))
 	require.NoError(t, a.ConsumeLogs(context.Background(), []embed.LogRecord{{
 		Message: "no severity",
 	}}))
@@ -209,7 +209,7 @@ func TestLogAdapter_NoSeverity_LeavesSeverityNumberUnspecified(t *testing.T) {
 
 func TestLogAdapter_NilLogger_NoPanic(t *testing.T) {
 	sink := &consumertest.LogsSink{}
-	a := NewLogAdapter(sink, nil, nil, false, nil)
+	a := NewLogAdapter(sink, LockableAttrs{}, LockableAttrs{}, false, nil)
 	require.NotPanics(t, func() {
 		_ = a.ConsumeLogs(context.Background(), []embed.LogRecord{{Message: "x"}})
 	})
@@ -257,6 +257,144 @@ func TestSeverityNumberFor(t *testing.T) {
 			assert.Equal(t, tc.want, severityNumberFor(tc.text))
 		})
 	}
+}
+
+// PIPE-1021 per-record metadata tests — blitz-supplied Metadata.Resource
+// and Metadata.Attributes merging over the receiver-config lockable base.
+
+func TestLogAdapter_PerRecordResource_MergesOverBase(t *testing.T) {
+	sink := &consumertest.LogsSink{}
+	resource := LockableAttrs{Base: map[string]any{
+		"host.name":    "from-config",
+		"cluster.name": "gargantua",
+	}}
+	a := NewLogAdapter(sink, resource, LockableAttrs{}, false, zaptest.NewLogger(t))
+	require.NoError(t, a.ConsumeLogs(context.Background(), []embed.LogRecord{{
+		Message: "x",
+		Metadata: embed.LogRecordMetadata{
+			Resource: map[string]string{
+				"host.name":        "from-blitz", // overrides unlocked base
+				"telemetry.source": "nginx",      // new key, lands as-is
+			},
+		},
+	}}))
+	logs := sink.AllLogs()
+	require.Len(t, logs, 1)
+	resMap := logs[0].ResourceLogs().At(0).Resource().Attributes().AsRaw()
+	assert.Equal(t, "from-blitz", resMap["host.name"], "unlocked: blitz wins")
+	assert.Equal(t, "gargantua", resMap["cluster.name"], "no blitz value: base stays")
+	assert.Equal(t, "nginx", resMap["telemetry.source"], "blitz-only key lands")
+}
+
+func TestLogAdapter_PerRecordResource_LockedKeyStays(t *testing.T) {
+	sink := &consumertest.LogsSink{}
+	resource := LockableAttrs{
+		Base:   map[string]any{"host.name": "pinned-host"},
+		Locked: map[string]struct{}{"host.name": {}},
+	}
+	a := NewLogAdapter(sink, resource, LockableAttrs{}, false, zaptest.NewLogger(t))
+	require.NoError(t, a.ConsumeLogs(context.Background(), []embed.LogRecord{{
+		Message: "x",
+		Metadata: embed.LogRecordMetadata{
+			Resource: map[string]string{"host.name": "blitz-host"},
+		},
+	}}))
+	resMap := sink.AllLogs()[0].ResourceLogs().At(0).Resource().Attributes().AsRaw()
+	assert.Equal(t, "pinned-host", resMap["host.name"], "locked: receiver-config wins")
+}
+
+func TestLogAdapter_PerRecordAttributes_MergeAndLock(t *testing.T) {
+	sink := &consumertest.LogsSink{}
+	attrs := LockableAttrs{
+		Base: map[string]any{
+			"service.team": "midnight-pizza-ops",
+			"test.run.id":  "base-run",
+		},
+		Locked: map[string]struct{}{"service.team": {}},
+	}
+	a := NewLogAdapter(sink, LockableAttrs{}, attrs, false, zaptest.NewLogger(t))
+	require.NoError(t, a.ConsumeLogs(context.Background(), []embed.LogRecord{{
+		Message: "x",
+		Metadata: embed.LogRecordMetadata{
+			Attributes: map[string]any{
+				"service.team":    "blitz-team", // locked — dropped
+				"test.run.id":     "blitz-run",  // unlocked — wins
+				"blitz.generator": "apache",     // blitz-only — lands
+			},
+		},
+	}}))
+	lr := firstLogRecord(t, sink.AllLogs())
+	got := lr.Attributes().AsRaw()
+	assert.Equal(t, "midnight-pizza-ops", got["service.team"])
+	assert.Equal(t, "blitz-run", got["test.run.id"])
+	assert.Equal(t, "apache", got["blitz.generator"])
+}
+
+func TestLogAdapter_NilAndEmptyMetadata_Identical(t *testing.T) {
+	// nil and empty Metadata maps both mean "no override".
+	for _, meta := range []embed.LogRecordMetadata{
+		{}, // nil maps
+		{Resource: map[string]string{}, Attributes: map[string]any{}}, // empty maps
+	} {
+		sink := &consumertest.LogsSink{}
+		resource := LockableAttrs{Base: map[string]any{"host.name": "h"}}
+		attrs := LockableAttrs{Base: map[string]any{"a": "v"}}
+		a := NewLogAdapter(sink, resource, attrs, false, zaptest.NewLogger(t))
+		require.NoError(t, a.ConsumeLogs(context.Background(), []embed.LogRecord{{
+			Message:  "x",
+			Metadata: meta,
+		}}))
+		resMap := sink.AllLogs()[0].ResourceLogs().At(0).Resource().Attributes().AsRaw()
+		assert.Equal(t, "h", resMap["host.name"])
+		lr := firstLogRecord(t, sink.AllLogs())
+		assert.Equal(t, "v", lr.Attributes().AsRaw()["a"])
+	}
+}
+
+// Resource grouping tests — records with distinct effective resources
+// split into separate ResourceLogs; identical resources share one.
+
+func TestLogAdapter_ResourceGrouping_DistinctResources_Split(t *testing.T) {
+	sink := &consumertest.LogsSink{}
+	a := NewLogAdapter(sink, LockableAttrs{}, LockableAttrs{}, false, zaptest.NewLogger(t))
+	require.NoError(t, a.ConsumeLogs(context.Background(), []embed.LogRecord{
+		{Message: "a", Metadata: embed.LogRecordMetadata{Resource: map[string]string{"host.name": "h1"}}},
+		{Message: "b", Metadata: embed.LogRecordMetadata{Resource: map[string]string{"host.name": "h2"}}},
+		{Message: "c", Metadata: embed.LogRecordMetadata{Resource: map[string]string{"host.name": "h1"}}},
+	}))
+	logs := sink.AllLogs()
+	require.Len(t, logs, 1)
+	require.Equal(t, 2, logs[0].ResourceLogs().Len(), "two distinct resources → two ResourceLogs")
+	// First-occurrence ordering: h1 group first (records a + c), then h2.
+	rl0 := logs[0].ResourceLogs().At(0)
+	assert.Equal(t, "h1", rl0.Resource().Attributes().AsRaw()["host.name"])
+	require.Equal(t, 1, rl0.ScopeLogs().Len())
+	assert.Equal(t, 2, rl0.ScopeLogs().At(0).LogRecords().Len(), "h1 group carries records a and c")
+	rl1 := logs[0].ResourceLogs().At(1)
+	assert.Equal(t, "h2", rl1.Resource().Attributes().AsRaw()["host.name"])
+	assert.Equal(t, 1, rl1.ScopeLogs().At(0).LogRecords().Len())
+}
+
+func TestLogAdapter_ResourceGrouping_LockedKeyCollapsesGroups(t *testing.T) {
+	// Resource-grouping × locking interaction: when the differing key is locked, all
+	// records share the same effective resource and group together.
+	sink := &consumertest.LogsSink{}
+	resource := LockableAttrs{
+		Base:   map[string]any{"host.name": "pinned"},
+		Locked: map[string]struct{}{"host.name": {}},
+	}
+	a := NewLogAdapter(sink, resource, LockableAttrs{}, false, zaptest.NewLogger(t))
+	require.NoError(t, a.ConsumeLogs(context.Background(), []embed.LogRecord{
+		{Message: "a", Metadata: embed.LogRecordMetadata{Resource: map[string]string{"host.name": "h1"}}},
+		{Message: "b", Metadata: embed.LogRecordMetadata{Resource: map[string]string{"host.name": "h2"}}},
+	}))
+	logs := sink.AllLogs()
+	require.Len(t, logs, 1)
+	require.Equal(t, 1, logs[0].ResourceLogs().Len(),
+		"locked host.name collapses both records into one ResourceLogs")
+	rl := logs[0].ResourceLogs().At(0)
+	assert.Equal(t, "pinned", rl.Resource().Attributes().AsRaw()["host.name"])
+	assert.Equal(t, 2, rl.ScopeLogs().At(0).LogRecords().Len())
 }
 
 // firstLogRecord pulls the single log record out of a sink that expects
