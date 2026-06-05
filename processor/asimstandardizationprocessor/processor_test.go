@@ -532,3 +532,107 @@ func TestCoerce_StringTimeDotTimeUsesRFC3339Nano(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "2026-05-04T21:30:00Z", got)
 }
+
+func TestAttributionFields_AddsAttributionAndPreservesOriginal(t *testing.T) {
+	p := newProcessor(t, &Config{
+		EventMappings: []EventMapping{
+			{
+				TargetTable:   TargetTableAuthentication,
+				FieldMappings: minimalAuthFieldMappings,
+			},
+		},
+		AttributionFields: map[string]string{
+			"bindplane_source":      "bindplane",
+			"bindplane_pipeline_id": "pipeline-42",
+		},
+	})
+
+	out, err := p.processLogs(context.Background(), newLogsWithBody(authInputBody()))
+	require.NoError(t, err)
+	require.Equal(t, 1, countLogRecords(out))
+
+	body := firstRecord(t, out).Body().Map().AsRaw()
+	af, ok := body["AdditionalFields"].(map[string]any)
+	require.True(t, ok, "AdditionalFields must be wrapped as a map when AttributionFields is set, got %T", body["AdditionalFields"])
+
+	attribution, ok := af["Attribution"].(map[string]any)
+	require.True(t, ok, "AdditionalFields.Attribution must be a map, got %T", af["Attribution"])
+	require.Equal(t, "bindplane", attribution["bindplane_source"])
+	require.Equal(t, "pipeline-42", attribution["bindplane_pipeline_id"])
+
+	original, ok := af["OriginalEvent"].(map[string]any)
+	require.True(t, ok, "AdditionalFields.OriginalEvent must mirror the input body, got %T", af["OriginalEvent"])
+	require.Equal(t, "alice", original["user"], "OriginalEvent must preserve the pre-transform body so its fields remain queryable")
+}
+
+func TestAttributionFields_UnsetIsBackwardsCompatible(t *testing.T) {
+	// When AttributionFields is unset (nil), AdditionalFields keeps its prior
+	// shape — set directly to the original body (no wrapping). This is the
+	// no-op path for any consumer that does not opt in.
+	p := newProcessor(t, &Config{
+		EventMappings: []EventMapping{
+			{
+				TargetTable:   TargetTableAuthentication,
+				FieldMappings: minimalAuthFieldMappings,
+			},
+		},
+	})
+
+	out, err := p.processLogs(context.Background(), newLogsWithBody(authInputBody()))
+	require.NoError(t, err)
+	body := firstRecord(t, out).Body().Map().AsRaw()
+
+	af, ok := body["AdditionalFields"].(map[string]any)
+	require.True(t, ok, "AdditionalFields must equal the original body shape, got %T", body["AdditionalFields"])
+	require.Equal(t, "alice", af["user"], "no Attribution wrapping when AttributionFields is unset")
+	require.NotContains(t, af, "Attribution", "Attribution sub-object must not appear when AttributionFields is unset")
+	require.NotContains(t, af, "OriginalEvent", "OriginalEvent wrapping must not appear when AttributionFields is unset")
+}
+
+func TestAttributionFields_EmptyMapBehavesAsUnset(t *testing.T) {
+	// An explicit empty map is treated the same as nil — no wrapping.
+	p := newProcessor(t, &Config{
+		EventMappings: []EventMapping{
+			{
+				TargetTable:   TargetTableAuthentication,
+				FieldMappings: minimalAuthFieldMappings,
+			},
+		},
+		AttributionFields: map[string]string{},
+	})
+
+	out, err := p.processLogs(context.Background(), newLogsWithBody(authInputBody()))
+	require.NoError(t, err)
+	body := firstRecord(t, out).Body().Map().AsRaw()
+
+	af, ok := body["AdditionalFields"].(map[string]any)
+	require.True(t, ok)
+	require.NotContains(t, af, "Attribution")
+	require.NotContains(t, af, "OriginalEvent")
+}
+
+func TestAttributionFields_CallerMapMutationDoesNotLeak(t *testing.T) {
+	// Defensive copy: mutating the map after constructing the processor must
+	// not change what the processor writes.
+	caller := map[string]string{"bindplane_source": "bindplane"}
+	p := newProcessor(t, &Config{
+		EventMappings: []EventMapping{
+			{
+				TargetTable:   TargetTableAuthentication,
+				FieldMappings: minimalAuthFieldMappings,
+			},
+		},
+		AttributionFields: caller,
+	})
+
+	caller["bindplane_source"] = "tampered"
+	caller["new_key"] = "also-tampered"
+
+	out, err := p.processLogs(context.Background(), newLogsWithBody(authInputBody()))
+	require.NoError(t, err)
+	body := firstRecord(t, out).Body().Map().AsRaw()
+	af := body["AdditionalFields"].(map[string]any)
+	attribution := af["Attribution"].(map[string]any)
+	require.Equal(t, "bindplane", attribution["bindplane_source"])
+	require.NotContains(t, attribution, "new_key")
+}

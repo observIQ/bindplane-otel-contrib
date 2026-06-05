@@ -55,6 +55,9 @@ type asimStandardizationProcessor struct {
 	logger            *zap.Logger
 	eventMappings     []compiledEventMapping
 	runtimeValidation bool
+	// attributionFields, when non-empty, is merged into AdditionalFields as
+	// an "Attribution" sub-object on every transformed record. See Config.
+	attributionFields map[string]string
 }
 
 func newASIMStandardizationProcessor(logger *zap.Logger, config *Config) (*asimStandardizationProcessor, error) {
@@ -104,10 +107,21 @@ func newASIMStandardizationProcessor(logger *zap.Logger, config *Config) (*asimS
 		runtimeValidation = *config.RuntimeValidation
 	}
 
+	// Defensive copy so a later mutation of the caller's map cannot bleed
+	// through into the processor's runtime state.
+	var attributionFields map[string]string
+	if len(config.AttributionFields) > 0 {
+		attributionFields = make(map[string]string, len(config.AttributionFields))
+		for k, v := range config.AttributionFields {
+			attributionFields[k] = v
+		}
+	}
+
 	return &asimStandardizationProcessor{
 		logger:            logger,
 		eventMappings:     compiled,
 		runtimeValidation: runtimeValidation,
+		attributionFields: attributionFields,
 	}, nil
 }
 
@@ -171,7 +185,21 @@ func (asp *asimStandardizationProcessor) processLogRecord(log plog.LogRecord, re
 		}
 
 		newBody[eventSchemaColumn] = eventMapping.eventSchema
-		if originalBody != nil {
+		if len(asp.attributionFields) > 0 {
+			// Wrap so the original body stays queryable as
+			// AdditionalFields.OriginalEvent while the constant attribution
+			// markers live under AdditionalFields.Attribution.
+			wrapped := map[string]any{}
+			if originalBody != nil {
+				wrapped["OriginalEvent"] = originalBody
+			}
+			attribution := make(map[string]any, len(asp.attributionFields))
+			for k, v := range asp.attributionFields {
+				attribution[k] = v
+			}
+			wrapped["Attribution"] = attribution
+			newBody[additionalFieldsColumn] = wrapped
+		} else if originalBody != nil {
 			newBody[additionalFieldsColumn] = originalBody
 		}
 

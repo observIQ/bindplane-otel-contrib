@@ -93,6 +93,20 @@ type Config struct {
 	//     storm that ends in silent data loss.
 	// Set to false to opt out and pass mapped records through unchanged.
 	RuntimeValidation *bool `mapstructure:"runtime_validation"`
+
+	// AttributionFields, when non-empty, adds an "Attribution" sub-object to
+	// the AdditionalFields column on every transformed record with these
+	// keys/values copied as-is. The original log body is preserved under
+	// AdditionalFields.OriginalEvent, so its keys remain queryable via
+	// `AdditionalFields.OriginalEvent.<field>` in KQL. When empty (default),
+	// AdditionalFields is set directly to the original body — the prior shape
+	// and behavior, backwards-compatible.
+	//
+	// Typical use: tag every record processed through a known pipeline with a
+	// stable marker (e.g. "bindplane_source": "bindplane") so downstream
+	// connector-health queries can disambiguate records emitted by this
+	// pipeline from other sources writing into the same shared ASIM table.
+	AttributionFields map[string]string `mapstructure:"attribution_fields,omitempty"`
 }
 
 // IsKnownTargetTable returns true if the given string is a supported ASIM

@@ -53,6 +53,7 @@ Records that do **not** match any `event_mapping` are dropped.
 | -- | -- | -- | -- | -- |
 | `event_mappings` | []EventMapping | `[]` | No | Ordered list of event mappings. The first mapping whose `filter` matches a record wins. |
 | `runtime_validation` | bool | `true` | No | Coerce mapped values to their target ASIM column types and drop records missing any ASIM common mandatory column. See [Runtime validation](#runtime-validation). |
+| `attribution_fields` | map[string]string | `{}` | No | Constant key/value pairs added to `AdditionalFields.Attribution` on every transformed record. Lets downstream connector-health queries disambiguate records from this pipeline when multiple sources write into the same ASIM table. See [AdditionalFields preservation](#additionalfields-preservation). |
 
 ### EventMapping
 
@@ -120,6 +121,31 @@ ASimAuthenticationEventLogs
 | extend raw = AdditionalFields
 | project TimeGenerated, ActorUsername, TargetUsername, raw
 ```
+
+### With `attribution_fields` set
+
+When `attribution_fields` is non-empty, the processor wraps the column so
+the original body and the attribution markers coexist:
+
+```json
+"AdditionalFields": {
+  "OriginalEvent": { ...the pre-transform body... },
+  "Attribution":   { "bindplane_source": "bindplane", "bindplane_pipeline_id": "pipeline-42" }
+}
+```
+
+The original body remains queryable, one level deeper:
+
+```kusto
+ASimAuthenticationEventLogs
+| where tostring(AdditionalFields.Attribution.bindplane_source) == "bindplane"
+| extend raw = AdditionalFields.OriginalEvent
+| project TimeGenerated, ActorUsername, TargetUsername, raw
+```
+
+When `attribution_fields` is empty/unset (the default), `AdditionalFields`
+keeps the prior flat shape — the original body unwrapped — so any existing
+consumer queries continue to work unchanged.
 
 ## Example configuration
 
