@@ -78,6 +78,8 @@ func (g *GeneratorConfig) Validate() error {
 		return validateWindowsEventsGeneratorConfig(g)
 	case generatorTypeOTLP:
 		return validateOTLPGenerator(g)
+	case generatorTypeBlitz:
+		return validateBlitzGeneratorConfig(g)
 	default:
 		return fmt.Errorf("invalid generator type: %s", g.Type)
 	}
