@@ -167,9 +167,9 @@ telemetrygeneratorreceiver:
         - type: windows_events          
 ```       
 
-### Blitz Generator (logs only)
+### Blitz Generator
 
-The `blitz` generator type pulls structured telemetry from the [blitz](https://github.com/observIQ/blitz) embed package and converts it to OTel `pdata`. v1 of this integration is **logs-only** and supports two complementary configuration shapes — curated recipes and pasted blitz YAML. See [PIPE-1017](https://linear.app/bindplane/issue/PIPE-1017) for context and [docs/embed.md](https://github.com/observIQ/blitz/blob/main/docs/embed.md) in the blitz repo for the underlying contract.
+The `blitz` generator type pulls structured telemetry from the [blitz](https://github.com/observIQ/blitz) embed package and converts it to OTel `pdata`. It is available on **all three signal-type pipelines** — logs, metrics, and traces — and supports two complementary configuration shapes: curated recipes and pasted blitz YAML. See [PIPE-1017](https://linear.app/bindplane/issue/PIPE-1017) for context and [docs/embed.md](https://github.com/observIQ/blitz/blob/main/docs/embed.md) in the blitz repo for the underlying contract.
 
 #### Build requirement
 
@@ -184,15 +184,21 @@ go test -tags embed_library ./...
 
 #### Supported pipelines
 
-`Type: "blitz"` is only valid on a **logs** pipeline. The receiver factory rejects `blitz` entries on metrics or traces pipelines at startup with a clear error. Metric and trace support arrives in a follow-up after blitz v0.17.0 ships the migrations.
+| Pipeline | Generators reachable | Config shapes |
+|----------|----------------------|---------------|
+| logs     | apache common/combined/error, filegen, fix, json, kubernetes, nginx, okta, palo-alto, postgres, wel | recipes + `blitz_yaml` |
+| metrics  | hostmetrics | `blitz_yaml` only |
+| traces   | traces | `blitz_yaml` only |
+
+Each signal-type receiver instance wires only its own consumer into blitz. A `blitz_yaml` naming a generator of a different signal type (e.g. `hostmetrics` on a logs pipeline) is rejected at startup with blitz's signal-type error. Curated recipes are log-only; using `recipe:` on a metrics or traces pipeline is rejected with a pointer to `blitz_yaml`.
 
 #### Configuration shapes
 
-##### Recipe (named, parameterized)
+##### Recipe (named, parameterized — logs pipelines only)
 
 | Field                              | Type      | Default       | Required | Description |
 |------------------------------------|-----------|---------------|----------|-------------|
-| `additional_config.recipe`         | string    |               | `true` (one of `recipe`/`blitz_yaml`) | Recipe name. v1 ships `apache`, `apache-combined`, `apache-error`, `nginx`, `kubernetes-cluster`, `pii-stress`. |
+| `additional_config.recipe`         | string    |               | `true` (one of `recipe`/`blitz_yaml`) | Recipe name. Six log recipes ship: `apache`, `apache-combined`, `apache-error`, `nginx`, `kubernetes-cluster`, `pii-stress`. |
 | `additional_config.recipe_params.workers` | int  | recipe default | `false` | Per-generator worker count for the recipe's modules. Recipes use `1` (or `2` for `pii-stress`) when omitted. |
 | `additional_config.recipe_params.rate` | string  | recipe default | `false` | Per-generator emission interval (Go duration string, e.g. `100ms`). Recipes use `1s` (or `100ms` for `pii-stress`) when omitted. |
 
@@ -200,16 +206,43 @@ go test -tags embed_library ./...
 
 | Field                          | Type     | Default | Required | Description |
 |--------------------------------|----------|---------|----------|-------------|
-| `additional_config.blitz_yaml` | string   |         | `true` (one of `recipe`/`blitz_yaml`) | A verbatim blitz YAML config string. Parsed by blitz's public `config.LoadModules` API; supports every blitz log-producing generator (apache common/combined/error, filegen, json, kubernetes, nginx, okta, palo-alto, postgres). Non-log generators (`hostmetrics`, `traces`, `winevt`) are rejected with a clear error at startup. |
+| `additional_config.blitz_yaml` | string   |         | `true` (one of `recipe`/`blitz_yaml`) | A verbatim blitz YAML config string. Parsed by blitz's public `config.LoadModules` API; supports every embed-ready blitz generator matching the pipeline's signal type. Wrong-signal and non-embed-eligible generators (`winevt`, `nop`) are rejected with a clear error at startup. |
 
 Users wanting env-driven values inside `blitz_yaml` use the OTel collector's native env-substitution syntax at collector-config time — the receiver does not forward process env into the blitz loader.
 
-#### v1 limitations
+##### Body parsing (logs pipelines only)
 
-- `embed.LogRecord` at blitz v0.16.1 has no per-record resource or attributes; receiver-config `resource_attributes` / `attributes` are the sole source of those values on the outgoing plog. [PIPE-1021](https://linear.app/bindplane/issue/PIPE-1021) tracks the blitz contract expansion that adds uniform per-record metadata across all signal types. A follow-up receiver enhancement consumes it.
-- Metrics, traces, and the new `wel` Windows generator are deferred to a v2 receiver follow-up once blitz v0.17.0 ships.
+| Field                          | Type | Default | Required | Description |
+|--------------------------------|------|---------|----------|-------------|
+| `additional_config.parse_body` | bool | `false` | `false`  | When `true`, log records whose blitz generator supplies a parse callback emit a structured map body instead of the raw message string. Falls back to the raw message on any parse error. Default `false` emits raw log lines — the typical pipeline-testing shape. |
 
-#### Example — recipe
+#### Per-record metadata, `resource_attributes`, and `attributes`
+
+Blitz generators emit per-record metadata — `host.name`, `telemetry.source`, format identifiers, and other module-known dimensions — as per-record resource and attribute maps (blitz v0.18.0+, [PIPE-1021](https://linear.app/bindplane/issue/PIPE-1021)). The receiver merges that per-record metadata over the entry's `resource_attributes` / `attributes` config:
+
+- The receiver-config map is the **base**.
+- Blitz's per-record values **win on key conflict** (the generator knew the source-of-truth at emit time).
+- Records in a batch whose merged resources differ are emitted under separate `ResourceLogs` / `ResourceMetrics` / `ResourceSpans` groups; identical merged resources share a group.
+
+##### Per-key locking
+
+Any key in `resource_attributes` or `attributes` can be **locked** so blitz's per-record value cannot override it. Each key takes one of two forms:
+
+```yaml
+resource_attributes:
+    os.type: linux                    # simple form — unlocked, blitz wins on conflict
+    host.name:                        # structured form — locked
+        value: edge-node-7
+        lock: true
+    deployment.environment:           # structured form, lock omitted — same as simple
+        value: staging
+```
+
+The structured form requires a `value` sub-key; `lock` is optional and defaults to `false`. Only `value` and `lock` are allowed sub-keys — anything else is rejected at config validation with the offending key named in the error. Locking a key also collapses resource groups that differed only on that key.
+
+When to lock: pinning `host.name` for ingestion tests that route on a fixed hostname, pinning `deployment.environment` so generated data can't masquerade as another environment, or any key where the receiver config must win over generator-emitted values. The alternative — an `attributes` processor after the receiver — works too; locking just keeps the intent in one place.
+
+#### Example — recipe (logs)
 
 ```yaml
 telemetrygeneratorreceiver:
@@ -218,7 +251,9 @@ telemetrygeneratorreceiver:
         - type: blitz
           resource_attributes:
               service.name: my-app
-              deployment.environment: staging
+              deployment.environment:
+                  value: staging
+                  lock: true
           attributes:
               log.source: apache
           additional_config:
@@ -228,7 +263,7 @@ telemetrygeneratorreceiver:
                   rate: 100ms
 ```
 
-#### Example — custom blitz YAML
+#### Example — custom blitz YAML (logs)
 
 ```yaml
 telemetrygeneratorreceiver:
@@ -246,6 +281,48 @@ telemetrygeneratorreceiver:
                       json: {workers: 1, rate: 100ms, type: default}
                     - type: kubernetes
                       kubernetes: {workers: 1, rate: 100ms}
+                  output:
+                    type: nop
+                  logging:
+                    type: stdout
+                  metrics:
+                    port: 19000
+```
+
+#### Example — custom blitz YAML (metrics)
+
+```yaml
+telemetrygeneratorreceiver/metrics:
+    payloads_per_second: 1
+    generators:
+        - type: blitz
+          resource_attributes:
+              cluster.name: load-test-1
+          additional_config:
+              blitz_yaml: |
+                  generators:
+                    - type: hostmetrics
+                      hostmetrics: {workers: 1, rate: 10s}
+                  output:
+                    type: nop
+                  logging:
+                    type: stdout
+                  metrics:
+                    port: 19000
+```
+
+#### Example — custom blitz YAML (traces)
+
+```yaml
+telemetrygeneratorreceiver/traces:
+    payloads_per_second: 1
+    generators:
+        - type: blitz
+          additional_config:
+              blitz_yaml: |
+                  generators:
+                    - type: traces
+                      traces: {workers: 1, rate: 500ms}
                   output:
                     type: nop
                   logging:
