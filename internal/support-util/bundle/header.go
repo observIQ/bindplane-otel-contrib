@@ -69,7 +69,7 @@ func BuildHeader(opts BundleOptions, createdAt time.Time, publicKeyFingerprint s
 
 	contents := ContentsInfo{
 		System:    opts.IncludeSystemInfo,
-		Collector: opts.CollectorConfigPath != "" || opts.CollectorInstallRoot != "" || opts.CollectorLogDir != "",
+		Collector: opts.Collector.ConfigPath != "" || opts.Collector.InstallRoot != "" || opts.Collector.LogDir != "",
 		Sensors:   nil, // optional: could be populated from config later
 		Logs:      opts.IncludeLogs,
 	}
@@ -87,9 +87,9 @@ func BuildHeader(opts BundleOptions, createdAt time.Time, publicKeyFingerprint s
 			Arch:         arch,
 		},
 		Collector: CollectorInfo{
-			CollectorID:      opts.CollectorID,
-			CollectorVersion: opts.CollectorVersion,
-			InstallRoot:      opts.CollectorInstallRoot,
+			CollectorID:      opts.Collector.ID,
+			CollectorVersion: opts.Collector.Version,
+			InstallRoot:      opts.Collector.InstallRoot,
 		},
 		Contents: contents,
 	}

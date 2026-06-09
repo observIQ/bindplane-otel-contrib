@@ -25,7 +25,7 @@ func NewCollectorConfigSource(configPath string) *CollectorConfigSource {
 // Collect gathers collector configuration files as artifacts, stripping sensitive information
 func (s *CollectorConfigSource) Collect(opts bundle.BundleOptions) ([]bundle.Artifact, error) {
 	// Use collector config path from options if provided, otherwise use configured path
-	configPath := opts.CollectorConfigPath
+	configPath := opts.Collector.ConfigPath
 	if configPath == "" {
 		configPath = s.ConfigPath
 	}

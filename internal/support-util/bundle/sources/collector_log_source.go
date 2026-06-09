@@ -29,7 +29,7 @@ func (s *CollectorLogSource) Collect(opts bundle.BundleOptions) ([]bundle.Artifa
 	var artifacts []bundle.Artifact
 
 	// Use collector log directory from options if provided, otherwise use configured directory
-	logDir := opts.CollectorLogDir
+	logDir := opts.Collector.LogDir
 	if logDir == "" {
 		logDir = s.LogDir
 	}

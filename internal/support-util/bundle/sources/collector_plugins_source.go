@@ -12,7 +12,7 @@ import (
 )
 
 // CollectorPluginsSource collects all files from the collector install root's plugins/ directory.
-// YAML/yml files are sanitized for sensitive data. Used when opts.CollectorInstallRoot is set.
+// YAML/yml files are sanitized for sensitive data. Used when opts.Collector.InstallRoot is set.
 type CollectorPluginsSource struct{}
 
 // NewCollectorPluginsSource creates a new collector plugins source.
@@ -22,11 +22,11 @@ func NewCollectorPluginsSource() *CollectorPluginsSource {
 
 // Collect gathers all files under plugins/ as artifacts under a plugins/ prefix.
 func (s *CollectorPluginsSource) Collect(opts bundle.BundleOptions) ([]bundle.Artifact, error) {
-	if opts.CollectorInstallRoot == "" {
+	if opts.Collector.InstallRoot == "" {
 		return nil, nil
 	}
 
-	pluginsDir := filepath.Join(opts.CollectorInstallRoot, "plugins")
+	pluginsDir := filepath.Join(opts.Collector.InstallRoot, "plugins")
 	root, err := os.OpenRoot(pluginsDir)
 	if err != nil {
 		// Directory doesn't exist or can't be opened, return empty (not an error)
