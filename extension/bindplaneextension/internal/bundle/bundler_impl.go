@@ -21,8 +21,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/observiq/bindplane-otel-contrib/internal/support-util/bundle"
-	"github.com/observiq/bindplane-otel-contrib/internal/support-util/bundle/sources"
+	"github.com/observiq/bindplane-otel-contrib/pkg/support-util/bundle"
+	"github.com/observiq/bindplane-otel-contrib/pkg/support-util/bundle/sources"
 )
 
 // defaultEncryptionPublicKeyPEM is the RSA public key used to produce encrypted BNDL files
@@ -59,18 +59,18 @@ func (b *defaultBundler) Collect(_ context.Context) ([]byte, error) {
 		opts.OutputDir = os.TempDir()
 	}
 
-	opts.CollectorConfigPath = b.opts.CollectorConfigPath
-	opts.CollectorManagerConfigPath = b.opts.CollectorManagerConfig
-	opts.CollectorLogDir = b.opts.CollectorLogDir
-	opts.CollectorProfileDir = b.opts.CollectorProfileDir
-	opts.CollectorInstallRoot = b.opts.CollectorInstallRoot
+	opts.Collector.ConfigPath = b.opts.CollectorConfigPath
+	opts.Collector.ManagerConfigPath = b.opts.CollectorManagerConfig
+	opts.Collector.LogDir = b.opts.CollectorLogDir
+	opts.Collector.ProfileDir = b.opts.CollectorProfileDir
+	opts.Collector.InstallRoot = b.opts.CollectorInstallRoot
 	opts.IncludeConfig = b.opts.IncludeConfig
 	opts.IncludeLogs = b.opts.IncludeLogs
 	opts.IncludeSystemInfo = b.opts.IncludeSystemInfo
 	opts.IncludeProfiles = b.opts.IncludeProfiles
 	opts.IncludeNetworkState = b.opts.IncludeNetworkState
 	if b.opts.ProfileMaxAge > 0 {
-		opts.ProfileMaxAge = b.opts.ProfileMaxAge
+		opts.Collector.ProfileMaxAge = b.opts.ProfileMaxAge
 	}
 
 	encKey := b.opts.EncryptionPublicKeyPEM
