@@ -539,6 +539,17 @@ updates:
       include: "scope"
   ### RECEIVERS ###
   - package-ecosystem: "gomod"
+    directory: "/receiver/awsneuronreceiver"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # Opentelemetry updates will be done manually
+      - dependency-name: "go.opentelemetry.io/*"
+      - dependency-name: "github.com/open-telemetry/opentelemetry-collector*"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+  - package-ecosystem: "gomod"
     directory: "/receiver/awss3eventreceiver"
     schedule:
       interval: "weekly"

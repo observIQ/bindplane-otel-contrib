@@ -1,0 +1,271 @@
+type: awsneuron
+
+status:
+  class: receiver
+  stability:
+    alpha: [metrics]
+  unsupported_platforms: [darwin, windows]
+
+# Standard semconv resource attributes (cloud.*/host.*) plus Neuron-specific ones.
+resource_attributes:
+  aws.neuron.device.type:
+    type: string
+    description: Neuron device type (e.g. inferentia2, trainium1).
+    enabled: true
+  aws.neuron.neuroncore.version:
+    type: string
+    description: NeuronCore architecture version (e.g. v2).
+    enabled: true
+  cloud.availability_zone:
+    type: string
+    description: AWS availability zone of the instance.
+    enabled: true
+  cloud.provider:
+    type: string
+    description: Cloud provider ("aws").
+    enabled: true
+  cloud.region:
+    type: string
+    description: AWS region of the instance.
+    enabled: true
+  host.id:
+    type: string
+    description: EC2 instance ID.
+    enabled: true
+  host.type:
+    type: string
+    description: EC2 instance type.
+    enabled: true
+
+attributes:
+  cpu:
+    name_override: aws.neuron.cpu.logical_number
+    type: string
+    description: Logical CPU number, or "average".
+  cpu_state:
+    name_override: aws.neuron.cpu.state
+    type: string
+    description: vCPU time category (user, system, idle, ...).
+  error_type:
+    name_override: error.type
+    type: string
+    description: Error classification (semconv error.type).
+  execution_status:
+    name_override: aws.neuron.execution.status
+    type: string
+    description: Execution outcome bucket from neuron-monitor.
+  hw_id:
+    name_override: hw.id
+    type: string
+    description: Hardware component id (semconv hw.id), the Neuron device index.
+  latency_type:
+    name_override: aws.neuron.latency.type
+    type: string
+    description: Latency scope.
+    enum: [total, device]
+  memory_category:
+    name_override: aws.neuron.memory.category
+    type: string
+    description: Memory allocation category.
+  memory_state:
+    name_override: aws.neuron.memory.state
+    type: string
+    description: Whether the value is the current allocation or the peak.
+    enum: [present, peak]
+  memory_type:
+    name_override: aws.neuron.memory.type
+    type: string
+    description: Memory or ECC location (host, device, dram, sram).
+  neuroncore:
+    name_override: aws.neuron.neuroncore.id
+    type: int
+    description: NeuronCore index.
+  quantile:
+    name_override: aws.neuron.latency.quantile
+    type: string
+    description: Latency percentile (p0, p50, p99, p100, ...).
+  status:
+    name_override: aws.neuron.neuroncore.status
+    type: string
+    description: sysfs status/error counter name.
+
+metrics:
+  aws.neuron.device.host_memory.usage:
+    enabled: true
+    stability: alpha
+    description: Device-level host memory by sysfs category (present and peak).
+    unit: By
+    sum:
+      monotonic: false
+      aggregation_temporality: cumulative
+      value_type: int
+    attributes: [memory_category, memory_state]
+  aws.neuron.device.power.utilization:
+    enabled: false
+    stability: alpha
+    description: Device power utilization from sysfs (best-effort; not populated on all instances).
+    unit: "1"
+    gauge:
+      value_type: double
+  aws.neuron.errors:
+    enabled: true
+    stability: alpha
+    description: Cumulative ECC errors from Neuron hardware counters (neuron-monitor or sysfs).
+    unit: "{error}"
+    sum:
+      monotonic: true
+      aggregation_temporality: cumulative
+      value_type: int
+    attributes: [hw_id, memory_type, error_type]
+  aws.neuron.execution.count:
+    enabled: true
+    stability: alpha
+    description: Executions on the NeuronCore in the collection period, by outcome.
+    unit: "{execution}"
+    sum:
+      monotonic: true
+      aggregation_temporality: delta
+      value_type: int
+    attributes: [execution_status]
+  aws.neuron.execution.errors:
+    enabled: true
+    stability: alpha
+    description: Execution errors on the NeuronCore in the collection period.
+    unit: "{error}"
+    sum:
+      monotonic: true
+      aggregation_temporality: delta
+      value_type: int
+    attributes: [error_type]
+  aws.neuron.execution.latency:
+    enabled: true
+    stability: alpha
+    description: Execution latency percentiles reported by neuron-monitor.
+    unit: s
+    gauge:
+      value_type: double
+    attributes: [latency_type, quantile]
+  aws.neuron.monitor.memory.usage:
+    enabled: false
+    stability: alpha
+    description: neuron-monitor's own process memory usage (self_stats).
+    unit: By
+    sum:
+      monotonic: false
+      aggregation_temporality: cumulative
+      value_type: int
+  aws.neuron.neuroncore.device_memory.usage:
+    enabled: true
+    stability: alpha
+    description: Device memory per NeuronCore by fine-grained sysfs category (present and peak).
+    unit: By
+    sum:
+      monotonic: false
+      aggregation_temporality: cumulative
+      value_type: int
+    attributes: [neuroncore, memory_category, memory_state]
+  aws.neuron.neuroncore.flops:
+    enabled: true
+    stability: alpha
+    description: Effective floating point operations per second on the NeuronCore.
+    unit: "{flop}/s"
+    gauge:
+      value_type: double
+    attributes: [neuroncore]
+  aws.neuron.neuroncore.host_memory.usage:
+    enabled: true
+    stability: alpha
+    description: Host memory attributed to each NeuronCore from sysfs (present and peak).
+    unit: By
+    sum:
+      monotonic: false
+      aggregation_temporality: cumulative
+      value_type: int
+    attributes: [neuroncore, memory_state]
+  aws.neuron.neuroncore.inferences:
+    enabled: false
+    stability: alpha
+    description: Inference count from sysfs (runtime-gated; usually zero).
+    unit: "{inference}"
+    sum:
+      monotonic: true
+      aggregation_temporality: cumulative
+      value_type: int
+    attributes: [neuroncore]
+  aws.neuron.neuroncore.memory.usage:
+    enabled: true
+    stability: alpha
+    description: Device memory used per NeuronCore by category (neuron-monitor aggregate view).
+    unit: By
+    sum:
+      monotonic: false
+      aggregation_temporality: cumulative
+      value_type: int
+    attributes: [neuroncore, memory_category]
+  aws.neuron.neuroncore.status:
+    enabled: false
+    stability: alpha
+    description: sysfs per-NeuronCore status/error counters (runtime-gated; usually zero).
+    unit: "{event}"
+    sum:
+      monotonic: true
+      aggregation_temporality: cumulative
+      value_type: int
+    attributes: [neuroncore, status]
+  aws.neuron.neuroncore.time_in_use:
+    enabled: false
+    stability: alpha
+    description: NeuronCore time-in-use counter from sysfs (runtime-gated; usually zero).
+    unit: s
+    sum:
+      monotonic: true
+      aggregation_temporality: cumulative
+      value_type: int
+    attributes: [neuroncore]
+  aws.neuron.neuroncore.utilization:
+    enabled: true
+    stability: alpha
+    description: Fraction of time the NeuronCore was in use.
+    unit: "1"
+    gauge:
+      value_type: double
+    attributes: [neuroncore]
+  aws.neuron.runtime.memory.usage:
+    enabled: true
+    stability: alpha
+    description: Memory used by the Neuron runtime.
+    unit: By
+    sum:
+      monotonic: false
+      aggregation_temporality: cumulative
+      value_type: int
+    attributes: [memory_type]
+  aws.neuron.runtime.vcpu.utilization:
+    enabled: false
+    stability: alpha
+    description: Per-runtime vCPU utilization reported by neuron-monitor.
+    unit: "1"
+    gauge:
+      value_type: double
+    attributes: [cpu_state]
+  aws.neuron.system.cpu.utilization:
+    enabled: false
+    stability: alpha
+    description: System vCPU utilization reported by neuron-monitor (duplicates the hostmetrics receiver).
+    unit: "1"
+    gauge:
+      value_type: double
+    attributes: [cpu, cpu_state]
+  aws.neuron.system.memory.usage:
+    enabled: false
+    stability: alpha
+    description: System memory reported by neuron-monitor (duplicates the hostmetrics receiver).
+    unit: By
+    sum:
+      monotonic: false
+      aggregation_temporality: cumulative
+      value_type: int
+    attributes: [memory_type]
+
+tests:
+  config:

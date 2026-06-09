@@ -1,0 +1,277 @@
+default:
+all_set:
+  metrics:
+    aws.neuron.device.host_memory.usage:
+      enabled: true
+      attributes: ["aws.neuron.memory.category","aws.neuron.memory.state"]
+    aws.neuron.device.power.utilization:
+      enabled: true
+    aws.neuron.errors:
+      enabled: true
+      attributes: ["hw.id","aws.neuron.memory.type","error.type"]
+    aws.neuron.execution.count:
+      enabled: true
+      attributes: ["aws.neuron.execution.status"]
+    aws.neuron.execution.errors:
+      enabled: true
+      attributes: ["error.type"]
+    aws.neuron.execution.latency:
+      enabled: true
+      attributes: ["aws.neuron.latency.type","aws.neuron.latency.quantile"]
+    aws.neuron.monitor.memory.usage:
+      enabled: true
+    aws.neuron.neuroncore.device_memory.usage:
+      enabled: true
+      attributes: ["aws.neuron.neuroncore.id","aws.neuron.memory.category","aws.neuron.memory.state"]
+    aws.neuron.neuroncore.flops:
+      enabled: true
+      attributes: ["aws.neuron.neuroncore.id"]
+    aws.neuron.neuroncore.host_memory.usage:
+      enabled: true
+      attributes: ["aws.neuron.neuroncore.id","aws.neuron.memory.state"]
+    aws.neuron.neuroncore.inferences:
+      enabled: true
+      attributes: ["aws.neuron.neuroncore.id"]
+    aws.neuron.neuroncore.memory.usage:
+      enabled: true
+      attributes: ["aws.neuron.neuroncore.id","aws.neuron.memory.category"]
+    aws.neuron.neuroncore.status:
+      enabled: true
+      attributes: ["aws.neuron.neuroncore.id","aws.neuron.neuroncore.status"]
+    aws.neuron.neuroncore.time_in_use:
+      enabled: true
+      attributes: ["aws.neuron.neuroncore.id"]
+    aws.neuron.neuroncore.utilization:
+      enabled: true
+      attributes: ["aws.neuron.neuroncore.id"]
+    aws.neuron.runtime.memory.usage:
+      enabled: true
+      attributes: ["aws.neuron.memory.type"]
+    aws.neuron.runtime.vcpu.utilization:
+      enabled: true
+      attributes: ["aws.neuron.cpu.state"]
+    aws.neuron.system.cpu.utilization:
+      enabled: true
+      attributes: ["aws.neuron.cpu.logical_number","aws.neuron.cpu.state"]
+    aws.neuron.system.memory.usage:
+      enabled: true
+      attributes: ["aws.neuron.memory.type"]
+  resource_attributes:
+    aws.neuron.device.type:
+      enabled: true
+    aws.neuron.neuroncore.version:
+      enabled: true
+    cloud.availability_zone:
+      enabled: true
+    cloud.provider:
+      enabled: true
+    cloud.region:
+      enabled: true
+    host.id:
+      enabled: true
+    host.type:
+      enabled: true
+reaggregate_set:
+  metrics:
+    aws.neuron.device.host_memory.usage:
+      enabled: true
+      attributes: []
+    aws.neuron.device.power.utilization:
+      enabled: true
+    aws.neuron.errors:
+      enabled: true
+      attributes: []
+    aws.neuron.execution.count:
+      enabled: true
+      attributes: []
+    aws.neuron.execution.errors:
+      enabled: true
+      attributes: []
+    aws.neuron.execution.latency:
+      enabled: true
+      attributes: []
+    aws.neuron.monitor.memory.usage:
+      enabled: true
+    aws.neuron.neuroncore.device_memory.usage:
+      enabled: true
+      attributes: []
+    aws.neuron.neuroncore.flops:
+      enabled: true
+      attributes: []
+    aws.neuron.neuroncore.host_memory.usage:
+      enabled: true
+      attributes: []
+    aws.neuron.neuroncore.inferences:
+      enabled: true
+      attributes: []
+    aws.neuron.neuroncore.memory.usage:
+      enabled: true
+      attributes: []
+    aws.neuron.neuroncore.status:
+      enabled: true
+      attributes: []
+    aws.neuron.neuroncore.time_in_use:
+      enabled: true
+      attributes: []
+    aws.neuron.neuroncore.utilization:
+      enabled: true
+      attributes: []
+    aws.neuron.runtime.memory.usage:
+      enabled: true
+      attributes: []
+    aws.neuron.runtime.vcpu.utilization:
+      enabled: true
+      attributes: []
+    aws.neuron.system.cpu.utilization:
+      enabled: true
+      attributes: []
+    aws.neuron.system.memory.usage:
+      enabled: true
+      attributes: []
+  resource_attributes:
+    aws.neuron.device.type:
+      enabled: true
+    aws.neuron.neuroncore.version:
+      enabled: true
+    cloud.availability_zone:
+      enabled: true
+    cloud.provider:
+      enabled: true
+    cloud.region:
+      enabled: true
+    host.id:
+      enabled: true
+    host.type:
+      enabled: true
+none_set:
+  metrics:
+    aws.neuron.device.host_memory.usage:
+      enabled: false
+      attributes: ["aws.neuron.memory.category","aws.neuron.memory.state"]
+    aws.neuron.device.power.utilization:
+      enabled: false
+    aws.neuron.errors:
+      enabled: false
+      attributes: ["hw.id","aws.neuron.memory.type","error.type"]
+    aws.neuron.execution.count:
+      enabled: false
+      attributes: ["aws.neuron.execution.status"]
+    aws.neuron.execution.errors:
+      enabled: false
+      attributes: ["error.type"]
+    aws.neuron.execution.latency:
+      enabled: false
+      attributes: ["aws.neuron.latency.type","aws.neuron.latency.quantile"]
+    aws.neuron.monitor.memory.usage:
+      enabled: false
+    aws.neuron.neuroncore.device_memory.usage:
+      enabled: false
+      attributes: ["aws.neuron.neuroncore.id","aws.neuron.memory.category","aws.neuron.memory.state"]
+    aws.neuron.neuroncore.flops:
+      enabled: false
+      attributes: ["aws.neuron.neuroncore.id"]
+    aws.neuron.neuroncore.host_memory.usage:
+      enabled: false
+      attributes: ["aws.neuron.neuroncore.id","aws.neuron.memory.state"]
+    aws.neuron.neuroncore.inferences:
+      enabled: false
+      attributes: ["aws.neuron.neuroncore.id"]
+    aws.neuron.neuroncore.memory.usage:
+      enabled: false
+      attributes: ["aws.neuron.neuroncore.id","aws.neuron.memory.category"]
+    aws.neuron.neuroncore.status:
+      enabled: false
+      attributes: ["aws.neuron.neuroncore.id","aws.neuron.neuroncore.status"]
+    aws.neuron.neuroncore.time_in_use:
+      enabled: false
+      attributes: ["aws.neuron.neuroncore.id"]
+    aws.neuron.neuroncore.utilization:
+      enabled: false
+      attributes: ["aws.neuron.neuroncore.id"]
+    aws.neuron.runtime.memory.usage:
+      enabled: false
+      attributes: ["aws.neuron.memory.type"]
+    aws.neuron.runtime.vcpu.utilization:
+      enabled: false
+      attributes: ["aws.neuron.cpu.state"]
+    aws.neuron.system.cpu.utilization:
+      enabled: false
+      attributes: ["aws.neuron.cpu.logical_number","aws.neuron.cpu.state"]
+    aws.neuron.system.memory.usage:
+      enabled: false
+      attributes: ["aws.neuron.memory.type"]
+  resource_attributes:
+    aws.neuron.device.type:
+      enabled: false
+    aws.neuron.neuroncore.version:
+      enabled: false
+    cloud.availability_zone:
+      enabled: false
+    cloud.provider:
+      enabled: false
+    cloud.region:
+      enabled: false
+    host.id:
+      enabled: false
+    host.type:
+      enabled: false
+filter_set_include:
+  resource_attributes:
+    aws.neuron.device.type:
+      enabled: true
+      metrics_include:
+        - regexp: ".*"
+    aws.neuron.neuroncore.version:
+      enabled: true
+      metrics_include:
+        - regexp: ".*"
+    cloud.availability_zone:
+      enabled: true
+      metrics_include:
+        - regexp: ".*"
+    cloud.provider:
+      enabled: true
+      metrics_include:
+        - regexp: ".*"
+    cloud.region:
+      enabled: true
+      metrics_include:
+        - regexp: ".*"
+    host.id:
+      enabled: true
+      metrics_include:
+        - regexp: ".*"
+    host.type:
+      enabled: true
+      metrics_include:
+        - regexp: ".*"
+filter_set_exclude:
+  resource_attributes:
+    aws.neuron.device.type:
+      enabled: true
+      metrics_exclude:
+        - strict: "aws.neuron.device.type-val"
+    aws.neuron.neuroncore.version:
+      enabled: true
+      metrics_exclude:
+        - strict: "aws.neuron.neuroncore.version-val"
+    cloud.availability_zone:
+      enabled: true
+      metrics_exclude:
+        - strict: "cloud.availability_zone-val"
+    cloud.provider:
+      enabled: true
+      metrics_exclude:
+        - strict: "cloud.provider-val"
+    cloud.region:
+      enabled: true
+      metrics_exclude:
+        - strict: "cloud.region-val"
+    host.id:
+      enabled: true
+      metrics_exclude:
+        - strict: "host.id-val"
+    host.type:
+      enabled: true
+      metrics_exclude:
+        - strict: "host.type-val"
