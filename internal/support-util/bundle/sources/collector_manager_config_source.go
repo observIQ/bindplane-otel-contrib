@@ -25,7 +25,7 @@ func NewCollectorManagerConfigSource(managerConfigPath string) *CollectorManager
 // Collect gathers collector manager configuration files as artifacts, stripping sensitive information
 func (s *CollectorManagerConfigSource) Collect(opts bundle.BundleOptions) ([]bundle.Artifact, error) {
 	// Use collector manager config path from options if provided, otherwise use configured path
-	configPath := opts.CollectorManagerConfigPath
+	configPath := opts.Collector.ManagerConfigPath
 	if configPath == "" {
 		configPath = s.ManagerConfigPath
 	}

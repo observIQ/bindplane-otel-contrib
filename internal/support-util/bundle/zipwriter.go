@@ -12,17 +12,22 @@ import (
 // ZipWriter implements BundleWriter using zip format for Windows
 type ZipWriter struct{}
 
+func ValidateFilePath(dir string) (string, error) {
+	if dir == "" || dir == "." {
+		return "", fmt.Errorf("output directory must be specified and cannot be current directory")
+	}
+	return dir, nil
+}
+
 // WriteBundle creates a zip file containing all artifacts
 func (w *ZipWriter) WriteBundle(name string, artifacts []Artifact) (string, error) {
 	// ZipWriter is intended for Windows, but we allow it on other platforms too
 	// The caller should select the appropriate writer based on platform
 
-	// Create output directory if it doesn't exist
-	outputDir := filepath.Dir(name)
 	outputFile := filepath.Base(name)
-
-	if outputDir == "" || outputDir == "." {
-		return "", fmt.Errorf("output directory must be specified and cannot be current directory")
+	outputDir, err := ValidateFilePath(filepath.Dir(name))
+	if err != nil {
+		return "", err
 	}
 
 	if err := os.MkdirAll(outputDir, 0750); err != nil {

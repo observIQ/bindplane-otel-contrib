@@ -5,46 +5,53 @@ import (
 	"time"
 )
 
+// CollectorOptions holds paths and identity for the local Otel Collector installation.
+type CollectorOptions struct {
+	InstallRoot       string // When set, root configs, log/, plugins/, version.txt are gathered from here.
+	LogDir            string
+	ConfigPath        string
+	ManagerConfigPath string
+	ProfileDir        string
+	ProfileMaxAge     int    // Maximum age in hours for profiles
+	ID                string // optional, for header
+	Version           string // optional, for header
+}
+
+// PrometheusOptions configures Prometheus metrics scraping from the Otel Collector.
+type PrometheusOptions struct {
+	Enabled                bool
+	MetricsEndpoint        string        // base URL, e.g. http://localhost:8888
+	ScrapeTimeout          time.Duration // HTTP timeout per scrape (e.g. 10s)
+	ScrapeInterval         time.Duration // if > 0, multiple scrapes at this interval
+	ScrapeDuration         time.Duration // if > 0 with interval, run for this long (e.g. 5m); scrapes = duration/interval, capped
+	RetryBackoffInitial    time.Duration // initial delay before first retry (e.g. 1s)
+	RetryBackoffMultiplier float64       // exponential backoff multiplier (e.g. 2.0)
+	MaxRetryDuration       time.Duration // stop retrying after this long from first attempt (e.g. 60s)
+	// Optional up-check before scrape; when zero, package defaults are used (3 attempts, 5s timeout, 2s delay).
+	UpCheckMaxAttempts int           // if > 0, max attempts for isUp check
+	UpCheckTimeout     time.Duration // if > 0, timeout per isUp attempt
+	UpCheckDelay       time.Duration // if > 0, delay between isUp attempts
+}
+
 // BundleOptions contains configuration for bundle creation
 type BundleOptions struct {
-	IncludeConfig              bool
-	IncludeLogs                bool
-	IncludeNetworkState        bool
-	IncludeSystemInfo          bool
-	IncludeProfiles            bool
-	AgentID                    string
-	OrgID                      string   // optional, for header; used by backend to select decryption key
-	AgentVersion               string   // optional, for header
-	CollectorID                string   // optional, for header
-	CollectorVersion           string   // optional, for header
-	Hostname                   string   // optional; if empty, os.Hostname() used when building header
-	CollectAllLogs             bool
-	IncludeRotatedLogs         bool
-	LogDir                     string
-	ConfigPath                 string
-	CollectorInstallRoot       string // When set, root configs, log/, plugins/, version.txt are gathered from here.
-	CollectorLogDir            string
-	CollectorConfigPath        string
-	CollectorManagerConfigPath string
-	CollectorProfileDir        string
-	ProfileMaxAge              int // Maximum age in hours for profiles
-	OutputDir                  string
+	IncludeConfig       bool
+	IncludeLogs         bool
+	IncludeNetworkState bool
+	IncludeSystemInfo   bool
+	IncludeProfiles     bool
+	AgentID             string
+	OrgID               string // optional, for header; used by backend to select decryption key
+	AgentVersion        string // optional, for header
+	Hostname            string // optional; if empty, os.Hostname() used when building header
+	CollectAllLogs      bool
+	IncludeRotatedLogs  bool
+	LogDir              string
+	ConfigPath          string
+	OutputDir           string
 
-	// Prometheus metrics from Otel Collector (default http://localhost:8888/metrics)
-	IncludePrometheusMetrics         bool
-	PrometheusMetricsEndpoint        string        // base URL, e.g. http://localhost:8888
-	PrometheusScrapeTimeout         time.Duration // HTTP timeout per scrape (e.g. 10s)
-	PrometheusScrapeInterval         time.Duration // if > 0, multiple scrapes at this interval
-	PrometheusScrapeDuration         time.Duration // if > 0 with interval, run for this long (e.g. 5m); scrapes = duration/interval, capped
-	PrometheusRetryBackoffInitial    time.Duration // initial delay before first retry (e.g. 1s)
-	PrometheusRetryBackoffMultiplier float64       // exponential backoff multiplier (e.g. 2.0)
-	PrometheusMaxRetryDuration       time.Duration // stop retrying after this long from first attempt (e.g. 60s)
-	// Optional up-check before scrape; when zero, package defaults are used (3 attempts, 5s timeout, 2s delay).
-	// Used to avoid failing the bundle when the metrics endpoint is not listening.
-	PrometheusUpCheckMaxAttempts   int           // if > 0, max attempts for isUp check
-	PrometheusUpCheckTimeout      time.Duration // if > 0, timeout per isUp attempt
-	PrometheusUpCheckDelay         time.Duration // if > 0, delay between isUp attempts
-
+	Collector  CollectorOptions
+	Prometheus PrometheusOptions
 	Encryption EncryptionOptions
 }
 

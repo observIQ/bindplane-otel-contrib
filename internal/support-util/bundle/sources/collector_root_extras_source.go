@@ -8,7 +8,7 @@ import (
 )
 
 // CollectorRootExtrasSource collects logging.yaml and version.txt from the collector install root.
-// It is used when opts.CollectorInstallRoot is set (e.g. from config or Windows registry discovery).
+// It is used when opts.Collector.InstallRoot is set (e.g. from config or Windows registry discovery).
 type CollectorRootExtrasSource struct{}
 
 // NewCollectorRootExtrasSource creates a new collector root extras source.
@@ -19,11 +19,11 @@ func NewCollectorRootExtrasSource() *CollectorRootExtrasSource {
 // Collect gathers logging.yaml and version.txt (or VERSION.txt) from the install root as artifacts.
 // Missing files are skipped without error.
 func (s *CollectorRootExtrasSource) Collect(opts bundle.BundleOptions) ([]bundle.Artifact, error) {
-	if opts.CollectorInstallRoot == "" {
+	if opts.Collector.InstallRoot == "" {
 		return nil, nil
 	}
 
-	root, err := os.OpenRoot(opts.CollectorInstallRoot)
+	root, err := os.OpenRoot(opts.Collector.InstallRoot)
 	if err != nil {
 		return nil, nil
 	}

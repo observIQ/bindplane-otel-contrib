@@ -33,7 +33,7 @@ func (s *CollectorProfileSource) Collect(opts bundle.BundleOptions) ([]bundle.Ar
 	var artifacts []bundle.Artifact
 
 	// Use collector profile directory from options if provided, otherwise use configured directory
-	profileDir := opts.CollectorProfileDir
+	profileDir := opts.Collector.ProfileDir
 	if profileDir == "" {
 		profileDir = s.ProfileDir
 	}
@@ -52,8 +52,8 @@ func (s *CollectorProfileSource) Collect(opts bundle.BundleOptions) ([]bundle.Ar
 
 	// Calculate cutoff time for recent profiles (default: last 24 hours)
 	cutoffTime := time.Now().Add(-24 * time.Hour)
-	if opts.ProfileMaxAge > 0 {
-		cutoffTime = time.Now().Add(-time.Duration(opts.ProfileMaxAge) * time.Hour)
+	if opts.Collector.ProfileMaxAge > 0 {
+		cutoffTime = time.Now().Add(-time.Duration(opts.Collector.ProfileMaxAge) * time.Hour)
 	}
 
 	// Walk directory and collect profile files using scoped root
@@ -92,7 +92,7 @@ func (s *CollectorProfileSource) Collect(opts bundle.BundleOptions) ([]bundle.Ar
 		}
 
 		// Check if file is recent enough (if max age is specified)
-		if opts.ProfileMaxAge > 0 && info.ModTime().Before(cutoffTime) {
+		if opts.Collector.ProfileMaxAge > 0 && info.ModTime().Before(cutoffTime) {
 			return nil
 		}
 
