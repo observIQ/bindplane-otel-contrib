@@ -706,8 +706,16 @@ func filterAttrsForProfile(attrs map[string]Attribute, profile string) map[strin
 // Each profile defines the same set of attributes regardless of which class/object it appears on.
 func collectProfileAttrs(schema Schema) map[string]map[string]Attribute {
 	profileAttrs := map[string]map[string]Attribute{}
-	for _, cls := range schema.Classes {
-		for attrName, attr := range cls.Attributes {
+	// Iterate classes/objects and their attributes in sorted order. The same
+	// profile attribute can be defined in many classes/objects with conflicting
+	// values (e.g. differing "requirement"), and this collapses them last-write-wins
+	// into a single shared per-profile validator. Ranging Go maps directly would
+	// pick the winner by randomized iteration order, making generation
+	// non-deterministic; sorted iteration makes the result stable across runs.
+	for _, clsName := range sortedKeys(schema.Classes) {
+		cls := schema.Classes[clsName]
+		for _, attrName := range sortedKeys(cls.Attributes) {
+			attr := cls.Attributes[attrName]
 			if attr.Profile == "" {
 				continue
 			}
@@ -717,8 +725,10 @@ func collectProfileAttrs(schema Schema) map[string]map[string]Attribute {
 			profileAttrs[attr.Profile][attrName] = attr
 		}
 	}
-	for _, obj := range schema.Objects {
-		for attrName, attr := range obj.Attributes {
+	for _, objName := range sortedKeys(schema.Objects) {
+		obj := schema.Objects[objName]
+		for _, attrName := range sortedKeys(obj.Attributes) {
+			attr := obj.Attributes[attrName]
 			if attr.Profile == "" {
 				continue
 			}
