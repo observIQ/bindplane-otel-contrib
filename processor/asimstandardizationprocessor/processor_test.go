@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.uber.org/zap"
 )
@@ -635,4 +636,113 @@ func TestAttributionFields_CallerMapMutationDoesNotLeak(t *testing.T) {
 	attribution := af["Attribution"].(map[string]any)
 	require.Equal(t, "bindplane", attribution["bindplane_source"])
 	require.NotContains(t, attribution, "new_key")
+}
+
+// authFieldMappingsWithout returns minimalAuthFieldMappings minus any
+// mappings targeting the given columns.
+func authFieldMappingsWithout(cols ...string) []FieldMapping {
+	skip := make(map[string]bool, len(cols))
+	for _, c := range cols {
+		skip[c] = true
+	}
+	out := make([]FieldMapping, 0, len(minimalAuthFieldMappings))
+	for _, fm := range minimalAuthFieldMappings {
+		if skip[fm.To] {
+			continue
+		}
+		out = append(out, fm)
+	}
+	return out
+}
+
+func TestTimeGenerated_AutoPopulatedFromEventEndTime(t *testing.T) {
+	on := true
+	p := newProcessor(t, &Config{
+		RuntimeValidation: &on,
+		EventMappings: []EventMapping{
+			{
+				TargetTable:   TargetTableAuthentication,
+				FieldMappings: authFieldMappingsWithout("TimeGenerated"),
+			},
+		},
+	})
+
+	body := authInputBody()
+	body["end"] = "2024-06-01T12:34:56.789Z"
+
+	out, err := p.processLogs(context.Background(), newLogsWithBody(body))
+	require.NoError(t, err)
+	require.Equal(t, 1, countLogRecords(out), "record must survive runtime validation via auto-populated TimeGenerated")
+
+	got := firstRecord(t, out).Body().Map().AsRaw()
+	require.Equal(t, "2024-06-01T12:34:56.789Z", got["TimeGenerated"], "TimeGenerated must equal the coerced EventEndTime")
+	require.Equal(t, got["EventEndTime"], got["TimeGenerated"])
+}
+
+func TestTimeGenerated_FallsBackToStartTime(t *testing.T) {
+	// EventEndTime is unmapped here, so runtime validation stays off (the
+	// newProcessor default) — it would otherwise drop the record for the
+	// missing mandatory EventEndTime column before TimeGenerated matters.
+	p := newProcessor(t, &Config{
+		EventMappings: []EventMapping{
+			{
+				TargetTable:   TargetTableAuthentication,
+				FieldMappings: authFieldMappingsWithout("TimeGenerated", "EventEndTime"),
+			},
+		},
+	})
+
+	body := authInputBody()
+	body["start"] = "2024-05-05T05:05:05Z"
+
+	out, err := p.processLogs(context.Background(), newLogsWithBody(body))
+	require.NoError(t, err)
+
+	got := firstRecord(t, out).Body().Map().AsRaw()
+	require.Equal(t, "2024-05-05T05:05:05Z", got["TimeGenerated"], "TimeGenerated must fall back to the coerced EventStartTime")
+	require.Equal(t, got["EventStartTime"], got["TimeGenerated"])
+}
+
+func TestTimeGenerated_FallsBackToObservedTimestamp(t *testing.T) {
+	p := newProcessor(t, &Config{
+		EventMappings: []EventMapping{
+			{
+				TargetTable:   TargetTableAuthentication,
+				FieldMappings: authFieldMappingsWithout("TimeGenerated", "EventStartTime", "EventEndTime"),
+			},
+		},
+	})
+
+	observed := time.Date(2024, 3, 15, 8, 30, 0, 123456789, time.UTC)
+	ld := newLogsWithBody(authInputBody())
+	ld.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0).
+		SetObservedTimestamp(pcommon.NewTimestampFromTime(observed))
+
+	out, err := p.processLogs(context.Background(), ld)
+	require.NoError(t, err)
+
+	got := firstRecord(t, out).Body().Map().AsRaw()
+	require.Equal(t, observed.UTC().Format(time.RFC3339Nano), got["TimeGenerated"], "TimeGenerated must fall back to the observed timestamp")
+}
+
+func TestTimeGenerated_ExplicitMappingWins(t *testing.T) {
+	p := newProcessor(t, &Config{
+		EventMappings: []EventMapping{
+			{
+				TargetTable:   TargetTableAuthentication,
+				FieldMappings: minimalAuthFieldMappings,
+			},
+		},
+	})
+
+	body := authInputBody()
+	body["time"] = "2024-01-01T01:02:03Z"
+	body["end"] = "2024-12-31T23:59:59Z"
+
+	out, err := p.processLogs(context.Background(), newLogsWithBody(body))
+	require.NoError(t, err)
+
+	got := firstRecord(t, out).Body().Map().AsRaw()
+	require.Equal(t, "2024-01-01T01:02:03Z", got["TimeGenerated"], "explicit TimeGenerated mapping must win over auto-population")
+	require.NotEqual(t, got["EventEndTime"], got["TimeGenerated"])
 }
