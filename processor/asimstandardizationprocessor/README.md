@@ -94,6 +94,13 @@ ending in silent data loss):
    warn log. Set `runtime_validation: false` to skip this check (coercion
    still runs).
 
+`TimeGenerated` no longer needs an explicit field mapping: when no mapping
+sets it, the processor auto-populates it from the first available of
+`EventEndTime`, `EventStartTime`, the log record's timestamp, its observed
+timestamp, or the current time. The auto-populated value flows through the
+same datetime coercion as user-mapped columns. An explicit `TimeGenerated`
+mapping always takes precedence.
+
 The full per-table column-type map is sourced from Microsoft's
 [KqlvalidationsTests CustomTables](https://github.com/Azure/Azure-Sentinel/tree/master/.script/tests/KqlvalidationsTests/CustomTables)
 JSON, with hand overrides for fields where the published validation schema
