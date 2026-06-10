@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/exporter/googlecloudstorageexporter
 
-go 1.25.9
+go 1.26.4
 
 require (
 	cloud.google.com/go/storage v1.62.2

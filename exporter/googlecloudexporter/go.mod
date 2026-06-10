@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/exporter/googlecloudexporter
 
-go 1.25.9
+go 1.26.4
 
 require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/collector v0.56.0

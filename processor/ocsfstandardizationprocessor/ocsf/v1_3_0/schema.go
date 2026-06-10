@@ -25128,6 +25128,9 @@ func validateProfileDatetime(data map[string]any) error {
 // validateProfileHost checks required fields, constraints, and enum values.
 func validateProfileHost(data map[string]any) error {
 	var errs []error
+	if _, ok := data["actor"]; !ok {
+		errs = append(errs, errors.New("actor is required"))
+	}
 	if v, ok := data["actor"]; ok {
 		if m, ok := v.(map[string]any); ok {
 			if err := validateActor(m); err != nil {

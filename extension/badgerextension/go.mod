@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/extension/badgerextension
 
-go 1.25.9
+go 1.26.4
 
 require (
 	github.com/dgraph-io/badger/v4 v4.9.1

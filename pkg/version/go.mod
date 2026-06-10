@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/pkg/version
 
-go 1.25.9
+go 1.26.4
 
 require github.com/stretchr/testify v1.11.1
 

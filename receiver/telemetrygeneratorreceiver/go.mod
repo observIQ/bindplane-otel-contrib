@@ -1,6 +1,6 @@
 module github.com/observiq/bindplane-otel-contrib/receiver/telemetrygeneratorreceiver
 
-go 1.26.0
+go 1.26.4
 
 require (
 	github.com/observiq/blitz v0.19.1
