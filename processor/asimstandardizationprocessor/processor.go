@@ -17,6 +17,7 @@ package asimstandardizationprocessor
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/observiq/bindplane-otel-contrib/pkg/expr"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -33,6 +34,9 @@ const (
 	// additionalFieldsColumn is the ASIM dynamic column where the original
 	// pre-transform payload is stashed so unmapped fields stay queryable.
 	additionalFieldsColumn = "AdditionalFields"
+	// timeGeneratedColumn is the ingestion-time column Azure's Custom-ASim*
+	// stream contract requires in the payload; auto-populated when unmapped.
+	timeGeneratedColumn = "TimeGenerated"
 	// sentinelStreamNamePrefix is the Custom-* prefix Azure DCRs require.
 	sentinelStreamNamePrefix = "Custom-"
 )
@@ -201,6 +205,28 @@ func (asp *asimStandardizationProcessor) processLogRecord(log plog.LogRecord, re
 			newBody[additionalFieldsColumn] = wrapped
 		} else if originalBody != nil {
 			newBody[additionalFieldsColumn] = originalBody
+		}
+
+		// Azure's Custom-ASim* stream contract requires TimeGenerated in the
+		// upload payload, but users routinely assume Azure stamps it and leave
+		// it unmapped — runtime_validation then drops 100% of matched records.
+		// Auto-populate it when no field mapping set it. Reusing the raw
+		// (pre-coercion) EventEndTime/EventStartTime values is intentional:
+		// the coercion loop below coerces TimeGenerated through the same
+		// datetime path (→ RFC3339Nano) as those columns.
+		if v, ok := newBody[timeGeneratedColumn]; !ok || v == nil {
+			switch {
+			case newBody["EventEndTime"] != nil:
+				newBody[timeGeneratedColumn] = newBody["EventEndTime"]
+			case newBody["EventStartTime"] != nil:
+				newBody[timeGeneratedColumn] = newBody["EventStartTime"]
+			case log.Timestamp() != 0:
+				newBody[timeGeneratedColumn] = log.Timestamp().AsTime().UTC().Format(time.RFC3339Nano)
+			case log.ObservedTimestamp() != 0:
+				newBody[timeGeneratedColumn] = log.ObservedTimestamp().AsTime().UTC().Format(time.RFC3339Nano)
+			default:
+				newBody[timeGeneratedColumn] = time.Now().UTC().Format(time.RFC3339Nano)
+			}
 		}
 
 		// Type-coerce mapped fields against the target ASIM table's column
