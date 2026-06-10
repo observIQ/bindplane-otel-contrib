@@ -91,9 +91,6 @@ var MetricsInfo = metricsInfo{
 	AwsNeuronExecutionLatency: metricInfo{
 		Name: "aws.neuron.execution.latency",
 	},
-	AwsNeuronMonitorMemoryUsage: metricInfo{
-		Name: "aws.neuron.monitor.memory.usage",
-	},
 	AwsNeuronNeuroncoreDeviceMemoryUsage: metricInfo{
 		Name: "aws.neuron.neuroncore.device_memory.usage",
 	},
@@ -139,7 +136,6 @@ type metricsInfo struct {
 	AwsNeuronExecutionCount              metricInfo
 	AwsNeuronExecutionErrors             metricInfo
 	AwsNeuronExecutionLatency            metricInfo
-	AwsNeuronMonitorMemoryUsage          metricInfo
 	AwsNeuronNeuroncoreDeviceMemoryUsage metricInfo
 	AwsNeuronNeuroncoreFlops             metricInfo
 	AwsNeuronNeuroncoreHostMemoryUsage   metricInfo
@@ -665,58 +661,6 @@ func (m *metricAwsNeuronExecutionLatency) emit(metrics pmetric.MetricSlice) {
 
 func newMetricAwsNeuronExecutionLatency(cfg AwsNeuronExecutionLatencyMetricConfig) metricAwsNeuronExecutionLatency {
 	m := metricAwsNeuronExecutionLatency{config: cfg}
-
-	if cfg.Enabled {
-		m.data = pmetric.NewMetric()
-		m.init()
-	}
-	return m
-}
-
-type metricAwsNeuronMonitorMemoryUsage struct {
-	data     pmetric.Metric                          // data buffer for generated metric.
-	config   AwsNeuronMonitorMemoryUsageMetricConfig // metric config provided by user.
-	capacity int                                     // max observed number of data points added to the metric.
-}
-
-// init fills aws.neuron.monitor.memory.usage metric with initial data.
-func (m *metricAwsNeuronMonitorMemoryUsage) init() {
-	m.data.SetName("aws.neuron.monitor.memory.usage")
-	m.data.SetDescription("neuron-monitor's own process memory usage (self_stats).")
-	m.data.SetUnit("By")
-	m.data.SetEmptySum()
-	m.data.Sum().SetIsMonotonic(false)
-	m.data.Sum().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
-}
-
-func (m *metricAwsNeuronMonitorMemoryUsage) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val int64) {
-	if !m.config.Enabled {
-		return
-	}
-	dp := m.data.Sum().DataPoints().AppendEmpty()
-	dp.SetStartTimestamp(start)
-	dp.SetTimestamp(ts)
-	dp.SetIntValue(val)
-}
-
-// updateCapacity saves max length of data point slices that will be used for the slice capacity.
-func (m *metricAwsNeuronMonitorMemoryUsage) updateCapacity() {
-	if m.data.Sum().DataPoints().Len() > m.capacity {
-		m.capacity = m.data.Sum().DataPoints().Len()
-	}
-}
-
-// emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
-func (m *metricAwsNeuronMonitorMemoryUsage) emit(metrics pmetric.MetricSlice) {
-	if m.config.Enabled && m.data.Sum().DataPoints().Len() > 0 {
-		m.updateCapacity()
-		m.data.MoveTo(metrics.AppendEmpty())
-		m.init()
-	}
-}
-
-func newMetricAwsNeuronMonitorMemoryUsage(cfg AwsNeuronMonitorMemoryUsageMetricConfig) metricAwsNeuronMonitorMemoryUsage {
-	m := metricAwsNeuronMonitorMemoryUsage{config: cfg}
 
 	if cfg.Enabled {
 		m.data = pmetric.NewMetric()
@@ -1843,7 +1787,6 @@ type MetricsBuilder struct {
 	metricAwsNeuronExecutionCount              metricAwsNeuronExecutionCount
 	metricAwsNeuronExecutionErrors             metricAwsNeuronExecutionErrors
 	metricAwsNeuronExecutionLatency            metricAwsNeuronExecutionLatency
-	metricAwsNeuronMonitorMemoryUsage          metricAwsNeuronMonitorMemoryUsage
 	metricAwsNeuronNeuroncoreDeviceMemoryUsage metricAwsNeuronNeuroncoreDeviceMemoryUsage
 	metricAwsNeuronNeuroncoreFlops             metricAwsNeuronNeuroncoreFlops
 	metricAwsNeuronNeuroncoreHostMemoryUsage   metricAwsNeuronNeuroncoreHostMemoryUsage
@@ -1887,7 +1830,6 @@ func NewMetricsBuilder(mbc MetricsBuilderConfig, settings receiver.Settings, opt
 		metricAwsNeuronExecutionCount:              newMetricAwsNeuronExecutionCount(mbc.Metrics.AwsNeuronExecutionCount),
 		metricAwsNeuronExecutionErrors:             newMetricAwsNeuronExecutionErrors(mbc.Metrics.AwsNeuronExecutionErrors),
 		metricAwsNeuronExecutionLatency:            newMetricAwsNeuronExecutionLatency(mbc.Metrics.AwsNeuronExecutionLatency),
-		metricAwsNeuronMonitorMemoryUsage:          newMetricAwsNeuronMonitorMemoryUsage(mbc.Metrics.AwsNeuronMonitorMemoryUsage),
 		metricAwsNeuronNeuroncoreDeviceMemoryUsage: newMetricAwsNeuronNeuroncoreDeviceMemoryUsage(mbc.Metrics.AwsNeuronNeuroncoreDeviceMemoryUsage),
 		metricAwsNeuronNeuroncoreFlops:             newMetricAwsNeuronNeuroncoreFlops(mbc.Metrics.AwsNeuronNeuroncoreFlops),
 		metricAwsNeuronNeuroncoreHostMemoryUsage:   newMetricAwsNeuronNeuroncoreHostMemoryUsage(mbc.Metrics.AwsNeuronNeuroncoreHostMemoryUsage),
@@ -2020,7 +1962,6 @@ func (mb *MetricsBuilder) EmitForResource(options ...ResourceMetricsOption) {
 	mb.metricAwsNeuronExecutionCount.emit(ils.Metrics())
 	mb.metricAwsNeuronExecutionErrors.emit(ils.Metrics())
 	mb.metricAwsNeuronExecutionLatency.emit(ils.Metrics())
-	mb.metricAwsNeuronMonitorMemoryUsage.emit(ils.Metrics())
 	mb.metricAwsNeuronNeuroncoreDeviceMemoryUsage.emit(ils.Metrics())
 	mb.metricAwsNeuronNeuroncoreFlops.emit(ils.Metrics())
 	mb.metricAwsNeuronNeuroncoreHostMemoryUsage.emit(ils.Metrics())
@@ -2092,11 +2033,6 @@ func (mb *MetricsBuilder) RecordAwsNeuronExecutionErrorsDataPoint(ts pcommon.Tim
 // RecordAwsNeuronExecutionLatencyDataPoint adds a data point to aws.neuron.execution.latency metric.
 func (mb *MetricsBuilder) RecordAwsNeuronExecutionLatencyDataPoint(ts pcommon.Timestamp, val float64, latencyTypeAttributeValue AttributeLatencyType, quantileAttributeValue string) {
 	mb.metricAwsNeuronExecutionLatency.recordDataPoint(mb.startTime, ts, val, latencyTypeAttributeValue.String(), quantileAttributeValue)
-}
-
-// RecordAwsNeuronMonitorMemoryUsageDataPoint adds a data point to aws.neuron.monitor.memory.usage metric.
-func (mb *MetricsBuilder) RecordAwsNeuronMonitorMemoryUsageDataPoint(ts pcommon.Timestamp, val int64) {
-	mb.metricAwsNeuronMonitorMemoryUsage.recordDataPoint(mb.startTime, ts, val)
 }
 
 // RecordAwsNeuronNeuroncoreDeviceMemoryUsageDataPoint adds a data point to aws.neuron.neuroncore.device_memory.usage metric.

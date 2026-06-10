@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/receiver"
+	"go.uber.org/zap"
 
 	"github.com/observiq/bindplane-otel-contrib/receiver/awsneuronreceiver/internal/metadata"
 )
@@ -80,7 +81,11 @@ func (s *neuronScraper) recordMonitor(now pcommon.Timestamp, rep *nmReport) {
 		r := &rep.NeuronRuntimeData[i].Report
 
 		for coreKey, c := range r.NeuroncoreCounters.NeuroncoresInUse {
-			core := coreToInt(coreKey)
+			core, ok := coreToInt(coreKey)
+			if !ok {
+				s.settings.Logger.Debug("skipping neuroncore counters with non-numeric core key", zap.String("key", coreKey))
+				continue
+			}
 			s.mb.RecordAwsNeuronNeuroncoreUtilizationDataPoint(now, c.NeuroncoreUtilization/100.0, core)
 			s.mb.RecordAwsNeuronNeuroncoreFlopsDataPoint(now, c.EffectiveFlops, core)
 		}
@@ -103,7 +108,11 @@ func (s *neuronScraper) recordMonitor(now pcommon.Timestamp, rep *nmReport) {
 		s.mb.RecordAwsNeuronRuntimeMemoryUsageDataPoint(now, mu.Host, "host")
 		s.mb.RecordAwsNeuronRuntimeMemoryUsageDataPoint(now, mu.NeuronDevice, "device")
 		for coreKey, cats := range mu.UsageBreakdown.NeuroncoreMemoryUsage {
-			core := coreToInt(coreKey)
+			core, ok := coreToInt(coreKey)
+			if !ok {
+				s.settings.Logger.Debug("skipping neuroncore memory usage with non-numeric core key", zap.String("key", coreKey))
+				continue
+			}
 			for cat, b := range cats {
 				s.mb.RecordAwsNeuronNeuroncoreMemoryUsageDataPoint(now, b, core, cat)
 			}
@@ -148,7 +157,13 @@ func setResourceFromReport(rb *metadata.ResourceBuilder, rep *nmReport) {
 	}
 }
 
-func coreToInt(coreKey string) int64 {
-	n, _ := strconv.ParseInt(coreKey, 10, 64)
-	return n
+// coreToInt parses a neuron-monitor NeuronCore key. It returns ok=false on a
+// non-numeric key so the caller can skip it rather than silently collapsing the
+// entry onto core 0 and masking real data.
+func coreToInt(coreKey string) (int64, bool) {
+	n, err := strconv.ParseInt(coreKey, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }

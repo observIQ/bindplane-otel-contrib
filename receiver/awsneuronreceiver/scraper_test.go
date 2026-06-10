@@ -20,7 +20,9 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,7 +111,8 @@ func findByAttrs(pts []numberPoint, want map[string]string) (numberPoint, bool) 
 func TestRecordMonitorFromFixture(t *testing.T) {
 	rep := loadFixture(t)
 	s := &neuronScraper{
-		mb: metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), receivertest.NewNopSettings(metadata.Type)),
+		settings: receivertest.NewNopSettings(metadata.Type),
+		mb:       metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), receivertest.NewNopSettings(metadata.Type)),
 	}
 	now := pcommon.NewTimestampFromTime(time.Now())
 	rb := s.mb.NewResourceBuilder()
@@ -209,6 +212,70 @@ func TestSysfsECCEmission(t *testing.T) {
 	r.recordSysfsECC(mb2, now, "0", dir, false)
 	inactive, _ := collect(t, mb2.Emit())
 	assert.Len(t, inactive["aws.neuron.errors"], 3, "repairable + dram/sram uncorrected when monitor absent")
+}
+
+// neuron-monitor's default output is single-line JSON, but a pretty-printed
+// config produces multi-line reports. The streaming decoder must parse those
+// (the old line scanner would split on internal newlines and lose every report).
+func TestConsumeParsesPrettyPrintedReports(t *testing.T) {
+	stream := `{
+  "instance_info": { "instance_id": "i-first" }
+}
+{
+  "instance_info": { "instance_id": "i-second" }
+}
+`
+	r := newRunner("neuron-monitor", "", zap.NewNop())
+	r.consume(context.Background(), strings.NewReader(stream))
+
+	rep := r.latestReport()
+	require.NotNil(t, rep, "multi-line reports must parse")
+	assert.Equal(t, "i-second", rep.InstanceInfo.InstanceID, "last report wins")
+}
+
+// A non-numeric NeuronCore key must be skipped, not collapsed onto core 0 where
+// it would mask the real core-0 data.
+func TestRecordMonitorSkipsNonNumericCoreKey(t *testing.T) {
+	rep := &nmReport{NeuronRuntimeData: make([]nmRuntimeData, 1)}
+	cc := &rep.NeuronRuntimeData[0].Report.NeuroncoreCounters
+	cc.NeuroncoresInUse = map[string]struct {
+		NeuroncoreUtilization float64 `json:"neuroncore_utilization"`
+		EffectiveFlops        float64 `json:"effective_flops"`
+	}{
+		"0":     {NeuroncoreUtilization: 50, EffectiveFlops: 100},
+		"bogus": {NeuroncoreUtilization: 99, EffectiveFlops: 999},
+	}
+	s := &neuronScraper{
+		settings: receivertest.NewNopSettings(metadata.Type),
+		mb:       metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), receivertest.NewNopSettings(metadata.Type)),
+	}
+	now := pcommon.NewTimestampFromTime(time.Now())
+	s.recordMonitor(now, rep)
+	metrics, _ := collect(t, s.mb.Emit())
+
+	util := metrics["aws.neuron.neuroncore.utilization"]
+	require.Len(t, util, 1, "only the numeric core key is recorded")
+	_, ok := findByAttrs(util, map[string]string{"aws.neuron.neuroncore.id": "0"})
+	assert.True(t, ok, "core 0 must be the surviving entry, not the bogus key")
+}
+
+// A non-zero exit from neuron-monitor must be logged once at Error with a tail
+// of stderr, so a bad config_file / permissions failure is debuggable.
+func TestRunnerLogsStderrOnNonZeroExit(t *testing.T) {
+	core, logs := observer.New(zapcore.ErrorLevel)
+	r := newRunner("/bin/sh", "", zap.New(core))
+	r.commandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "/bin/sh", "-c", "echo neuron-monitor-boom >&2; exit 3")
+	}
+	r.start(context.Background())
+	defer r.stop()
+
+	assert.Eventually(t, func() bool {
+		return logs.FilterLevelExact(zapcore.ErrorLevel).Len() == 1
+	}, 2*time.Second, 10*time.Millisecond)
+	entry := logs.FilterLevelExact(zapcore.ErrorLevel).All()[0]
+	assert.Contains(t, entry.ContextMap()["stderr"], "neuron-monitor-boom")
+	assert.Nil(t, r.latestReport())
 }
 
 func TestRunnerDegradesWhenBinaryMissing(t *testing.T) {

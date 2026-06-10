@@ -18,8 +18,6 @@ all_set:
     aws.neuron.execution.latency:
       enabled: true
       attributes: ["aws.neuron.latency.type","aws.neuron.latency.quantile"]
-    aws.neuron.monitor.memory.usage:
-      enabled: true
     aws.neuron.neuroncore.device_memory.usage:
       enabled: true
       attributes: ["aws.neuron.neuroncore.id","aws.neuron.memory.category","aws.neuron.memory.state"]
@@ -90,8 +88,6 @@ reaggregate_set:
     aws.neuron.execution.latency:
       enabled: true
       attributes: []
-    aws.neuron.monitor.memory.usage:
-      enabled: true
     aws.neuron.neuroncore.device_memory.usage:
       enabled: true
       attributes: []
@@ -162,8 +158,6 @@ none_set:
     aws.neuron.execution.latency:
       enabled: false
       attributes: ["aws.neuron.latency.type","aws.neuron.latency.quantile"]
-    aws.neuron.monitor.memory.usage:
-      enabled: false
     aws.neuron.neuroncore.device_memory.usage:
       enabled: false
       attributes: ["aws.neuron.neuroncore.id","aws.neuron.memory.category","aws.neuron.memory.state"]

@@ -273,26 +273,6 @@ func (ms *AwsNeuronExecutionLatencyMetricConfig) Validate() error {
 	return nil
 }
 
-// AwsNeuronMonitorMemoryUsageMetricConfig provides config for the aws.neuron.monitor.memory.usage metric.
-type AwsNeuronMonitorMemoryUsageMetricConfig struct {
-	Enabled          bool `mapstructure:"enabled"`
-	enabledSetByUser bool
-}
-
-func (ms *AwsNeuronMonitorMemoryUsageMetricConfig) Unmarshal(parser *confmap.Conf) error {
-	if parser == nil {
-		return nil
-	}
-
-	err := parser.Unmarshal(ms)
-	if err != nil {
-		return err
-	}
-
-	ms.enabledSetByUser = parser.IsSet("enabled")
-	return nil
-}
-
 // AwsNeuronNeuroncoreDeviceMemoryUsageMetricAttributeKey specifies the key of an attribute for the aws.neuron.neuroncore.device_memory.usage metric.
 type AwsNeuronNeuroncoreDeviceMemoryUsageMetricAttributeKey string
 
@@ -883,7 +863,6 @@ type MetricsConfig struct {
 	AwsNeuronExecutionCount              AwsNeuronExecutionCountMetricConfig              `mapstructure:"aws.neuron.execution.count"`
 	AwsNeuronExecutionErrors             AwsNeuronExecutionErrorsMetricConfig             `mapstructure:"aws.neuron.execution.errors"`
 	AwsNeuronExecutionLatency            AwsNeuronExecutionLatencyMetricConfig            `mapstructure:"aws.neuron.execution.latency"`
-	AwsNeuronMonitorMemoryUsage          AwsNeuronMonitorMemoryUsageMetricConfig          `mapstructure:"aws.neuron.monitor.memory.usage"`
 	AwsNeuronNeuroncoreDeviceMemoryUsage AwsNeuronNeuroncoreDeviceMemoryUsageMetricConfig `mapstructure:"aws.neuron.neuroncore.device_memory.usage"`
 	AwsNeuronNeuroncoreFlops             AwsNeuronNeuroncoreFlopsMetricConfig             `mapstructure:"aws.neuron.neuroncore.flops"`
 	AwsNeuronNeuroncoreHostMemoryUsage   AwsNeuronNeuroncoreHostMemoryUsageMetricConfig   `mapstructure:"aws.neuron.neuroncore.host_memory.usage"`
@@ -927,9 +906,6 @@ func DefaultMetricsConfig() MetricsConfig {
 			Enabled:             true,
 			AggregationStrategy: AggregationStrategyAvg,
 			EnabledAttributes:   []AwsNeuronExecutionLatencyMetricAttributeKey{AwsNeuronExecutionLatencyMetricAttributeKeyLatencyType, AwsNeuronExecutionLatencyMetricAttributeKeyQuantile},
-		},
-		AwsNeuronMonitorMemoryUsage: AwsNeuronMonitorMemoryUsageMetricConfig{
-			Enabled: false,
 		},
 		AwsNeuronNeuroncoreDeviceMemoryUsage: AwsNeuronNeuroncoreDeviceMemoryUsageMetricConfig{
 			Enabled:             true,

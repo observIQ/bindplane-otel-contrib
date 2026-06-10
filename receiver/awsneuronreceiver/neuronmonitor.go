@@ -17,7 +17,6 @@
 package awsneuronreceiver // import "github.com/observiq/bindplane-otel-contrib/receiver/awsneuronreceiver"
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,9 +28,33 @@ import (
 	"go.uber.org/zap"
 )
 
-// maxLineBytes bounds a single neuron-monitor JSON report line. The default
-// bufio.Scanner token cap (64 KiB) can be exceeded when many models are loaded.
-const maxLineBytes = 4 * 1024 * 1024
+// stderrTailBytes bounds how much of neuron-monitor's stderr we retain so a
+// non-zero exit can be reported with a diagnostic tail without growing without
+// bound for a long-lived process that chatters on stderr.
+const stderrTailBytes = 4 * 1024
+
+// tailBuffer is an io.Writer that retains only the last stderrTailBytes written,
+// so cmd.Stderr can capture a bounded tail of neuron-monitor's stderr.
+type tailBuffer struct {
+	mu  sync.Mutex
+	buf []byte
+}
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.buf = append(t.buf, p...)
+	if len(t.buf) > stderrTailBytes {
+		t.buf = t.buf[len(t.buf)-stderrTailBytes:]
+	}
+	return len(p), nil
+}
+
+func (t *tailBuffer) String() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return string(t.buf)
+}
 
 // nmReport is one neuron-monitor JSON report (emitted once per period to stdout).
 type nmReport struct {
@@ -131,6 +154,7 @@ type runner struct {
 	degraded sync.Once
 	wg       sync.WaitGroup
 	cancel   context.CancelFunc
+	stderr   *tailBuffer
 
 	// commandContext is swappable in tests to avoid spawning a real process.
 	commandContext func(ctx context.Context, name string, args ...string) *exec.Cmd
@@ -155,6 +179,8 @@ func (r *runner) start(parent context.Context) {
 		args = append(args, "-c", r.configFile)
 	}
 	cmd := r.commandContext(ctx, r.command, args...)
+	r.stderr = &tailBuffer{}
+	cmd.Stderr = r.stderr // bounded tail, used to diagnose a non-zero exit
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		r.markDegraded("failed to open neuron-monitor stdout pipe", err)
@@ -171,41 +197,50 @@ func (r *runner) start(parent context.Context) {
 	go func() {
 		defer r.wg.Done()
 		r.consume(ctx, stdout)
-		// Reap the process so we never leave a zombie.
-		_ = cmd.Wait()
+		// Reap the process and surface its exit status. A non-zero exit (bad
+		// config_file, missing permissions, the binary refusing to run) is the
+		// typical "won't start properly" case; the exit error plus a tail of
+		// stderr is what makes that debuggable in the field.
+		err := cmd.Wait()
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return // our own shutdown killed it; expected, not a degradation
+		}
+		if err != nil {
+			r.markDegraded("neuron-monitor exited unexpectedly; continuing without its metrics", err,
+				zap.String("stderr", r.stderr.String()))
+			return
+		}
+		r.markDegraded("neuron-monitor stream ended unexpectedly; continuing without its metrics", nil)
 	}()
 }
 
-// consume scans newline-delimited JSON reports from neuron-monitor's stdout.
-// When the stream ends for any reason other than our own shutdown, it logs a
-// single warning (via the shared latch) and returns; the receiver keeps serving
-// the sysfs stream.
+// consume reads JSON reports from neuron-monitor's stdout with a streaming
+// decoder. Using json.Decoder (rather than a line scanner) makes parsing robust
+// to pretty-printed output and removes any per-report size cap, so multi-line or
+// large multi-model reports are handled correctly. It returns when the stream
+// ends or our own shutdown cancels the subprocess; the goroutine in start()
+// reports any abnormal process exit.
 func (r *runner) consume(ctx context.Context, stdout io.Reader) {
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
+	dec := json.NewDecoder(stdout)
+	for {
 		var rep nmReport
-		if err := json.Unmarshal(line, &rep); err != nil {
-			r.logger.Debug("failed to parse neuron-monitor report", zap.Error(err))
-			continue
+		if err := dec.Decode(&rep); err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(ctx.Err(), context.Canceled) {
+				return // stream closed or shutdown; exit status handled by start()
+			}
+			// A malformed token desyncs the stream and we can't reliably resync.
+			r.markDegraded("neuron-monitor produced unparseable output; stopping its stream", err)
+			return
 		}
 		r.latest.Store(&rep)
 	}
-	if errors.Is(ctx.Err(), context.Canceled) {
-		return // expected: shutdown cancelled the subprocess
-	}
-	r.markDegraded("neuron-monitor stream ended; continuing without its metrics", scanner.Err())
 }
 
 // markDegraded logs the degradation exactly once. neuron-monitor is the primary
 // collection path, so its failure is logged at error severity.
-func (r *runner) markDegraded(msg string, err error) {
+func (r *runner) markDegraded(msg string, err error, fields ...zap.Field) {
 	r.degraded.Do(func() {
-		r.logger.Error(msg, zap.String("command", r.command), zap.Error(err))
+		r.logger.Error(msg, append([]zap.Field{zap.String("command", r.command), zap.Error(err)}, fields...)...)
 	})
 }
 

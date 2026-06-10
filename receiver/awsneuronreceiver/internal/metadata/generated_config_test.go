@@ -54,9 +54,6 @@ func TestMetricsBuilderConfig(t *testing.T) {
 						AggregationStrategy: AggregationStrategyAvg,
 						EnabledAttributes:   []AwsNeuronExecutionLatencyMetricAttributeKey{AwsNeuronExecutionLatencyMetricAttributeKeyLatencyType, AwsNeuronExecutionLatencyMetricAttributeKeyQuantile},
 					},
-					AwsNeuronMonitorMemoryUsage: AwsNeuronMonitorMemoryUsageMetricConfig{
-						Enabled: true,
-					},
 					AwsNeuronNeuroncoreDeviceMemoryUsage: AwsNeuronNeuroncoreDeviceMemoryUsageMetricConfig{
 						Enabled:             true,
 						AggregationStrategy: AggregationStrategySum,
@@ -161,9 +158,6 @@ func TestMetricsBuilderConfig(t *testing.T) {
 						AggregationStrategy: AggregationStrategyAvg,
 						EnabledAttributes:   []AwsNeuronExecutionLatencyMetricAttributeKey{AwsNeuronExecutionLatencyMetricAttributeKeyLatencyType, AwsNeuronExecutionLatencyMetricAttributeKeyQuantile},
 					},
-					AwsNeuronMonitorMemoryUsage: AwsNeuronMonitorMemoryUsageMetricConfig{
-						Enabled: false,
-					},
 					AwsNeuronNeuroncoreDeviceMemoryUsage: AwsNeuronNeuroncoreDeviceMemoryUsageMetricConfig{
 						Enabled:             false,
 						AggregationStrategy: AggregationStrategySum,
@@ -240,7 +234,7 @@ func TestMetricsBuilderConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := loadMetricsBuilderConfig(t, tt.name)
-			diff := cmp.Diff(tt.want, cfg, cmpopts.IgnoreUnexported(AwsNeuronDeviceHostMemoryUsageMetricConfig{}, AwsNeuronDevicePowerUtilizationMetricConfig{}, AwsNeuronErrorsMetricConfig{}, AwsNeuronExecutionCountMetricConfig{}, AwsNeuronExecutionErrorsMetricConfig{}, AwsNeuronExecutionLatencyMetricConfig{}, AwsNeuronMonitorMemoryUsageMetricConfig{}, AwsNeuronNeuroncoreDeviceMemoryUsageMetricConfig{}, AwsNeuronNeuroncoreFlopsMetricConfig{}, AwsNeuronNeuroncoreHostMemoryUsageMetricConfig{}, AwsNeuronNeuroncoreInferencesMetricConfig{}, AwsNeuronNeuroncoreMemoryUsageMetricConfig{}, AwsNeuronNeuroncoreStatusMetricConfig{}, AwsNeuronNeuroncoreTimeInUseMetricConfig{}, AwsNeuronNeuroncoreUtilizationMetricConfig{}, AwsNeuronRuntimeMemoryUsageMetricConfig{}, AwsNeuronRuntimeVcpuUtilizationMetricConfig{}, AwsNeuronSystemCPUUtilizationMetricConfig{}, AwsNeuronSystemMemoryUsageMetricConfig{}, ResourceAttributeConfig{}))
+			diff := cmp.Diff(tt.want, cfg, cmpopts.IgnoreUnexported(AwsNeuronDeviceHostMemoryUsageMetricConfig{}, AwsNeuronDevicePowerUtilizationMetricConfig{}, AwsNeuronErrorsMetricConfig{}, AwsNeuronExecutionCountMetricConfig{}, AwsNeuronExecutionErrorsMetricConfig{}, AwsNeuronExecutionLatencyMetricConfig{}, AwsNeuronNeuroncoreDeviceMemoryUsageMetricConfig{}, AwsNeuronNeuroncoreFlopsMetricConfig{}, AwsNeuronNeuroncoreHostMemoryUsageMetricConfig{}, AwsNeuronNeuroncoreInferencesMetricConfig{}, AwsNeuronNeuroncoreMemoryUsageMetricConfig{}, AwsNeuronNeuroncoreStatusMetricConfig{}, AwsNeuronNeuroncoreTimeInUseMetricConfig{}, AwsNeuronNeuroncoreUtilizationMetricConfig{}, AwsNeuronRuntimeMemoryUsageMetricConfig{}, AwsNeuronRuntimeVcpuUtilizationMetricConfig{}, AwsNeuronSystemCPUUtilizationMetricConfig{}, AwsNeuronSystemMemoryUsageMetricConfig{}, ResourceAttributeConfig{}))
 			require.Emptyf(t, diff, "Config mismatch (-expected +actual):\n%s", diff)
 		})
 	}

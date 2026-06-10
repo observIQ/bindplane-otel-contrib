@@ -145,15 +145,6 @@ metrics:
     gauge:
       value_type: double
     attributes: [latency_type, quantile]
-  aws.neuron.monitor.memory.usage:
-    enabled: false
-    stability: alpha
-    description: neuron-monitor's own process memory usage (self_stats).
-    unit: By
-    sum:
-      monotonic: false
-      aggregation_temporality: cumulative
-      value_type: int
   aws.neuron.neuroncore.device_memory.usage:
     enabled: true
     stability: alpha

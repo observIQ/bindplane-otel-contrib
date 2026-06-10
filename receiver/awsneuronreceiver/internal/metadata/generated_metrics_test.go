@@ -131,9 +131,6 @@ func TestMetricsBuilder(t *testing.T) {
 				mb.RecordAwsNeuronExecutionLatencyDataPoint(ts, 3, AttributeLatencyTypeDevice, "quantile-val-2")
 			}
 
-			allMetricsCount++
-			mb.RecordAwsNeuronMonitorMemoryUsageDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordAwsNeuronNeuroncoreDeviceMemoryUsageDataPoint(ts, 1, 10, "memory_category-val", AttributeMemoryStatePresent)
@@ -515,20 +512,6 @@ func TestMetricsBuilder(t *testing.T) {
 						_, ok = dp.Attributes().Get("aws.neuron.latency.quantile")
 						assert.False(t, ok)
 					}
-				case "aws.neuron.monitor.memory.usage":
-					assert.False(t, validatedMetrics["aws.neuron.monitor.memory.usage"], "Found a duplicate in the metrics slice: aws.neuron.monitor.memory.usage")
-					validatedMetrics["aws.neuron.monitor.memory.usage"] = true
-					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
-					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
-					assert.Equal(t, "neuron-monitor's own process memory usage (self_stats).", mi.Description())
-					assert.Equal(t, "By", mi.Unit())
-					assert.False(t, mi.Sum().IsMonotonic())
-					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
-					dp := mi.Sum().DataPoints().At(0)
-					assert.Equal(t, start, dp.StartTimestamp())
-					assert.Equal(t, ts, dp.Timestamp())
-					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
-					assert.Equal(t, int64(1), dp.IntValue())
 				case "aws.neuron.neuroncore.device_memory.usage":
 					if tt.name != "reaggregate_set" {
 						assert.False(t, validatedMetrics["aws.neuron.neuroncore.device_memory.usage"], "Found a duplicate in the metrics slice: aws.neuron.neuroncore.device_memory.usage")

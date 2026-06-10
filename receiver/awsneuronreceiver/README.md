@@ -30,6 +30,11 @@ Unlike a typical receiver, this receiver **does not fail** when a collection pat
 
 Both failures are errors because both paths are first-class sources (neuron-monitor is the primary, sysfs supplies finer detail and the no-binary fallback). If you expect standard fail-fast receiver behavior, note the difference: a misconfigured `command` surfaces as one error plus a reduced metric set, not a startup failure.
 
+## Resource attributes
+When `neuron-monitor` is active, the receiver reads the instance metadata it reports and stamps it on the resource: `cloud.provider`, `cloud.region`, `cloud.availability_zone`, `host.id`, and `host.type` (from the EC2 IMDS data `neuron-monitor` already collects), plus the receiver-specific `aws.neuron.device.type` and `aws.neuron.neuroncore.version`.
+
+The `cloud.*`/`host.*` keys are also produced by the [resourcedetectionprocessor](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/resourcedetectionprocessor). This is **not** a conflict: that processor's `override` option (default `true`) deterministically resolves the overlap. With the default, the detection processor's values win; set `override: false` and the receiver's values are kept. The receiver stamps these keys so the metadata is present and correct even when no detection processor is configured (which the receiver cannot assume). If you run `resourcedetection`, you do not need to do anything — its defaults already take precedence.
+
 ## Configuration
 | Field               | Type     | Default           | Description |
 |---------------------|----------|-------------------|-------------|

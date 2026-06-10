@@ -192,14 +192,6 @@ Device power utilization from sysfs (best-effort; not populated on all instances
 | ---- | ----------- | ---------- | --------- |
 | 1 | Gauge | Double | Alpha |
 
-### aws.neuron.monitor.memory.usage
-
-neuron-monitor's own process memory usage (self_stats).
-
-| Unit | Metric Type | Value Type | Aggregation Temporality | Monotonic | Stability |
-| ---- | ----------- | ---------- | ----------------------- | --------- | --------- |
-| By | Sum | Int | Cumulative | false | Alpha |
-
 ### aws.neuron.neuroncore.inferences
 
 Inference count from sysfs (runtime-gated; usually zero).
