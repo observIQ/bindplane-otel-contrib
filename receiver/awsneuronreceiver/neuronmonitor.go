@@ -20,10 +20,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -148,25 +151,100 @@ type nmHardwareInfo struct {
 type runner struct {
 	command    string
 	configFile string
+	period     time.Duration
 	logger     *zap.Logger
 
-	latest   atomic.Pointer[nmReport]
-	degraded sync.Once
-	wg       sync.WaitGroup
-	cancel   context.CancelFunc
-	stderr   *tailBuffer
+	latest        atomic.Pointer[nmReport]
+	degraded      sync.Once
+	wg            sync.WaitGroup
+	cancel        context.CancelFunc
+	stderr        *tailBuffer
+	cleanupConfig func()
 
 	// commandContext is swappable in tests to avoid spawning a real process.
 	commandContext func(ctx context.Context, name string, args ...string) *exec.Cmd
 }
 
-func newRunner(command, configFile string, logger *zap.Logger) *runner {
+func newRunner(command, configFile string, period time.Duration, logger *zap.Logger) *runner {
 	return &runner{
 		command:        command,
 		configFile:     configFile,
+		period:         period,
 		logger:         logger,
 		commandContext: exec.CommandContext,
 	}
+}
+
+// defaultMonitorConfig is the neuron-monitor configuration the receiver uses when
+// the operator supplies no config_file. It requests exactly the metric groups the
+// receiver maps (runtime counters/stats/memory plus system hardware counters,
+// vCPU, and memory), so ECC and the rest are collected out of the box.
+func defaultMonitorConfig() map[string]any {
+	return map[string]any{
+		"neuron_runtimes": []any{map[string]any{
+			"tag_filter": ".*",
+			"metrics": []any{
+				map[string]any{"type": "neuroncore_counters"},
+				map[string]any{"type": "execution_stats"},
+				map[string]any{"type": "memory_used"},
+				map[string]any{"type": "neuron_runtime_vcpu_usage"},
+			},
+		}},
+		"system_metrics": []any{
+			map[string]any{"type": "neuron_hw_counters"},
+			map[string]any{"type": "vcpu_usage"},
+			map[string]any{"type": "memory_info"},
+		},
+	}
+}
+
+// monitorPeriod formats a duration the way neuron-monitor's "period" field expects
+// (e.g. "10s"). Whole seconds render as "<n>s" to avoid Go's "1m0s" style.
+func monitorPeriod(d time.Duration) string {
+	if d%time.Second == 0 {
+		return fmt.Sprintf("%ds", int64(d/time.Second))
+	}
+	return d.String()
+}
+
+// writeEffectiveConfig builds the neuron-monitor config the receiver launches with
+// and writes it to a temp file. The receiver owns the cadence: it always sets
+// "period" to collection_interval, overriding any period an operator put in their
+// config_file, so both collection halves (subprocess + sysfs) obey one interval.
+// A user-supplied config_file's metric selections are preserved; only the period
+// is forced. Returns the path and a cleanup func to remove the temp file.
+func (r *runner) writeEffectiveConfig() (string, func(), error) {
+	cfg := defaultMonitorConfig()
+	if r.configFile != "" {
+		b, err := os.ReadFile(r.configFile) // #nosec G304 -- operator-provided config path
+		if err != nil {
+			return "", nil, err
+		}
+		cfg = map[string]any{}
+		if err := json.Unmarshal(b, &cfg); err != nil {
+			return "", nil, fmt.Errorf("parse config_file %q: %w", r.configFile, err)
+		}
+	}
+	cfg["period"] = monitorPeriod(r.period)
+
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return "", nil, err
+	}
+	f, err := os.CreateTemp("", "neuron-monitor-config-*.json")
+	if err != nil {
+		return "", nil, err
+	}
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return "", nil, err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
+		return "", nil, err
+	}
+	return f.Name(), func() { _ = os.Remove(f.Name()) }, nil
 }
 
 // start launches neuron-monitor and begins consuming its stdout in a goroutine.
@@ -174,24 +252,32 @@ func (r *runner) start(parent context.Context) {
 	ctx, cancel := context.WithCancel(parent)
 	r.cancel = cancel
 
-	args := []string{}
-	if r.configFile != "" {
-		args = append(args, "-c", r.configFile)
+	// The receiver owns the cadence: derive neuron-monitor's period from
+	// collection_interval so the subprocess and sysfs halves stay in lockstep.
+	cfgPath, cleanup, err := r.writeEffectiveConfig()
+	if err != nil {
+		r.markDegraded("failed to prepare neuron-monitor config; continuing without its metrics", err)
+		cancel()
+		return
 	}
-	cmd := r.commandContext(ctx, r.command, args...)
+	cmd := r.commandContext(ctx, r.command, "-c", cfgPath)
 	r.stderr = &tailBuffer{}
 	cmd.Stderr = r.stderr // bounded tail, used to diagnose a non-zero exit
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		r.markDegraded("failed to open neuron-monitor stdout pipe", err)
+		cleanup()
 		cancel()
 		return
 	}
 	if err := cmd.Start(); err != nil {
 		r.markDegraded("neuron-monitor could not be started; continuing without Neuron metrics", err)
+		cleanup()
 		cancel()
 		return
 	}
+	// Process is running; stop() now owns removing the config temp file.
+	r.cleanupConfig = cleanup
 
 	r.wg.Add(1)
 	go func() {
@@ -249,10 +335,14 @@ func (r *runner) latestReport() *nmReport {
 	return r.latest.Load()
 }
 
-// stop cancels the subprocess and waits for the reader goroutine to finish.
+// stop cancels the subprocess, waits for the reader goroutine to finish, and
+// removes the generated neuron-monitor config temp file.
 func (r *runner) stop() {
 	if r.cancel != nil {
 		r.cancel()
 	}
 	r.wg.Wait()
+	if r.cleanupConfig != nil {
+		r.cleanupConfig()
+	}
 }
