@@ -349,3 +349,38 @@ func TestRunnerDegradesWhenBinaryMissing(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 	assert.Nil(t, r.latestReport())
 }
+
+// When BOTH collection paths fail, the receiver must surface a scrape error
+// (matching hostmetrics' behavior: the collector logs it and keeps running),
+// rather than silently emitting empty metrics.
+func TestScrapeErrorsWhenBothPathsFail(t *testing.T) {
+	settings := receivertest.NewNopSettings(metadata.Type)
+	r := newRunner("neuron-monitor", time.Second, zap.NewNop())
+	r.markDegraded("neuron-monitor unavailable (test)", nil) // primary path down
+	s := &neuronScraper{
+		settings: settings,
+		mb:       metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), settings),
+		runner:   r,
+		sysfs:    newSysfsReader("/nonexistent-neuron-sysfs-root", zap.NewNop()), // sysfs path down too
+	}
+	_, err := s.scrape(context.Background())
+	require.Error(t, err, "both paths down must surface a scrape error")
+}
+
+// When only ONE path fails, the receiver degrades gracefully (no scrape error):
+// it serves whatever the surviving path provides.
+func TestScrapeGracefulWhenOnlyOnePathFails(t *testing.T) {
+	settings := receivertest.NewNopSettings(metadata.Type)
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "neuron0"), 0o755)) // sysfs tree present (path healthy)
+	r := newRunner("neuron-monitor", time.Second, zap.NewNop())
+	r.markDegraded("neuron-monitor unavailable (test)", nil) // only the monitor path is down
+	s := &neuronScraper{
+		settings: settings,
+		mb:       metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), settings),
+		runner:   r,
+		sysfs:    newSysfsReader(dir, zap.NewNop()),
+	}
+	_, err := s.scrape(context.Background())
+	require.NoError(t, err, "one healthy path must keep the scrape error-free")
+}

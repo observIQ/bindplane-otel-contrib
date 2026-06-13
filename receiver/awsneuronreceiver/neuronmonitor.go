@@ -155,6 +155,7 @@ type runner struct {
 
 	latest        atomic.Pointer[nmReport]
 	degraded      sync.Once
+	failed        atomic.Bool
 	wg            sync.WaitGroup
 	cancel        context.CancelFunc
 	stderr        *tailBuffer
@@ -311,12 +312,19 @@ func (r *runner) consume(ctx context.Context, stdout io.Reader) {
 }
 
 // markDegraded logs the degradation exactly once. neuron-monitor is the primary
-// collection path, so its failure is logged at error severity.
+// collection path, so its failure is logged at error severity. It also latches
+// the failed flag so the scraper can detect when BOTH paths are down.
 func (r *runner) markDegraded(msg string, err error, fields ...zap.Field) {
+	r.failed.Store(true)
 	r.degraded.Do(func() {
 		r.logger.Error(msg, append([]zap.Field{zap.String("command", r.command), zap.Error(err)}, fields...)...)
 	})
 }
+
+// hasFailed reports whether the neuron-monitor collection path has degraded
+// (could not start, exited, or its stream ended/failed). Used by the scraper to
+// detect a total collection failure.
+func (r *runner) hasFailed() bool { return r.failed.Load() }
 
 // latestReport returns the most recent parsed report, or nil if none yet.
 func (r *runner) latestReport() *nmReport {

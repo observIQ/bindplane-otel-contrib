@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.uber.org/zap"
@@ -38,16 +39,23 @@ type sysfsReader struct {
 	root     string
 	logger   *zap.Logger
 	degraded sync.Once
+	failed   atomic.Bool
 }
 
 // markDegraded logs a single error when the sysfs stream is unreadable, then
-// the receiver continues serving whatever the other stream provides.
+// the receiver continues serving whatever the other stream provides. It also
+// latches the failed flag so the scraper can detect when BOTH paths are down.
 func (r *sysfsReader) markDegraded(err error) {
+	r.failed.Store(true)
 	r.degraded.Do(func() {
 		r.logger.Error("unable to read Neuron sysfs devices; sysfs metrics unavailable, continuing",
 			zap.String("root", r.root), zap.Error(err))
 	})
 }
+
+// hasFailed reports whether the sysfs collection path has degraded (unreadable
+// root / no devices). Used by the scraper to detect a total collection failure.
+func (r *sysfsReader) hasFailed() bool { return r.failed.Load() }
 
 func newSysfsReader(root string, logger *zap.Logger) *sysfsReader {
 	return &sysfsReader{root: root, logger: logger}

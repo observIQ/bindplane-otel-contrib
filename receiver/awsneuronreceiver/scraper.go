@@ -18,6 +18,7 @@ package awsneuronreceiver // import "github.com/observiq/bindplane-otel-contrib/
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -73,7 +74,16 @@ func (s *neuronScraper) scrape(_ context.Context) (pmetric.Metrics, error) {
 	// (ECC, topology) when neuron-monitor is absent.
 	s.sysfs.record(s.mb, now, rb, monitorActive)
 
-	return s.mb.Emit(metadata.WithResource(rb.Emit())), nil
+	md := s.mb.Emit(metadata.WithResource(rb.Emit()))
+	// Each path degrades independently and continues on its own. But if BOTH have
+	// failed there is nothing to collect, so surface a scrape error rather than
+	// silently emitting empty metrics. Like other scraper receivers (e.g.
+	// hostmetrics), this is logged each interval and the collector keeps running;
+	// it does not stop the collector.
+	if s.runner.hasFailed() && s.sysfs.hasFailed() {
+		return md, errors.New("aws neuron: no metrics collected; both the neuron-monitor and sysfs collection paths are unavailable (see prior errors)")
+	}
+	return md, nil
 }
 
 func (s *neuronScraper) recordMonitor(now pcommon.Timestamp, rep *nmReport) {

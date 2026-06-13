@@ -28,12 +28,14 @@ Supported: **AWS Inferentia2** (`inf2`), **AWS Trainium** (`trn1`), and **AWS Tr
 - The collector process must be able to read the sysfs tree and execute `neuron-monitor`. The sysfs metric files are world-readable by default, so no special capability or group grant is required for read access.
 
 ## Degradation contract (read this)
-Unlike a typical receiver, this receiver **does not fail** when a collection path is unavailable. This is deliberate, and each path degrades independently:
+This receiver tolerates the loss of a **single** collection path: when one path is unavailable it logs one error and continues serving the other, rather than failing. Each path degrades independently:
 
 - If `neuron-monitor` (the primary path) is absent, fails to start, or its stream ends unexpectedly, the receiver logs a **single error** (not once per scrape) and continues, serving whatever the sysfs stream can provide. It does **not** crash the collector and does **not** repeatedly log the dead path.
 - If the sysfs tree is unreadable, the receiver logs a **single error** and continues on the neuron-monitor stream. Individual missing or unreadable sysfs files are logged at **Debug** and skipped, so a partial tree is tolerated but still diagnosable.
 
-Both failures are errors because both paths are first-class sources (neuron-monitor is the primary, sysfs supplies finer detail and the no-binary fallback). If you expect standard fail-fast receiver behavior, note the difference: a misconfigured `command` surfaces as one error plus a reduced metric set, not a startup failure.
+If **both** paths fail there is nothing to collect, so the receiver returns a **scrape error** on every scrape instead of silently emitting empty metrics. This matches how other scraper receivers (e.g. [hostmetrics](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/hostmetricsreceiver)) behave when collection fails: the collector logs the error each interval and keeps running, it does **not** shut the collector down.
+
+Single-path failures are errors because both paths are first-class sources (neuron-monitor is the primary, sysfs supplies finer detail and the no-binary fallback). If you expect standard fail-fast receiver behavior, note the difference: a single misconfigured `command` surfaces as one error plus a reduced metric set, not a startup failure; only the loss of **both** paths produces a per-scrape error.
 
 ## Resource attributes
 When `neuron-monitor` is active, the receiver reads the instance metadata it reports and stamps it on the resource: `cloud.provider`, `cloud.region`, `cloud.availability_zone`, `host.id`, and `host.type` (from the EC2 IMDS data `neuron-monitor` already collects), plus the receiver-specific `aws.neuron.device.type` and `aws.neuron.neuroncore.version`.
