@@ -15,8 +15,6 @@
 package awsneuronreceiver // import "github.com/observiq/bindplane-otel-contrib/receiver/awsneuronreceiver"
 
 import (
-	"time"
-
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/receiver"
 	"go.opentelemetry.io/collector/scraper/scraperhelper"
@@ -37,7 +35,6 @@ func NewFactory() receiver.Factory {
 
 func createDefaultConfig() component.Config {
 	cc := scraperhelper.NewDefaultControllerConfig()
-	cc.CollectionInterval = 10 * time.Second
 	return &Config{
 		ControllerConfig:     cc,
 		MetricsBuilderConfig: metadata.DefaultMetricsBuilderConfig(),

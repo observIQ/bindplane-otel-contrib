@@ -80,6 +80,11 @@ attributes:
     name_override: aws.neuron.neuroncore.id
     type: int
     description: NeuronCore index.
+  power_statistic:
+    name_override: aws.neuron.power.statistic
+    type: string
+    description: Power utilization statistic over the sampling period.
+    enum: [min, max, avg]
   quantile:
     name_override: aws.neuron.latency.quantile
     type: string
@@ -103,10 +108,11 @@ metrics:
   aws.neuron.device.power.utilization:
     enabled: false
     stability: alpha
-    description: Device power utilization from sysfs (best-effort; not populated on all instances).
+    description: Device power utilization (fraction of max power) from sysfs, split by statistic over the sampling period (best-effort; not populated on all instances).
     unit: "1"
     gauge:
       value_type: double
+    attributes: [power_statistic]
   aws.neuron.errors:
     enabled: true
     stability: alpha

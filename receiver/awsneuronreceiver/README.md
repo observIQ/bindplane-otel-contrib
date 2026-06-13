@@ -40,12 +40,14 @@ The `cloud.*`/`host.*` keys are also produced by the [resourcedetectionprocessor
 |---------------------|----------|-------------------|-------------|
 | command             | string   | `neuron-monitor`  | Path to (or name of) the `neuron-monitor` binary, resolved against `PATH`. |
 | config_file         | string   | `(none)`          | Optional path to a `neuron-monitor` JSON config file; its metric selections are used as-is. When empty, the receiver generates a default config that requests the full metric set (including ECC). The receiver always sets neuron-monitor's `period` to `collection_interval`, overriding any `period` in this file (see [Collection cadence](#collection-cadence)). |
-| collection_interval | duration | `10s`             | How often the receiver scrapes and emits. This one value governs **both** halves: the sysfs read cadence and neuron-monitor's `period`. A string readable by Go's [time.ParseDuration](https://pkg.go.dev/time#ParseDuration). |
+| collection_interval | duration | `60s`             | How often the receiver scrapes and emits. This one value governs **both** halves: the sysfs read cadence and neuron-monitor's `period`. Default inherits the upstream scraperhelper `60s` (matching Bindplane's source default); see [Collection cadence](#collection-cadence) for when to lower it. A string readable by Go's [time.ParseDuration](https://pkg.go.dev/time#ParseDuration). |
 | metrics             | map      | see [documentation.md](./documentation.md) | Per-metric enable/disable (the most specific layer). |
 | metric_groups       | map      | `(unset)`         | Bulk enable/disable a whole group (see below). |
 
 ### Collection cadence
 The receiver owns the cadence. `neuron-monitor` runs as a subprocess on its own `period`, so the receiver derives that period from `collection_interval` and launches `neuron-monitor` with it, keeping both halves in lockstep. This matters for correctness, not just tidiness: a receiver interval shorter than the monitor's period would re-emit the same report (duplicate points), and a longer one would drop neuron-monitor's per-period delta counts (execution counts/errors). For that reason a `period` set in a `config_file` is overridden; the file's metric selections are still honored.
+
+The default is `60s`, inherited from the collector's scraperhelper default and matching Bindplane's source default. Lowering it yields finer-grained neuron-monitor performance metrics (NeuronCore utilization, FLOPS, execution counts/latency), useful for catching short bursts that a 60s sample averages away; raising it coarsens them. As a general rule do not go below `10s`, many telemetry backends cannot ingest metrics much more frequently. The sysfs power metric is an exception in the other direction: it refreshes only about once a minute on the device, so intervals below `60s` simply re-read the same power value.
 
 ### Two-layer metric enablement
 Every metric the receiver can produce is defined in the catalog; a curated subset is enabled by default and the rest are defined but disabled. Enablement resolves in this precedence (most specific wins):
@@ -60,7 +62,7 @@ The `aws.neuron.system.*` metrics duplicate what the [hostmetrics receiver](http
 ```yaml
 receivers:
   awsneuron:
-    collection_interval: 10s
+    collection_interval: 60s
     command: neuron-monitor
     config_file: /etc/neuron-monitor/config.json
     metric_groups:
@@ -81,7 +83,7 @@ service:
 ```
 
 ### A note on `aws.neuron.device.power.utilization`
-This sysfs-sourced metric is **best-effort and not a reliable utilization signal**, which is why it is disabled by default. On the instances tested it does not behave like a true gauge: single-device instances (e.g. `inf2.xlarge`, `trn1.2xlarge`) report `0` even under load, and multi-device instances expose only a partial, roughly static per-device readout that does not track the workload. Enable it only if you understand these caveats; the underlying values come straight from the driver's sysfs node and the receiver does not synthesize them.
+This sysfs-sourced metric is **best-effort and disabled by default**. AWS exposes it as the device's power draw as a percentage of the device's maximum power, reported as three statistics (`min`/`max`/`avg`) over a sampling period. The receiver emits all three as a fraction (unit `1`) under the `aws.neuron.power.statistic` attribute, mirroring the hostmetrics state-attribute pattern. AWS documents only that the values refresh about once a minute (the averaging-window length is unspecified), and it is **not populated on every instance or device**, some report `0` or no data. Treat it as a coarse, best-effort power signal, not a precise utilization gauge; the values come straight from the driver's sysfs node and the receiver does not synthesize them.
 
 ## Metrics
 See [documentation.md](./documentation.md) for the full list of metrics, their units, types, and attributes, and which are enabled by default.

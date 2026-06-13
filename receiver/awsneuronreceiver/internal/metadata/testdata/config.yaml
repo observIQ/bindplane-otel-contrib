@@ -6,6 +6,7 @@ all_set:
       attributes: ["aws.neuron.memory.category","aws.neuron.memory.state"]
     aws.neuron.device.power.utilization:
       enabled: true
+      attributes: ["aws.neuron.power.statistic"]
     aws.neuron.errors:
       enabled: true
       attributes: ["hw.id","aws.neuron.memory.type","error.type"]
@@ -76,6 +77,7 @@ reaggregate_set:
       attributes: []
     aws.neuron.device.power.utilization:
       enabled: true
+      attributes: []
     aws.neuron.errors:
       enabled: true
       attributes: []
@@ -146,6 +148,7 @@ none_set:
       attributes: ["aws.neuron.memory.category","aws.neuron.memory.state"]
     aws.neuron.device.power.utilization:
       enabled: false
+      attributes: ["aws.neuron.power.statistic"]
     aws.neuron.errors:
       enabled: false
       attributes: ["hw.id","aws.neuron.memory.type","error.type"]

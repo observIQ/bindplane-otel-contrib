@@ -68,6 +68,7 @@ func TestMetricsBuilder(t *testing.T) {
 			mb := NewMetricsBuilder(loadMetricsBuilderConfig(t, tt.name), settings, WithStartTime(start))
 			aggMap := make(map[string]string) // contains the aggregation strategies for each metric name
 			aggMap["aws.neuron.device.host_memory.usage"] = mb.metricAwsNeuronDeviceHostMemoryUsage.config.AggregationStrategy
+			aggMap["aws.neuron.device.power.utilization"] = mb.metricAwsNeuronDevicePowerUtilization.config.AggregationStrategy
 			aggMap["aws.neuron.errors"] = mb.metricAwsNeuronErrors.config.AggregationStrategy
 			aggMap["aws.neuron.execution.count"] = mb.metricAwsNeuronExecutionCount.config.AggregationStrategy
 			aggMap["aws.neuron.execution.errors"] = mb.metricAwsNeuronExecutionErrors.config.AggregationStrategy
@@ -101,7 +102,10 @@ func TestMetricsBuilder(t *testing.T) {
 			}
 
 			allMetricsCount++
-			mb.RecordAwsNeuronDevicePowerUtilizationDataPoint(ts, 1)
+			mb.RecordAwsNeuronDevicePowerUtilizationDataPoint(ts, 1, AttributePowerStatisticMin)
+			if tt.name == "reaggregate_set" {
+				mb.RecordAwsNeuronDevicePowerUtilizationDataPoint(ts, 3, AttributePowerStatisticMax)
+			}
 
 			defaultMetricsCount++
 			allMetricsCount++
@@ -221,6 +225,7 @@ func TestMetricsBuilder(t *testing.T) {
 			metrics := mb.Emit(WithResource(res))
 			if tt.name == "reaggregate_set" {
 				assert.Empty(t, mb.metricAwsNeuronDeviceHostMemoryUsage.aggDataPoints)
+				assert.Empty(t, mb.metricAwsNeuronDevicePowerUtilization.aggDataPoints)
 				assert.Empty(t, mb.metricAwsNeuronErrors.aggDataPoints)
 				assert.Empty(t, mb.metricAwsNeuronExecutionCount.aggDataPoints)
 				assert.Empty(t, mb.metricAwsNeuronExecutionErrors.aggDataPoints)
@@ -314,17 +319,45 @@ func TestMetricsBuilder(t *testing.T) {
 						assert.False(t, ok)
 					}
 				case "aws.neuron.device.power.utilization":
-					assert.False(t, validatedMetrics["aws.neuron.device.power.utilization"], "Found a duplicate in the metrics slice: aws.neuron.device.power.utilization")
-					validatedMetrics["aws.neuron.device.power.utilization"] = true
-					assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
-					assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
-					assert.Equal(t, "Device power utilization from sysfs (best-effort; not populated on all instances).", mi.Description())
-					assert.Equal(t, "1", mi.Unit())
-					dp := mi.Gauge().DataPoints().At(0)
-					assert.Equal(t, start, dp.StartTimestamp())
-					assert.Equal(t, ts, dp.Timestamp())
-					assert.Equal(t, pmetric.NumberDataPointValueTypeDouble, dp.ValueType())
-					assert.InDelta(t, float64(1), dp.DoubleValue(), 0.01)
+					if tt.name != "reaggregate_set" {
+						assert.False(t, validatedMetrics["aws.neuron.device.power.utilization"], "Found a duplicate in the metrics slice: aws.neuron.device.power.utilization")
+						validatedMetrics["aws.neuron.device.power.utilization"] = true
+						assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+						assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+						assert.Equal(t, "Device power utilization (fraction of max power) from sysfs, split by statistic over the sampling period (best-effort; not populated on all instances).", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						dp := mi.Gauge().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeDouble, dp.ValueType())
+						assert.InDelta(t, float64(1), dp.DoubleValue(), 0.01)
+						powerStatisticAttrVal, ok := dp.Attributes().Get("aws.neuron.power.statistic")
+						assert.True(t, ok)
+						assert.Equal(t, "min", powerStatisticAttrVal.Str())
+					} else {
+						assert.False(t, validatedMetrics["aws.neuron.device.power.utilization"], "Found a duplicate in the metrics slice: aws.neuron.device.power.utilization")
+						validatedMetrics["aws.neuron.device.power.utilization"] = true
+						assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+						assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+						assert.Equal(t, "Device power utilization (fraction of max power) from sysfs, split by statistic over the sampling period (best-effort; not populated on all instances).", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						dp := mi.Gauge().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeDouble, dp.ValueType())
+						switch aggMap["aws.neuron.device.power.utilization"] {
+						case "sum":
+							assert.InDelta(t, float64(4), dp.DoubleValue(), 0.01)
+						case "avg":
+							assert.InDelta(t, float64(2), dp.DoubleValue(), 0.01)
+						case "min":
+							assert.InDelta(t, float64(1), dp.DoubleValue(), 0.01)
+						case "max":
+							assert.InDelta(t, float64(3), dp.DoubleValue(), 0.01)
+						}
+						_, ok := dp.Attributes().Get("aws.neuron.power.statistic")
+						assert.False(t, ok)
+					}
 				case "aws.neuron.errors":
 					if tt.name != "reaggregate_set" {
 						assert.False(t, validatedMetrics["aws.neuron.errors"], "Found a duplicate in the metrics slice: aws.neuron.errors")

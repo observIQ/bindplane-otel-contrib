@@ -58,10 +58,20 @@ func (ms *AwsNeuronDeviceHostMemoryUsageMetricConfig) Validate() error {
 	return nil
 }
 
+// AwsNeuronDevicePowerUtilizationMetricAttributeKey specifies the key of an attribute for the aws.neuron.device.power.utilization metric.
+type AwsNeuronDevicePowerUtilizationMetricAttributeKey string
+
+const (
+	AwsNeuronDevicePowerUtilizationMetricAttributeKeyPowerStatistic AwsNeuronDevicePowerUtilizationMetricAttributeKey = "aws.neuron.power.statistic"
+)
+
 // AwsNeuronDevicePowerUtilizationMetricConfig provides config for the aws.neuron.device.power.utilization metric.
 type AwsNeuronDevicePowerUtilizationMetricConfig struct {
 	Enabled          bool `mapstructure:"enabled"`
 	enabledSetByUser bool
+
+	AggregationStrategy string                                              `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []AwsNeuronDevicePowerUtilizationMetricAttributeKey `mapstructure:"attributes"`
 }
 
 func (ms *AwsNeuronDevicePowerUtilizationMetricConfig) Unmarshal(parser *confmap.Conf) error {
@@ -75,6 +85,24 @@ func (ms *AwsNeuronDevicePowerUtilizationMetricConfig) Unmarshal(parser *confmap
 	}
 
 	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *AwsNeuronDevicePowerUtilizationMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case AwsNeuronDevicePowerUtilizationMetricAttributeKeyPowerStatistic:
+		default:
+			return fmt.Errorf("metric aws.neuron.device.power.utilization doesn't have an attribute %v, valid attributes: [aws.neuron.power.statistic]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
 	return nil
 }
 
@@ -885,7 +913,9 @@ func DefaultMetricsConfig() MetricsConfig {
 			EnabledAttributes:   []AwsNeuronDeviceHostMemoryUsageMetricAttributeKey{AwsNeuronDeviceHostMemoryUsageMetricAttributeKeyMemoryCategory, AwsNeuronDeviceHostMemoryUsageMetricAttributeKeyMemoryState},
 		},
 		AwsNeuronDevicePowerUtilization: AwsNeuronDevicePowerUtilizationMetricConfig{
-			Enabled: false,
+			Enabled:             false,
+			AggregationStrategy: AggregationStrategyAvg,
+			EnabledAttributes:   []AwsNeuronDevicePowerUtilizationMetricAttributeKey{AwsNeuronDevicePowerUtilizationMetricAttributeKeyPowerStatistic},
 		},
 		AwsNeuronErrors: AwsNeuronErrorsMetricConfig{
 			Enabled:             true,

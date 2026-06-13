@@ -72,6 +72,36 @@ var MapAttributeMemoryState = map[string]AttributeMemoryState{
 	"peak":    AttributeMemoryStatePeak,
 }
 
+// AttributePowerStatistic specifies the value power_statistic attribute.
+type AttributePowerStatistic int
+
+const (
+	_ AttributePowerStatistic = iota
+	AttributePowerStatisticMin
+	AttributePowerStatisticMax
+	AttributePowerStatisticAvg
+)
+
+// String returns the string representation of the AttributePowerStatistic.
+func (av AttributePowerStatistic) String() string {
+	switch av {
+	case AttributePowerStatisticMin:
+		return "min"
+	case AttributePowerStatisticMax:
+		return "max"
+	case AttributePowerStatisticAvg:
+		return "avg"
+	}
+	return ""
+}
+
+// MapAttributePowerStatistic is a helper map of string to AttributePowerStatistic attribute value.
+var MapAttributePowerStatistic = map[string]AttributePowerStatistic{
+	"min": AttributePowerStatisticMin,
+	"max": AttributePowerStatisticMax,
+	"avg": AttributePowerStatisticAvg,
+}
+
 var MetricsInfo = metricsInfo{
 	AwsNeuronDeviceHostMemoryUsage: metricInfo{
 		Name: "aws.neuron.device.host_memory.usage",
@@ -249,27 +279,61 @@ func newMetricAwsNeuronDeviceHostMemoryUsage(cfg AwsNeuronDeviceHostMemoryUsageM
 }
 
 type metricAwsNeuronDevicePowerUtilization struct {
-	data     pmetric.Metric                              // data buffer for generated metric.
-	config   AwsNeuronDevicePowerUtilizationMetricConfig // metric config provided by user.
-	capacity int                                         // max observed number of data points added to the metric.
+	data          pmetric.Metric                              // data buffer for generated metric.
+	config        AwsNeuronDevicePowerUtilizationMetricConfig // metric config provided by user.
+	capacity      int                                         // max observed number of data points added to the metric.
+	aggDataPoints []float64                                   // slice containing number of aggregated datapoints at each index
 }
 
 // init fills aws.neuron.device.power.utilization metric with initial data.
 func (m *metricAwsNeuronDevicePowerUtilization) init() {
 	m.data.SetName("aws.neuron.device.power.utilization")
-	m.data.SetDescription("Device power utilization from sysfs (best-effort; not populated on all instances).")
+	m.data.SetDescription("Device power utilization (fraction of max power) from sysfs, split by statistic over the sampling period (best-effort; not populated on all instances).")
 	m.data.SetUnit("1")
 	m.data.SetEmptyGauge()
+	m.data.Gauge().DataPoints().EnsureCapacity(m.capacity)
+	m.aggDataPoints = m.aggDataPoints[:0]
 }
 
-func (m *metricAwsNeuronDevicePowerUtilization) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val float64) {
+func (m *metricAwsNeuronDevicePowerUtilization) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val float64, powerStatisticAttributeValue string) {
 	if !m.config.Enabled {
 		return
 	}
-	dp := m.data.Gauge().DataPoints().AppendEmpty()
+
+	dp := pmetric.NewNumberDataPoint()
 	dp.SetStartTimestamp(start)
 	dp.SetTimestamp(ts)
+	if slices.Contains(m.config.EnabledAttributes, AwsNeuronDevicePowerUtilizationMetricAttributeKeyPowerStatistic) {
+		dp.Attributes().PutStr("aws.neuron.power.statistic", powerStatisticAttributeValue)
+	}
+
+	var s string
+	dps := m.data.Gauge().DataPoints()
+	for i := 0; i < dps.Len(); i++ {
+		dpi := dps.At(i)
+		if dp.Attributes().Equal(dpi.Attributes()) && dp.StartTimestamp() == dpi.StartTimestamp() && dp.Timestamp() == dpi.Timestamp() {
+			switch s = m.config.AggregationStrategy; s {
+			case AggregationStrategySum, AggregationStrategyAvg:
+				dpi.SetDoubleValue(dpi.DoubleValue() + val)
+				m.aggDataPoints[i] += 1
+				return
+			case AggregationStrategyMin:
+				if dpi.DoubleValue() > val {
+					dpi.SetDoubleValue(val)
+				}
+				return
+			case AggregationStrategyMax:
+				if dpi.DoubleValue() < val {
+					dpi.SetDoubleValue(val)
+				}
+				return
+			}
+		}
+	}
+
 	dp.SetDoubleValue(val)
+	m.aggDataPoints = append(m.aggDataPoints, 1)
+	dp.MoveTo(dps.AppendEmpty())
 }
 
 // updateCapacity saves max length of data point slices that will be used for the slice capacity.
@@ -282,6 +346,11 @@ func (m *metricAwsNeuronDevicePowerUtilization) updateCapacity() {
 // emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
 func (m *metricAwsNeuronDevicePowerUtilization) emit(metrics pmetric.MetricSlice) {
 	if m.config.Enabled && m.data.Gauge().DataPoints().Len() > 0 {
+		if m.config.AggregationStrategy == AggregationStrategyAvg {
+			for i, aggCount := range m.aggDataPoints {
+				m.data.Gauge().DataPoints().At(i).SetDoubleValue(m.data.Gauge().DataPoints().At(i).DoubleValue() / aggCount)
+			}
+		}
 		m.updateCapacity()
 		m.data.MoveTo(metrics.AppendEmpty())
 		m.init()
@@ -2011,8 +2080,8 @@ func (mb *MetricsBuilder) RecordAwsNeuronDeviceHostMemoryUsageDataPoint(ts pcomm
 }
 
 // RecordAwsNeuronDevicePowerUtilizationDataPoint adds a data point to aws.neuron.device.power.utilization metric.
-func (mb *MetricsBuilder) RecordAwsNeuronDevicePowerUtilizationDataPoint(ts pcommon.Timestamp, val float64) {
-	mb.metricAwsNeuronDevicePowerUtilization.recordDataPoint(mb.startTime, ts, val)
+func (mb *MetricsBuilder) RecordAwsNeuronDevicePowerUtilizationDataPoint(ts pcommon.Timestamp, val float64, powerStatisticAttributeValue AttributePowerStatistic) {
+	mb.metricAwsNeuronDevicePowerUtilization.recordDataPoint(mb.startTime, ts, val, powerStatisticAttributeValue.String())
 }
 
 // RecordAwsNeuronErrorsDataPoint adds a data point to aws.neuron.errors metric.

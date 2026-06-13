@@ -214,6 +214,47 @@ func TestSysfsECCEmission(t *testing.T) {
 	assert.Len(t, inactive["aws.neuron.errors"], 3, "repairable + dram/sram uncorrected when monitor absent")
 }
 
+// The sysfs power node reports "<status>,<epoch>,<min>,<max>,<avg>" as percentages.
+// The receiver must emit all three statistics as separate points under one metric
+// name, distinguished by the statistic attribute (hostmetrics state-attribute
+// pattern), each as a fraction of max power (percent/100, to match unit "1").
+func TestSysfsPowerUtilizationStatistics(t *testing.T) {
+	dir := t.TempDir()
+	powerDir := filepath.Join(dir, "neuron0", "stats", "power")
+	require.NoError(t, os.MkdirAll(powerDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(powerDir, "utilization"),
+		[]byte("POWER_STATUS_VALID,1781370720,1.50,3.50,2.00"), 0o600))
+
+	cfg := metadata.DefaultMetricsBuilderConfig()
+	cfg.Metrics.AwsNeuronDevicePowerUtilization.Enabled = true // default-off; opt in for the test
+	mb := metadata.NewMetricsBuilder(cfg, receivertest.NewNopSettings(metadata.Type))
+	rb := mb.NewResourceBuilder()
+	now := pcommon.NewTimestampFromTime(time.Now())
+
+	newSysfsReader(dir, zap.NewNop()).record(mb, now, rb, true)
+
+	pts, _ := collect(t, mb.Emit())
+	power := pts["aws.neuron.device.power.utilization"]
+	require.Len(t, power, 3, "min, max, and avg must each be a separate data point")
+	mn, ok := findByAttrs(power, map[string]string{"aws.neuron.power.statistic": "min"})
+	require.True(t, ok, "min point present")
+	assert.InDelta(t, 0.015, mn.dbl, 1e-9)
+	mx, ok := findByAttrs(power, map[string]string{"aws.neuron.power.statistic": "max"})
+	require.True(t, ok, "max point present")
+	assert.InDelta(t, 0.035, mx.dbl, 1e-9)
+	av, ok := findByAttrs(power, map[string]string{"aws.neuron.power.statistic": "avg"})
+	require.True(t, ok, "avg point present")
+	assert.InDelta(t, 0.020, av.dbl, 1e-9)
+}
+
+// The receiver must not override scraperhelper's default collection interval; the
+// default should be the upstream 60s, matching Bindplane's source default.
+func TestDefaultCollectionIntervalInheritsScraperhelper(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	assert.Equal(t, time.Minute, cfg.CollectionInterval,
+		"default collection_interval must inherit scraperhelper's 60s, not a local override")
+}
+
 // neuron-monitor's default output is single-line JSON, but a pretty-printed
 // config produces multi-line reports. The streaming decoder must parse those
 // (the old line scanner would split on internal newlines and lose every report).

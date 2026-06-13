@@ -32,7 +32,9 @@ func TestMetricsBuilderConfig(t *testing.T) {
 						EnabledAttributes:   []AwsNeuronDeviceHostMemoryUsageMetricAttributeKey{AwsNeuronDeviceHostMemoryUsageMetricAttributeKeyMemoryCategory, AwsNeuronDeviceHostMemoryUsageMetricAttributeKeyMemoryState},
 					},
 					AwsNeuronDevicePowerUtilization: AwsNeuronDevicePowerUtilizationMetricConfig{
-						Enabled: true,
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategyAvg,
+						EnabledAttributes:   []AwsNeuronDevicePowerUtilizationMetricAttributeKey{AwsNeuronDevicePowerUtilizationMetricAttributeKeyPowerStatistic},
 					},
 					AwsNeuronErrors: AwsNeuronErrorsMetricConfig{
 						Enabled:             true,
@@ -136,7 +138,9 @@ func TestMetricsBuilderConfig(t *testing.T) {
 						EnabledAttributes:   []AwsNeuronDeviceHostMemoryUsageMetricAttributeKey{AwsNeuronDeviceHostMemoryUsageMetricAttributeKeyMemoryCategory, AwsNeuronDeviceHostMemoryUsageMetricAttributeKeyMemoryState},
 					},
 					AwsNeuronDevicePowerUtilization: AwsNeuronDevicePowerUtilizationMetricConfig{
-						Enabled: false,
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategyAvg,
+						EnabledAttributes:   []AwsNeuronDevicePowerUtilizationMetricAttributeKey{AwsNeuronDevicePowerUtilizationMetricAttributeKeyPowerStatistic},
 					},
 					AwsNeuronErrors: AwsNeuronErrorsMetricConfig{
 						Enabled:             false,

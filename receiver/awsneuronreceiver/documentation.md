@@ -186,11 +186,17 @@ metrics:
 
 ### aws.neuron.device.power.utilization
 
-Device power utilization from sysfs (best-effort; not populated on all instances).
+Device power utilization (fraction of max power) from sysfs, split by statistic over the sampling period (best-effort; not populated on all instances).
 
 | Unit | Metric Type | Value Type | Stability |
 | ---- | ----------- | ---------- | --------- |
 | 1 | Gauge | Double | Alpha |
+
+#### Attributes
+
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| aws.neuron.power.statistic | Power utilization statistic over the sampling period. | Str: ``min``, ``max``, ``avg`` | Recommended | - |
 
 ### aws.neuron.neuroncore.inferences
 

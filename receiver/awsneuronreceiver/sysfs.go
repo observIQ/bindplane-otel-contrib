@@ -73,8 +73,10 @@ func (r *sysfsReader) record(mb *metadata.MetricsBuilder, now pcommon.Timestamp,
 			mb.RecordAwsNeuronDeviceHostMemoryUsageDataPoint(now, v, cat, st)
 		})
 
-		if p, ok := r.readPowerUtil(filepath.Join(dev, "stats/power/utilization")); ok {
-			mb.RecordAwsNeuronDevicePowerUtilizationDataPoint(now, p)
+		if mn, mx, avg, ok := r.readPowerUtil(filepath.Join(dev, "stats/power/utilization")); ok {
+			mb.RecordAwsNeuronDevicePowerUtilizationDataPoint(now, mn, metadata.AttributePowerStatisticMin)
+			mb.RecordAwsNeuronDevicePowerUtilizationDataPoint(now, mx, metadata.AttributePowerStatisticMax)
+			mb.RecordAwsNeuronDevicePowerUtilizationDataPoint(now, avg, metadata.AttributePowerStatisticAvg)
 		}
 
 		// ECC: the repairable count is unique to sysfs and is always emitted; the
@@ -202,21 +204,28 @@ func (r *sysfsReader) readStr(path string) string {
 }
 
 // readPowerUtil parses "POWER_STATUS_VALID,<epoch>,<min>,<max>,<avg>" and returns
-// the average as a fraction. Best-effort: many instances report zeros.
-func (r *sysfsReader) readPowerUtil(path string) (float64, bool) {
+// the min, max, and avg as fractions of the device's max power (the sysfs values
+// are percentages). AWS documents only that these refresh ~every minute; the
+// averaging-window length is unspecified. Best-effort: many instances report zeros.
+func (r *sysfsReader) readPowerUtil(path string) (minPct, maxPct, avgPct float64, ok bool) {
 	s := r.readStr(path)
 	if s == "" || !strings.Contains(s, "VALID") {
-		return 0, false
+		return 0, 0, 0, false
 	}
 	parts := strings.Split(s, ",")
 	if len(parts) < 5 {
 		r.logger.Debug("sysfs power utilization malformed", zap.String("path", path), zap.String("value", s))
-		return 0, false
+		return 0, 0, 0, false
 	}
-	f, err := strconv.ParseFloat(strings.TrimSpace(parts[len(parts)-1]), 64)
-	if err != nil {
-		r.logger.Debug("sysfs power utilization malformed", zap.String("path", path), zap.Error(err))
-		return 0, false
+	// Trailing fields are min, max, avg (percentages); index from the end so any
+	// leading fields (status, epoch) don't shift the parse.
+	n := len(parts)
+	mn, e1 := strconv.ParseFloat(strings.TrimSpace(parts[n-3]), 64)
+	mx, e2 := strconv.ParseFloat(strings.TrimSpace(parts[n-2]), 64)
+	av, e3 := strconv.ParseFloat(strings.TrimSpace(parts[n-1]), 64)
+	if e1 != nil || e2 != nil || e3 != nil {
+		r.logger.Debug("sysfs power utilization malformed", zap.String("path", path), zap.String("value", s))
+		return 0, 0, 0, false
 	}
-	return f / 100.0, true
+	return mn / 100.0, mx / 100.0, av / 100.0, true
 }
