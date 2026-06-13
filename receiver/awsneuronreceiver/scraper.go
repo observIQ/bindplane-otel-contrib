@@ -46,7 +46,7 @@ func newNeuronScraper(params receiver.Settings, cfg *Config) *neuronScraper {
 
 func (s *neuronScraper) start(_ context.Context, _ component.Host) error {
 	s.mb = metadata.NewMetricsBuilder(s.cfg.MetricsBuilderConfig, s.settings)
-	s.runner = newRunner(s.cfg.Command, s.cfg.ConfigFile, s.cfg.CollectionInterval, s.settings.Logger)
+	s.runner = newRunner(s.cfg.Command, s.cfg.CollectionInterval, s.settings.Logger)
 	s.runner.start(context.Background()) // background ctx: subprocess outlives start; shutdown cancels
 	s.sysfs = newSysfsReader(defaultSysfsRoot, s.settings.Logger)
 	return nil

@@ -33,9 +33,6 @@ type Config struct {
 	// Command is the path to (or name of) the neuron-monitor binary.
 	Command string `mapstructure:"command"`
 
-	// ConfigFile is an optional path to a neuron-monitor JSON configuration file.
-	ConfigFile string `mapstructure:"config_file"`
-
 	// MetricGroups is the category layer of the two-layer config. Each key is a
 	// metric group (the third dot-segment of the metric name, e.g. "neuroncore",
 	// "execution", "system"); the value bulk-sets every metric in that group.

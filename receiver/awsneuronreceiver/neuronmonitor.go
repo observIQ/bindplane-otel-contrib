@@ -149,10 +149,9 @@ type nmHardwareInfo struct {
 
 // runner manages the neuron-monitor subprocess and exposes the latest report.
 type runner struct {
-	command    string
-	configFile string
-	period     time.Duration
-	logger     *zap.Logger
+	command string
+	period  time.Duration
+	logger  *zap.Logger
 
 	latest        atomic.Pointer[nmReport]
 	degraded      sync.Once
@@ -165,20 +164,20 @@ type runner struct {
 	commandContext func(ctx context.Context, name string, args ...string) *exec.Cmd
 }
 
-func newRunner(command, configFile string, period time.Duration, logger *zap.Logger) *runner {
+func newRunner(command string, period time.Duration, logger *zap.Logger) *runner {
 	return &runner{
 		command:        command,
-		configFile:     configFile,
 		period:         period,
 		logger:         logger,
 		commandContext: exec.CommandContext,
 	}
 }
 
-// defaultMonitorConfig is the neuron-monitor configuration the receiver uses when
-// the operator supplies no config_file. It requests exactly the metric groups the
-// receiver maps (runtime counters/stats/memory plus system hardware counters,
-// vCPU, and memory), so ECC and the rest are collected out of the box.
+// defaultMonitorConfig is the neuron-monitor configuration the receiver runs with.
+// The receiver is the sole source of truth for the subprocess config: it requests
+// exactly the metric groups the receiver maps (runtime counters/stats/memory plus
+// system hardware counters, vCPU, and memory), so ECC and the rest are collected
+// out of the box. There is no external/operator config input.
 func defaultMonitorConfig() map[string]any {
 	return map[string]any{
 		"neuron_runtimes": []any{map[string]any{
@@ -208,23 +207,12 @@ func monitorPeriod(d time.Duration) string {
 }
 
 // writeEffectiveConfig builds the neuron-monitor config the receiver launches with
-// and writes it to a temp file. The receiver owns the cadence: it always sets
-// "period" to collection_interval, overriding any period an operator put in their
-// config_file, so both collection halves (subprocess + sysfs) obey one interval.
-// A user-supplied config_file's metric selections are preserved; only the period
-// is forced. Returns the path and a cleanup func to remove the temp file.
+// and writes it to a temp file. The receiver is the sole source of truth for this
+// config: it always generates the default config and sets "period" to
+// collection_interval, so both collection halves (subprocess + sysfs) obey one
+// interval. Returns the path and a cleanup func to remove the temp file.
 func (r *runner) writeEffectiveConfig() (string, func(), error) {
 	cfg := defaultMonitorConfig()
-	if r.configFile != "" {
-		b, err := os.ReadFile(r.configFile) // #nosec G304 -- operator-provided config path
-		if err != nil {
-			return "", nil, err
-		}
-		cfg = map[string]any{}
-		if err := json.Unmarshal(b, &cfg); err != nil {
-			return "", nil, fmt.Errorf("parse config_file %q: %w", r.configFile, err)
-		}
-	}
 	cfg["period"] = monitorPeriod(r.period)
 
 	b, err := json.Marshal(cfg)
@@ -283,8 +271,8 @@ func (r *runner) start(parent context.Context) {
 	go func() {
 		defer r.wg.Done()
 		r.consume(ctx, stdout)
-		// Reap the process and surface its exit status. A non-zero exit (bad
-		// config_file, missing permissions, the binary refusing to run) is the
+		// Reap the process and surface its exit status. A non-zero exit (missing
+		// permissions or the binary refusing to run) is the
 		// typical "won't start properly" case; the exit error plus a tail of
 		// stderr is what makes that debuggable in the field.
 		err := cmd.Wait()

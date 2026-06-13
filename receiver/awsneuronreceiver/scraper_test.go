@@ -266,7 +266,7 @@ func TestConsumeParsesPrettyPrintedReports(t *testing.T) {
   "instance_info": { "instance_id": "i-second" }
 }
 `
-	r := newRunner("neuron-monitor", "", 10*time.Second, zap.NewNop())
+	r := newRunner("neuron-monitor", 10*time.Second, zap.NewNop())
 	r.consume(context.Background(), strings.NewReader(stream))
 
 	rep := r.latestReport()
@@ -300,31 +300,11 @@ func TestRecordMonitorSkipsNonNumericCoreKey(t *testing.T) {
 	assert.True(t, ok, "core 0 must be the surviving entry, not the bogus key")
 }
 
-// The receiver owns the cadence: neuron-monitor's period must be set from
-// collection_interval, overriding any period in a user-supplied config_file, so
-// both collection halves obey one interval.
-func TestRunnerOverridesConfigFilePeriod(t *testing.T) {
-	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "nm.json")
-	require.NoError(t, os.WriteFile(cfgPath, []byte(`{"period":"99s","system_metrics":[{"type":"neuron_hw_counters"}]}`), 0o600))
-
-	r := newRunner("neuron-monitor", cfgPath, 10*time.Second, zap.NewNop())
-	path, cleanup, err := r.writeEffectiveConfig()
-	require.NoError(t, err)
-	defer cleanup()
-
-	b, err := os.ReadFile(path)
-	require.NoError(t, err)
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(b, &got))
-	assert.Equal(t, "10s", got["period"], "collection_interval must override the config_file period")
-	assert.NotNil(t, got["system_metrics"], "user metric selections from config_file must be preserved")
-}
-
-// With no config_file, the receiver still owns the period and must generate a
-// config that requests the metrics it maps (runtime + system, incl. ECC).
-func TestRunnerDefaultConfigHasPeriodAndMetrics(t *testing.T) {
-	r := newRunner("neuron-monitor", "", 30*time.Second, zap.NewNop())
+// The receiver is the sole source of truth for the neuron-monitor config: it
+// generates the config itself (no external input) and sets the period from
+// collection_interval, requesting the metrics it maps (runtime + system, incl. ECC).
+func TestRunnerGeneratesOwnConfig(t *testing.T) {
+	r := newRunner("neuron-monitor", 30*time.Second, zap.NewNop())
 	path, cleanup, err := r.writeEffectiveConfig()
 	require.NoError(t, err)
 	defer cleanup()
@@ -339,10 +319,10 @@ func TestRunnerDefaultConfigHasPeriodAndMetrics(t *testing.T) {
 }
 
 // A non-zero exit from neuron-monitor must be logged once at Error with a tail
-// of stderr, so a bad config_file / permissions failure is debuggable.
+// of stderr, so a permissions failure or refusing-to-run binary is debuggable.
 func TestRunnerLogsStderrOnNonZeroExit(t *testing.T) {
 	core, logs := observer.New(zapcore.ErrorLevel)
-	r := newRunner("/bin/sh", "", 10*time.Second, zap.New(core))
+	r := newRunner("/bin/sh", 10*time.Second, zap.New(core))
 	r.commandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
 		return exec.CommandContext(ctx, "/bin/sh", "-c", "echo neuron-monitor-boom >&2; exit 3")
 	}
@@ -359,7 +339,7 @@ func TestRunnerLogsStderrOnNonZeroExit(t *testing.T) {
 
 func TestRunnerDegradesWhenBinaryMissing(t *testing.T) {
 	core, logs := observer.New(zapcore.ErrorLevel)
-	r := newRunner("definitely-not-a-real-neuron-monitor-xyz", "", 10*time.Second, zap.New(core))
+	r := newRunner("definitely-not-a-real-neuron-monitor-xyz", 10*time.Second, zap.New(core))
 	r.start(context.Background())
 	defer r.stop()
 
