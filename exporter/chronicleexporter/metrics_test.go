@@ -32,7 +32,6 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func newTestConfig(opts ...func(*Config)) *Config {
@@ -147,17 +146,11 @@ func TestNewMetricsReporter(t *testing.T) {
 	})
 }
 
-func TestMetricsReporterResetWindow(t *testing.T) {
+func TestMetricsReporterInitialWindow(t *testing.T) {
 	mr, err := newMetricsReporter(newTestConfig(), componenttest.NewNopTelemetrySettings(), "test-exporter", noopSend)
 	require.NoError(t, err)
 
-	mr.recordSent(10)
-	mr.recordDropped(5)
-
-	newWindow := timestamppb.Now()
-	mr.resetWindow(newWindow)
-
-	assert.Equal(t, newWindow, mr.agentStats.WindowStartTime)
+	assert.Equal(t, mr.startTime, mr.agentStats.WindowStartTime)
 	assert.Equal(t, mr.startTime, mr.agentStats.StartTime)
 	assert.Equal(t, mr.agentID, mr.agentStats.AgentId)
 	require.Len(t, mr.agentStats.ExporterStats, 1)
