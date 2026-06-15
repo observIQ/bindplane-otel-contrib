@@ -3,7 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/exporter/googlecloudstorageexp
 go 1.26.4
 
 require (
-	cloud.google.com/go/storage v1.62.2
+	cloud.google.com/go/storage v1.62.3
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.60.0
 	go.opentelemetry.io/collector/component/componenttest v0.154.0
