@@ -24,6 +24,9 @@ gha-creds-*.json
 # Don't ignore the mdatagen generated config files
 !**/internal/metadata/testdata/config.yaml
 
+# Raw OCSF schema downloads fetched by the ocsfstandardizationprocessor's gen.go
+processor/ocsfstandardizationprocessor/ocsf/*/ocsf_schema.json
+
 # Oh my claude code
 .omc
 
