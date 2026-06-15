@@ -123,7 +123,6 @@ _build-setup:
 	for dir in $$(find "$$CONTRIB_ROOT" -name "go.mod" -not -path "*/vendor/*" -not -path "*/internal/tools/*" -exec dirname {} \;); do \
 		go work use "$$dir"; \
 	done && \
-	go work edit -replace "go.opentelemetry.io/otel/metric/x=go.opentelemetry.io/otel/metric/x@v0.0.0-20260514180605-442cdbdd9466" && \
 	mkdir -p $(OUTDIR)
 
 # TODO: remove the go.opentelemetry.io/otel/metric/x replace above once the collector
