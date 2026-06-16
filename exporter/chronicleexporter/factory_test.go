@@ -36,6 +36,7 @@ func Test_createDefaultConfig(t *testing.T) {
 		Protocol:                  protocolGRPC,
 		BatchRequestSizeLimitGRPC: defaultBatchRequestSizeLimitGRPC,
 		BatchRequestSizeLimitHTTP: defaultBatchRequestSizeLimitHTTP,
+		HTTPResponseHeaderTimeout: defaultHTTPResponseHeaderTimeout,
 	}
 
 	actual := createDefaultConfig()
