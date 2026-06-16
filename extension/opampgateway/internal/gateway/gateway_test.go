@@ -412,6 +412,13 @@ type testOpAMPServer struct {
 	connCh          chan *websocket.Conn
 	errCh           chan error
 
+	// pending holds messages pulled from recvCh by WaitForAgentMessage that did
+	// not match the requested agent, so a later call for that agent can still
+	// find them. Without this, concurrently-forwarded agent messages arriving in
+	// an arbitrary order would be discarded, causing flaky timeouts.
+	pendingMu sync.Mutex
+	pending   []upstreamMessage
+
 	// skipAuth when true causes the server to ignore auth requests (never respond)
 	skipAuth bool
 
@@ -606,6 +613,17 @@ func (s *testOpAMPServer) WaitForAnyMessage(t *testing.T, timeout time.Duration)
 func (s *testOpAMPServer) WaitForAgentMessage(t *testing.T, agentID string, timeout time.Duration) upstreamMessage {
 	t.Helper()
 
+	// Check for a message already buffered from a prior call.
+	s.pendingMu.Lock()
+	for i, m := range s.pending {
+		if m.AgentID == agentID {
+			s.pending = append(s.pending[:i], s.pending[i+1:]...)
+			s.pendingMu.Unlock()
+			return m
+		}
+	}
+	s.pendingMu.Unlock()
+
 	deadline := time.After(timeout)
 	for {
 		select {
@@ -613,6 +631,10 @@ func (s *testOpAMPServer) WaitForAgentMessage(t *testing.T, agentID string, time
 			if msg.AgentID == agentID {
 				return msg
 			}
+			// Buffer non-matching messages so a later call can find them.
+			s.pendingMu.Lock()
+			s.pending = append(s.pending, msg)
+			s.pendingMu.Unlock()
 		case err := <-s.errCh:
 			require.NoError(t, err)
 		case <-deadline:
