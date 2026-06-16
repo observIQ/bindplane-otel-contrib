@@ -11,6 +11,16 @@ The AWS S3 Event Receiver consumes S3 event notifications for object creation ev
 5. Non-object creation events are ignored but removed from the queue.
 6. If an S3 object is not found (404 error), the corresponding SQS message is preserved for retry later.
 
+## Compression
+
+Gzip-compressed objects are decompressed automatically. The receiver detects gzip in priority order:
+
+1. A `Content-Encoding: gzip` header on the S3 object.
+2. A `.gz` object key suffix.
+3. The gzip magic number (`0x1f 0x8b 0x08`) at the start of the object body, used only when neither of the above is present.
+
+Detection method 3 handles producers — such as the AWS Landing Zone Accelerator — that export gzip-compressed objects without a content-encoding header or `.gz` extension. No configuration is required, and uncompressed objects are passed through unchanged.
+
 ## Visibility Extension Behavior
 
 The receiver implements a sophisticated visibility extension strategy to handle long-running processing:
