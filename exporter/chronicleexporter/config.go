@@ -122,6 +122,9 @@ type Config struct {
 
 	// APIVersion is the version of the API to use. Default is "v1alpha". Only applies to HTTPS protocol.
 	APIVersion string `mapstructure:"api_version"`
+
+	// HTTPResponseHeaderTimeout is the timeout for the HTTP response headers when using the HTTPS protocol.
+	HTTPResponseHeaderTimeout time.Duration `mapstructure:"http_response_header_timeout"`
 }
 
 // Validate checks if the configuration is valid.
@@ -168,6 +171,9 @@ func (cfg *Config) Validate() error {
 			if cfg.APIVersion != apiVersionV1Alpha && cfg.APIVersion != apiVersionV1Beta {
 				return fmt.Errorf("invalid API version: %s", cfg.APIVersion)
 			}
+		}
+		if cfg.HTTPResponseHeaderTimeout <= 0 {
+			return errors.New("positive HTTP response header timeout is required when protocol is https")
 		}
 
 		return nil

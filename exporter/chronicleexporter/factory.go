@@ -40,6 +40,9 @@ const (
 	defaultMetricsInterval           = 5 * time.Minute
 	defaultBatchRequestSizeLimitGRPC = 4000000
 	defaultBatchRequestSizeLimitHTTP = 4000000
+
+	// stdlib default is 0 (no timeout), best practice is to set a timeout
+	defaultHTTPResponseHeaderTimeout = 10 * time.Second
 )
 
 // createDefaultConfig creates the default configuration for the exporter.
@@ -58,6 +61,7 @@ func createDefaultConfig() component.Config {
 		BatchRequestSizeLimitHTTP: defaultBatchRequestSizeLimitHTTP,
 		LogErroredPayloads:        false,
 		ValidateLogTypes:          false,
+		HTTPResponseHeaderTimeout: defaultHTTPResponseHeaderTimeout,
 	}
 }
 
