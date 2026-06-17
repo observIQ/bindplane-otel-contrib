@@ -50,9 +50,6 @@ const (
 	// useful for avoiding re-connections.
 	defaultHTTPClientMaxIdleConnsPerHost = 10
 
-	// stdlib default is 0 (no timeout), best practice is to set a timeout
-	defaultHTTPClientResponseHeaderTimeout = 10 * time.Second
-
 	// Settings mirror stdlib defaults
 	// https://pkg.go.dev/net/http#RoundTripper
 	defaultHTTPClientMaxIdleConns          = 100
@@ -124,7 +121,7 @@ func (exp *httpExporter) Start(ctx context.Context, _ component.Host) error {
 		IdleConnTimeout:       defaultHTTPClientIdleConnTimeout,
 		TLSHandshakeTimeout:   defaultHTTPClientTLSHandshakeTimeout,
 		ExpectContinueTimeout: defaultHTTPClientExpectContinueTimeout,
-		ResponseHeaderTimeout: defaultHTTPClientResponseHeaderTimeout,
+		ResponseHeaderTimeout: exp.cfg.HTTPResponseHeaderTimeout,
 	}
 
 	exp.client = &http.Client{
