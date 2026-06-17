@@ -53,6 +53,7 @@ func TestBufferedReaderDecompression(t *testing.T) {
 		contentEncoding *string
 		body            []byte
 		want            []byte
+		wantErr         bool
 	}{
 		{
 			name:            "content-encoding header gzip, no extension",
@@ -109,6 +110,21 @@ func TestBufferedReaderDecompression(t *testing.T) {
 			body:       []byte{0x1f, 0x8b},
 			want:       []byte{0x1f, 0x8b},
 		},
+		{
+			// A gzip signal over a body that is not valid gzip surfaces the
+			// gzip.NewReader error rather than silently mishandling the data.
+			name:            "content-encoding gzip over non-gzip body errors",
+			streamName:      "logs/object",
+			contentEncoding: strPtr("gzip"),
+			body:            []byte("this is not gzip"),
+			wantErr:         true,
+		},
+		{
+			name:       "gz extension over non-gzip body errors",
+			streamName: "logs/object.gz",
+			body:       []byte("this is not gzip"),
+			wantErr:    true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -122,6 +138,10 @@ func TestBufferedReaderDecompression(t *testing.T) {
 			}
 
 			br, err := stream.BufferedReader(context.Background())
+			if tc.wantErr {
+				require.Error(t, err, "expected BufferedReader error")
+				return
+			}
 			require.NoError(t, err, "get buffered reader")
 
 			got, err := io.ReadAll(br)
