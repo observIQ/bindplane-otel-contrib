@@ -6,7 +6,7 @@ This file provides guidance to LLM Agents when working with this repository.
 
 This is `bindplane-otel-contrib`, a multi-module Go repository containing contrib components (receivers, processors, exporters, extensions) for the [Bindplane OpenTelemetry Collector](https://github.com/observIQ/bindplane-otel-collector). There is **no root go.mod** and **no main binary** — this repo is a library of components consumed by the collector repo.
 
-## PR Content
+## Pull Request Content
 
 The most important rule is not to post AI-generated comments on PRs or open PRs with summaries that are AI-generated. Discussions on the pull requests are for Users/Humans only.
 
