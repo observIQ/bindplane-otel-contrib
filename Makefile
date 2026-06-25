@@ -35,6 +35,28 @@ OUTDIR ?= build
 
 EXT = $(if $(filter windows,$(GOOS)),.exe,)
 
+#OCB binary info
+OCB_VERSION ?= v0.154.0
+OCB ?= $(shell command -v $${OCB:-builder} 2>/dev/null || echo $${GOBIN:-$$HOME/go/bin}/builder)
+
+# ocb manifest copy that points every contrib module at the local working tree.
+LOCAL_MANIFEST := $(abspath $(OUTDIR))/manifest.local.yaml
+
+# AGENT_BUILD_TAGS are the build tags that should be used when building BDOT
+# 'bindplane' builds with logic used by the v1 OpAMP implementation
+# 'embed_library' used by the telemetry generator receiver to use blitz (PR#3525)
+AGENT_BUILD_TAGS = bindplane embed_library
+
+# AGENT_LDFLAGS stamps version + git hash + build date into the v1 collector
+# binaries (both consume github.com/observiq/bindplane-otel-contrib/pkg/version).
+AGENT_LDFLAGS = -s -w -X github.com/observiq/bindplane-otel-contrib/pkg/version.version=$(COLLECTOR_VERSION)
+
+# Installs the ocb builder at the pinned version. The single source of truth
+# for the ocb version — CI workflows call this instead of pinning their own.
+.PHONY: install-ocb
+install-ocb:
+	go install go.opentelemetry.io/collector/cmd/builder@$(OCB_VERSION)
+
 ## Public build targets
 
 .PHONY: build-all
@@ -116,23 +138,27 @@ _build-setup:
 		echo "Clone the collector repo or update .local.env"; \
 		exit 1; \
 	fi
-	@echo "Building collector with local contrib modules..."
+	@echo "Generating ocb manifest with local contrib modules..."
+	@mkdir -p $(OUTDIR)
 	@CONTRIB_ROOT=$$(pwd) && \
-	rm -f go.work go.work.sum && \
-	go work init "$(COLLECTOR_ABS)" && \
-	for dir in $$(find "$$CONTRIB_ROOT" -name "go.mod" -not -path "*/vendor/*" -not -path "*/internal/tools/*" -exec dirname {} \;); do \
-		go work use "$$dir"; \
+	: > $(OUTDIR)/contrib-replaces.yaml && \
+	for gomod in $$(find "$$CONTRIB_ROOT" -name go.mod -not -path "*/internal/tools/*" -not -path "*/vendor/*" | sort); do \
+		dir=$$(dirname "$$gomod"); \
+		modpath=$$(awk '/^module /{print $$2; exit}' "$$gomod"); \
+		echo "  - $$modpath => $$dir" >> $(OUTDIR)/contrib-replaces.yaml; \
 	done && \
-	mkdir -p $(OUTDIR)
-
-# TODO: remove the go.opentelemetry.io/otel/metric/x replace above once the collector
-# repo no longer pins a pre-release go.opentelemetry.io/otel/sdk/metric. That pre-release
-# commit's go.mod requires metric/x at a placeholder version (v0.0.0-00010101000000-...)
-# that only resolves inside the otel repo itself, which breaks workspace-mode resolution.
+	awk -v rf="$(OUTDIR)/contrib-replaces.yaml" \
+		'/^replaces:/{print; while ((getline line < rf) > 0) print line; next} {print}' \
+		"$(COLLECTOR_ABS)/manifests/observIQ/manifest.yaml" > $(LOCAL_MANIFEST)
+	@# The source manifest's collector-internal replaces use paths relative to the
+	@# collector repo (e.g. "=> ../internal/..."). Once copied into $(OUTDIR), ocb
+	@# would resolve them against $(OUTDIR), so rewrite them to absolute collector paths.
+	sed -i.bak -E 's#=> \.\./#=> $(COLLECTOR_ABS)/#' $(LOCAL_MANIFEST) && rm -f $(LOCAL_MANIFEST).bak
+	$(MAKE) install-ocb
 
 .PHONY: _cleanup-build
 _cleanup-build:
-	rm -f go.work go.work.sum
+	rm -f $(OUTDIR)/manifest.local.yaml $(OUTDIR)/contrib-replaces.yaml
 
 .PHONY: _build-linux
 _build-linux: _build-linux-amd64 _build-linux-arm64 _build-linux-arm _build-linux-ppc64 _build-linux-ppc64le
@@ -169,7 +195,7 @@ _build-darwin-amd64:
 
 .PHONY: _build-darwin-arm64
 _build-darwin-arm64:
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(MAKE) _build-collector -j2
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(MAKE) _build-collector
 
 .PHONY: _build-windows-amd64
 _build-windows-amd64:
@@ -181,7 +207,16 @@ _build-windows-arm64:
 
 .PHONY: _build-collector
 _build-collector:
-	go build -ldflags "-s -w -X github.com/observiq/bindplane-otel-contrib/pkg/version.version=$(COLLECTOR_VERSION)" -tags bindplane -o $(OUTDIR)/collector_$(GOOS)_$(GOARCH)$(EXT) "$(COLLECTOR_ABS)/cmd/collector"
+	@if [ ! -x "$(OCB)" ]; then \
+		echo "ocb not found at $(OCB). Install with: make install-ocb"; \
+		exit 1; \
+	fi
+	$(OCB) --config $(LOCAL_MANIFEST) --skip-compilation
+	cp $(COLLECTOR_ABS)/internal/extension/opampconnectionextension/cmd/main/main.go $(OUTDIR)/main.go
+	# Drop ocb's run/runInteractive helpers — our main.go owns startup.
+	rm -f $(OUTDIR)/main_others.go $(OUTDIR)/main_windows.go
+	cd $(OUTDIR) && go mod tidy
+	cd $(OUTDIR) && CGO_ENABLED=0 go build -tags "$(AGENT_BUILD_TAGS)" -ldflags "$(AGENT_LDFLAGS)" -o ../$(OUTDIR)/collector_$(GOOS)_$(GOARCH)$(EXT) .
 
 .PHONY: clean
 clean:
