@@ -61,9 +61,10 @@ trailer by default; please disable or strip it before committing.
 - `make check-dependabot` — Verify all modules have dependabot entries
 
 ### Building the Collector Locally
-- `make build-collector` — Build the collector binary using local contrib + collector repos
-  - Requires a `.local.env` file with `COLLECTOR_PATH=../bindplane-otel-collector` (auto-created on first run)
-  - Creates a temporary `go.work` in the collector repo to use local contrib modules
+- `make build-collector` — Build the collector against the local contrib working tree
+  - Set `COLLECTOR_PATH` (default `../bindplane-otel-collector`) to a local collector checkout, e.g. via `.local.env`
+  - `_build-setup` writes an OCB manifest copy that `replace`s every contrib module with its on-disk path.
+  - `make build-linux` / `build-darwin` / `build-windows` build for that GOOS; `GOOS`/`GOARCH` are honored.
 
 ### Release
 - `make release version=vX.X.X` — Tag root + all submodules and push
