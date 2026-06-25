@@ -145,7 +145,7 @@ func (l *m365LogsReceiver) ensureToken(ctx context.Context) error {
 	}
 
 	if err := l.client.GetToken(ctx); err != nil {
-		return fmt.Errorf("error creating authorization token: %w", err)
+		return fmt.Errorf("creating authorization token: %w", err)
 	}
 
 	for _, a := range l.audits {
