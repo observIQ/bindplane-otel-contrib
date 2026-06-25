@@ -24,18 +24,18 @@ jobs:
     if: needs.optimize_ci.outputs.skip != 'true' && github.actor != 'dependabot[bot]'
     needs:
       - optimize_ci
-    runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    runs-on: ubuntu-latest-8-cores
     strategy:
       matrix:
         target: [build-linux, build-darwin, build-windows]
     steps:
       - name: Checkout Contrib
-        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           path: contrib
 
       - name: Checkout Collector
-        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: observIQ/bindplane-otel-collector
           ref: main
@@ -49,9 +49,14 @@ jobs:
           cache: false
 
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
-          cache: go
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
       - name: Build Collector with Contrib Modules
         run: make -C contrib ${{ matrix.target }} COLLECTOR_PATH=../collector
