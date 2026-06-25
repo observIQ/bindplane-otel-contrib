@@ -150,7 +150,7 @@ func (l *m365LogsReceiver) ensureToken(ctx context.Context) error {
 
 	for _, a := range l.audits {
 		if err := l.client.StartSubscription(ctx, l.startRoot+a.route); err != nil {
-			return fmt.Errorf("error starting %s audit subscription: %w", a.name, err)
+			return fmt.Errorf("starting %s audit subscription: %w", a.name, err)
 		}
 	}
 
