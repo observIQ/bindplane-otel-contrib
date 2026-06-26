@@ -36,6 +36,40 @@ import (
 	"golang.org/x/oauth2"
 )
 
+func TestNewHTTPTransport(t *testing.T) {
+	t.Run("default config selects HTTP/1.1 with a connection pool", func(t *testing.T) {
+		// createDefaultConfig sets http_version "1.1" and the idle-conn defaults.
+		cfg := createDefaultConfig().(*Config)
+		tr := newHTTPTransport(cfg)
+		require.False(t, tr.ForceAttemptHTTP2)
+		// A non-nil, empty TLSNextProto map is how net/http disables the h2 ALPN upgrade.
+		require.NotNil(t, tr.TLSNextProto)
+		require.Empty(t, tr.TLSNextProto)
+		require.Equal(t, defaultHTTPClientMaxIdleConns, tr.MaxIdleConns)
+		require.Equal(t, defaultHTTPClientMaxIdleConnsPerHost, tr.MaxIdleConnsPerHost)
+		require.Equal(t, defaultHTTPResponseHeaderTimeout, tr.ResponseHeaderTimeout)
+	})
+
+	t.Run("empty http_version stays on the HTTP/1.1 default", func(t *testing.T) {
+		tr := newHTTPTransport(&Config{HTTPResponseHeaderTimeout: defaultHTTPResponseHeaderTimeout})
+		require.False(t, tr.ForceAttemptHTTP2)
+		require.NotNil(t, tr.TLSNextProto)
+	})
+
+	t.Run("http_version 2 negotiates HTTP/2", func(t *testing.T) {
+		tr := newHTTPTransport(&Config{
+			HTTPResponseHeaderTimeout: defaultHTTPResponseHeaderTimeout,
+			HTTPVersion:               httpVersion2,
+			MaxIdleConns:              200,
+			MaxIdleConnsPerHost:       20,
+		})
+		require.True(t, tr.ForceAttemptHTTP2)
+		require.Nil(t, tr.TLSNextProto, "HTTP/2 must not set the h2-disabling TLSNextProto map")
+		require.Equal(t, 200, tr.MaxIdleConns)
+		require.Equal(t, 20, tr.MaxIdleConnsPerHost)
+	})
+}
+
 type mockHTTPServer struct {
 	srv          *httptest.Server
 	requestCount int
