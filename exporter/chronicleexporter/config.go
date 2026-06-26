@@ -36,6 +36,10 @@ const (
 	protocolGRPC      = "gRPC"
 	apiVersionV1Alpha = "v1alpha"
 	apiVersionV1Beta  = "v1beta"
+
+	// httpVersion11 and httpVersion2 are the valid values for the http_version setting.
+	httpVersion11 = "1.1"
+	httpVersion2  = "2"
 )
 
 // Config defines configuration for the Chronicle exporter.
@@ -125,6 +129,30 @@ type Config struct {
 
 	// HTTPResponseHeaderTimeout is the timeout for the HTTP response headers when using the HTTPS protocol.
 	HTTPResponseHeaderTimeout time.Duration `mapstructure:"http_response_header_timeout"`
+
+	// HTTPVersion selects the HTTP protocol version used to send logs over the https protocol.
+	// Valid values are "1.1" and "2"; the default is "1.1". HTTP/1.1 opens a pool of connections
+	// (bounded by max_idle_conns / max_idle_conns_per_host), giving real upload parallelism across
+	// consumers. Setting "2" negotiates HTTP/2, which multiplexes every concurrent request over a
+	// single TCP connection to Chronicle and becomes a throughput bottleneck under high volume:
+	// large request bodies serialize behind the connection's write lock and HTTP/2 flow-control
+	// window. Only applies to the https protocol.
+	HTTPVersion string `mapstructure:"http_version"`
+
+	// MaxIdleConns controls the total number of idle (keep-alive) connections kept across all hosts.
+	// Most relevant when http_version is "1.1". 0 means no limit. Only applies to the https protocol.
+	MaxIdleConns int `mapstructure:"max_idle_conns"`
+
+	// MaxIdleConnsPerHost controls how many idle (keep-alive) connections are retained per host.
+	// When http_version is "1.1", raise this toward sending_queue.num_consumers so connections are
+	// reused instead of being repeatedly re-dialed. Only applies to the https protocol.
+	MaxIdleConnsPerHost int `mapstructure:"max_idle_conns_per_host"`
+}
+
+// useHTTP2 reports whether the exporter should negotiate HTTP/2 for the https protocol.
+// HTTP/1.1 is the default; only an explicit "2" selects HTTP/2 (an unset value stays on HTTP/1.1).
+func (cfg *Config) useHTTP2() bool {
+	return cfg.HTTPVersion == httpVersion2
 }
 
 // Validate checks if the configuration is valid.
@@ -174,6 +202,17 @@ func (cfg *Config) Validate() error {
 		}
 		if cfg.HTTPResponseHeaderTimeout <= 0 {
 			return errors.New("positive HTTP response header timeout is required when protocol is https")
+		}
+		switch cfg.HTTPVersion {
+		case "", httpVersion11, httpVersion2:
+		default:
+			return fmt.Errorf("invalid http_version: %q (valid values are %q and %q)", cfg.HTTPVersion, httpVersion11, httpVersion2)
+		}
+		if cfg.MaxIdleConns < 0 {
+			return errors.New("max_idle_conns must not be negative")
+		}
+		if cfg.MaxIdleConnsPerHost < 0 {
+			return errors.New("max_idle_conns_per_host must not be negative")
 		}
 
 		return nil

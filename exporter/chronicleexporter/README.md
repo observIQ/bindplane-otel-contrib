@@ -55,6 +55,9 @@ The exporter can be configured using the following fields:
 | `batch_request_size_limit_http` | int               | `4000000`                              | `false`  | The maximum size, in bytes, allowed for an HTTPS batch creation request.                                                                                                                 |
 | `log_errored_payloads`          | bool              | `false`                                | `false`  | Whether to log payloads that fail to send. Useful for debugging.                                                                                                                         |
 | `http_response_header_timeout`  | duration          | `10s`                                  | `false`  | The amount of time to wait for the HTTP response headers after sending requests to Chronicle. Only applies to `https` protocol.                                                          |
+| `http_version`                  | string            | `1.1`                                  | `false`  | The HTTP version used to send logs. Valid values are `1.1` and `2`. `1.1` opens a connection pool, giving upload parallelism across consumers. Setting `2` (HTTP/2) multiplexes every request over a single connection to Chronicle, which becomes a bottleneck under high throughput. See [High-Throughput Tuning](#high-throughput-tuning-https). Only applies to `https` protocol. |
+| `max_idle_conns`                | int               | `100`                                  | `false`  | The total number of idle (keep-alive) connections kept across all hosts. Most relevant with `http_version: 1.1`. `0` means no limit. Only applies to `https` protocol.                   |
+| `max_idle_conns_per_host`       | int               | `10`                                   | `false`  | The number of idle (keep-alive) connections retained per host. With `http_version: 1.1`, raise this toward `sending_queue.num_consumers` so connections are reused. Only applies to `https` protocol. |
 
 ### Log Type
 
@@ -90,6 +93,34 @@ For `https`, regional endpoints for the Chronicle API are listed [here](https://
 ## Log Batch Creation Request Limits
 
 `batch_request_size_limit_grpc` and `batch_request_size_limit_http` are used to ensure log batch creation requests don't exceed Chronicle's backend limits — the former for the `gRPC` protocol, and the latter for the `https` protocol. If a request exceeds the configured size limit, it will be split into multiple requests that adhere to this limit, with each request containing a subset of the logs from the original. Any single log that on its own exceeds the size limit will be dropped.
+
+## High-Throughput Tuning (HTTPS)
+
+The `https` exporter defaults to **HTTP/1.1** (`http_version: 1.1`), which opens a *pool* of connections (one request per connection at a time), so concurrent `sending_queue.num_consumers` get real upload parallelism. Setting `http_version: 2` makes the Go client negotiate HTTP/2, which multiplexes **every** concurrent request over a **single** TCP connection per host — for high-volume sources that single connection becomes the throughput ceiling (large request bodies serialize behind the connection's write lock and flow-control window), so extra consumers simply queue behind one connection and, if requests time out, retry into the same saturated connection.
+
+If you are sending tens of GB/hr to a single endpoint and see export latency climb, the persistent queue grow, and CPU spike while the Chronicle API itself reports low latency, an HTTP/2 connection ceiling is the likely cause (for example, if you have set `http_version: 2`). Recommended settings:
+
+1. **`compression: gzip`** — log text typically compresses ~10x, drastically reducing bytes on the wire. This is usually the single highest-impact change.
+2. **`http_version: "1.1"`** (the default) — keeps a connection pool rather than multiplexing over one HTTP/2 connection.
+3. **`max_idle_conns_per_host`** — set this at or above `sending_queue.num_consumers` so connections are reused rather than re-dialed on every request.
+4. **`max_idle_conns`** — the total keep-alive pool across hosts; keep it at or above `max_idle_conns_per_host`.
+
+```yaml
+chronicle:
+  protocol: https
+  endpoint: chronicle.googleapis.com
+  location: us
+  project: my-gcp-project
+  customer_id: "customer-123"
+  creds_file_path: "/path/to/google/creds.json"
+  log_type: "FORTINET_FIREWALL"
+  compression: gzip
+  http_version: "1.1"
+  max_idle_conns: 100
+  max_idle_conns_per_host: 20
+  sending_queue:
+    num_consumers: 20
+```
 
 ## Agent Metrics
 
