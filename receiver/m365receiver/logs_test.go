@@ -48,6 +48,7 @@ func TestStartPolling(t *testing.T) {
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	l.cancel = cancel
 	l.record = &logRecord{}
+	l.connected = true
 
 	err := l.startPolling(cancelCtx)
 	require.NoError(t, err)
@@ -72,6 +73,7 @@ func TestPollLogs(t *testing.T) {
 	file := filepath.Join("testdata", "logs", "testPollLogs", "input.json")
 	client.On("GetJSON", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(client.loadTestLogs(t, file), nil)
 	rcv.record = &logRecord{}
+	rcv.connected = true
 
 	err := rcv.pollLogs(context.Background())
 	require.NoError(t, err)
@@ -152,6 +154,40 @@ func TestPollErrHandle(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return sink.LogRecordCount() > 0
 	}, 5*time.Second, 1*time.Second)
+}
+
+func TestPollLogsReconnect(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	cfg.TenantID = "testTenantID"
+	cfg.Logs.PollInterval = 1 * time.Second
+
+	sink := &consumertest.LogsSink{}
+	rcv := newM365Logs(cfg, receivertest.NewNopSettings(typ), sink)
+	client := &mockLogsClient{}
+	rcv.client = client
+	rcv.record = &logRecord{}
+
+	// First poll: token acquisition fails (e.g. expired client secret). The
+	// receiver should surface the error but stay alive and remain unconnected.
+	client.On("GetToken", mock.Anything).Return(fmt.Errorf("invalid_client")).Once()
+	err := rcv.pollLogs(context.Background())
+	require.Error(t, err)
+	require.False(t, rcv.connected)
+
+	// Second poll: the secret has been restored, so the token is acquired and
+	// the receiver connects and consumes logs.
+	file := filepath.Join("testdata", "logs", "testPollLogs", "input.json")
+	client.On("GetToken", mock.Anything).Return(nil).Once()
+	client.On("GetJSON", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(client.loadTestLogs(t, file), nil)
+	err = rcv.pollLogs(context.Background())
+	require.NoError(t, err)
+	require.True(t, rcv.connected)
+	require.Positive(t, sink.LogRecordCount())
+
+	// Subsequent polls reuse the existing connection: GetToken is not called again.
+	err = rcv.pollLogs(context.Background())
+	require.NoError(t, err)
+	client.AssertNumberOfCalls(t, "GetToken", 2)
 }
 
 func TestParseOptionalAttributes(t *testing.T) {
