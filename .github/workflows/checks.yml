@@ -25,7 +25,7 @@ jobs:
     if: needs.optimize_ci.outputs.skip != 'true'
     needs:
       - optimize_ci
-    runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    runs-on: ubuntu-latest-8-cores
     permissions:
       contents: read
       pull-requests: read
@@ -39,7 +39,7 @@ jobs:
       dependabot: ${{ steps.filter.outputs.dependabot == 'true' || steps.filter.outputs.checks == 'true' || steps.filter.outputs.makefile == 'true' }}
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Detect changed files
         uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
         id: filter
@@ -71,51 +71,67 @@ jobs:
     if: needs.optimize_ci.outputs.skip != 'true' && github.actor != 'dependabot[bot]'
     needs:
       - optimize_ci
-    runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    runs-on: ubuntu-latest-8-cores
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: "internal/tools/go.mod"
-          cache: false # Use Namespace caching instead
+          cache: false # Use the dedicated actions/cache step instead
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
-          cache: go
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: Cache Tools
         id: tool-cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
           path: /home/runner/go/bin
+          key: ${{ runner.os }}-gotools-${{ hashFiles('**/go.sum', '**/Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-gotools-
       - name: Install Tools
         run: make install-tools
 
   check-fmt:
     if: needs.optimize_ci.outputs.skip != 'true' && github.actor != 'dependabot[bot]' && needs.detect-changes.outputs.go == 'true'
-    runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    runs-on: ubuntu-latest-8-cores
     needs:
       - optimize_ci
       - setup-tools
       - detect-changes
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: "internal/tools/go.mod"
-          cache: false # Use Namespace caching instead
+          cache: false # Use the dedicated actions/cache step instead
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
-          cache: go
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: Cache Tools
         id: tool-cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
           path: /home/runner/go/bin
+          key: ${{ runner.os }}-gotools-${{ hashFiles('**/go.sum', '**/Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-gotools-
       - name: Install Tools
         run: make install-tools
       - name: Check Formatting
@@ -123,28 +139,36 @@ jobs:
 
   check-license:
     if: needs.optimize_ci.outputs.skip != 'true' && github.actor != 'dependabot[bot]' && (needs.detect-changes.outputs.go == 'true' || needs.detect-changes.outputs.scripts == 'true')
-    runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    runs-on: ubuntu-latest-8-cores
     needs:
       - optimize_ci
       - setup-tools
       - detect-changes
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: "internal/tools/go.mod"
-          cache: false # Use Namespace caching instead
+          cache: false # Use the dedicated actions/cache step instead
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
-          cache: go
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: Cache Tools
         id: tool-cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
           path: /home/runner/go/bin
+          key: ${{ runner.os }}-gotools-${{ hashFiles('**/go.sum', '**/Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-gotools-
       - name: Install Tools
         run: make install-tools
       - name: Check License Headers
@@ -152,28 +176,36 @@ jobs:
 
   gosec:
     if: needs.optimize_ci.outputs.skip != 'true' && github.actor != 'dependabot[bot]' && needs.detect-changes.outputs.go == 'true'
-    runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    runs-on: ubuntu-latest-8-cores
     needs:
       - optimize_ci
       - setup-tools
       - detect-changes
     steps:
       - name: Checkout Source
-        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: "internal/tools/go.mod"
-          cache: false # Use Namespace caching instead
+          cache: false # Use the dedicated actions/cache step instead
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
-          cache: go
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: Cache Tools
         id: tool-cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
           path: /home/runner/go/bin
+          key: ${{ runner.os }}-gotools-${{ hashFiles('**/go.sum', '**/Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-gotools-
       - name: Install Tools
         run: make install-tools
       - name: Run Gosec Security Scanner
@@ -181,28 +213,36 @@ jobs:
 
   misspell:
     if: needs.optimize_ci.outputs.skip != 'true' && github.actor != 'dependabot[bot]' && needs.detect-changes.outputs.misspell == 'true'
-    runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    runs-on: ubuntu-latest-8-cores
     needs:
       - optimize_ci
       - setup-tools
       - detect-changes
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: "internal/tools/go.mod"
-          cache: false # Use Namespace caching instead
+          cache: false # Use the dedicated actions/cache step instead
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
-          cache: go
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: Cache Tools
         id: tool-cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
           path: /home/runner/go/bin
+          key: ${{ runner.os }}-gotools-${{ hashFiles('**/go.sum', '**/Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-gotools-
       - name: Install Tools
         run: make install-tools
       - name: Check for Misspelled Words in Doc Files
@@ -210,28 +250,36 @@ jobs:
 
   lint:
     if: needs.optimize_ci.outputs.skip != 'true' && github.actor != 'dependabot[bot]' && needs.detect-changes.outputs.go == 'true'
-    runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    runs-on: ubuntu-latest-8-cores
     needs:
       - optimize_ci
       - setup-tools
       - detect-changes
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: "internal/tools/go.mod"
-          cache: false # Use Namespace caching instead
+          cache: false # Use the dedicated actions/cache step instead
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
-          cache: go
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: Cache Tools
         id: tool-cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
           path: /home/runner/go/bin
+          key: ${{ runner.os }}-gotools-${{ hashFiles('**/go.sum', '**/Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-gotools-
       - name: Install Tools
         run: make install-tools
       - name: Run Revive Linter
@@ -239,28 +287,36 @@ jobs:
 
   check-generate:
     if: needs.optimize_ci.outputs.skip != 'true' && github.actor != 'dependabot[bot]' && needs.detect-changes.outputs.generate == 'true'
-    runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    runs-on: ubuntu-latest-8-cores
     needs:
       - optimize_ci
       - setup-tools
       - detect-changes
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: "internal/tools/go.mod"
-          cache: false # Use Namespace caching instead
+          cache: false # Use the dedicated actions/cache step instead
       - name: Set up Go cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
-          cache: go
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: Cache Tools
         id: tool-cache
-        uses: namespacelabs/nscloud-cache-action@a90bb5d4b27522ce881c6e98eebd7d7e6d1653f9 # v1
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
           path: /home/runner/go/bin
+          key: ${{ runner.os }}-gotools-${{ hashFiles('**/go.sum', '**/Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-gotools-
       - name: Install Tools
         run: make install-tools
       - name: Run Code Generation
@@ -275,24 +331,24 @@ jobs:
   # Below checks don't need to run `make install-tools`
   check-mod-paths:
     if: needs.optimize_ci.outputs.skip != 'true' && github.actor != 'dependabot[bot]' && needs.detect-changes.outputs.gomod == 'true'
-    runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    runs-on: ubuntu-latest-8-cores
     needs:
       - optimize_ci
       - detect-changes
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Check Module Paths
         run: make check-mod-paths
 
   check-dependabot:
     if: needs.optimize_ci.outputs.skip != 'true' && github.actor != 'dependabot[bot]' && (needs.detect-changes.outputs.dependabot == 'true' || needs.detect-changes.outputs.gomod == 'true')
-    runs-on: namespace-profile-bindplane-default-ubuntu-24-04
+    runs-on: ubuntu-latest-8-cores
     needs:
       - optimize_ci
       - detect-changes
     steps:
       - name: Checkout Sources
-        uses: namespacelabs/nscloud-checkout-action@c79c9a72c5df9e9590f9de7718b2f232c3e75879 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - name: Check Dependabot
         run: make check-dependabot
