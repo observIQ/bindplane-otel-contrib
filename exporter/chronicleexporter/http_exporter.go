@@ -62,10 +62,10 @@ const (
 )
 
 // newHTTPTransport builds the HTTP transport used by the HTTPS exporter, applying the
-// connection-tuning options from the config. The default (http_version "1.1") opens a pool of
-// HTTP/1.1 connections, giving real upload parallelism across consumers. Setting http_version
-// to "2" negotiates HTTP/2, which multiplexes every request over a single connection — the
-// throughput bottleneck this default avoids for high-volume workloads.
+// connection-tuning options from the config. The default (http_version "2") negotiates HTTP/2,
+// which multiplexes every request over a single connection. Setting http_version to "1.1" opens a
+// pool of HTTP/1.1 connections instead, giving real upload parallelism across consumers — the way
+// to avoid the single-connection throughput bottleneck for high-volume workloads.
 func newHTTPTransport(cfg *Config) *http.Transport {
 	useHTTP2 := cfg.useHTTP2()
 	transport := &http.Transport{

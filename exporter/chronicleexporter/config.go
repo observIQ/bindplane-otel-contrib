@@ -131,12 +131,12 @@ type Config struct {
 	HTTPResponseHeaderTimeout time.Duration `mapstructure:"http_response_header_timeout"`
 
 	// HTTPVersion selects the HTTP protocol version used to send logs over the https protocol.
-	// Valid values are "1.1" and "2"; the default is "1.1". HTTP/1.1 opens a pool of connections
-	// (bounded by max_idle_conns / max_idle_conns_per_host), giving real upload parallelism across
-	// consumers. Setting "2" negotiates HTTP/2, which multiplexes every concurrent request over a
-	// single TCP connection to Chronicle and becomes a throughput bottleneck under high volume:
-	// large request bodies serialize behind the connection's write lock and HTTP/2 flow-control
-	// window. Only applies to the https protocol.
+	// Valid values are "1.1" and "2"; the default is "2". HTTP/2 multiplexes every concurrent
+	// request over a single TCP connection to Chronicle, which becomes a throughput bottleneck under
+	// high volume: large request bodies serialize behind the connection's write lock and HTTP/2
+	// flow-control window. Setting "1.1" instead opens a pool of connections (bounded by
+	// max_idle_conns / max_idle_conns_per_host), giving real upload parallelism across consumers.
+	// Only applies to the https protocol.
 	HTTPVersion string `mapstructure:"http_version"`
 
 	// MaxIdleConns controls the total number of idle (keep-alive) connections kept across all hosts.
@@ -150,9 +150,9 @@ type Config struct {
 }
 
 // useHTTP2 reports whether the exporter should negotiate HTTP/2 for the https protocol.
-// HTTP/1.1 is the default; only an explicit "2" selects HTTP/2 (an unset value stays on HTTP/1.1).
+// HTTP/2 is the default; only an explicit "1.1" selects HTTP/1.1 (an unset value stays on HTTP/2).
 func (cfg *Config) useHTTP2() bool {
-	return cfg.HTTPVersion == httpVersion2
+	return cfg.HTTPVersion != httpVersion11
 }
 
 // Validate checks if the configuration is valid.

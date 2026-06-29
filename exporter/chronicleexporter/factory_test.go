@@ -37,7 +37,7 @@ func Test_createDefaultConfig(t *testing.T) {
 		BatchRequestSizeLimitGRPC: defaultBatchRequestSizeLimitGRPC,
 		BatchRequestSizeLimitHTTP: defaultBatchRequestSizeLimitHTTP,
 		HTTPResponseHeaderTimeout: defaultHTTPResponseHeaderTimeout,
-		HTTPVersion:               httpVersion11,
+		HTTPVersion:               httpVersion2,
 		MaxIdleConns:              defaultHTTPClientMaxIdleConns,
 		MaxIdleConnsPerHost:       defaultHTTPClientMaxIdleConnsPerHost,
 	}
