@@ -48,6 +48,7 @@ func TestNewHTTPTransport(t *testing.T) {
 		require.Nil(t, tr.TLSNextProto, "HTTP/2 must not set the h2-disabling TLSNextProto map")
 		require.Equal(t, defaultHTTPClientMaxIdleConns, tr.MaxIdleConns)
 		require.Equal(t, defaultHTTPClientMaxIdleConnsPerHost, tr.MaxIdleConnsPerHost)
+		require.Equal(t, 0, tr.MaxConnsPerHost, "no connection cap by default")
 		require.Equal(t, defaultHTTPResponseHeaderTimeout, tr.ResponseHeaderTimeout)
 	})
 
@@ -57,19 +58,21 @@ func TestNewHTTPTransport(t *testing.T) {
 		require.Nil(t, tr.TLSNextProto)
 	})
 
-	t.Run("http_version 1.1 opens an HTTP/1.1 connection pool", func(t *testing.T) {
+	t.Run("http_version 1.1 opens a bounded HTTP/1.1 connection pool", func(t *testing.T) {
 		tr := newHTTPTransport(&Config{
 			HTTPResponseHeaderTimeout: defaultHTTPResponseHeaderTimeout,
 			HTTPVersion:               httpVersion11,
+			MaxConnsPerHost:           50,
 			MaxIdleConns:              200,
-			MaxIdleConnsPerHost:       20,
+			MaxIdleConnsPerHost:       50,
 		})
 		require.False(t, tr.ForceAttemptHTTP2)
 		// A non-nil, empty TLSNextProto map is how net/http disables the h2 ALPN upgrade.
 		require.NotNil(t, tr.TLSNextProto)
 		require.Empty(t, tr.TLSNextProto)
+		require.Equal(t, 50, tr.MaxConnsPerHost, "total connections per host must be capped")
 		require.Equal(t, 200, tr.MaxIdleConns)
-		require.Equal(t, 20, tr.MaxIdleConnsPerHost)
+		require.Equal(t, 50, tr.MaxIdleConnsPerHost)
 	})
 }
 

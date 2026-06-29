@@ -71,6 +71,7 @@ func newHTTPTransport(cfg *Config) *http.Transport {
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		ForceAttemptHTTP2:     useHTTP2,
+		MaxConnsPerHost:       cfg.MaxConnsPerHost,
 		MaxIdleConns:          cfg.MaxIdleConns,
 		MaxIdleConnsPerHost:   cfg.MaxIdleConnsPerHost,
 		IdleConnTimeout:       defaultHTTPClientIdleConnTimeout,

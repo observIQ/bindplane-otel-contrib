@@ -147,6 +147,14 @@ type Config struct {
 	// When http_version is "1.1", raise this toward sending_queue.num_consumers so connections are
 	// reused instead of being repeatedly re-dialed. Only applies to the https protocol.
 	MaxIdleConnsPerHost int `mapstructure:"max_idle_conns_per_host"`
+
+	// MaxConnsPerHost limits the total number of connections per host, counting connections in the
+	// dialing, active, and idle states. When the limit is reached, further requests block until a
+	// connection is released rather than opening new ones. 0 (the default) means no limit, which
+	// lets HTTP/1.1 open an unbounded number of connections under high concurrency. Set this to cap
+	// connections (and keep max_idle_conns_per_host at or above it to avoid connection churn).
+	// Only applies to the https protocol.
+	MaxConnsPerHost int `mapstructure:"max_conns_per_host"`
 }
 
 // useHTTP2 reports whether the exporter should negotiate HTTP/2 for the https protocol.
@@ -213,6 +221,9 @@ func (cfg *Config) Validate() error {
 		}
 		if cfg.MaxIdleConnsPerHost < 0 {
 			return errors.New("max_idle_conns_per_host must not be negative")
+		}
+		if cfg.MaxConnsPerHost < 0 {
+			return errors.New("max_conns_per_host must not be negative")
 		}
 
 		return nil

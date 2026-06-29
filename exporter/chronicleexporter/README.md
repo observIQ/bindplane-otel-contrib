@@ -58,6 +58,7 @@ The exporter can be configured using the following fields:
 | `http_version`                  | string            | `2`                                    | `false`  | The HTTP version used to send logs. Valid values are `1.1` and `2`. `2` (HTTP/2) multiplexes every request over a single connection to Chronicle, which becomes a bottleneck under high throughput; setting `1.1` opens a connection pool instead, giving upload parallelism across consumers. See [High-Throughput Tuning](#high-throughput-tuning-https). Only applies to `https` protocol. |
 | `max_idle_conns`                | int               | `100`                                  | `false`  | The total number of idle (keep-alive) connections kept across all hosts. Most relevant with `http_version: 1.1`. `0` means no limit. Only applies to `https` protocol.                   |
 | `max_idle_conns_per_host`       | int               | `10`                                   | `false`  | The number of idle (keep-alive) connections retained per host. With `http_version: 1.1`, raise this toward `sending_queue.num_consumers` so connections are reused. Only applies to `https` protocol. |
+| `max_conns_per_host`            | int               | `0` (unlimited)                        | `false`  | Caps the total number of connections per host (dialing + active + idle). When reached, further requests block until a connection frees instead of opening new ones. `0` means no limit. Use with `http_version: 1.1` to bound connection count under high load; keep `max_idle_conns_per_host` at or above this value to avoid connection churn. Only applies to `https` protocol. |
 
 ### Log Type
 
@@ -112,8 +113,9 @@ If you are sending tens of GB/hr to a single endpoint and see export latency cli
 
 1. **`compression: gzip`** — log text typically compresses ~10x, drastically reducing bytes on the wire. This is usually the single highest-impact change.
 2. **`http_version: "1.1"`** — switches from the default HTTP/2 to a connection pool rather than multiplexing over one HTTP/2 connection.
-3. **`max_idle_conns_per_host`** — set this at or above `sending_queue.num_consumers` so connections are reused rather than re-dialed on every request.
-4. **`max_idle_conns`** — the total keep-alive pool across hosts; keep it at or above `max_idle_conns_per_host`.
+3. **`max_idle_conns_per_host`** — set this at or above `sending_queue.num_consumers` so connections are reused (kept alive) rather than re-dialed on every request. Too low a value here is the usual cause of runaway connection *churn* under HTTP/1.1: connections are closed right after each request and re-opened, leaving many sockets in `TIME_WAIT`.
+4. **`max_conns_per_host`** — caps the total connections per host. Under HTTP/1.1 the pool is otherwise unbounded, so set this if you observe excessive connections under load. When the cap is hit, requests block for a free connection (back-pressure) instead of opening more. Keep `max_idle_conns_per_host` at or above this value, or capped connections will churn.
+5. **`max_idle_conns`** — the total keep-alive pool across hosts; keep it at or above `max_idle_conns_per_host`.
 
 ```yaml
 chronicle:
@@ -126,8 +128,9 @@ chronicle:
   log_type: "FORTINET_FIREWALL"
   compression: gzip
   http_version: "1.1"
-  max_idle_conns: 100
-  max_idle_conns_per_host: 20
+  max_conns_per_host: 100
+  max_idle_conns: 200
+  max_idle_conns_per_host: 100
   sending_queue:
     num_consumers: 20
 ```

@@ -279,6 +279,23 @@ func TestConfigValidate(t *testing.T) {
 			expectedErr: "max_idle_conns_per_host must not be negative",
 		},
 		{
+			desc: "Negative max_conns_per_host",
+			config: &Config{
+				Endpoint:                  "myendpoint.com",
+				CredsFilePath:             "/path/to/creds_file",
+				LogType:                   "log_type_example",
+				Protocol:                  protocolHTTPS,
+				Compression:               noCompression,
+				Project:                   "project_example",
+				Location:                  "location_example",
+				Forwarder:                 "forwarder_example",
+				BatchRequestSizeLimitHTTP: defaultBatchRequestSizeLimitHTTP,
+				HTTPResponseHeaderTimeout: defaultHTTPResponseHeaderTimeout,
+				MaxConnsPerHost:           -1,
+			},
+			expectedErr: "max_conns_per_host must not be negative",
+		},
+		{
 			desc: "Valid https config with HTTP/2 and connection tuning",
 			config: &Config{
 				Endpoint:                  "myendpoint.com",
@@ -292,6 +309,7 @@ func TestConfigValidate(t *testing.T) {
 				BatchRequestSizeLimitHTTP: defaultBatchRequestSizeLimitHTTP,
 				HTTPResponseHeaderTimeout: defaultHTTPResponseHeaderTimeout,
 				HTTPVersion:               httpVersion2,
+				MaxConnsPerHost:           100,
 				MaxIdleConns:              200,
 				MaxIdleConnsPerHost:       20,
 			},
