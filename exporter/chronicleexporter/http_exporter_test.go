@@ -20,7 +20,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/observiq/bindplane-otel-contrib/exporter/chronicleexporter/internal/metadatatest"
 	"github.com/observiq/bindplane-otel-contrib/exporter/chronicleexporter/protos/api"
@@ -29,6 +31,7 @@ import (
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/consumer/consumererror"
+	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.opentelemetry.io/collector/exporter/exportertest"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -389,6 +392,166 @@ func TestHTTPExporterRetrySequences(t *testing.T) {
 }
 
 // TestHTTPJSONCredentialsError tests that the HTTP exporter returns an error when the json credentials are invalid and does not panic during shutdown
+// TestHTTPExporterInternalRetry verifies the HTTPS exporter retries individual requests itself
+// (within a single ConsumeLogs call) instead of returning a retryable error for exporterhelper.
+func TestHTTPExporterInternalRetry(t *testing.T) {
+	secureTokenSource := tokenSource
+	defer func() { tokenSource = secureTokenSource }()
+	tokenSource = func(context.Context, *Config) (oauth2.TokenSource, error) {
+		return &emptyTokenSource{}, nil
+	}
+
+	singleLog := func() plog.Logs {
+		logs := plog.NewLogs()
+		rls := logs.ResourceLogs().AppendEmpty()
+		sls := rls.ScopeLogs().AppendEmpty()
+		lr := sls.LogRecords().AppendEmpty()
+		lr.Body().SetStr("Test")
+		return logs
+	}
+	const logTypePath = "/logTypes/FAKE/logs:import"
+
+	baseCfg := func(cfg *Config) {
+		cfg.Protocol = protocolHTTPS
+		cfg.Location = "us"
+		cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
+		cfg.Project = "fake"
+		cfg.Forwarder = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+		cfg.LogType = "FAKE"
+		cfg.QueueBatchConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
+		// Fast, deterministic backoff so the internal retry loop runs quickly in tests.
+		cfg.BackOffConfig.Enabled = true
+		cfg.BackOffConfig.InitialInterval = time.Millisecond
+		cfg.BackOffConfig.MaxInterval = time.Millisecond
+		cfg.BackOffConfig.Multiplier = 1
+		cfg.BackOffConfig.RandomizationFactor = 0
+		cfg.BackOffConfig.MaxElapsedTime = 5 * time.Second
+	}
+
+	startExporter := func(t *testing.T, srvURL string, tune func(*Config)) (context.Context, exporter.Logs) {
+		secureHTTPEndpoint := httpEndpoint
+		t.Cleanup(func() { httpEndpoint = secureHTTPEndpoint })
+		httpEndpoint = func(_ *Config, logType string) string {
+			return fmt.Sprintf("%s/logTypes/%s/logs:import", srvURL, logType)
+		}
+
+		f := NewFactory()
+		cfg := f.CreateDefaultConfig().(*Config)
+		baseCfg(cfg)
+		if tune != nil {
+			tune(cfg)
+		}
+		require.NoError(t, cfg.Validate())
+
+		ctx := context.Background()
+		exp, err := f.CreateLogs(ctx, exportertest.NewNopSettings(typ), cfg)
+		require.NoError(t, err)
+		require.NoError(t, exp.Start(ctx, componenttest.NewNopHost()))
+		t.Cleanup(func() { require.NoError(t, exp.Shutdown(ctx)) })
+		return ctx, exp
+	}
+
+	t.Run("retries transient failures within one ConsumeLogs call", func(t *testing.T) {
+		srv := retryserver.New(t, nil, retryserver.WithRoute(logTypePath, []retryserver.Response{
+			{StatusCode: http.StatusServiceUnavailable},
+			{StatusCode: http.StatusTooManyRequests},
+			{StatusCode: http.StatusOK},
+		}))
+		ctx, exp := startExporter(t, srv.URL(), nil)
+
+		require.NoError(t, exp.ConsumeLogs(ctx, singleLog()))
+		require.Equal(t, 3, srv.RouteRequestCount(logTypePath), "should retry internally until success")
+	})
+
+	t.Run("does not retry permanent errors", func(t *testing.T) {
+		srv := retryserver.New(t, nil, retryserver.WithRoute(logTypePath, []retryserver.Response{
+			{StatusCode: http.StatusUnauthorized},
+		}))
+		ctx, exp := startExporter(t, srv.URL(), nil)
+
+		err := exp.ConsumeLogs(ctx, singleLog())
+		require.Error(t, err)
+		require.True(t, consumererror.IsPermanent(err), "401 must be treated as permanent")
+		require.Equal(t, 1, srv.RouteRequestCount(logTypePath), "permanent errors must not be retried")
+	})
+
+	t.Run("drops and reports after exhausting the elapsed-time budget", func(t *testing.T) {
+		srv := retryserver.New(t, nil, retryserver.WithRoute(logTypePath,
+			[]retryserver.Response{{StatusCode: http.StatusServiceUnavailable}},
+			retryserver.WithRouteFallback(retryserver.Response{StatusCode: http.StatusServiceUnavailable}),
+		))
+		ctx, exp := startExporter(t, srv.URL(), func(cfg *Config) {
+			cfg.BackOffConfig.MaxElapsedTime = 25 * time.Millisecond
+		})
+
+		err := exp.ConsumeLogs(ctx, singleLog())
+		require.Error(t, err, "should report failure after the retry budget is exhausted")
+		require.GreaterOrEqual(t, srv.RouteRequestCount(logTypePath), 1)
+	})
+}
+
+// TestHTTPExporterPayloadSplitMetric verifies that splitting an over-sized batch into multiple
+// HTTP requests is counted by the exporter_payload_splits metric.
+func TestHTTPExporterPayloadSplitMetric(t *testing.T) {
+	secureTokenSource := tokenSource
+	defer func() { tokenSource = secureTokenSource }()
+	tokenSource = func(context.Context, *Config) (oauth2.TokenSource, error) {
+		return &emptyTokenSource{}, nil
+	}
+
+	// Two ~500-byte logs of the same log type. With a 800-byte request limit the combined batch
+	// exceeds the limit and is split into two single-log requests (one extra request => one split).
+	twoLogs := func() plog.Logs {
+		logs := plog.NewLogs()
+		for i := 0; i < 2; i++ {
+			rls := logs.ResourceLogs().AppendEmpty()
+			sls := rls.ScopeLogs().AppendEmpty()
+			lr := sls.LogRecords().AppendEmpty()
+			lr.Body().SetStr(strings.Repeat("x", 500))
+		}
+		return logs
+	}
+
+	srv := retryserver.New(t, nil, retryserver.WithFallback(retryserver.Response{StatusCode: http.StatusOK}))
+	secureHTTPEndpoint := httpEndpoint
+	defer func() { httpEndpoint = secureHTTPEndpoint }()
+	httpEndpoint = func(_ *Config, logType string) string {
+		return fmt.Sprintf("%s/logTypes/%s/logs:import", srv.URL(), logType)
+	}
+
+	testTelemetry := componenttest.NewTelemetry()
+	defer func() { require.NoError(t, testTelemetry.Shutdown(context.Background())) }()
+
+	f := NewFactory()
+	cfg := f.CreateDefaultConfig().(*Config)
+	cfg.Protocol = protocolHTTPS
+	cfg.Location = "us"
+	cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
+	cfg.Project = "fake"
+	cfg.Forwarder = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	cfg.LogType = "FAKE"
+	cfg.RawLogField = "body"
+	cfg.BatchRequestSizeLimitHTTP = 800
+	cfg.QueueBatchConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
+	cfg.BackOffConfig.Enabled = false
+	require.NoError(t, cfg.Validate())
+
+	ctx := context.Background()
+	exp, err := f.CreateLogs(ctx, metadatatest.NewSettings(testTelemetry), cfg)
+	require.NoError(t, err)
+	require.NoError(t, exp.Start(ctx, componenttest.NewNopHost()))
+	defer func() { require.NoError(t, exp.Shutdown(ctx)) }()
+
+	require.NoError(t, exp.ConsumeLogs(ctx, twoLogs()))
+
+	metric, err := testTelemetry.GetMetric("otelcol_exporter_payload_splits")
+	require.NoError(t, err)
+	sumData, ok := metric.Data.(metricdata.Sum[int64])
+	require.True(t, ok, "expected sum metric data")
+	require.Len(t, sumData.DataPoints, 1)
+	require.Equal(t, int64(1), sumData.DataPoints[0].Value, "one over-sized batch should record one split")
+}
+
 func TestHTTPJSONCredentialsError(t *testing.T) {
 	defaultCfgMod := func(cfg *Config) {
 		cfg.Protocol = protocolHTTPS

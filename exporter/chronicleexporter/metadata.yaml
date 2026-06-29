@@ -19,7 +19,7 @@ telemetry:
 
     exporter_logs_send_failed:
       enabled: true
-      description: "The number of times ConsumeLogs failed, triggering a retry by the collector pipeline."
+      description: "The number of log payloads the exporter failed to send."
       stability: alpha
       unit: "{failures}"
       sum:
@@ -34,6 +34,15 @@ telemetry:
       histogram:
         value_type: int
         bucket_boundaries: [10000, 50000, 100000, 250000, 500000, 750000, 1e6, 1.25e6, 1.5e6, 1.75e6, 2e6, 2.25e6, 2.5e6, 2.75e6, 3e6, 3.25e6, 3.5e6, 3.75e6, 4e6, 4.25e6, 4.5e6, 4.75e6, 5e6]
+
+    exporter_payload_splits:
+      enabled: true
+      description: "The number of additional HTTP request payloads created by splitting batches that exceeded batch_request_size_limit_http. A non-zero value means send_batch_size should be lowered to avoid splitting."
+      stability: alpha
+      unit: "{splits}"
+      sum:
+        value_type: int
+        monotonic: true
 
     exporter_raw_bytes:
       enabled: true

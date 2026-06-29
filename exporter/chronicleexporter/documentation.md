@@ -16,7 +16,7 @@ The number of logs in a batch.
 
 ### otelcol_exporter_logs_send_failed
 
-The number of times ConsumeLogs failed, triggering a retry by the collector pipeline.
+The number of log payloads the exporter failed to send.
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
@@ -29,6 +29,14 @@ The size of the payload in bytes.
 | Unit | Metric Type | Value Type | Stability |
 | ---- | ----------- | ---------- | --------- |
 | B | Histogram | Int | Alpha |
+
+### otelcol_exporter_payload_splits
+
+The number of additional HTTP request payloads created by splitting batches that exceeded batch_request_size_limit_http. A non-zero value means send_batch_size should be lowered to avoid splitting.
+
+| Unit | Metric Type | Value Type | Monotonic | Stability |
+| ---- | ----------- | ---------- | --------- | --------- |
+| {splits} | Sum | Int | true | Alpha |
 
 ### otelcol_exporter_raw_bytes
 

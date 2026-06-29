@@ -39,7 +39,7 @@ func AssertEqualExporterBatchSize(t *testing.T, tt *componenttest.Telemetry, dps
 func AssertEqualExporterLogsSendFailed(t *testing.T, tt *componenttest.Telemetry, dps []metricdata.DataPoint[int64], opts ...metricdatatest.Option) {
 	want := metricdata.Metrics{
 		Name:        "otelcol_exporter_logs_send_failed",
-		Description: "The number of times ConsumeLogs failed, triggering a retry by the collector pipeline. [Alpha]",
+		Description: "The number of log payloads the exporter failed to send. [Alpha]",
 		Unit:        "{failures}",
 		Data: metricdata.Sum[int64]{
 			Temporality: metricdata.CumulativeTemporality,
@@ -63,6 +63,22 @@ func AssertEqualExporterPayloadSize(t *testing.T, tt *componenttest.Telemetry, d
 		},
 	}
 	got, err := tt.GetMetric("otelcol_exporter_payload_size")
+	require.NoError(t, err)
+	metricdatatest.AssertEqual(t, want, got, opts...)
+}
+
+func AssertEqualExporterPayloadSplits(t *testing.T, tt *componenttest.Telemetry, dps []metricdata.DataPoint[int64], opts ...metricdatatest.Option) {
+	want := metricdata.Metrics{
+		Name:        "otelcol_exporter_payload_splits",
+		Description: "The number of additional HTTP request payloads created by splitting batches that exceeded batch_request_size_limit_http. A non-zero value means send_batch_size should be lowered to avoid splitting. [Alpha]",
+		Unit:        "{splits}",
+		Data: metricdata.Sum[int64]{
+			Temporality: metricdata.CumulativeTemporality,
+			IsMonotonic: true,
+			DataPoints:  dps,
+		},
+	}
+	got, err := tt.GetMetric("otelcol_exporter_payload_splits")
 	require.NoError(t, err)
 	metricdatatest.AssertEqual(t, want, got, opts...)
 }

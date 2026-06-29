@@ -94,6 +94,16 @@ For `https`, regional endpoints for the Chronicle API are listed [here](https://
 
 `batch_request_size_limit_grpc` and `batch_request_size_limit_http` are used to ensure log batch creation requests don't exceed Chronicle's backend limits — the former for the `gRPC` protocol, and the latter for the `https` protocol. If a request exceeds the configured size limit, it will be split into multiple requests that adhere to this limit, with each request containing a subset of the logs from the original. Any single log that on its own exceeds the size limit will be dropped.
 
+Splitting is reported by the `otelcol_exporter_payload_splits` metric (the number of *additional* requests created by splitting). A non-zero value means an upstream batch is larger than `batch_request_size_limit_http`; lower the `batch` processor's `send_batch_size` until it reaches zero. Avoiding splitting keeps each upstream batch a single HTTP request, which both reduces overhead and minimizes the duplicate-on-restart window described below.
+
+## Retry Behavior (HTTPS)
+
+For the `https` protocol the exporter retries **individual HTTP requests** itself rather than using the collector's `retry_on_failure` middleware. When a batch is split into several requests, a transient failure retries only the request that failed — the batch is not re-marshaled and requests that already succeeded are not re-sent. `retry_on_failure` (backoff intervals, `max_elapsed_time`) and `timeout` still apply, but per request: `timeout` bounds each attempt and `retry_on_failure` governs the backoff between attempts. A request that exhausts its retries or receives a non-retryable response is dropped and counted in `otelcol_exporter_logs_send_failed`.
+
+This avoids the duplicate log entries that whole-batch retries would otherwise create. Duplicates are still possible if the collector restarts mid-send, because the entire batch is re-read from the sending queue and re-sent; keeping batches under `batch_request_size_limit_http` (watch `otelcol_exporter_payload_splits`) minimizes that exposure.
+
+The `gRPC` protocol continues to use the standard `retry_on_failure` and `timeout` middleware.
+
 ## High-Throughput Tuning (HTTPS)
 
 The `https` exporter defaults to **HTTP/1.1** (`http_version: 1.1`), which opens a *pool* of connections (one request per connection at a time), so concurrent `sending_queue.num_consumers` get real upload parallelism. Setting `http_version: 2` makes the Go client negotiate HTTP/2, which multiplexes **every** concurrent request over a **single** TCP connection per host — for high-volume sources that single connection becomes the throughput ceiling (large request bodies serialize behind the connection's write lock and flow-control window), so extra consumers simply queue behind one connection and, if requests time out, retry into the same saturated connection.

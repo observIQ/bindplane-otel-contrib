@@ -88,16 +88,27 @@ func createLogsExporter(
 	if err != nil {
 		return nil, err
 	}
-	return exporterhelper.NewLogs(
-		ctx,
-		params,
-		c,
-		exp.ConsumeLogs,
+
+	opts := []exporterhelper.Option{
 		exporterhelper.WithCapabilities(exp.Capabilities()),
-		exporterhelper.WithTimeout(c.TimeoutConfig),
 		exporterhelper.WithQueue(c.QueueBatchConfig),
-		exporterhelper.WithRetry(c.BackOffConfig),
 		exporterhelper.WithStart(exp.Start),
 		exporterhelper.WithShutdown(exp.Shutdown),
-	)
+	}
+	// The HTTPS exporter applies the timeout and retry settings itself, per individual HTTP
+	// request, so a retry targets only the request that failed instead of re-marshaling and
+	// re-sending the entire batch (which can split into several requests). Disable the
+	// exporterhelper timeout middleware (default 5s) so it does not bound the whole multi-retry
+	// ConsumeLogs call; the per-attempt timeout is applied from TimeoutConfig inside the exporter.
+	// Retry middleware is disabled by default, so it is simply not added here. The gRPC exporter
+	// uses the standard exporterhelper timeout/retry middleware.
+	if c.Protocol == protocolHTTPS {
+		opts = append(opts, exporterhelper.WithTimeout(exporterhelper.TimeoutConfig{Timeout: 0}))
+	} else {
+		opts = append(opts,
+			exporterhelper.WithTimeout(c.TimeoutConfig),
+			exporterhelper.WithRetry(c.BackOffConfig),
+		)
+	}
+	return exporterhelper.NewLogs(ctx, params, c, exp.ConsumeLogs, opts...)
 }

@@ -545,8 +545,15 @@ func (m *protoMarshaler) constructHTTPPayloads(rawLogs map[string][]*api.Log) ma
 		if len(entries) > 0 {
 			request := m.buildHTTPRequest(entries)
 
-			payloads[logType] = m.enforceMaximumsHTTPRequest(request)
-			for _, payload := range payloads[logType] {
+			split := m.enforceMaximumsHTTPRequest(request)
+			payloads[logType] = split
+			// Each input batch produces one request unless it exceeds the size limit and is
+			// split. Track the extra requests so users can tune send_batch_size down to avoid
+			// splitting (and the duplicate-on-restart exposure it creates).
+			if len(split) > 1 {
+				m.telemetry.ExporterPayloadSplits.Add(metricCtx, int64(len(split)-1))
+			}
+			for _, payload := range split {
 				m.telemetry.ExporterBatchSize.Record(metricCtx, int64(len(payload.GetInlineSource().Logs)))
 				m.telemetry.ExporterPayloadSize.Record(metricCtx, int64(proto.Size(payload)))
 			}

@@ -29,6 +29,7 @@ type TelemetryBuilder struct {
 	ExporterBatchSize      metric.Int64Histogram
 	ExporterLogsSendFailed metric.Int64Counter
 	ExporterPayloadSize    metric.Int64Histogram
+	ExporterPayloadSplits  metric.Int64Counter
 	ExporterRawBytes       metric.Int64UpDownCounter
 	ExporterRequestCount   metric.Int64UpDownCounter
 	ExporterRequestLatency metric.Int64Histogram
@@ -72,7 +73,7 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...Teleme
 	errs = errors.Join(errs, err)
 	builder.ExporterLogsSendFailed, err = builder.meter.Int64Counter(
 		"otelcol_exporter_logs_send_failed",
-		metric.WithDescription("The number of times ConsumeLogs failed, triggering a retry by the collector pipeline. [Alpha]"),
+		metric.WithDescription("The number of log payloads the exporter failed to send. [Alpha]"),
 		metric.WithUnit("{failures}"),
 	)
 	errs = errors.Join(errs, err)
@@ -81,6 +82,12 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...Teleme
 		metric.WithDescription("The size of the payload in bytes. [Alpha]"),
 		metric.WithUnit("B"),
 		metric.WithExplicitBucketBoundaries([]float64{10000, 50000, 100000, 250000, 500000, 750000, 1e+06, 1.25e+06, 1.5e+06, 1.75e+06, 2e+06, 2.25e+06, 2.5e+06, 2.75e+06, 3e+06, 3.25e+06, 3.5e+06, 3.75e+06, 4e+06, 4.25e+06, 4.5e+06, 4.75e+06, 5e+06}...),
+	)
+	errs = errors.Join(errs, err)
+	builder.ExporterPayloadSplits, err = builder.meter.Int64Counter(
+		"otelcol_exporter_payload_splits",
+		metric.WithDescription("The number of additional HTTP request payloads created by splitting batches that exceeded batch_request_size_limit_http. A non-zero value means send_batch_size should be lowered to avoid splitting. [Alpha]"),
+		metric.WithUnit("{splits}"),
 	)
 	errs = errors.Join(errs, err)
 	builder.ExporterRawBytes, err = builder.meter.Int64UpDownCounter(

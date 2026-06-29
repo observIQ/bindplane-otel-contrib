@@ -22,6 +22,7 @@ func TestSetupTelemetry(t *testing.T) {
 	tb.ExporterBatchSize.Record(context.Background(), 1)
 	tb.ExporterLogsSendFailed.Add(context.Background(), 1)
 	tb.ExporterPayloadSize.Record(context.Background(), 1)
+	tb.ExporterPayloadSplits.Add(context.Background(), 1)
 	tb.ExporterRawBytes.Add(context.Background(), 1)
 	tb.ExporterRequestCount.Add(context.Background(), 1)
 	tb.ExporterRequestLatency.Record(context.Background(), 1)
@@ -33,6 +34,9 @@ func TestSetupTelemetry(t *testing.T) {
 		metricdatatest.IgnoreTimestamp())
 	AssertEqualExporterPayloadSize(t, testTel,
 		[]metricdata.HistogramDataPoint[int64]{{}}, metricdatatest.IgnoreValue(),
+		metricdatatest.IgnoreTimestamp())
+	AssertEqualExporterPayloadSplits(t, testTel,
+		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
 	AssertEqualExporterRawBytes(t, testTel,
 		[]metricdata.DataPoint[int64]{{Value: 1}},
