@@ -61,6 +61,12 @@ type m365LogsReceiver struct {
 	record       *logRecord
 	root         string
 	startRoot    string
+
+	// connected tracks whether we have successfully acquired a token and
+	// started the audit subscriptions. It is only read/written from the
+	// single polling goroutine (and Start, which happens-before it), so it
+	// does not require synchronization.
+	connected bool
 }
 
 type logRecord struct {
@@ -104,20 +110,8 @@ func (l *m365LogsReceiver) Start(ctx context.Context, host component.Host) error
 		return err
 	}
 
-	// create m365 log client, create token and start audit subscriptions
+	// create m365 log client
 	l.client = newM365Client(httpClient, l.cfg, "https://manage.office.com/.default")
-	err = l.client.GetToken(ctx)
-	if err != nil {
-		l.logger.Error("error creating authorization token", zap.Error(err))
-		return err
-	}
-	for _, a := range l.audits {
-		err = l.client.StartSubscription(ctx, l.startRoot+a.route)
-		if err != nil {
-			l.logger.Error("error starting audit subscriptions", zap.Error(err))
-			return err
-		}
-	}
 
 	// set cancel function
 	cancelCtx, cancel := context.WithCancel(ctx)
@@ -131,7 +125,37 @@ func (l *m365LogsReceiver) Start(ctx context.Context, host component.Host) error
 	l.storageClient = storageClient
 	l.loadCheckpoint(cancelCtx)
 
+	// Attempt to acquire a token and start subscriptions, but do not fail the
+	// collector if it fails (e.g. an expired client secret). The poll loop will handle the keep retrying until connectivity is restored.
+	if err := l.ensureToken(ctx); err != nil {
+		l.logger.Warn("unable to connect to M365 on startup; will keep retrying while polling", zap.Error(err))
+	}
+
 	return l.startPolling(cancelCtx)
+}
+
+// ensureToken acquires an authorization token and starts the audit
+// subscriptions. It is safe to call repeatedly: StartSubscription is idempotent
+// on the M365 side, so a partially-completed attempt is retried in full on the
+// next call. On success it marks the receiver connected and becomes a no-op
+// thereafter.
+func (l *m365LogsReceiver) ensureToken(ctx context.Context) error {
+	if l.connected {
+		return nil
+	}
+
+	if err := l.client.GetToken(ctx); err != nil {
+		return fmt.Errorf("creating authorization token: %w", err)
+	}
+
+	for _, a := range l.audits {
+		if err := l.client.StartSubscription(ctx, l.startRoot+a.route); err != nil {
+			return fmt.Errorf("starting %s audit subscription: %w", a.name, err)
+		}
+	}
+
+	l.connected = true
+	return nil
 }
 
 func (l *m365LogsReceiver) Shutdown(ctx context.Context) error {
@@ -173,6 +197,13 @@ func (l *m365LogsReceiver) startPolling(ctx context.Context) error {
 
 // spins a go routine for each audit type/endpoint
 func (l *m365LogsReceiver) pollLogs(ctx context.Context) error {
+	// Ensure we have a valid token and active subscriptions before polling. If
+	// this fails (e.g. an expired client secret), skip this cycle and retry on
+	// the next tick
+	if err := l.ensureToken(ctx); err != nil {
+		return err
+	}
+
 	var st string
 	if l.record.NextStartTime != nil {
 		st = l.record.NextStartTime.Format(layout)
