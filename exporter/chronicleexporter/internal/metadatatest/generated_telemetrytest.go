@@ -113,3 +113,18 @@ func AssertEqualExporterRequestLatency(t *testing.T, tt *componenttest.Telemetry
 	require.NoError(t, err)
 	metricdatatest.AssertEqual(t, want, got, opts...)
 }
+
+func AssertEqualExporterUnsplitPayloadSize(t *testing.T, tt *componenttest.Telemetry, dps []metricdata.HistogramDataPoint[int64], opts ...metricdatatest.Option) {
+	want := metricdata.Metrics{
+		Name:        "otelcol_exporter_unsplit_payload_size",
+		Description: "The size in bytes of an export batch before it is split to satisfy batch_request_size_limit_http and the one-log-type-per-request constraint. Compare against batch_request_size_limit_http: a value near or above the limit means the batch is being split into multiple HTTP requests, so lower the batch processor's send_batch_size to keep batches under the limit. [Alpha]",
+		Unit:        "B",
+		Data: metricdata.Histogram[int64]{
+			Temporality: metricdata.CumulativeTemporality,
+			DataPoints:  dps,
+		},
+	}
+	got, err := tt.GetMetric("otelcol_exporter_unsplit_payload_size")
+	require.NoError(t, err)
+	metricdatatest.AssertEqual(t, want, got, opts...)
+}

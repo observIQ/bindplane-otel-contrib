@@ -23,15 +23,16 @@ func Tracer(settings component.TelemetrySettings) trace.Tracer {
 // TelemetryBuilder provides an interface for components to report telemetry
 // as defined in metadata and user config.
 type TelemetryBuilder struct {
-	meter                  metric.Meter
-	mu                     sync.Mutex
-	registrations          []metric.Registration
-	ExporterBatchSize      metric.Int64Histogram
-	ExporterLogsSendFailed metric.Int64Counter
-	ExporterPayloadSize    metric.Int64Histogram
-	ExporterRawBytes       metric.Int64UpDownCounter
-	ExporterRequestCount   metric.Int64UpDownCounter
-	ExporterRequestLatency metric.Int64Histogram
+	meter                      metric.Meter
+	mu                         sync.Mutex
+	registrations              []metric.Registration
+	ExporterBatchSize          metric.Int64Histogram
+	ExporterLogsSendFailed     metric.Int64Counter
+	ExporterPayloadSize        metric.Int64Histogram
+	ExporterRawBytes           metric.Int64UpDownCounter
+	ExporterRequestCount       metric.Int64UpDownCounter
+	ExporterRequestLatency     metric.Int64Histogram
+	ExporterUnsplitPayloadSize metric.Int64Histogram
 }
 
 // TelemetryBuilderOption applies changes to default builder.
@@ -100,6 +101,13 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...Teleme
 		metric.WithDescription("The latency of the request in milliseconds. [Alpha]"),
 		metric.WithUnit("ms"),
 		metric.WithExplicitBucketBoundaries([]float64{100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 10000, 15000, 20000, 30000, 60000}...),
+	)
+	errs = errors.Join(errs, err)
+	builder.ExporterUnsplitPayloadSize, err = builder.meter.Int64Histogram(
+		"otelcol_exporter_unsplit_payload_size",
+		metric.WithDescription("The size in bytes of an export batch before it is split to satisfy batch_request_size_limit_http and the one-log-type-per-request constraint. Compare against batch_request_size_limit_http: a value near or above the limit means the batch is being split into multiple HTTP requests, so lower the batch processor's send_batch_size to keep batches under the limit. [Alpha]"),
+		metric.WithUnit("B"),
+		metric.WithExplicitBucketBoundaries([]float64{10000, 50000, 100000, 250000, 500000, 750000, 1e+06, 1.25e+06, 1.5e+06, 1.75e+06, 2e+06, 2.25e+06, 2.5e+06, 2.75e+06, 3e+06, 3.25e+06, 3.5e+06, 3.75e+06, 4e+06, 4.25e+06, 4.5e+06, 4.75e+06, 5e+06, 6e+06, 8e+06, 1e+07}...),
 	)
 	errs = errors.Join(errs, err)
 	return &builder, errs

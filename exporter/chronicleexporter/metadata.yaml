@@ -60,6 +60,15 @@ telemetry:
         value_type: int
         bucket_boundaries: [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 10000, 15000, 20000, 30000, 60000]
 
+    exporter_unsplit_payload_size:
+      enabled: true
+      description: "The size in bytes of an export batch before it is split to satisfy batch_request_size_limit_http and the one-log-type-per-request constraint. Compare against batch_request_size_limit_http: a value near or above the limit means the batch is being split into multiple HTTP requests, so lower the batch processor's send_batch_size to keep batches under the limit."
+      stability: alpha
+      unit: "B"
+      histogram:
+        value_type: int
+        bucket_boundaries: [10000, 50000, 100000, 250000, 500000, 750000, 1e6, 1.25e6, 1.5e6, 1.75e6, 2e6, 2.25e6, 2.5e6, 2.75e6, 3e6, 3.25e6, 3.5e6, 3.75e6, 4e6, 4.25e6, 4.5e6, 4.75e6, 5e6, 6e6, 8e6, 1e7]
+
 tests:
   config:
     protocol: "grpc"

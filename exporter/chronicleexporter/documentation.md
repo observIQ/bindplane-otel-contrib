@@ -53,3 +53,11 @@ The latency of the request in milliseconds.
 | Unit | Metric Type | Value Type | Stability |
 | ---- | ----------- | ---------- | --------- |
 | ms | Histogram | Int | Alpha |
+
+### otelcol_exporter_unsplit_payload_size
+
+The size in bytes of an export batch before it is split to satisfy batch_request_size_limit_http and the one-log-type-per-request constraint. Compare against batch_request_size_limit_http: a value near or above the limit means the batch is being split into multiple HTTP requests, so lower the batch processor's send_batch_size to keep batches under the limit.
+
+| Unit | Metric Type | Value Type | Stability |
+| ---- | ----------- | ---------- | --------- |
+| B | Histogram | Int | Alpha |

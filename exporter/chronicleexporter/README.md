@@ -91,6 +91,8 @@ For `https`, regional endpoints for the Chronicle API are listed [here](https://
 
 `batch_request_size_limit_grpc` and `batch_request_size_limit_http` are used to ensure log batch creation requests don't exceed Chronicle's backend limits — the former for the `gRPC` protocol, and the latter for the `https` protocol. If a request exceeds the configured size limit, it will be split into multiple requests that adhere to this limit, with each request containing a subset of the logs from the original. Any single log that on its own exceeds the size limit will be dropped.
 
+The `otelcol_exporter_unsplit_payload_size` metric reports the size, in bytes, of each export batch *before* it is split — that is, before it is broken up to satisfy `batch_request_size_limit_http` and the one-log-type-per-request grouping. Compare it against `batch_request_size_limit_http`: when values approach or exceed the limit, batches are being split into multiple HTTP requests. Lowering the `batch` processor's `send_batch_size` until this metric stays below the limit keeps each upstream batch a single HTTP request, reducing overhead.
+
 ## Agent Metrics
 
 When `collect_agent_metrics` is `true` (the default), the exporter periodically reports collector process and ingestion stats to Chronicle, surfacing metrics in GCP's Metrics Explorer which can be found nested under the "Chronicle Collector" resource and the "Agent" metric category.

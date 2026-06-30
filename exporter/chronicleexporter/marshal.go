@@ -541,9 +541,16 @@ func (m *protoMarshaler) constructHTTPPayloads(rawLogs map[string][]*api.Log) ma
 
 	metricCtx := context.Background()
 
+	// Sum the size of every per-log-type request before any splitting so we can report the size of
+	// the whole export batch as it arrived. enforceMaximumsHTTPRequest then splits each request to
+	// satisfy batch_request_size_limit_http, and the batch is already grouped one log type per
+	// request, so this is the size before both forms of splitting.
+	var unsplitBatchSize int64
+
 	for logType, entries := range rawLogs {
 		if len(entries) > 0 {
 			request := m.buildHTTPRequest(entries)
+			unsplitBatchSize += int64(proto.Size(request))
 
 			payloads[logType] = m.enforceMaximumsHTTPRequest(request)
 			for _, payload := range payloads[logType] {
@@ -552,6 +559,8 @@ func (m *protoMarshaler) constructHTTPPayloads(rawLogs map[string][]*api.Log) ma
 			}
 		}
 	}
+
+	m.telemetry.ExporterUnsplitPayloadSize.Record(metricCtx, unsplitBatchSize)
 	return payloads
 }
 
