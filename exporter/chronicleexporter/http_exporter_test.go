@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/observiq/bindplane-otel-contrib/exporter/chronicleexporter/internal/metadatatest"
@@ -352,6 +353,69 @@ func TestHTTPExporterRetrySequences(t *testing.T) {
 				"request count should match number of ConsumeLogs calls")
 		})
 	}
+}
+
+// TestHTTPExporterUnsplitPayloadSizeMetric verifies that the size of the whole export batch, before
+// it is split to satisfy batch_request_size_limit_http, is recorded once per ConsumeLogs by the
+// exporter_unsplit_payload_size metric.
+func TestHTTPExporterUnsplitPayloadSizeMetric(t *testing.T) {
+	secureTokenSource := tokenSource
+	defer func() { tokenSource = secureTokenSource }()
+	tokenSource = func(context.Context, *Config) (oauth2.TokenSource, error) {
+		return &emptyTokenSource{}, nil
+	}
+
+	// Two ~500-byte logs of the same log type. The recorded size is the size of the combined
+	// request before any splitting, so it must exceed the raw log bytes (~1000) regardless of
+	// whether the batch is later split.
+	twoLogs := func() plog.Logs {
+		logs := plog.NewLogs()
+		for i := 0; i < 2; i++ {
+			rls := logs.ResourceLogs().AppendEmpty()
+			sls := rls.ScopeLogs().AppendEmpty()
+			lr := sls.LogRecords().AppendEmpty()
+			lr.Body().SetStr(strings.Repeat("x", 500))
+		}
+		return logs
+	}
+
+	srv := retryserver.New(t, nil, retryserver.WithFallback(retryserver.Response{StatusCode: http.StatusOK}))
+	secureHTTPEndpoint := httpEndpoint
+	defer func() { httpEndpoint = secureHTTPEndpoint }()
+	httpEndpoint = func(_ *Config, logType string) string {
+		return fmt.Sprintf("%s/logTypes/%s/logs:import", srv.URL(), logType)
+	}
+
+	testTelemetry := componenttest.NewTelemetry()
+	defer func() { require.NoError(t, testTelemetry.Shutdown(context.Background())) }()
+
+	f := NewFactory()
+	cfg := f.CreateDefaultConfig().(*Config)
+	cfg.Protocol = protocolHTTPS
+	cfg.Location = "us"
+	cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
+	cfg.Project = "fake"
+	cfg.Forwarder = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	cfg.LogType = "FAKE"
+	cfg.RawLogField = "body"
+	cfg.QueueBatchConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
+	require.NoError(t, cfg.Validate())
+
+	ctx := context.Background()
+	exp, err := f.CreateLogs(ctx, metadatatest.NewSettings(testTelemetry), cfg)
+	require.NoError(t, err)
+	require.NoError(t, exp.Start(ctx, componenttest.NewNopHost()))
+	defer func() { require.NoError(t, exp.Shutdown(ctx)) }()
+
+	require.NoError(t, exp.ConsumeLogs(ctx, twoLogs()))
+
+	metric, err := testTelemetry.GetMetric("otelcol_exporter_unsplit_payload_size")
+	require.NoError(t, err)
+	histData, ok := metric.Data.(metricdata.Histogram[int64])
+	require.True(t, ok, "expected histogram metric data")
+	require.Len(t, histData.DataPoints, 1, "the batch size should be recorded exactly once per ConsumeLogs")
+	require.Equal(t, uint64(1), histData.DataPoints[0].Count)
+	require.Greater(t, histData.DataPoints[0].Sum, int64(1000), "recorded size must exceed the raw log bytes")
 }
 
 // TestHTTPJSONCredentialsError tests that the HTTP exporter returns an error when the json credentials are invalid and does not panic during shutdown
