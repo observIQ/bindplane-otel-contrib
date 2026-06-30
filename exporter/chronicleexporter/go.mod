@@ -3,6 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/exporter/chronicleexporter
 go 1.26.4
 
 require (
+	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/goccy/go-json v0.10.6
 	github.com/golang/mock v1.7.0-rc.1
 	github.com/google/uuid v1.6.0
@@ -41,7 +42,6 @@ require (
 	github.com/alecthomas/participle/v2 v2.1.4 // indirect
 	github.com/antchfx/xmlquery v1.5.1 // indirect
 	github.com/antchfx/xpath v1.3.6 // indirect
-	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/elastic/go-grok v0.3.1 // indirect

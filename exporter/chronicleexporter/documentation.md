@@ -16,7 +16,7 @@ The number of logs in a batch.
 
 ### otelcol_exporter_logs_send_failed
 
-The number of times ConsumeLogs failed, triggering a retry by the collector pipeline.
+The number of log payloads the exporter failed to send.
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
