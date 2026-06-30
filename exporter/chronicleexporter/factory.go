@@ -62,6 +62,9 @@ func createDefaultConfig() component.Config {
 		LogErroredPayloads:        false,
 		ValidateLogTypes:          false,
 		HTTPResponseHeaderTimeout: defaultHTTPResponseHeaderTimeout,
+		HTTPVersion:               httpVersion2,
+		MaxIdleConns:              defaultHTTPClientMaxIdleConns,
+		MaxIdleConnsPerHost:       defaultHTTPClientMaxIdleConnsPerHost,
 	}
 }
 
