@@ -26,8 +26,10 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v5"
 	"github.com/observiq/bindplane-otel-contrib/exporter/chronicleexporter/internal/metadata"
 	"github.com/observiq/bindplane-otel-contrib/exporter/chronicleexporter/protos/api"
 	"github.com/observiq/bindplane-otel-contrib/pkg/osinfo"
@@ -98,6 +100,10 @@ type httpExporter struct {
 
 	telemetry        *metadata.TelemetryBuilder
 	metricAttributes attribute.Set
+
+	// stopCh is closed on Shutdown to interrupt in-flight retry backoff.
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 func newHTTPExporter(cfg *Config, params exporter.Settings, telemetry *metadata.TelemetryBuilder) (*httpExporter, error) {
@@ -113,6 +119,7 @@ func newHTTPExporter(cfg *Config, params exporter.Settings, telemetry *metadata.
 		exporterID: params.ID.String(),
 		marshaler:  marshaler,
 		telemetry:  telemetry,
+		stopCh:     make(chan struct{}),
 		metricAttributes: attribute.NewSet(
 			attribute.KeyValue{
 				Key:   "exporter",
@@ -257,6 +264,10 @@ func parseLogTypes(logTypes string) string {
 }
 
 func (exp *httpExporter) Shutdown(context.Context) error {
+	// Interrupt any in-flight retry backoff so consumers don't block shutdown.
+	if exp.stopCh != nil {
+		exp.stopOnce.Do(func() { close(exp.stopCh) })
+	}
 	if exp.metrics != nil {
 		exp.metrics.shutdown()
 	}
@@ -268,96 +279,169 @@ func (exp *httpExporter) Shutdown(context.Context) error {
 
 // ConsumeLogs sends logs to Chronicle via HTTP.
 //
-// Retry behavior: When this function returns an error, the OTel collector's
-// exporterhelper will retry the entire batch (ld plog.Logs) from the beginning.
-// This means all payloads will be retried, including any that succeeded before
-// the error occurred. Chronicle is expected to handle duplicate requests
-// idempotently to prevent duplicate log entries.
+// Each plog.Logs is marshaled once into one or more HTTP request payloads (a batch that exceeds
+// batch_request_size_limit_http is split). Every payload is then sent independently with its own
+// per-attempt timeout (TimeoutConfig) and retry/backoff (BackOffConfig), so a retry re-sends only
+// the request that failed — it never re-marshals the batch or re-sends payloads that already
+// succeeded. Because of this, the exporterhelper timeout and retry middleware are NOT used for the
+// https protocol (see createLogsExporter).
 //
-// Metrics: When retry is enabled, raw bytes are only counted on success to prevent
-// double-counting across retry attempts. When retry is disabled, bytes are counted
-// regardless of success/failure since this is the only attempt to send the data.
+// A payload that exhausts its retries or hits a permanent error is dropped and reported via the
+// exporter_logs_send_failed metric. ConsumeLogs returns an error only when at least one payload
+// could not be delivered; with the retry middleware disabled this causes the sending queue to drop
+// the item without re-sending the payloads that did succeed.
+//
+// Duplicates remain possible if the collector restarts mid-send: the whole plog.Logs is re-read
+// from the persistent queue and every payload is re-sent. Keep batches under
+// batch_request_size_limit_http (watch the exporter_payload_splits metric) to minimize this.
 func (exp *httpExporter) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
-	payloads, totalBytes, err := exp.marshaler.MarshalRawLogsForHTTP(ctx, ld)
+	payloads, _, err := exp.marshaler.MarshalRawLogsForHTTP(ctx, ld)
 	if err != nil {
 		return fmt.Errorf("marshal logs: %w", err)
 	}
-	successfulPayloads := []*api.ImportLogsRequest{}
+
+	requests, err := exp.prepareHTTPRequests(payloads)
+	if err != nil {
+		return fmt.Errorf("prepare requests: %w", err)
+	}
+
+	var errs error
+	for i := range requests {
+		if err := exp.sendHTTPRequestWithRetry(ctx, &requests[i]); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("upload to chronicle: %w", err))
+		}
+	}
+	return errs
+}
+
+// httpRequestPayload is a single HTTP request marshaled to its final wire form, retained so retries
+// re-send the same bytes instead of re-running protojson/gzip.
+type httpRequestPayload struct {
+	logType    string
+	body       []byte // protojson, optionally gzip-compressed
+	encoding   string // Content-Encoding, "" when uncompressed
+	logCount   int64
+	rawBytes   int64  // sum of raw log Data bytes, reported on successful delivery
+	jsonForLog []byte // uncompressed protojson, retained only when LogErroredPayloads is set
+}
+
+// prepareHTTPRequests marshals every payload to its wire form exactly once.
+func (exp *httpExporter) prepareHTTPRequests(payloads map[string][]*api.ImportLogsRequest) ([]httpRequestPayload, error) {
+	requests := make([]httpRequestPayload, 0, len(payloads))
 	for logType, logTypePayloads := range payloads {
 		for _, payload := range logTypePayloads {
-			if err := exp.uploadToChronicleHTTP(ctx, payload, logType); err != nil {
-				// Track the failure for observability
-				exp.telemetry.ExporterLogsSendFailed.Add(ctx, 1, metric.WithAttributeSet(exp.metricAttributes))
-
-				// If retry is disabled, count bytes for payloads that succeeded before this failure
-				if !exp.cfg.BackOffConfig.Enabled {
-					exp.countAndReportBatchBytes(ctx, successfulPayloads)
-				}
-				return fmt.Errorf("upload to chronicle: %w", err)
+			data, err := protojson.Marshal(payload)
+			if err != nil {
+				return nil, fmt.Errorf("marshal protobuf logs to JSON: %w", err)
 			}
-			successfulPayloads = append(successfulPayloads, payload)
+
+			req := httpRequestPayload{logType: logType, body: data}
+			if inlineSource := payload.GetInlineSource(); inlineSource != nil {
+				req.logCount = int64(len(inlineSource.GetLogs()))
+				for _, entry := range inlineSource.GetLogs() {
+					req.rawBytes += int64(len(entry.GetData()))
+				}
+			}
+			if exp.cfg.LogErroredPayloads {
+				req.jsonForLog = data
+			}
+
+			if exp.cfg.Compression == grpcgzip.Name {
+				var b bytes.Buffer
+				gz := gzip.NewWriter(&b)
+				if _, err := gz.Write(data); err != nil {
+					return nil, fmt.Errorf("gzip write: %w", err)
+				}
+				if err := gz.Close(); err != nil {
+					return nil, fmt.Errorf("gzip close: %w", err)
+				}
+				req.body = b.Bytes()
+				req.encoding = grpcgzip.Name
+			}
+			requests = append(requests, req)
 		}
 	}
-	// Count bytes on success (for both retry enabled and disabled cases)
-	exp.telemetry.ExporterRawBytes.Add(
-		ctx,
-		int64(totalBytes),
-		metric.WithAttributeSet(exp.metricAttributes),
-	)
-	return nil
+	return requests, nil
 }
 
-func (exp *httpExporter) countAndReportBatchBytes(ctx context.Context, payloads []*api.ImportLogsRequest) {
-	totalBytes := uint(0)
-	for _, payload := range payloads {
-		inlineSource := payload.GetInlineSource()
-		if inlineSource == nil {
-			exp.set.Logger.Warn("Payload source is not InlineSource, skipping bytes calculation")
-			continue
-		}
-		for _, entry := range inlineSource.Logs {
-			totalBytes += uint(len(entry.Data))
-		}
+// sendHTTPRequestWithRetry sends one payload, retrying transient failures with exponential backoff
+// (BackOffConfig) until success, a permanent error, the elapsed-time budget, or shutdown. It
+// returns nil once the payload is delivered, or after the payload is dropped and reported, and a
+// non-nil error only when delivery did not happen.
+func (exp *httpExporter) sendHTTPRequestWithRetry(ctx context.Context, req *httpRequestPayload) error {
+	// Mirror exporterhelper's retry middleware: build the backoff directly (NewExponentialBackOff
+	// would Reset and read the clock) and enforce MaxElapsedTime ourselves.
+	expBackoff := &backoff.ExponentialBackOff{
+		InitialInterval:     exp.cfg.BackOffConfig.InitialInterval,
+		RandomizationFactor: exp.cfg.BackOffConfig.RandomizationFactor,
+		Multiplier:          exp.cfg.BackOffConfig.Multiplier,
+		MaxInterval:         exp.cfg.BackOffConfig.MaxInterval,
 	}
-	if totalBytes > 0 {
-		exp.telemetry.ExporterRawBytes.Add(
-			ctx,
-			int64(totalBytes),
-			metric.WithAttributeSet(exp.metricAttributes),
-		)
+	var maxElapsed time.Time
+	if exp.cfg.BackOffConfig.MaxElapsedTime > 0 {
+		maxElapsed = time.Now().Add(exp.cfg.BackOffConfig.MaxElapsedTime)
+	}
+
+	for {
+		err := exp.postHTTPPayload(ctx, req)
+		if err == nil {
+			// Count raw bytes only on successful delivery so retries never double-count and
+			// dropped payloads are excluded.
+			exp.telemetry.ExporterRawBytes.Add(ctx, req.rawBytes, metric.WithAttributeSet(exp.metricAttributes))
+			return nil
+		}
+
+		// A permanent error, or retries being disabled, makes this attempt terminal.
+		if !exp.cfg.BackOffConfig.Enabled || consumererror.IsPermanent(err) {
+			exp.recordRequestDropped(ctx, req)
+			return err
+		}
+
+		delay := expBackoff.NextBackOff()
+		if delay == backoff.Stop || (!maxElapsed.IsZero() && time.Now().Add(delay).After(maxElapsed)) {
+			exp.recordRequestDropped(ctx, req)
+			return err
+		}
+
+		exp.set.Logger.Debug("Chronicle upload failed; retrying after interval",
+			zap.Error(err), zap.String("interval", delay.String()), zap.String("logType", req.logType))
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context done before retry: %w", err)
+		case <-exp.stopCh:
+			return fmt.Errorf("exporter shutting down before retry: %w", err)
+		case <-time.After(delay):
+		}
 	}
 }
 
-func (exp *httpExporter) uploadToChronicleHTTP(ctx context.Context, logs *api.ImportLogsRequest, logType string) error {
-	data, err := protojson.Marshal(logs)
-	if err != nil {
-		return fmt.Errorf("marshal protobuf logs to JSON: %w", err)
+// recordRequestDropped reports a payload that could not be delivered.
+func (exp *httpExporter) recordRequestDropped(ctx context.Context, req *httpRequestPayload) {
+	exp.telemetry.ExporterLogsSendFailed.Add(ctx, 1, metric.WithAttributeSet(exp.metricAttributes))
+	if exp.metrics != nil {
+		exp.metrics.recordDropped(req.logCount)
+	}
+}
+
+// postHTTPPayload performs a single HTTP POST of an already-marshaled payload. It returns nil on
+// success, a retryable error for transient failures, and a consumererror.Permanent error for
+// responses that must not be retried.
+func (exp *httpExporter) postHTTPPayload(ctx context.Context, req *httpRequestPayload) error {
+	attemptCtx := ctx
+	if exp.cfg.TimeoutConfig.Timeout > 0 {
+		var cancel context.CancelFunc
+		attemptCtx, cancel = context.WithTimeout(ctx, exp.cfg.TimeoutConfig.Timeout)
+		defer cancel()
 	}
 
-	var body io.Reader
-	if exp.cfg.Compression == grpcgzip.Name {
-		var b bytes.Buffer
-		gz := gzip.NewWriter(&b)
-		if _, err := gz.Write(data); err != nil {
-			return fmt.Errorf("gzip write: %w", err)
-		}
-		if err := gz.Close(); err != nil {
-			return fmt.Errorf("gzip close: %w", err)
-		}
-		body = &b
-	} else {
-		body = bytes.NewBuffer(data)
-	}
-
-	request, err := http.NewRequestWithContext(ctx, "POST", httpEndpoint(exp.cfg, logType), body)
+	request, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, httpEndpoint(exp.cfg, req.logType), bytes.NewReader(req.body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-
-	if exp.cfg.Compression == grpcgzip.Name {
-		request.Header.Set("Content-Encoding", "gzip")
+	if req.encoding != "" {
+		request.Header.Set("Content-Encoding", req.encoding)
 	}
-
 	request.Header.Set("Content-Type", "application/json")
 
 	// Track request latency
@@ -365,7 +449,7 @@ func (exp *httpExporter) uploadToChronicleHTTP(ctx context.Context, logs *api.Im
 
 	resp, err := exp.client.Do(request)
 	if err != nil {
-		logTypeAttr := attribute.String("logType", logType)
+		logTypeAttr := attribute.String("logType", req.logType)
 		errAttr := attribute.String(attrError, "unknown")
 		if errors.Is(err, context.DeadlineExceeded) {
 			errAttr = attribute.String(attrError, "timeout")
@@ -390,20 +474,17 @@ func (exp *httpExporter) uploadToChronicleHTTP(ctx context.Context, logs *api.Im
 
 	if resp.StatusCode == http.StatusOK {
 		if exp.metrics != nil {
-			if inlineSource := logs.GetInlineSource(); inlineSource != nil {
-				totalLogs := int64(len(inlineSource.GetLogs()))
-				exp.metrics.recordSent(totalLogs)
-			}
+			exp.metrics.recordSent(req.logCount)
 		}
 		return nil
 	}
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		exp.set.Logger.Warn("Failed to read response body", zap.Error(err), zap.String("logType", logType))
+		exp.set.Logger.Warn("Failed to read response body", zap.Error(err), zap.String("logType", req.logType))
 	}
 
-	exp.set.Logger.Warn("Received non-OK response from Chronicle", zap.String("status", resp.Status), zap.ByteString("response", respBody), zap.String("logType", logType))
+	exp.set.Logger.Warn("Received non-OK response from Chronicle", zap.String("status", resp.Status), zap.ByteString("response", respBody), zap.String("logType", req.logType))
 
 	// TODO interpret with https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/internal/coreinternal/errorutil/http.go
 	statusErr := errors.New(resp.Status)
@@ -414,13 +495,7 @@ func (exp *httpExporter) uploadToChronicleHTTP(ctx context.Context, logs *api.Im
 		return statusErr
 	default:
 		if exp.cfg.LogErroredPayloads {
-			exp.set.Logger.Warn("Import request rejected", zap.String("logType", logType), zap.String("rejectedRequest", string(data)))
-		}
-		if exp.metrics != nil {
-			if inlineSource := logs.GetInlineSource(); inlineSource != nil {
-				totalLogs := int64(len(inlineSource.GetLogs()))
-				exp.metrics.recordDropped(totalLogs)
-			}
+			exp.set.Logger.Warn("Import request rejected", zap.String("logType", req.logType), zap.String("rejectedRequest", string(req.jsonForLog)))
 		}
 		return consumererror.NewPermanent(statusErr)
 	}

@@ -73,7 +73,7 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...Teleme
 	errs = errors.Join(errs, err)
 	builder.ExporterLogsSendFailed, err = builder.meter.Int64Counter(
 		"otelcol_exporter_logs_send_failed",
-		metric.WithDescription("The number of times ConsumeLogs failed, triggering a retry by the collector pipeline. [Alpha]"),
+		metric.WithDescription("The number of log payloads the exporter failed to send. [Alpha]"),
 		metric.WithUnit("{failures}"),
 	)
 	errs = errors.Join(errs, err)

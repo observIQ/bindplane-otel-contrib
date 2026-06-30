@@ -19,7 +19,7 @@ telemetry:
 
     exporter_logs_send_failed:
       enabled: true
-      description: "The number of times ConsumeLogs failed, triggering a retry by the collector pipeline."
+      description: "The number of log payloads the exporter failed to send."
       stability: alpha
       unit: "{failures}"
       sum:

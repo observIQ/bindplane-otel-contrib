@@ -39,7 +39,7 @@ func AssertEqualExporterBatchSize(t *testing.T, tt *componenttest.Telemetry, dps
 func AssertEqualExporterLogsSendFailed(t *testing.T, tt *componenttest.Telemetry, dps []metricdata.DataPoint[int64], opts ...metricdatatest.Option) {
 	want := metricdata.Metrics{
 		Name:        "otelcol_exporter_logs_send_failed",
-		Description: "The number of times ConsumeLogs failed, triggering a retry by the collector pipeline. [Alpha]",
+		Description: "The number of log payloads the exporter failed to send. [Alpha]",
 		Unit:        "{failures}",
 		Data: metricdata.Sum[int64]{
 			Temporality: metricdata.CumulativeTemporality,

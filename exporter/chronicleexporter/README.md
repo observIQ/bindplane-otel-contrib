@@ -97,6 +97,14 @@ For `https`, regional endpoints for the Chronicle API are listed [here](https://
 
 The `otelcol_exporter_unsplit_payload_size` metric reports the size, in bytes, of each export batch *before* it is split — that is, before it is broken up to satisfy `batch_request_size_limit_http` and the one-log-type-per-request grouping. Compare it against `batch_request_size_limit_http`: when values approach or exceed the limit, batches are being split into multiple HTTP requests. Lowering the `batch` processor's `send_batch_size` until this metric stays below the limit keeps each upstream batch a single HTTP request, reducing overhead.
 
+## Retry Behavior (HTTPS)
+
+For the `https` protocol the exporter retries **individual HTTP requests** itself rather than using the collector's `retry_on_failure` middleware. When a batch is split into several requests, a transient failure retries only the request that failed — the batch is not re-marshaled and requests that already succeeded are not re-sent. `retry_on_failure` (backoff intervals, `max_elapsed_time`) and `timeout` still apply, but per request: `timeout` bounds each attempt and `retry_on_failure` governs the backoff between attempts. A request that exhausts its retries or receives a non-retryable response is dropped and counted in `otelcol_exporter_logs_send_failed`.
+
+This avoids the duplicate log entries that whole-batch retries would otherwise create. Duplicates are still possible if the collector restarts mid-send, because the entire batch is re-read from the sending queue and re-sent; keeping batches under `batch_request_size_limit_http` (watch `otelcol_exporter_unsplit_payload_size`) minimizes that exposure.
+
+The `gRPC` protocol continues to use the standard `retry_on_failure` and `timeout` middleware.
+
 ## High-Throughput Tuning (HTTPS)
 
 The `https` exporter defaults to **HTTP/2** (`http_version: 2`). Go's HTTP/2 client multiplexes **every** concurrent request over a **single** TCP connection per host. For high-volume sources that single connection becomes the throughput ceiling: large request bodies serialize behind the connection's write lock and HTTP/2 flow-control window, so adding `sending_queue.num_consumers` does not add real upload parallelism — the extra consumers simply queue behind one connection and, if requests time out, retry into the same saturated connection. Setting `http_version: 1.1` switches to a *pool* of connections (one request per connection at a time), giving real upload parallelism across consumers.
