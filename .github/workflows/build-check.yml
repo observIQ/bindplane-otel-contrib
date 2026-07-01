@@ -34,11 +34,30 @@ jobs:
         with:
           path: contrib
 
+      # OTel version bumps are coordinated breaking changes that must land in
+      # contrib and collector in lockstep, so contrib cannot always build
+      # against collector's main. For OTel-bump branches only (deps/otel-*),
+      # if a collector branch exists with the same name, build against it;
+      # otherwise use main.
+      - name: Resolve collector ref
+        id: collector_ref
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          if [ "${BRANCH#deps/otel-}" != "$BRANCH" ] && git ls-remote --exit-code --heads \
+            https://github.com/observIQ/bindplane-otel-collector.git "$BRANCH" >/dev/null 2>&1; then
+            echo "ref=$BRANCH" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Build Check::Found matching collector branch '$BRANCH'; building contrib against it."
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Build Check::No matching collector branch; building contrib against collector 'main'."
+          fi
+
       - name: Checkout Collector
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: observIQ/bindplane-otel-collector
-          ref: main
+          ref: ${{ steps.collector_ref.outputs.ref }}
           path: collector
 
       - name: Setup Go
