@@ -36,21 +36,53 @@ jobs:
 
       # OTel version bumps are coordinated breaking changes that must land in
       # contrib and collector in lockstep, so contrib cannot always build
-      # against collector's main. For OTel-bump branches only (deps/otel-*),
-      # if a collector branch exists with the same name, build against it;
-      # otherwise use main.
+      # against collector's main. We resolve the collector ref by comparing the
+      # OTel version contrib declares against the version on collector's main:
+      #   - same version  -> collector main is caught up; build against main.
+      #   - contrib ahead  -> build against the collector coordination branch
+      #     deps/otel-<version> if it exists, otherwise fall back to main (which
+      #     will fail, correctly signalling that collector isn't ready yet).
+      # The version is read from the mdatagen module in internal/tools/go.mod,
+      # which is present in both repos. Keying off the declared OTel version
+      # rather than the PR branch name means follow-up PRs opened during a
+      # release window (before collector's main catches up) resolve to the
+      # coordination branch too, not just the original bump PR.
+      # Preferring main whenever it matches means stale deps/otel-* branches that
+      # linger in the collector repo after merge are never used by mistake.
       - name: Resolve collector ref
         id: collector_ref
-        env:
-          BRANCH: ${{ github.head_ref }}
         run: |
-          if [ "${BRANCH#deps/otel-}" != "$BRANCH" ] && git ls-remote --exit-code --heads \
-            https://github.com/observIQ/bindplane-otel-collector.git "$BRANCH" >/dev/null 2>&1; then
-            echo "ref=$BRANCH" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Build Check::Found matching collector branch '$BRANCH'; building contrib against it."
+          set -euo pipefail
+          MOD="go.opentelemetry.io/collector/cmd/mdatagen"
+          COLLECTOR="https://github.com/observIQ/bindplane-otel-collector.git"
+          # internal/tools/go.mod is the pinned-tooling manifest present in both
+          # repos; it declares mdatagen at the beta-line OTel version.
+          TOOLS_GOMOD="internal/tools/go.mod"
+
+          extract_ver() { grep -oE "${MOD} v0\.[0-9]+\.[0-9]+" | grep -oE 'v0\.[0-9]+\.[0-9]+' | head -1; }
+
+          contrib_ver=$(extract_ver < "contrib/${TOOLS_GOMOD}" || true)
+          if [ -z "$contrib_ver" ]; then
+            echo "::error title=Build Check::Could not determine contrib OTel version from ${TOOLS_GOMOD}."
+            exit 1
+          fi
+
+          main_ver=$(curl -fsSL "https://raw.githubusercontent.com/observIQ/bindplane-otel-collector/main/${TOOLS_GOMOD}" 2>/dev/null \
+            | extract_ver || true)
+
+          if [ "$contrib_ver" = "$main_ver" ]; then
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Build Check::Collector main is on ${main_ver}; building contrib against main."
+            exit 0
+          fi
+
+          branch="deps/otel-${contrib_ver#v}"
+          if git ls-remote --exit-code --heads "$COLLECTOR" "$branch" >/dev/null 2>&1; then
+            echo "ref=$branch" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Build Check::Contrib on ${contrib_ver}, collector main on ${main_ver:-unknown}; building against coordination branch '${branch}'."
           else
             echo "ref=main" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Build Check::No matching collector branch; building contrib against collector 'main'."
+            echo "::warning title=Build Check::Contrib on ${contrib_ver} but collector main on ${main_ver:-unknown} and no '${branch}' branch found; building against main (expected to fail until collector catches up)."
           fi
 
       - name: Checkout Collector
@@ -64,7 +96,7 @@ jobs:
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           # Match the Go version the collector builds with.
-          go-version-file: "collector/internal/extension/opampconnectionextension/go.mod"
+          go-version-file: "collector/internal/tools/go.mod"
           cache: false
 
       - name: Set up Go cache
