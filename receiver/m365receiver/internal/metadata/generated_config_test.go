@@ -186,6 +186,66 @@ func TestMetricsBuilderConfig(t *testing.T) {
 	}
 }
 
+func TestM365OnedriveUserActivityCountMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().M365OnedriveUserActivityCount
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []M365OnedriveUserActivityCountMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric m365.onedrive.user_activity.count doesn't have an attribute invalid, valid attributes: [activity]")
+
+	cfg = DefaultMetricsConfig().M365OnedriveUserActivityCount
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestM365OutlookAppUserCountMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().M365OutlookAppUserCount
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []M365OutlookAppUserCountMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric m365.outlook.app.user.count doesn't have an attribute invalid, valid attributes: [app]")
+
+	cfg = DefaultMetricsConfig().M365OutlookAppUserCount
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestM365OutlookEmailActivityCountMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().M365OutlookEmailActivityCount
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []M365OutlookEmailActivityCountMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric m365.outlook.email_activity.count doesn't have an attribute invalid, valid attributes: [activity]")
+
+	cfg = DefaultMetricsConfig().M365OutlookEmailActivityCount
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestM365OutlookQuotaStatusCountMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().M365OutlookQuotaStatusCount
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []M365OutlookQuotaStatusCountMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric m365.outlook.quota_status.count doesn't have an attribute invalid, valid attributes: [state]")
+
+	cfg = DefaultMetricsConfig().M365OutlookQuotaStatusCount
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestM365TeamsDeviceUsageUsersMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().M365TeamsDeviceUsageUsers
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []M365TeamsDeviceUsageUsersMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric m365.teams.device_usage.users doesn't have an attribute invalid, valid attributes: [device]")
+
+	cfg = DefaultMetricsConfig().M365TeamsDeviceUsageUsers
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
 func loadMetricsBuilderConfig(t *testing.T, name string) MetricsBuilderConfig {
 	cm, err := confmaptest.LoadConf(filepath.Join("testdata", "config.yaml"))
 	require.NoError(t, err)

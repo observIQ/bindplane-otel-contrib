@@ -91,7 +91,7 @@ const (
 	_ AttributeOutlookApps = iota
 	AttributeOutlookAppsPop3
 	AttributeOutlookAppsImap4
-	AttributeOutlookAppsSmtp
+	AttributeOutlookAppsSMTP
 	AttributeOutlookAppsWindows
 	AttributeOutlookAppsMac
 	AttributeOutlookAppsWeb
@@ -106,7 +106,7 @@ func (av AttributeOutlookApps) String() string {
 		return "pop3"
 	case AttributeOutlookAppsImap4:
 		return "imap4"
-	case AttributeOutlookAppsSmtp:
+	case AttributeOutlookAppsSMTP:
 		return "smtp"
 	case AttributeOutlookAppsWindows:
 		return "windows"
@@ -126,7 +126,7 @@ func (av AttributeOutlookApps) String() string {
 var MapAttributeOutlookApps = map[string]AttributeOutlookApps{
 	"pop3":         AttributeOutlookAppsPop3,
 	"imap4":        AttributeOutlookAppsImap4,
-	"smtp":         AttributeOutlookAppsSmtp,
+	"smtp":         AttributeOutlookAppsSMTP,
 	"windows":      AttributeOutlookAppsWindows,
 	"mac":          AttributeOutlookAppsMac,
 	"web":          AttributeOutlookAppsWeb,
@@ -226,19 +226,23 @@ var MetricsInfo = metricsInfo{
 		Name: "m365.onedrive.files.count",
 	},
 	M365OnedriveUserActivityCount: metricInfo{
-		Name: "m365.onedrive.user_activity.count",
+		Name:       "m365.onedrive.user_activity.count",
+		Attributes: []string{"onedriveActivity"},
 	},
 	M365OutlookAppUserCount: metricInfo{
-		Name: "m365.outlook.app.user.count",
+		Name:       "m365.outlook.app.user.count",
+		Attributes: []string{"outlookApps"},
 	},
 	M365OutlookEmailActivityCount: metricInfo{
-		Name: "m365.outlook.email_activity.count",
+		Name:       "m365.outlook.email_activity.count",
+		Attributes: []string{"outlookActivity"},
 	},
 	M365OutlookMailboxesActiveCount: metricInfo{
 		Name: "m365.outlook.mailboxes.active.count",
 	},
 	M365OutlookQuotaStatusCount: metricInfo{
-		Name: "m365.outlook.quota_status.count",
+		Name:       "m365.outlook.quota_status.count",
+		Attributes: []string{"outlookQuotas"},
 	},
 	M365OutlookStorageUsed: metricInfo{
 		Name: "m365.outlook.storage.used",
@@ -265,7 +269,8 @@ var MetricsInfo = metricsInfo{
 		Name: "m365.teams.calls.count",
 	},
 	M365TeamsDeviceUsageUsers: metricInfo{
-		Name: "m365.teams.device_usage.users",
+		Name:       "m365.teams.device_usage.users",
+		Attributes: []string{"teamsDevices"},
 	},
 	M365TeamsMeetingsCount: metricInfo{
 		Name: "m365.teams.meetings.count",
@@ -301,7 +306,8 @@ type metricsInfo struct {
 }
 
 type metricInfo struct {
-	Name string
+	Name       string
+	Attributes []string
 }
 
 type metricM365OnedriveFilesActiveCount struct {

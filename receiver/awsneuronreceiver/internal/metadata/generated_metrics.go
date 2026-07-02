@@ -104,58 +104,76 @@ var MapAttributePowerStatistic = map[string]AttributePowerStatistic{
 
 var MetricsInfo = metricsInfo{
 	AwsNeuronDeviceHostMemoryUsage: metricInfo{
-		Name: "aws.neuron.device.host_memory.usage",
+		Name:       "aws.neuron.device.host_memory.usage",
+		Attributes: []string{"memory_category", "memory_state"},
 	},
 	AwsNeuronDevicePowerUtilization: metricInfo{
-		Name: "aws.neuron.device.power.utilization",
+		Name:       "aws.neuron.device.power.utilization",
+		Attributes: []string{"power_statistic"},
 	},
 	AwsNeuronErrors: metricInfo{
-		Name: "aws.neuron.errors",
+		Name:       "aws.neuron.errors",
+		Attributes: []string{"hw_id", "memory_type", "error_type"},
 	},
 	AwsNeuronExecutionCount: metricInfo{
-		Name: "aws.neuron.execution.count",
+		Name:       "aws.neuron.execution.count",
+		Attributes: []string{"execution_status"},
 	},
 	AwsNeuronExecutionErrors: metricInfo{
-		Name: "aws.neuron.execution.errors",
+		Name:       "aws.neuron.execution.errors",
+		Attributes: []string{"error_type"},
 	},
 	AwsNeuronExecutionLatency: metricInfo{
-		Name: "aws.neuron.execution.latency",
+		Name:       "aws.neuron.execution.latency",
+		Attributes: []string{"latency_type", "quantile"},
 	},
 	AwsNeuronNeuroncoreDeviceMemoryUsage: metricInfo{
-		Name: "aws.neuron.neuroncore.device_memory.usage",
+		Name:       "aws.neuron.neuroncore.device_memory.usage",
+		Attributes: []string{"neuroncore", "memory_category", "memory_state"},
 	},
 	AwsNeuronNeuroncoreFlops: metricInfo{
-		Name: "aws.neuron.neuroncore.flops",
+		Name:       "aws.neuron.neuroncore.flops",
+		Attributes: []string{"neuroncore"},
 	},
 	AwsNeuronNeuroncoreHostMemoryUsage: metricInfo{
-		Name: "aws.neuron.neuroncore.host_memory.usage",
+		Name:       "aws.neuron.neuroncore.host_memory.usage",
+		Attributes: []string{"neuroncore", "memory_state"},
 	},
 	AwsNeuronNeuroncoreInferences: metricInfo{
-		Name: "aws.neuron.neuroncore.inferences",
+		Name:       "aws.neuron.neuroncore.inferences",
+		Attributes: []string{"neuroncore"},
 	},
 	AwsNeuronNeuroncoreMemoryUsage: metricInfo{
-		Name: "aws.neuron.neuroncore.memory.usage",
+		Name:       "aws.neuron.neuroncore.memory.usage",
+		Attributes: []string{"neuroncore", "memory_category"},
 	},
 	AwsNeuronNeuroncoreStatus: metricInfo{
-		Name: "aws.neuron.neuroncore.status",
+		Name:       "aws.neuron.neuroncore.status",
+		Attributes: []string{"neuroncore", "status"},
 	},
 	AwsNeuronNeuroncoreTimeInUse: metricInfo{
-		Name: "aws.neuron.neuroncore.time_in_use",
+		Name:       "aws.neuron.neuroncore.time_in_use",
+		Attributes: []string{"neuroncore"},
 	},
 	AwsNeuronNeuroncoreUtilization: metricInfo{
-		Name: "aws.neuron.neuroncore.utilization",
+		Name:       "aws.neuron.neuroncore.utilization",
+		Attributes: []string{"neuroncore"},
 	},
 	AwsNeuronRuntimeMemoryUsage: metricInfo{
-		Name: "aws.neuron.runtime.memory.usage",
+		Name:       "aws.neuron.runtime.memory.usage",
+		Attributes: []string{"memory_type"},
 	},
 	AwsNeuronRuntimeVcpuUtilization: metricInfo{
-		Name: "aws.neuron.runtime.vcpu.utilization",
+		Name:       "aws.neuron.runtime.vcpu.utilization",
+		Attributes: []string{"cpu_state"},
 	},
 	AwsNeuronSystemCPUUtilization: metricInfo{
-		Name: "aws.neuron.system.cpu.utilization",
+		Name:       "aws.neuron.system.cpu.utilization",
+		Attributes: []string{"cpu", "cpu_state"},
 	},
 	AwsNeuronSystemMemoryUsage: metricInfo{
-		Name: "aws.neuron.system.memory.usage",
+		Name:       "aws.neuron.system.memory.usage",
+		Attributes: []string{"memory_type"},
 	},
 }
 
@@ -181,7 +199,8 @@ type metricsInfo struct {
 }
 
 type metricInfo struct {
-	Name string
+	Name       string
+	Attributes []string
 }
 
 type metricAwsNeuronDeviceHostMemoryUsage struct {
@@ -1682,7 +1701,7 @@ func (m *metricAwsNeuronSystemCPUUtilization) recordDataPoint(start pcommon.Time
 	dp := pmetric.NewNumberDataPoint()
 	dp.SetStartTimestamp(start)
 	dp.SetTimestamp(ts)
-	if slices.Contains(m.config.EnabledAttributes, AwsNeuronSystemCPUUtilizationMetricAttributeKeyCpu) {
+	if slices.Contains(m.config.EnabledAttributes, AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPU) {
 		dp.Attributes().PutStr("aws.neuron.cpu.logical_number", cpuAttributeValue)
 	}
 	if slices.Contains(m.config.EnabledAttributes, AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPUState) {

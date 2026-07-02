@@ -64,7 +64,7 @@ const (
 	AttributeResponseTypeTransaction
 	AttributeResponseTypeDialog
 	AttributeResponseTypeDialogRFC
-	AttributeResponseTypeHttp
+	AttributeResponseTypeHTTP
 )
 
 // String returns the string representation of the AttributeResponseType.
@@ -76,7 +76,7 @@ func (av AttributeResponseType) String() string {
 		return "dialog"
 	case AttributeResponseTypeDialogRFC:
 		return "dialogRFC"
-	case AttributeResponseTypeHttp:
+	case AttributeResponseTypeHTTP:
 		return "http"
 	}
 	return ""
@@ -87,12 +87,13 @@ var MapAttributeResponseType = map[string]AttributeResponseType{
 	"transaction": AttributeResponseTypeTransaction,
 	"dialog":      AttributeResponseTypeDialog,
 	"dialogRFC":   AttributeResponseTypeDialogRFC,
-	"http":        AttributeResponseTypeHttp,
+	"http":        AttributeResponseTypeHTTP,
 }
 
 var MetricsInfo = metricsInfo{
 	SapnetweaverAbapUpdateStatus: metricInfo{
-		Name: "sapnetweaver.abap.update.status",
+		Name:       "sapnetweaver.abap.update.status",
+		Attributes: []string{"control_state"},
 	},
 	SapnetweaverCacheEvictions: metricInfo{
 		Name: "sapnetweaver.cache.evictions",
@@ -152,16 +153,20 @@ var MetricsInfo = metricsInfo{
 		Name: "sapnetweaver.memory.swap_space.utilization",
 	},
 	SapnetweaverProcessAvailability: metricInfo{
-		Name: "sapnetweaver.process_availability",
+		Name:       "sapnetweaver.process_availability",
+		Attributes: []string{"process_name", "process_description", "control_state"},
 	},
 	SapnetweaverQueueCount: metricInfo{
-		Name: "sapnetweaver.queue.count",
+		Name:       "sapnetweaver.queue.count",
+		Attributes: []string{"wp_type"},
 	},
 	SapnetweaverQueueMaxCount: metricInfo{
-		Name: "sapnetweaver.queue_max.count",
+		Name:       "sapnetweaver.queue_max.count",
+		Attributes: []string{"wp_type"},
 	},
 	SapnetweaverQueuePeakCount: metricInfo{
-		Name: "sapnetweaver.queue_peak.count",
+		Name:       "sapnetweaver.queue_peak.count",
+		Attributes: []string{"wp_type"},
 	},
 	SapnetweaverRequestCount: metricInfo{
 		Name: "sapnetweaver.request.count",
@@ -170,7 +175,8 @@ var MetricsInfo = metricsInfo{
 		Name: "sapnetweaver.request.timeout.count",
 	},
 	SapnetweaverResponseDuration: metricInfo{
-		Name: "sapnetweaver.response.duration",
+		Name:       "sapnetweaver.response.duration",
+		Attributes: []string{"response_type"},
 	},
 	SapnetweaverSessionCount: metricInfo{
 		Name: "sapnetweaver.session.count",
@@ -197,13 +203,16 @@ var MetricsInfo = metricsInfo{
 		Name: "sapnetweaver.spool.request.error.count",
 	},
 	SapnetweaverSystemInstanceAvailability: metricInfo{
-		Name: "sapnetweaver.system.instance_availability",
+		Name:       "sapnetweaver.system.instance_availability",
+		Attributes: []string{"hostname", "instance_number", "feature", "control_state"},
 	},
 	SapnetweaverWorkProcessActiveCount: metricInfo{
-		Name: "sapnetweaver.work_process.active.count",
+		Name:       "sapnetweaver.work_process.active.count",
+		Attributes: []string{"instance", "wp_type", "wp_status"},
 	},
 	SapnetweaverWorkProcessJobAbortedStatus: metricInfo{
-		Name: "sapnetweaver.work_process.job.aborted.status",
+		Name:       "sapnetweaver.work_process.job.aborted.status",
+		Attributes: []string{"control_state"},
 	},
 }
 
@@ -249,7 +258,8 @@ type metricsInfo struct {
 }
 
 type metricInfo struct {
-	Name string
+	Name       string
+	Attributes []string
 }
 
 type metricSapnetweaverAbapUpdateStatus struct {

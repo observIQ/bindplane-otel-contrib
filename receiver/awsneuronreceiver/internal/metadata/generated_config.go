@@ -790,7 +790,7 @@ func (ms *AwsNeuronRuntimeVcpuUtilizationMetricConfig) Validate() error {
 type AwsNeuronSystemCPUUtilizationMetricAttributeKey string
 
 const (
-	AwsNeuronSystemCPUUtilizationMetricAttributeKeyCpu      AwsNeuronSystemCPUUtilizationMetricAttributeKey = "aws.neuron.cpu.logical_number"
+	AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPU      AwsNeuronSystemCPUUtilizationMetricAttributeKey = "aws.neuron.cpu.logical_number"
 	AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPUState AwsNeuronSystemCPUUtilizationMetricAttributeKey = "aws.neuron.cpu.state"
 )
 
@@ -820,7 +820,7 @@ func (ms *AwsNeuronSystemCPUUtilizationMetricConfig) Unmarshal(parser *confmap.C
 func (ms *AwsNeuronSystemCPUUtilizationMetricConfig) Validate() error {
 	for _, val := range ms.EnabledAttributes {
 		switch val {
-		case AwsNeuronSystemCPUUtilizationMetricAttributeKeyCpu, AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPUState:
+		case AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPU, AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPUState:
 		default:
 			return fmt.Errorf("metric aws.neuron.system.cpu.utilization doesn't have an attribute %v, valid attributes: [aws.neuron.cpu.logical_number, aws.neuron.cpu.state]", val)
 		}
@@ -990,7 +990,7 @@ func DefaultMetricsConfig() MetricsConfig {
 		AwsNeuronSystemCPUUtilization: AwsNeuronSystemCPUUtilizationMetricConfig{
 			Enabled:             false,
 			AggregationStrategy: AggregationStrategyAvg,
-			EnabledAttributes:   []AwsNeuronSystemCPUUtilizationMetricAttributeKey{AwsNeuronSystemCPUUtilizationMetricAttributeKeyCpu, AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPUState},
+			EnabledAttributes:   []AwsNeuronSystemCPUUtilizationMetricAttributeKey{AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPU, AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPUState},
 		},
 		AwsNeuronSystemMemoryUsage: AwsNeuronSystemMemoryUsageMetricConfig{
 			Enabled:             false,

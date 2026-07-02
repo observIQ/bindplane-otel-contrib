@@ -84,179 +84,141 @@ func TestMetricsBuilder(t *testing.T) {
 
 			defaultMetricsCount := 0
 			allMetricsCount := 0
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverAbapUpdateStatusDataPoint(ts, 1, AttributeControlStateGray)
 			if tt.name == "reaggregate_set" {
 				mb.RecordSapnetweaverAbapUpdateStatusDataPoint(ts, 3, AttributeControlStateGreen)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverCacheEvictionsDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverCacheHitsDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverConnectionErrorCountDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverCPUSystemUtilizationDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverCPUUtilizationDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverDatabaseDialogRequestTimeDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverHostMemoryVirtualOverheadDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverHostMemoryVirtualSwapDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverHostSpoolListUtilizationDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverLocksDequeueErrorsCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverLocksEnqueueCurrentCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverLocksEnqueueErrorsCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverLocksEnqueueHighCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverLocksEnqueueLockTimeDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverLocksEnqueueLockWaitTimeDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverLocksEnqueueMaxCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverMemoryConfiguredDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverMemoryFreeDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverMemorySwapSpaceUtilizationDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverProcessAvailabilityDataPoint(ts, 1, "process_name-val", "process_description-val", AttributeControlStateGray)
 			if tt.name == "reaggregate_set" {
 				mb.RecordSapnetweaverProcessAvailabilityDataPoint(ts, 3, "process_name-val-2", "process_description-val-2", AttributeControlStateGreen)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverQueueCountDataPoint(ts, 1, "wp_type-val")
 			if tt.name == "reaggregate_set" {
 				mb.RecordSapnetweaverQueueCountDataPoint(ts, 3, "wp_type-val-2")
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverQueueMaxCountDataPoint(ts, 1, "wp_type-val")
 			if tt.name == "reaggregate_set" {
 				mb.RecordSapnetweaverQueueMaxCountDataPoint(ts, 3, "wp_type-val-2")
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverQueuePeakCountDataPoint(ts, 1, "wp_type-val")
 			if tt.name == "reaggregate_set" {
 				mb.RecordSapnetweaverQueuePeakCountDataPoint(ts, 3, "wp_type-val-2")
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverRequestCountDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverRequestTimeoutCountDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverResponseDurationDataPoint(ts, "1", AttributeResponseTypeTransaction)
 			if tt.name == "reaggregate_set" {
 				mb.RecordSapnetweaverResponseDurationDataPoint(ts, "3", AttributeResponseTypeDialog)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverSessionCountDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverSessionsBrowserCountDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverSessionsEjbCountDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverSessionsHTTPCountDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverSessionsSecurityCountDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverSessionsWebCountDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverShortDumpsRateDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverSpoolRequestErrorCountDataPoint(ts, "1")
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverSystemInstanceAvailabilityDataPoint(ts, 1, "hostname-val", 15, "feature-val", AttributeControlStateGray)
 			if tt.name == "reaggregate_set" {
 				mb.RecordSapnetweaverSystemInstanceAvailabilityDataPoint(ts, 3, "hostname-val-2", 16, "feature-val-2", AttributeControlStateGreen)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverWorkProcessActiveCountDataPoint(ts, 1, "instance-val", "wp_type-val", "wp_status-val")
 			if tt.name == "reaggregate_set" {
 				mb.RecordSapnetweaverWorkProcessActiveCountDataPoint(ts, 3, "instance-val-2", "wp_type-val-2", "wp_status-val-2")
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordSapnetweaverWorkProcessJobAbortedStatusDataPoint(ts, 1, AttributeControlStateGray)
