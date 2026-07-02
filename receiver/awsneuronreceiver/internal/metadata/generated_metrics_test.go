@@ -93,7 +93,6 @@ func TestMetricsBuilder(t *testing.T) {
 
 			defaultMetricsCount := 0
 			allMetricsCount := 0
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordAwsNeuronDeviceHostMemoryUsageDataPoint(ts, 1, "memory_category-val", AttributeMemoryStatePresent)
@@ -106,49 +105,42 @@ func TestMetricsBuilder(t *testing.T) {
 			if tt.name == "reaggregate_set" {
 				mb.RecordAwsNeuronDevicePowerUtilizationDataPoint(ts, 3, AttributePowerStatisticMax)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordAwsNeuronErrorsDataPoint(ts, 1, "hw_id-val", "memory_type-val", "error_type-val")
 			if tt.name == "reaggregate_set" {
 				mb.RecordAwsNeuronErrorsDataPoint(ts, 3, "hw_id-val-2", "memory_type-val-2", "error_type-val-2")
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordAwsNeuronExecutionCountDataPoint(ts, 1, "execution_status-val")
 			if tt.name == "reaggregate_set" {
 				mb.RecordAwsNeuronExecutionCountDataPoint(ts, 3, "execution_status-val-2")
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordAwsNeuronExecutionErrorsDataPoint(ts, 1, "error_type-val")
 			if tt.name == "reaggregate_set" {
 				mb.RecordAwsNeuronExecutionErrorsDataPoint(ts, 3, "error_type-val-2")
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordAwsNeuronExecutionLatencyDataPoint(ts, 1, AttributeLatencyTypeTotal, "quantile-val")
 			if tt.name == "reaggregate_set" {
 				mb.RecordAwsNeuronExecutionLatencyDataPoint(ts, 3, AttributeLatencyTypeDevice, "quantile-val-2")
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordAwsNeuronNeuroncoreDeviceMemoryUsageDataPoint(ts, 1, 10, "memory_category-val", AttributeMemoryStatePresent)
 			if tt.name == "reaggregate_set" {
 				mb.RecordAwsNeuronNeuroncoreDeviceMemoryUsageDataPoint(ts, 3, 11, "memory_category-val-2", AttributeMemoryStatePeak)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordAwsNeuronNeuroncoreFlopsDataPoint(ts, 1, 10)
 			if tt.name == "reaggregate_set" {
 				mb.RecordAwsNeuronNeuroncoreFlopsDataPoint(ts, 3, 11)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordAwsNeuronNeuroncoreHostMemoryUsageDataPoint(ts, 1, 10, AttributeMemoryStatePresent)
@@ -161,7 +153,6 @@ func TestMetricsBuilder(t *testing.T) {
 			if tt.name == "reaggregate_set" {
 				mb.RecordAwsNeuronNeuroncoreInferencesDataPoint(ts, 3, 11)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordAwsNeuronNeuroncoreMemoryUsageDataPoint(ts, 1, 10, "memory_category-val")
@@ -180,14 +171,12 @@ func TestMetricsBuilder(t *testing.T) {
 			if tt.name == "reaggregate_set" {
 				mb.RecordAwsNeuronNeuroncoreTimeInUseDataPoint(ts, 3, 11)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordAwsNeuronNeuroncoreUtilizationDataPoint(ts, 1, 10)
 			if tt.name == "reaggregate_set" {
 				mb.RecordAwsNeuronNeuroncoreUtilizationDataPoint(ts, 3, 11)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordAwsNeuronRuntimeMemoryUsageDataPoint(ts, 1, "memory_type-val")

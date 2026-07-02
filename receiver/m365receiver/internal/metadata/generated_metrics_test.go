@@ -80,94 +80,75 @@ func TestMetricsBuilder(t *testing.T) {
 
 			defaultMetricsCount := 0
 			allMetricsCount := 0
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365OnedriveFilesActiveCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365OnedriveFilesCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365OnedriveUserActivityCountDataPoint(ts, 1, AttributeOnedriveActivityViewEdit)
 			if tt.name == "reaggregate_set" {
 				mb.RecordM365OnedriveUserActivityCountDataPoint(ts, 3, AttributeOnedriveActivitySynced)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365OutlookAppUserCountDataPoint(ts, 1, AttributeOutlookAppsPop3)
 			if tt.name == "reaggregate_set" {
 				mb.RecordM365OutlookAppUserCountDataPoint(ts, 3, AttributeOutlookAppsImap4)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365OutlookEmailActivityCountDataPoint(ts, 1, AttributeOutlookActivityRead)
 			if tt.name == "reaggregate_set" {
 				mb.RecordM365OutlookEmailActivityCountDataPoint(ts, 3, AttributeOutlookActivitySent)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365OutlookMailboxesActiveCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365OutlookQuotaStatusCountDataPoint(ts, 1, AttributeOutlookQuotasUnderLimit)
 			if tt.name == "reaggregate_set" {
 				mb.RecordM365OutlookQuotaStatusCountDataPoint(ts, 3, AttributeOutlookQuotasWarning)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365OutlookStorageUsedDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365SharepointFilesActiveCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365SharepointFilesCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365SharepointPagesUniqueCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365SharepointPagesViewedCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365SharepointSiteStorageUsedDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365SharepointSitesActiveCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365TeamsCallsCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365TeamsDeviceUsageUsersDataPoint(ts, 1, AttributeTeamsDevicesAndroid)
 			if tt.name == "reaggregate_set" {
 				mb.RecordM365TeamsDeviceUsageUsersDataPoint(ts, 3, AttributeTeamsDevicesIOS)
 			}
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365TeamsMeetingsCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365TeamsMessagesPrivateCountDataPoint(ts, 1)
-
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordM365TeamsMessagesTeamCountDataPoint(ts, 1)

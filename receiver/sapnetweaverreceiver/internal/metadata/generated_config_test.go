@@ -319,6 +319,113 @@ func TestMetricsBuilderConfig(t *testing.T) {
 		})
 	}
 }
+func TestSapnetweaverAbapUpdateStatusMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().SapnetweaverAbapUpdateStatus
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []SapnetweaverAbapUpdateStatusMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric sapnetweaver.abap.update.status doesn't have an attribute invalid, valid attributes: [state]")
+
+	cfg = DefaultMetricsConfig().SapnetweaverAbapUpdateStatus
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestSapnetweaverProcessAvailabilityMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().SapnetweaverProcessAvailability
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []SapnetweaverProcessAvailabilityMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric sapnetweaver.process_availability doesn't have an attribute invalid, valid attributes: [process_name, process_description, state]")
+
+	cfg = DefaultMetricsConfig().SapnetweaverProcessAvailability
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestSapnetweaverQueueCountMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().SapnetweaverQueueCount
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []SapnetweaverQueueCountMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric sapnetweaver.queue.count doesn't have an attribute invalid, valid attributes: [wp_type]")
+
+	cfg = DefaultMetricsConfig().SapnetweaverQueueCount
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestSapnetweaverQueueMaxCountMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().SapnetweaverQueueMaxCount
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []SapnetweaverQueueMaxCountMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric sapnetweaver.queue_max.count doesn't have an attribute invalid, valid attributes: [wp_type]")
+
+	cfg = DefaultMetricsConfig().SapnetweaverQueueMaxCount
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestSapnetweaverQueuePeakCountMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().SapnetweaverQueuePeakCount
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []SapnetweaverQueuePeakCountMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric sapnetweaver.queue_peak.count doesn't have an attribute invalid, valid attributes: [wp_type]")
+
+	cfg = DefaultMetricsConfig().SapnetweaverQueuePeakCount
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestSapnetweaverResponseDurationMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().SapnetweaverResponseDuration
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []SapnetweaverResponseDurationMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric sapnetweaver.response.duration doesn't have an attribute invalid, valid attributes: [response_type]")
+
+	cfg = DefaultMetricsConfig().SapnetweaverResponseDuration
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestSapnetweaverSystemInstanceAvailabilityMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().SapnetweaverSystemInstanceAvailability
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []SapnetweaverSystemInstanceAvailabilityMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric sapnetweaver.system.instance_availability doesn't have an attribute invalid, valid attributes: [hostname, instance_number, feature, state]")
+
+	cfg = DefaultMetricsConfig().SapnetweaverSystemInstanceAvailability
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestSapnetweaverWorkProcessActiveCountMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().SapnetweaverWorkProcessActiveCount
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []SapnetweaverWorkProcessActiveCountMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric sapnetweaver.work_process.active.count doesn't have an attribute invalid, valid attributes: [instance, wp_type, wp_status]")
+
+	cfg = DefaultMetricsConfig().SapnetweaverWorkProcessActiveCount
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestSapnetweaverWorkProcessJobAbortedStatusMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().SapnetweaverWorkProcessJobAbortedStatus
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []SapnetweaverWorkProcessJobAbortedStatusMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric sapnetweaver.work_process.job.aborted.status doesn't have an attribute invalid, valid attributes: [state]")
+
+	cfg = DefaultMetricsConfig().SapnetweaverWorkProcessJobAbortedStatus
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
 
 func loadMetricsBuilderConfig(t *testing.T, name string) MetricsBuilderConfig {
 	cm, err := confmaptest.LoadConf(filepath.Join("testdata", "config.yaml"))

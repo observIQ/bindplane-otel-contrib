@@ -216,7 +216,7 @@ var reports = []reportPair{
 				mb.RecordM365OutlookAppUserCountDataPoint(ts, val, metadata.AttributeOutlookAppsImap4)
 			},
 			9: func(mb *metadata.MetricsBuilder, ts pcommon.Timestamp, val int64) {
-				mb.RecordM365OutlookAppUserCountDataPoint(ts, val, metadata.AttributeOutlookAppsSmtp)
+				mb.RecordM365OutlookAppUserCountDataPoint(ts, val, metadata.AttributeOutlookAppsSMTP)
 			},
 		},
 	},

@@ -595,13 +595,13 @@ func (s *sapNetweaverScraper) recordSapnetweaverResponseDurationDataPointTransac
 
 func (s *sapNetweaverScraper) recordSapnetweaverResponseDurationDataPointHTTP(now pcommon.Timestamp, alertTreeResponse map[string]string, errs *scrapererror.ScrapeErrors) {
 	metricName := "ResponseTimeHTTP"
-	val, err := parseResponse(metricName, metadata.AttributeResponseTypeHttp.String(), alertTreeResponse)
+	val, err := parseResponse(metricName, metadata.AttributeResponseTypeHTTP.String(), alertTreeResponse)
 	if err != nil {
 		errs.AddPartial(1, err)
 		return
 	}
 
-	err = s.mb.RecordSapnetweaverResponseDurationDataPoint(now, val, metadata.AttributeResponseTypeHttp)
+	err = s.mb.RecordSapnetweaverResponseDurationDataPoint(now, val, metadata.AttributeResponseTypeHTTP)
 	if err != nil {
 		errs.AddPartial(1, err)
 		return

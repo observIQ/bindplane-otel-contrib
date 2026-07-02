@@ -109,7 +109,7 @@ func TestMetricsBuilderConfig(t *testing.T) {
 					AwsNeuronSystemCPUUtilization: AwsNeuronSystemCPUUtilizationMetricConfig{
 						Enabled:             true,
 						AggregationStrategy: AggregationStrategyAvg,
-						EnabledAttributes:   []AwsNeuronSystemCPUUtilizationMetricAttributeKey{AwsNeuronSystemCPUUtilizationMetricAttributeKeyCpu, AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPUState},
+						EnabledAttributes:   []AwsNeuronSystemCPUUtilizationMetricAttributeKey{AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPU, AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPUState},
 					},
 					AwsNeuronSystemMemoryUsage: AwsNeuronSystemMemoryUsageMetricConfig{
 						Enabled:             true,
@@ -215,7 +215,7 @@ func TestMetricsBuilderConfig(t *testing.T) {
 					AwsNeuronSystemCPUUtilization: AwsNeuronSystemCPUUtilizationMetricConfig{
 						Enabled:             false,
 						AggregationStrategy: AggregationStrategyAvg,
-						EnabledAttributes:   []AwsNeuronSystemCPUUtilizationMetricAttributeKey{AwsNeuronSystemCPUUtilizationMetricAttributeKeyCpu, AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPUState},
+						EnabledAttributes:   []AwsNeuronSystemCPUUtilizationMetricAttributeKey{AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPU, AwsNeuronSystemCPUUtilizationMetricAttributeKeyCPUState},
 					},
 					AwsNeuronSystemMemoryUsage: AwsNeuronSystemMemoryUsageMetricConfig{
 						Enabled:             false,
@@ -242,6 +242,221 @@ func TestMetricsBuilderConfig(t *testing.T) {
 			require.Emptyf(t, diff, "Config mismatch (-expected +actual):\n%s", diff)
 		})
 	}
+}
+func TestAwsNeuronDeviceHostMemoryUsageMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronDeviceHostMemoryUsage
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronDeviceHostMemoryUsageMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.device.host_memory.usage doesn't have an attribute invalid, valid attributes: [aws.neuron.memory.category, aws.neuron.memory.state]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronDeviceHostMemoryUsage
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronDevicePowerUtilizationMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronDevicePowerUtilization
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronDevicePowerUtilizationMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.device.power.utilization doesn't have an attribute invalid, valid attributes: [aws.neuron.power.statistic]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronDevicePowerUtilization
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronErrorsMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronErrors
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronErrorsMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.errors doesn't have an attribute invalid, valid attributes: [hw.id, aws.neuron.memory.type, error.type]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronErrors
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronExecutionCountMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronExecutionCount
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronExecutionCountMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.execution.count doesn't have an attribute invalid, valid attributes: [aws.neuron.execution.status]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronExecutionCount
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronExecutionErrorsMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronExecutionErrors
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronExecutionErrorsMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.execution.errors doesn't have an attribute invalid, valid attributes: [error.type]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronExecutionErrors
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronExecutionLatencyMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronExecutionLatency
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronExecutionLatencyMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.execution.latency doesn't have an attribute invalid, valid attributes: [aws.neuron.latency.type, aws.neuron.latency.quantile]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronExecutionLatency
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronNeuroncoreDeviceMemoryUsageMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronNeuroncoreDeviceMemoryUsage
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronNeuroncoreDeviceMemoryUsageMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.neuroncore.device_memory.usage doesn't have an attribute invalid, valid attributes: [aws.neuron.neuroncore.id, aws.neuron.memory.category, aws.neuron.memory.state]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronNeuroncoreDeviceMemoryUsage
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronNeuroncoreFlopsMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronNeuroncoreFlops
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronNeuroncoreFlopsMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.neuroncore.flops doesn't have an attribute invalid, valid attributes: [aws.neuron.neuroncore.id]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronNeuroncoreFlops
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronNeuroncoreHostMemoryUsageMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronNeuroncoreHostMemoryUsage
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronNeuroncoreHostMemoryUsageMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.neuroncore.host_memory.usage doesn't have an attribute invalid, valid attributes: [aws.neuron.neuroncore.id, aws.neuron.memory.state]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronNeuroncoreHostMemoryUsage
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronNeuroncoreInferencesMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronNeuroncoreInferences
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronNeuroncoreInferencesMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.neuroncore.inferences doesn't have an attribute invalid, valid attributes: [aws.neuron.neuroncore.id]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronNeuroncoreInferences
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronNeuroncoreMemoryUsageMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronNeuroncoreMemoryUsage
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronNeuroncoreMemoryUsageMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.neuroncore.memory.usage doesn't have an attribute invalid, valid attributes: [aws.neuron.neuroncore.id, aws.neuron.memory.category]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronNeuroncoreMemoryUsage
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronNeuroncoreStatusMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronNeuroncoreStatus
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronNeuroncoreStatusMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.neuroncore.status doesn't have an attribute invalid, valid attributes: [aws.neuron.neuroncore.id, aws.neuron.neuroncore.status]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronNeuroncoreStatus
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronNeuroncoreTimeInUseMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronNeuroncoreTimeInUse
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronNeuroncoreTimeInUseMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.neuroncore.time_in_use doesn't have an attribute invalid, valid attributes: [aws.neuron.neuroncore.id]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronNeuroncoreTimeInUse
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronNeuroncoreUtilizationMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronNeuroncoreUtilization
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronNeuroncoreUtilizationMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.neuroncore.utilization doesn't have an attribute invalid, valid attributes: [aws.neuron.neuroncore.id]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronNeuroncoreUtilization
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronRuntimeMemoryUsageMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronRuntimeMemoryUsage
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronRuntimeMemoryUsageMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.runtime.memory.usage doesn't have an attribute invalid, valid attributes: [aws.neuron.memory.type]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronRuntimeMemoryUsage
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronRuntimeVcpuUtilizationMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronRuntimeVcpuUtilization
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronRuntimeVcpuUtilizationMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.runtime.vcpu.utilization doesn't have an attribute invalid, valid attributes: [aws.neuron.cpu.state]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronRuntimeVcpuUtilization
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronSystemCPUUtilizationMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronSystemCPUUtilization
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronSystemCPUUtilizationMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.system.cpu.utilization doesn't have an attribute invalid, valid attributes: [aws.neuron.cpu.logical_number, aws.neuron.cpu.state]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronSystemCPUUtilization
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestAwsNeuronSystemMemoryUsageMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().AwsNeuronSystemMemoryUsage
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []AwsNeuronSystemMemoryUsageMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric aws.neuron.system.memory.usage doesn't have an attribute invalid, valid attributes: [aws.neuron.memory.type]")
+
+	cfg = DefaultMetricsConfig().AwsNeuronSystemMemoryUsage
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
 }
 
 func loadMetricsBuilderConfig(t *testing.T, name string) MetricsBuilderConfig {
