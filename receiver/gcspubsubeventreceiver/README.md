@@ -56,6 +56,7 @@ Compression is detected from content, not from the `.gz` extension or a `Content
 | xz | Content magic |
 | zstd | Content magic |
 | zlib | Content magic |
+| lzip | Content magic (`4c 5a 49 50`) |
 | lz4 (frame) | Content magic (`04 22 4d 18`) |
 | snappy (frame) | Content magic (`ff 06 00 00 sNaPpY`) |
 | raw DEFLATE | `Content-Encoding: deflate` (headerless, not detectable from content) |
