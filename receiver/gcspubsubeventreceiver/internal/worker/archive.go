@@ -98,6 +98,8 @@ func archiveBackendFor(detected *mimetype.MIME, reader io.Reader) (func() (archi
 		return func() (archiveBackend, error) { return newTarBackend(reader), nil }, true
 	case detected.Is("application/zip"):
 		return func() (archiveBackend, error) { return newZipBackend(reader) }, true
+	case detected.Is("application/x-7z-compressed"):
+		return func() (archiveBackend, error) { return newSevenZipBackend(reader) }, true
 	default:
 		return nil, false
 	}
