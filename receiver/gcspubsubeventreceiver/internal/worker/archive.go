@@ -96,6 +96,8 @@ func archiveBackendFor(detected *mimetype.MIME, reader io.Reader) (func() (archi
 	switch {
 	case detected.Is("application/x-tar"):
 		return func() (archiveBackend, error) { return newTarBackend(reader), nil }, true
+	case detected.Is("application/zip"):
+		return func() (archiveBackend, error) { return newZipBackend(reader) }, true
 	default:
 		return nil, false
 	}
@@ -275,6 +277,12 @@ func (a *archiveProducer) consumeEntry(ctx context.Context, entry archiveEntry, 
 	if err != nil {
 		a.skipEntry(ctx, entry.Name(), fmt.Errorf("open entry: %w", err))
 		return false
+	}
+	// Random-access backends (zip/7z/rar) return a per-entry io.ReadCloser that
+	// must be closed once the entry is consumed. Streaming backends (tar) return
+	// the shared stream reader, which is not an io.Closer and is left untouched.
+	if c, ok := er.(io.Closer); ok {
+		defer func() { _ = c.Close() }()
 	}
 
 	capped := &cappingReader{

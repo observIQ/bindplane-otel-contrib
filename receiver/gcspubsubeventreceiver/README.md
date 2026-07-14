@@ -71,8 +71,11 @@ Archive objects are detected from content and expanded transparently: each entry
 | Archive | Detection |
 |---|---|
 | tar | Content magic (`ustar`) |
+| zip | Content magic (`PK`) |
 
 Because compression is detected and stripped before archive detection runs, compressed tarballs work with no extra configuration: a `.tar.gz`, `.tar.zst`, `.tar.xz`, or `.tar.bz2` object is decompressed, re-detected as a tar, and expanded. This is content-driven and does not depend on the object's name.
+
+tar is read as a stream and never fully buffered. zip requires random access, so a zip object is materialized to a temporary file (in the OS temp directory) that is removed once the archive is fully read or if any error occurs.
 
 Archive handling notes:
 
