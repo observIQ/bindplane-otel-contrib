@@ -45,7 +45,23 @@ The receiver detects the file format from the object's content, not from its nam
 | JSON | Leading `{` followed by `"`/`}`, or `[` followed by `{`/`]` (object, or array of objects) |
 | Plain text | Everything else; parsed line by line |
 
-Gzip compression is likewise detected from content (the `1f 8b` magic), not from the `.gz` extension or a `Content-Encoding: gzip` label. Compressed objects are transparently decompressed before parsing. When the label disagrees with the detected content, a warning is logged and the content wins. This fixes objects that carry a `.gz` name but hold uncompressed bytes, which previously failed to parse and were redelivered indefinitely.
+### Compression
+
+Compression is detected from content, not from the `.gz` extension or a `Content-Encoding` label. Compressed objects are transparently decompressed before parsing, and the decompressed bytes are then classified as Avro, JSON, or text. When a compression label disagrees with the detected content, a warning is logged and the content wins. This fixes objects that carry a `.gz` name but hold uncompressed bytes, which previously failed to parse and were redelivered indefinitely.
+
+| Codec | Detection |
+|---|---|
+| gzip | Content magic (`1f 8b`) |
+| bzip2 | Content magic |
+| xz | Content magic |
+| zstd | Content magic |
+| zlib | Content magic |
+| lz4 (frame) | Content magic (`04 22 4d 18`) |
+| snappy (frame) | Content magic (`ff 06 00 00 sNaPpY`) |
+| raw DEFLATE | `Content-Encoding: deflate` (headerless, not detectable from content) |
+| lzma (alone) | `.lzma` name, `Content-Encoding: lzma`, or a `lzma` content type (no reliable magic) |
+
+The headerless formats (raw DEFLATE, lzma) are attempted only when a label names them, and the decode is best-effort.
 
 ### Unsupported content
 

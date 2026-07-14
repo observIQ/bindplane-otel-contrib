@@ -16,7 +16,9 @@ package worker
 
 import (
 	"bufio"
+	"compress/bzip2"
 	"compress/gzip"
+	"compress/zlib"
 	"context"
 	"errors"
 	"fmt"
@@ -24,6 +26,8 @@ import (
 	"strings"
 
 	"github.com/gabriel-vasile/mimetype"
+	"github.com/klauspost/compress/zstd"
+	"github.com/ulikunitz/xz"
 	"go.uber.org/zap"
 )
 
@@ -61,8 +65,9 @@ func (stream *LogStream) BufferedReader(_ context.Context) (BufferedReader, erro
 }
 
 // decompress detects the compression of the peeked content and returns a reader
-// over the decompressed bytes. Unknown or uncompressed content is passed through
-// unchanged.
+// over the decompressed bytes. Decompression is single-level: the format stage
+// re-detects the decompressed content. Unknown or uncompressed content is passed
+// through unchanged.
 func (stream *LogStream) decompress(br *bufio.Reader) (io.Reader, error) {
 	header, err := br.Peek(detectionPeekBytes)
 	// A short object yields io.EOF (fewer than detectionPeekBytes available); that
@@ -72,7 +77,57 @@ func (stream *LogStream) decompress(br *bufio.Reader) (io.Reader, error) {
 	}
 
 	detected := mimetype.Detect(header)
+	stream.warnOnGzipLabelMismatch(detected)
 
+	switch {
+	case detected.Is("application/gzip"):
+		gzipReader, err := gzip.NewReader(br)
+		if err != nil {
+			return nil, fmt.Errorf("create gzip reader: %w", err)
+		}
+		return gzipReader, nil
+	case detected.Is("application/x-bzip2"):
+		return bzip2.NewReader(br), nil
+	case detected.Is("application/x-xz"):
+		xzReader, err := xz.NewReader(br)
+		if err != nil {
+			return nil, fmt.Errorf("create xz reader: %w", err)
+		}
+		return xzReader, nil
+	case detected.Is("application/zstd"):
+		// Concurrency 1 keeps the decoder synchronous so it spawns no goroutines
+		// to leak (the reader is never explicitly closed).
+		zstdReader, err := zstd.NewReader(br, zstd.WithDecoderConcurrency(1))
+		if err != nil {
+			return nil, fmt.Errorf("create zstd reader: %w", err)
+		}
+		return zstdReader.IOReadCloser(), nil
+	case detected.Is("application/zlib"):
+		// zlib carries a recognizable header, so it is content-detected. Raw
+		// (headerless) DEFLATE has no such header and is handled via label-assist
+		// in octetStreamDecoder.
+		zlibReader, err := zlib.NewReader(br)
+		if err != nil {
+			return nil, fmt.Errorf("create zlib reader: %w", err)
+		}
+		return zlibReader, nil
+	case detected.Is("application/octet-stream"):
+		reader, matched, err := stream.octetStreamDecoder(br, header)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
+			return reader, nil
+		}
+		return br, nil
+	default:
+		return br, nil
+	}
+}
+
+// warnOnGzipLabelMismatch logs when the object's gzip label (a .gz name or
+// Content-Encoding: gzip) disagrees with the detected content.
+func (stream *LogStream) warnOnGzipLabelMismatch(detected *mimetype.MIME) {
 	labeledGzip := strings.HasSuffix(stream.Name, ".gz") ||
 		(stream.ContentEncoding != nil && *stream.ContentEncoding == "gzip")
 	contentGzip := detected.Is("application/gzip")
@@ -82,14 +137,4 @@ func (stream *LogStream) decompress(br *bufio.Reader) (io.Reader, error) {
 			zap.Bool("labeled_gzip", labeledGzip),
 			zap.String("detected_content_type", detected.String()))
 	}
-
-	if contentGzip {
-		gzipReader, err := gzip.NewReader(br)
-		if err != nil {
-			return nil, fmt.Errorf("create gzip reader: %w", err)
-		}
-		return gzipReader, nil
-	}
-
-	return br, nil
 }
