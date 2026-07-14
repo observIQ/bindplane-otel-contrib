@@ -73,10 +73,13 @@ Archive objects are detected from content and expanded transparently: each entry
 | tar | Content magic (`ustar`) |
 | zip | Content magic (`PK`) |
 | 7z | Content magic (`7z\xbc\xaf\x27\x1c`) |
+| rar | Content magic (`Rar!\x1a\x07`, RAR4 and RAR5) |
 
 Because compression is detected and stripped before archive detection runs, compressed tarballs work with no extra configuration: a `.tar.gz`, `.tar.zst`, `.tar.xz`, or `.tar.bz2` object is decompressed, re-detected as a tar, and expanded. This is content-driven and does not depend on the object's name.
 
-tar is read as a stream and never fully buffered. zip and 7z require random access, so those objects are materialized to a temporary file (in the OS temp directory) that is removed once the archive is fully read or if any error occurs.
+tar and rar are read as a stream and never fully buffered. zip and 7z require random access, so those objects are materialized to a temporary file (in the OS temp directory) that is removed once the archive is fully read or if any error occurs.
+
+Multi-volume RAR sets (an archive split across several volume files) are not supported: one GCS object is treated as one complete archive. A single part of a multi-volume set will fail to parse and be routed to the DLQ.
 
 Archive handling notes:
 

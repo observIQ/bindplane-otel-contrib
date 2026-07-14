@@ -10,6 +10,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/klauspost/compress v1.19.1
 	github.com/linkedin/goavro/v2 v2.15.0
+	github.com/nwaples/rardecode/v2 v2.2.5
 	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.10.0
 	github.com/pierrec/lz4/v4 v4.1.27
 	github.com/sorairolake/lzip-go v0.3.8
