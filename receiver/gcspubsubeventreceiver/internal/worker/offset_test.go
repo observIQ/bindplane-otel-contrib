@@ -28,6 +28,52 @@ func TestNewOffset(t *testing.T) {
 
 	o := worker.NewOffset(42)
 	require.Equal(t, int64(42), o.Offset)
+	require.Equal(t, 0, o.EntryIndex)
+}
+
+func TestNewArchiveOffset(t *testing.T) {
+	t.Parallel()
+
+	o := worker.NewArchiveOffset(3, 512)
+	require.Equal(t, 3, o.EntryIndex)
+	require.Equal(t, int64(512), o.Offset)
+}
+
+// TestOffset_MarshalUnmarshalArchive verifies the entry index round-trips.
+func TestOffset_MarshalUnmarshalArchive(t *testing.T) {
+	t.Parallel()
+
+	original := worker.NewArchiveOffset(7, 4096)
+	data, err := original.Marshal()
+	require.NoError(t, err)
+
+	restored := worker.NewOffset(0)
+	require.NoError(t, restored.Unmarshal(data))
+	require.Equal(t, 7, restored.EntryIndex)
+	require.Equal(t, int64(4096), restored.Offset)
+}
+
+// TestOffset_UnmarshalLegacyBlob verifies a legacy {"offset":N} blob (written
+// before the archive entry index existed) unmarshals with EntryIndex defaulting
+// to 0, so stored offsets from earlier receiver versions still resume correctly.
+func TestOffset_UnmarshalLegacyBlob(t *testing.T) {
+	t.Parallel()
+
+	o := worker.NewOffset(0)
+	require.NoError(t, o.Unmarshal([]byte(`{"offset":123}`)))
+	require.Equal(t, 0, o.EntryIndex)
+	require.Equal(t, int64(123), o.Offset)
+}
+
+// TestOffset_NonArchiveMarshalOmitsEntryIndex verifies a non-archive offset
+// marshals to the legacy shape (no entry_index field), keeping the stored format
+// unchanged for the common non-archive path.
+func TestOffset_NonArchiveMarshalOmitsEntryIndex(t *testing.T) {
+	t.Parallel()
+
+	data, err := worker.NewOffset(55).Marshal()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"offset":55}`, string(data))
 }
 
 func TestOffset_MarshalUnmarshal(t *testing.T) {

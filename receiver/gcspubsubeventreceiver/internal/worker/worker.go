@@ -342,12 +342,13 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 	if err != nil {
 		return fmt.Errorf("load offset: %w", err)
 	}
-	startOffset := offset.Offset
+	startOffset := *offset
 
-	if startOffset == 0 {
+	if startOffset.Offset == 0 && startOffset.EntryIndex == 0 {
 		recordLogger.Debug("no offset found, starting from beginning", zap.String("offset_storage_key", offsetStorageKey))
 	} else {
-		recordLogger.Debug("loaded offset", zap.String("offset_storage_key", offsetStorageKey), zap.Int64("offset", startOffset))
+		recordLogger.Debug("loaded offset", zap.String("offset_storage_key", offsetStorageKey),
+			zap.Int("entry_index", startOffset.EntryIndex), zap.Int64("offset", startOffset.Offset))
 	}
 
 	bufferedReader, err := stream.BufferedReader(ctx)
@@ -355,7 +356,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		return fmt.Errorf("get stream reader: %w", err)
 	}
 
-	parser, err := newParser(ctx, stream, bufferedReader)
+	producer, err := newRecordProducer(ctx, stream, bufferedReader, w.metrics)
 	if err != nil {
 		return fmt.Errorf("create parser: %w", err)
 	}
@@ -369,13 +370,19 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 	batchesConsumedCount := 0
 
 	// Parse logs into a sequence of log records
-	logs, err := parser.Parse(ctx, startOffset)
+	logs, err := producer.records(ctx, startOffset)
 	if err != nil {
 		return fmt.Errorf("parse logs: %w", err)
 	}
 
 	for log, err := range logs {
 		if err != nil {
+			// A DLQ-condition error (for example an archive-bomb limit) is fatal for
+			// the whole object: fail so the message is routed to the DLQ rather than
+			// silently skipped.
+			if isDLQConditionError(err) {
+				return err
+			}
 			// Skipping the individual record rather than nacking the whole message, since
 			// retrying a malformed record would produce the same error.  The remaining
 			// records in the object can still be ingested successfully.
@@ -389,7 +396,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		lr.SetObservedTimestamp(pcommon.NewTimestampFromTime(now))
 		lr.SetTimestamp(pcommon.NewTimestampFromTime(now))
 
-		err = parser.AppendLogBody(ctx, lr, log)
+		err = producer.appendLogBody(ctx, lr, log)
 		if err != nil {
 			// Same rationale as above: skip the record rather than failing the whole object.
 			recordLogger.Error("append log body", zap.Error(err))
@@ -411,8 +418,9 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 			recordLogger.Debug("Reached max logs for single batch, starting new batch", zap.Int("batches_consumed_count", batchesConsumedCount))
 
 			// Save the offset to storage
-			if err := w.offsetStorage.SaveStorageData(ctx, offsetStorageKey, NewOffset(parser.Offset())); err != nil {
-				recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int64("offset", parser.Offset()))
+			pos := producer.position()
+			if err := w.offsetStorage.SaveStorageData(ctx, offsetStorageKey, &pos); err != nil {
+				recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int("entry_index", pos.EntryIndex), zap.Int64("offset", pos.Offset))
 			}
 
 			ld = plog.NewLogs()
@@ -438,8 +446,9 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 	recordLogger.Debug("processed GCS object", zap.Int("batches_consumed_count", batchesConsumedCount+1))
 
 	// Save the offset to storage
-	if err := w.offsetStorage.SaveStorageData(ctx, offsetStorageKey, NewOffset(parser.Offset())); err != nil {
-		recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int64("offset", parser.Offset()))
+	pos := producer.position()
+	if err := w.offsetStorage.SaveStorageData(ctx, offsetStorageKey, &pos); err != nil {
+		recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int("entry_index", pos.EntryIndex), zap.Int64("offset", pos.Offset))
 	}
 
 	return nil
@@ -477,6 +486,16 @@ func dlqConditionKind(err error) dlqErrorKind {
 	// Recognized but unsupported content (image, PDF, unknown binary).
 	var unsupported ErrUnsupportedContent
 	if errors.As(err, &unsupported) {
+		return dlqErrorKindUnsupportedFile
+	}
+	// An archive that tripped a bomb-safety limit.
+	var archiveLimit ErrArchiveLimitExceeded
+	if errors.As(err, &archiveLimit) {
+		return dlqErrorKindUnsupportedFile
+	}
+	// An object detected as an archive whose structure could not be decoded.
+	var corruptArchive ErrCorruptArchive
+	if errors.As(err, &corruptArchive) {
 		return dlqErrorKindUnsupportedFile
 	}
 	return dlqErrorKindNone

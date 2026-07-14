@@ -23,19 +23,47 @@ import (
 // OffsetStorageKey is the key used to store offsets in the storage client made by this receiver type
 const OffsetStorageKey = "_gcs_pub_event_offset"
 
-// Offset is used to keep track of where in a GCS event stream the receiver has read
+// Offset is used to keep track of where in a GCS event stream the receiver has read.
+//
+// For non-archive objects EntryIndex is always 0 and Offset is the position within
+// the single stream (byte offset for JSON/line parsers, record count for Avro).
+//
+// For archive objects (tar, zip, 7z, rar) an object contains multiple entries, so
+// resumption needs two coordinates: EntryIndex identifies which entry within the
+// archive was in progress, and Offset is the position within that entry (reusing the
+// same per-parser semantics as the non-archive case). Entries before EntryIndex are
+// treated as already fully consumed and are skipped on resume; the entry at
+// EntryIndex resumes at Offset.
+//
+// EntryIndex uses `omitempty` so a non-archive offset marshals to the legacy
+// `{"offset":N}` shape. Legacy blobs written before EntryIndex existed unmarshal
+// with EntryIndex defaulting to 0, which is exactly the non-archive meaning, so
+// stored offsets from earlier receiver versions remain valid.
 type Offset struct {
-	// Offset is an int64 tracking which byte was last read
+	// EntryIndex is the zero-based index of the archive entry being read. It is 0
+	// for non-archive objects.
+	EntryIndex int `json:"entry_index,omitempty"`
+	// Offset is an int64 tracking the position within the current entry (or the
+	// whole object when non-archive).
 	Offset int64 `json:"offset"`
 }
 
 // Offset implements the StorageData interface
 var _ storageclient.StorageData = &Offset{}
 
-// NewOffset creates a new Offset with the given offset
+// NewOffset creates a new Offset for a non-archive object (EntryIndex 0).
 func NewOffset(o int64) *Offset {
 	return &Offset{
 		Offset: o,
+	}
+}
+
+// NewArchiveOffset creates a new Offset for an archive object, carrying both the
+// entry index and the position within that entry.
+func NewArchiveOffset(entryIndex int, o int64) *Offset {
+	return &Offset{
+		EntryIndex: entryIndex,
+		Offset:     o,
 	}
 }
 
