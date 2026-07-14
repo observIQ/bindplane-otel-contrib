@@ -15,14 +15,22 @@
 package worker
 
 import (
+	"bufio"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 
+	"github.com/gabriel-vasile/mimetype"
 	"go.uber.org/zap"
 )
+
+// detectionPeekBytes is the number of leading bytes inspected for content
+// detection. It matches mimetype's default read limit so detection sees the same
+// window the library would.
+const detectionPeekBytes = 3072
 
 // LogStream is a struct containing the information about a stream of logs.
 type LogStream struct {
@@ -35,32 +43,53 @@ type LogStream struct {
 	TryDecoding     bool
 }
 
-// BufferedReader returns a BufferedReader for the log stream. If the content is gzipped
-// (content-encoding: gzip or ends with .gz), it will be decompressed.
+// BufferedReader returns a BufferedReader for the log stream. Compression is
+// decided from the object's actual bytes, not from its name or Content-Encoding
+// label: customers set both incorrectly, and GCS decompressive transcoding can
+// strip compression while leaving the label in place. The label is only used to
+// surface a warning when it disagrees with the detected content.
 func (stream *LogStream) BufferedReader(_ context.Context) (BufferedReader, error) {
-	// Check if content is gzipped and decompress if needed
-	if stream.ContentEncoding != nil {
-		switch *stream.ContentEncoding {
-		case "gzip":
-			gzipReader, err := gzip.NewReader(stream.Body)
-			if err != nil {
-				return nil, fmt.Errorf("create gzip reader: %w", err)
-			}
-			return NewBufferedReader(gzipReader, stream.MaxLogSize), nil
+	// Wrap the body so the leading bytes can be inspected without consuming them.
+	// The same wrapper is handed downstream, so no bytes are lost.
+	br := bufio.NewReaderSize(stream.Body, detectionPeekBytes)
 
-		default:
-			stream.Logger.Warn("unsupported content encoding", zap.String("content_encoding", *stream.ContentEncoding))
-			return NewBufferedReader(stream.Body, stream.MaxLogSize), nil
-		}
+	reader, err := stream.decompress(br)
+	if err != nil {
+		return nil, err
+	}
+	return NewBufferedReader(reader, stream.MaxLogSize), nil
+}
+
+// decompress detects the compression of the peeked content and returns a reader
+// over the decompressed bytes. Unknown or uncompressed content is passed through
+// unchanged.
+func (stream *LogStream) decompress(br *bufio.Reader) (io.Reader, error) {
+	header, err := br.Peek(detectionPeekBytes)
+	// A short object yields io.EOF (fewer than detectionPeekBytes available); that
+	// is expected and the partial header is still valid for detection.
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("peek content: %w", err)
 	}
 
-	if strings.HasSuffix(stream.Name, ".gz") {
-		gzipReader, err := gzip.NewReader(stream.Body)
+	detected := mimetype.Detect(header)
+
+	labeledGzip := strings.HasSuffix(stream.Name, ".gz") ||
+		(stream.ContentEncoding != nil && *stream.ContentEncoding == "gzip")
+	contentGzip := detected.Is("application/gzip")
+	if labeledGzip != contentGzip {
+		stream.Logger.Warn("compression label disagrees with content",
+			zap.String("name", stream.Name),
+			zap.Bool("labeled_gzip", labeledGzip),
+			zap.String("detected_content_type", detected.String()))
+	}
+
+	if contentGzip {
+		gzipReader, err := gzip.NewReader(br)
 		if err != nil {
 			return nil, fmt.Errorf("create gzip reader: %w", err)
 		}
-		return NewBufferedReader(gzipReader, stream.MaxLogSize), nil
+		return gzipReader, nil
 	}
 
-	return NewBufferedReader(stream.Body, stream.MaxLogSize), nil
+	return br, nil
 }

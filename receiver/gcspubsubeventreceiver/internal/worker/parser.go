@@ -16,12 +16,24 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"iter"
-	"strings"
 
+	"github.com/gabriel-vasile/mimetype"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.uber.org/zap"
 )
+
+// ErrUnsupportedContent is returned when the decoded content is a recognized but
+// unsupported type (for example an image or a PDF). It carries the detected MIME
+// type and maps to the unsupported-file DLQ condition.
+type ErrUnsupportedContent struct {
+	MIMEType string
+}
+
+func (e ErrUnsupportedContent) Error() string {
+	return fmt.Sprintf("unsupported content type: %s", e.MIMEType)
+}
 
 // LogParser is an interface that can parse a log stream into a sequence of log records
 // and can also append a single log body to a LogRecord.
@@ -65,16 +77,39 @@ func newParser(ctx context.Context, stream LogStream, reader BufferedReader) (pa
 	if isJSON {
 		return NewJSONParser(reader), nil
 	}
-	return NewLineParser(reader), nil
+
+	// Terminal: the content is neither Avro nor JSON. Recognized text is parsed
+	// line by line; recognized non-text content (an image, a PDF, an unknown
+	// binary) is rejected so it lands in the DLQ instead of being emitted as
+	// garbled lines.
+	header, _ := reader.Peek(detectionPeekBytes)
+	if len(header) == 0 {
+		// Empty object: nothing to parse, but not an error.
+		return NewLineParser(reader), nil
+	}
+	detected := mimetype.Detect(header)
+	if isTextMIME(detected) {
+		return NewLineParser(reader), nil
+	}
+	return nil, ErrUnsupportedContent{MIMEType: detected.String()}
 }
 
-func isJSON(_ context.Context, stream LogStream, reader BufferedReader) (bool, error) {
-	// check if the file extension or content type is json
-	if !isJSONExtension(stream.Name) && !isJSONContentType(stream.ContentType) {
-		return false, nil
+// isTextMIME reports whether the detected type is textual by walking its parent
+// chain up to text/plain (mimetype models text formats as descendants of it).
+func isTextMIME(mt *mimetype.MIME) bool {
+	for m := mt; m != nil; m = m.Parent() {
+		if m.Is("text/plain") {
+			return true
+		}
 	}
+	return false
+}
 
-	// check if the stream starts with a json object or array
+// isJSON reports whether the stream content is JSON. Detection is content-only:
+// the object name and content type are not consulted, because customers routinely
+// store JSON under a wrong or missing extension and GCS reports a generic content
+// type such as application/octet-stream.
+func isJSON(_ context.Context, stream LogStream, reader BufferedReader) (bool, error) {
 	startsWithJSONObjectOrArray, err := StartsWithJSONObjectOrArray(reader)
 	if err != nil {
 		stream.Logger.Warn("failed to check if starts with json object or array", zap.Error(err))
@@ -84,13 +119,9 @@ func isJSON(_ context.Context, stream LogStream, reader BufferedReader) (bool, e
 	return startsWithJSONObjectOrArray, nil
 }
 
+// isAvroOcf reports whether the stream content is Avro OCF, based solely on the
+// object's leading magic bytes.
 func isAvroOcf(_ context.Context, stream LogStream, reader BufferedReader) (bool, error) {
-	// check if the file extension or content type is avro
-	if !isAvroExtension(stream.Name) && !isAvroContentType(stream.ContentType) {
-		return false, nil
-	}
-
-	// check if the stream starts with the avro ocf magic string
 	startsWithAvroOcfMagic, err := StartsWithAvroOcfMagic(reader)
 	if err != nil {
 		stream.Logger.Warn("failed to check if starts with avro ocf magic", zap.Error(err))
@@ -98,20 +129,4 @@ func isAvroOcf(_ context.Context, stream LogStream, reader BufferedReader) (bool
 	}
 
 	return startsWithAvroOcfMagic, nil
-}
-
-func isJSONExtension(name string) bool {
-	return strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".json.gz")
-}
-
-func isJSONContentType(contentType *string) bool {
-	return contentType != nil && strings.HasPrefix(*contentType, "application/json")
-}
-
-func isAvroExtension(name string) bool {
-	return strings.HasSuffix(name, ".avro") || strings.HasSuffix(name, ".avro.gz")
-}
-
-func isAvroContentType(contentType *string) bool {
-	return contentType != nil && strings.HasPrefix(*contentType, "application/avro")
 }

@@ -37,15 +37,19 @@ Certain error conditions cause the receiver to nack a message rather than ack it
 
 ## File Format Support
 
-The receiver automatically detects the file format based on the file extension and content type:
+The receiver detects the file format from the object's content, not from its name or content type. A correctly formatted object is parsed even when its extension or `Content-Type` is wrong, missing, or generic (GCS commonly reports `application/octet-stream`).
 
 | Format | Detection |
 |---|---|
-| Avro OCF | `.avro`, `.avro.gz` extension or `application/avro` content type |
-| JSON | `.json`, `.json.gz` extension or `application/json` content type |
-| Plain text | All other files; parsed line by line |
+| Avro OCF | Leading `Obj\x01` magic bytes |
+| JSON | Leading `{` followed by `"`/`}`, or `[` followed by `{`/`]` (object, or array of objects) |
+| Plain text | Everything else; parsed line by line |
 
-Gzip-compressed files are transparently decompressed before parsing.
+Gzip compression is likewise detected from content (the `1f 8b` magic), not from the `.gz` extension or a `Content-Encoding: gzip` label. Compressed objects are transparently decompressed before parsing. When the label disagrees with the detected content, a warning is logged and the content wins. This fixes objects that carry a `.gz` name but hold uncompressed bytes, which previously failed to parse and were redelivered indefinitely.
+
+### Unsupported content
+
+Content that is not text, Avro, or JSON (for example an image or a PDF) is not parsed as text. It is rejected with its detected MIME type and the message is nacked for DLQ processing, rather than being emitted as garbled lines.
 
 ## Configuration
 

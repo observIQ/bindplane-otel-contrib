@@ -16,7 +16,9 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"slices"
 
@@ -53,9 +55,14 @@ func NewAvroOcfParser(reader BufferedReader, logger *zap.Logger) LogParser {
 }
 
 // StartsWithAvroOcfMagic checks if the reader starts with the Avro OCF magic string.
+// A stream shorter than the magic (io.EOF from Peek) simply is not Avro, so that
+// case returns (false, nil) rather than an error.
 func StartsWithAvroOcfMagic(reader BufferedReader) (bool, error) {
 	bytes, err := reader.Peek(len(avroOcfMagicBytes))
 	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return false, nil
+		}
 		return false, err
 	}
 	return slices.Equal(bytes, avroOcfMagicBytes), nil

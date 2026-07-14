@@ -5,6 +5,7 @@ go 1.26.4
 require (
 	cloud.google.com/go/pubsub v1.51.0
 	cloud.google.com/go/storage v1.63.0
+	github.com/gabriel-vasile/mimetype v1.4.13
 	github.com/google/go-cmp v0.7.0
 	github.com/linkedin/goavro/v2 v2.15.0
 	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.10.0

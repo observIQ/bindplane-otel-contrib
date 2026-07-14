@@ -474,6 +474,11 @@ func dlqConditionKind(err error) dlqErrorKind {
 	if errors.Is(err, ErrNotArrayOrKnownObject) {
 		return dlqErrorKindUnsupportedFile
 	}
+	// Recognized but unsupported content (image, PDF, unknown binary).
+	var unsupported ErrUnsupportedContent
+	if errors.As(err, &unsupported) {
+		return dlqErrorKindUnsupportedFile
+	}
 	return dlqErrorKindNone
 }
 
