@@ -196,6 +196,6 @@ The number of MS Teams team-messages sent by users in the organization in the la
 
 ## Resource Attributes
 
-| Name | Description | Values | Enabled | Semantic Convention |
-| ---- | ----------- | ------ | ------- | ------------------- |
-| m365.tenant.id | The Office 365 tenant. | Any Str | true | - |
+| Name | Description | Values | Enabled | Semantic Convention | Stability |
+| ---- | ----------- | ------ | ------- | ------------------- | --------- |
+| m365.tenant.id | The Office 365 tenant. | Any Str | true | - | - |
