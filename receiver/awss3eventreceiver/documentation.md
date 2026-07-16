@@ -4,10 +4,10 @@
 
 ## Resource Attributes
 
-| Name | Description | Values | Enabled | Semantic Convention |
-| ---- | ----------- | ------ | ------- | ------------------- |
-| aws.s3.bucket | The name of the S3 bucket containing the processed object | Any Str | true | - |
-| aws.s3.key | The key of the S3 object that was processed | Any Str | true | - |
+| Name | Description | Values | Enabled | Semantic Convention | Stability |
+| ---- | ----------- | ------ | ------- | ------------------- | --------- |
+| aws.s3.bucket | The name of the S3 bucket containing the processed object | Any Str | true | - | - |
+| aws.s3.key | The key of the S3 object that was processed | Any Str | true | - | - |
 
 ## Internal Telemetry
 

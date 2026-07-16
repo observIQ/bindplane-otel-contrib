@@ -4,10 +4,10 @@
 
 ## Resource Attributes
 
-| Name | Description | Values | Enabled | Semantic Convention |
-| ---- | ----------- | ------ | ------- | ------------------- |
-| gcs.bucket | The name of the GCS bucket containing the processed object | Any Str | true | - |
-| gcs.object | The name of the GCS object that was processed | Any Str | true | - |
+| Name | Description | Values | Enabled | Semantic Convention | Stability |
+| ---- | ----------- | ------ | ------- | ------------------- | --------- |
+| gcs.bucket | The name of the GCS bucket containing the processed object | Any Str | true | - | - |
+| gcs.object | The name of the GCS object that was processed | Any Str | true | - | - |
 
 ## Internal Telemetry
 

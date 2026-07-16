@@ -453,8 +453,8 @@ Collected from SAPControl Web Service Interface > GetAlertTree > R3Services > Ba
 
 ## Resource Attributes
 
-| Name | Description | Values | Enabled | Semantic Convention |
-| ---- | ----------- | ------ | ------- | ------------------- |
-| sapnetweaver.SID | The SAP Netweaver SID. | Any Str | true | - |
-| sapnetweaver.instance | The SAP Netweaver instance. | Any Str | true | - |
-| sapnetweaver.node | The SAP Netweaver node. | Any Str | true | - |
+| Name | Description | Values | Enabled | Semantic Convention | Stability |
+| ---- | ----------- | ------ | ------- | ------------------- | --------- |
+| sapnetweaver.SID | The SAP Netweaver SID. | Any Str | true | - | - |
+| sapnetweaver.instance | The SAP Netweaver instance. | Any Str | true | - | - |
+| sapnetweaver.node | The SAP Netweaver node. | Any Str | true | - | - |

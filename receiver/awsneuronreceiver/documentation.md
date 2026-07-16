@@ -286,12 +286,12 @@ System memory reported by neuron-monitor (duplicates the hostmetrics receiver).
 
 ## Resource Attributes
 
-| Name | Description | Values | Enabled | Semantic Convention |
-| ---- | ----------- | ------ | ------- | ------------------- |
-| aws.neuron.device.type | Neuron device type (e.g. inferentia2, trainium1). | Any Str | true | - |
-| aws.neuron.neuroncore.version | NeuronCore architecture version (e.g. v2). | Any Str | true | - |
-| cloud.availability_zone | AWS availability zone of the instance. | Any Str | true | - |
-| cloud.provider | Cloud provider ("aws"). | Any Str | true | - |
-| cloud.region | AWS region of the instance. | Any Str | true | - |
-| host.id | EC2 instance ID. | Any Str | true | - |
-| host.type | EC2 instance type. | Any Str | true | - |
+| Name | Description | Values | Enabled | Semantic Convention | Stability |
+| ---- | ----------- | ------ | ------- | ------------------- | --------- |
+| aws.neuron.device.type | Neuron device type (e.g. inferentia2, trainium1). | Any Str | true | - | - |
+| aws.neuron.neuroncore.version | NeuronCore architecture version (e.g. v2). | Any Str | true | - | - |
+| cloud.availability_zone | AWS availability zone of the instance. | Any Str | true | - | - |
+| cloud.provider | Cloud provider ("aws"). | Any Str | true | - | - |
+| cloud.region | AWS region of the instance. | Any Str | true | - | - |
+| host.id | EC2 instance ID. | Any Str | true | - | - |
+| host.type | EC2 instance type. | Any Str | true | - | - |
