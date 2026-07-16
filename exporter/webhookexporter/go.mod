@@ -3,9 +3,9 @@ module github.com/observiq/bindplane-otel-contrib/exporter/webhookexporter
 go 1.26.4
 
 require (
-	github.com/observiq/bindplane-otel-contrib/internal/exporterutils v1.9.0
-	github.com/observiq/bindplane-otel-contrib/internal/testutils v1.9.0
-	github.com/observiq/bindplane-otel-contrib/pkg/version v1.9.0
+	github.com/observiq/bindplane-otel-contrib/internal/exporterutils v1.10.0
+	github.com/observiq/bindplane-otel-contrib/internal/testutils v1.10.0
+	github.com/observiq/bindplane-otel-contrib/pkg/version v1.10.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.62.0
 	go.opentelemetry.io/collector/component/componenttest v0.156.0

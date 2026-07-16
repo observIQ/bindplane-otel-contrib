@@ -5,12 +5,12 @@ go 1.26.4
 require (
 	github.com/aws/aws-sdk-go-v2 v1.42.1
 	github.com/aws/aws-sdk-go-v2/config v1.32.30
-	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.32
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.105.1
-	github.com/aws/aws-sdk-go-v2/service/sqs v1.45.0
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.34
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.105.2
+	github.com/aws/aws-sdk-go-v2/service/sqs v1.45.1
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
-	github.com/observiq/bindplane-otel-contrib/internal/aws v1.9.0
+	github.com/observiq/bindplane-otel-contrib/internal/aws v1.10.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.62.0
 	go.opentelemetry.io/collector/component/componenttest v0.156.0
