@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -57,6 +58,32 @@ const (
 	defaultHTTPClientTLSHandshakeTimeout   = 10 * time.Second
 	defaultHTTPClientExpectContinueTimeout = 1 * time.Second
 )
+
+// newHTTPTransport builds the HTTP transport used by the HTTPS exporter, applying the
+// connection-tuning options from the config. The default (http_version "2") negotiates HTTP/2,
+// which multiplexes every request over a single connection. Setting http_version to "1.1" opens a
+// pool of HTTP/1.1 connections instead, giving real upload parallelism across consumers — the way
+// to avoid the single-connection throughput bottleneck for high-volume workloads.
+func newHTTPTransport(cfg *Config) *http.Transport {
+	useHTTP2 := cfg.useHTTP2()
+	transport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		ForceAttemptHTTP2:     useHTTP2,
+		MaxConnsPerHost:       cfg.MaxConnsPerHost,
+		MaxIdleConns:          cfg.MaxIdleConns,
+		MaxIdleConnsPerHost:   cfg.MaxIdleConnsPerHost,
+		IdleConnTimeout:       defaultHTTPClientIdleConnTimeout,
+		TLSHandshakeTimeout:   defaultHTTPClientTLSHandshakeTimeout,
+		ExpectContinueTimeout: defaultHTTPClientExpectContinueTimeout,
+		ResponseHeaderTimeout: cfg.HTTPResponseHeaderTimeout,
+	}
+	if !useHTTP2 {
+		// Per the net/http.Transport docs, HTTP/2 is disabled by setting TLSNextProto to a
+		// non-nil, empty map so the client does not negotiate "h2" via ALPN.
+		transport.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
+	}
+	return transport
+}
 
 type exists struct{}
 
@@ -113,16 +140,7 @@ func (exp *httpExporter) Start(ctx context.Context, _ component.Host) error {
 		return fmt.Errorf("load Google credentials: %w", err)
 	}
 
-	exp.transport = &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          defaultHTTPClientMaxIdleConns,
-		MaxIdleConnsPerHost:   defaultHTTPClientMaxIdleConnsPerHost,
-		IdleConnTimeout:       defaultHTTPClientIdleConnTimeout,
-		TLSHandshakeTimeout:   defaultHTTPClientTLSHandshakeTimeout,
-		ExpectContinueTimeout: defaultHTTPClientExpectContinueTimeout,
-		ResponseHeaderTimeout: exp.cfg.HTTPResponseHeaderTimeout,
-	}
+	exp.transport = newHTTPTransport(exp.cfg)
 
 	exp.client = &http.Client{
 		Transport: &oauth2.Transport{
