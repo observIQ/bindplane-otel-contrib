@@ -36,7 +36,7 @@ OUTDIR ?= build
 EXT = $(if $(filter windows,$(GOOS)),.exe,)
 
 #OCB binary info
-OCB_VERSION ?= v0.155.0
+OCB_VERSION ?= v0.156.0
 OCB ?= $(shell command -v $${OCB:-builder} 2>/dev/null || echo $${GOBIN:-$$HOME/go/bin}/builder)
 
 # ocb manifest copy that points every contrib module at the local working tree.
