@@ -7,9 +7,12 @@ require (
 	cloud.google.com/go/storage v1.63.0
 	github.com/gabriel-vasile/mimetype v1.4.13
 	github.com/google/go-cmp v0.7.0
+	github.com/klauspost/compress v1.19.1
 	github.com/linkedin/goavro/v2 v2.15.0
 	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.10.0
+	github.com/pierrec/lz4/v4 v4.1.27
 	github.com/stretchr/testify v1.11.1
+	github.com/ulikunitz/xz v0.5.15
 	go.opentelemetry.io/collector/component v1.62.0
 	go.opentelemetry.io/collector/component/componenttest v0.156.0
 	go.opentelemetry.io/collector/confmap v1.62.0
