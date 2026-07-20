@@ -53,31 +53,63 @@ func NewJSONParser(reader BufferedReader) LogParser {
 	}
 }
 
-// StartsWithJSONObjectOrArray returns true if the reader starts with a JSON object or
-// array, allowing some space before the starting delimiter. It uses Peek and will not
-// move the reader.
+// jsonPeekBytes is the number of leading bytes inspected to classify the stream
+// as JSON. It only needs to reach the second meaningful byte past any leading
+// whitespace, so a small window is sufficient.
+const jsonPeekBytes = 512
+
+// StartsWithJSONObjectOrArray reports whether the reader begins with one of the
+// JSON shapes this parser supports: an object (`{...}` or `{}`) or an array of
+// objects (`[{...}]` or `[]`). It uses Peek and does not advance the reader.
+//
+// A leading `{` or `[` alone is too weak: a common log line such as
+// `[2024-01-01T00:00:00Z] INFO ...` starts with `[` but is not JSON. So the check
+// is structural. After leading whitespace, the first meaningful byte must be `{`
+// or `[`, and the next meaningful byte must confirm the shape:
+//
+//   - `{` must be followed by `"` (a key) or `}` (empty object);
+//   - `[` must be followed by `{` (array of objects) or `]` (empty array).
+//
+// This accepts array-of-objects, `{"Records":[...]}`, `{}` and `[]`, and rejects
+// `[2024-...]`, `[1,2,3]`, and `["a","b"]`, all of which route to line parsing.
 func StartsWithJSONObjectOrArray(reader BufferedReader) (bool, error) {
-	// allow some leading whitespace
-	bytes, err := reader.Peek(128)
+	buf, err := reader.Peek(jsonPeekBytes)
 	if err != nil {
-		// if we have less than 128 bytes and we get an EOF, we will just look at the bytes
-		// returned below
+		// Fewer than jsonPeekBytes available is fine; classify from what we have.
 		if !errors.Is(err, io.EOF) {
 			return false, fmt.Errorf("peek: %w", err)
 		}
 	}
-	for _, b := range bytes {
-		switch b {
-		case '{', '[':
-			return true, nil
+
+	open, rest, ok := firstMeaningfulByte(buf)
+	if !ok {
+		return false, nil
+	}
+
+	switch open {
+	case '{':
+		next, _, ok := firstMeaningfulByte(rest)
+		return ok && (next == '"' || next == '}'), nil
+	case '[':
+		next, _, ok := firstMeaningfulByte(rest)
+		return ok && (next == '{' || next == ']'), nil
+	default:
+		return false, nil
+	}
+}
+
+// firstMeaningfulByte returns the first non-whitespace byte in buf, the bytes
+// following it, and whether one was found.
+func firstMeaningfulByte(buf []byte) (b byte, rest []byte, ok bool) {
+	for i := 0; i < len(buf); i++ {
+		switch buf[i] {
 		case ' ', '\t', '\n', '\r':
-			// allow some leading whitespace
 			continue
 		default:
-			return false, nil
+			return buf[i], buf[i+1:], true
 		}
 	}
-	return false, nil
+	return 0, nil, false
 }
 
 // Parse parses the JSON stream into a sequence of log records. The JSON stream is
