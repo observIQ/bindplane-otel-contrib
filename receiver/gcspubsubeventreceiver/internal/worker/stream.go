@@ -27,6 +27,7 @@ import (
 
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/klauspost/compress/zstd"
+	"github.com/sorairolake/lzip-go"
 	"github.com/ulikunitz/xz"
 	"go.uber.org/zap"
 )
@@ -111,6 +112,15 @@ func (stream *LogStream) decompress(br *bufio.Reader) (io.Reader, error) {
 			return nil, fmt.Errorf("create zlib reader: %w", err)
 		}
 		return zlibReader, nil
+	case detected.Is("application/lzip"):
+		// lzip carries a recognizable container magic (LZIP), so mimetype detects
+		// it, but decoding needs a dedicated container decoder (ulikunitz/xz does
+		// not read the lzip container).
+		lzipReader, err := lzip.NewReader(br)
+		if err != nil {
+			return nil, fmt.Errorf("create lzip reader: %w", err)
+		}
+		return lzipReader, nil
 	case detected.Is("application/octet-stream"):
 		reader, matched, err := stream.octetStreamDecoder(br, header)
 		if err != nil {
