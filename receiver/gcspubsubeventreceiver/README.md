@@ -64,6 +64,23 @@ Compression is detected from content, not from the `.gz` extension or a `Content
 
 The headerless formats (raw DEFLATE, lzma) are attempted only when a label names them, and the decode is best-effort.
 
+### Archives
+
+Archive objects are detected from content and expanded transparently: each entry is parsed independently (as Avro, JSON, or text) and its records are emitted as if the entries were concatenated. Entries may be heterogeneous (a tar can hold JSON, Avro, and plain-text members together).
+
+| Archive | Detection |
+|---|---|
+| tar | Content magic (`ustar`) |
+
+Because compression is detected and stripped before archive detection runs, compressed tarballs work with no extra configuration: a `.tar.gz`, `.tar.zst`, `.tar.xz`, or `.tar.bz2` object is decompressed, re-detected as a tar, and expanded. This is content-driven and does not depend on the object's name.
+
+Archive handling notes:
+
+- **Directory entries** are skipped.
+- **Unsupported entries** (an image, a PDF, an unknown binary inside the archive) are skipped individually with a logged warning; the rest of the archive is still parsed.
+- **Archive-bomb protection**: total uncompressed bytes, per-entry uncompressed bytes, and entry count are capped. Declared entry sizes are never trusted; the limits are enforced against the bytes that actually flow. An archive that exceeds a limit is aborted and nacked for DLQ processing rather than expanded unboundedly.
+- **Resumption**: offsets for archive objects track both the entry index and the position within that entry, so an interrupted read resumes at the exact entry and position it left off. Non-archive objects continue to use a single byte offset, and offsets stored by earlier receiver versions remain valid.
+
 ### Unsupported content
 
 Content that is not text, Avro, or JSON (for example an image or a PDF) is not parsed as text. It is rejected with its detected MIME type and the message is nacked for DLQ processing, rather than being emitted as garbled lines.
