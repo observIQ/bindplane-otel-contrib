@@ -1,0 +1,110 @@
+name: Go Vulnerability Scan
+on:
+  schedule:
+    - cron: '30 8 * * 1' # Weekly on Mondays at 8:30 AM UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vulncheck:
+    name: Go Vulnerability Scan
+    runs-on: ubuntu-latest-16-cores
+    timeout-minutes: 60
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: "internal/tools/go.mod"
+          cache-dependency-path: |
+            **/go.sum
+
+      - name: Get official govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+        shell: bash
+
+      - name: Configure memory limits
+        run: |
+          # Increase available memory for Go
+          echo "GOMEMLIMIT=6GiB" >> $GITHUB_ENV
+          echo "GOGC=50" >> $GITHUB_ENV
+        shell: bash
+
+      # There is no root Go module (this repo is a library of contrib
+      # components, each its own module), so scan each module in the repo.
+      # A scan error fails the job rather than silently reporting a clean
+      # result.
+      - name: Run govulncheck across all modules
+        timeout-minutes: 50
+        run: |
+          : > govulncheck-results.json
+          failed=0
+          for dir in $(find . -type f -name go.mod -exec dirname {} \; | sort); do
+            echo "Scanning module: ${dir}"
+            if ! (cd "${dir}" && govulncheck -format json ./...) >> govulncheck-results.json; then
+              echo "::error::govulncheck failed for ${dir}"
+              failed=1
+            fi
+          done
+          exit "${failed}"
+        shell: bash
+
+      - name: Parse govulncheck results
+        run: |
+          echo "recommendations=$(jq -s '[.[] | select(.finding != null) | .finding] | unique_by(.osv) | map("\(.osv)\n\(.trace[0].module)@\(.trace[0].version) => \(.fixed_version)") | join("\n")' govulncheck-results.json | tr -d '\"')" >> $GITHUB_OUTPUT
+        shell: bash
+        id: recommendations
+
+      - name: Post no recommendations message
+        id: slack-no-recommendations
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2
+        if: steps.recommendations.outputs.recommendations == ''
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.ORG_GOVULNCHECK_SLACK_BOT_TOKEN }}
+          payload: |
+            channel: C08DCHLNKDX  # bp-vulnerability-checks
+            text: "🔍 Govulncheck: ${{ github.repository }}"
+            attachments:
+              - color: "#00ff38"
+                blocks:
+                  - type: section
+                    text:
+                      type: mrkdwn
+                      text: "✅ No vulnerabilities found"
+
+      - name: Post findings to Slack
+        id: slack
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2
+        if: steps.recommendations.outputs.recommendations != ''
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.ORG_GOVULNCHECK_SLACK_BOT_TOKEN }}
+          payload: |
+            channel: C08DCHLNKDX  # bp-vulnerability-checks
+            text: "🔍 Govulncheck: ${{ github.repository }}"
+            attachments:
+              - color: "#ff0000"
+                blocks:
+                  - type: section
+                    text:
+                      type: mrkdwn
+                      text: "Scan found vulnerabilities for repository: ${{ github.repository }}"
+                  - type: divider
+                  - type: section
+                    text:
+                      type: mrkdwn
+                      text: "Recommendations found:\n${{ steps.recommendations.outputs.recommendations }}"
+                  - type: divider
+                  - type: section
+                    text:
+                      type: mrkdwn
+                      text: "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Result>"
+
+      - name: Exit
+        if: steps.recommendations.outputs.recommendations != ''
+        run: |
+          exit 1
