@@ -32,6 +32,19 @@ This receiver is capable of collecting audit logs from a Bindplane instance.
 | poll_interval    | string | 10s     | `false`  | The rate at which this receiver will poll Bindplane for logs. This value must be in the range [10 seconds - 24 hours] and must be a string readable by Golang's [time.ParseDuration](https://pkg.go.dev/time#ParseDuration). |
 | parse_attributes | bool   | true    | `false`  | When true, parses audit log fields into log record attributes and sets the body to the description. When false, sets the body to the raw JSON event without attributes.                                                     |
 
+This receiver also supports the standard [HTTP client configuration options](https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/confighttp/README.md) (e.g. `tls`, `timeout`, `proxy_url`, `headers`).
+
+### Attributes
+
+The receiver sets the following resource attributes on emitted logs:
+
+| Attribute       | Description                                                                  |
+| --------------- | ---------------------------------------------------------------------------- |
+| `bindplane_url` | The configured `endpoint`.                                                   |
+| `account`       | The Bindplane account of the audit events. Only set when `parse_attributes` is true. |
+
+When `parse_attributes` is true, each log record's body is set to the event description and the following log record attributes are set: `id`, `timestamp`, `resource_name`, `resource_kind`, `configuration` (when present), `action`, and `user`.
+
 ### Example Configuration
 
 ```yaml
@@ -40,6 +53,28 @@ receivers:
     api_key: 1234567890
     endpoint: https://app.bindplane.com
     poll_interval: 10s
+exporters:
+  googlecloud:
+    project: my-gcp-project
+
+service:
+  pipelines:
+    logs:
+      receivers: [bindplaneauditlogs]
+      exporters: [googlecloud]
+```
+
+### Example Configuration With Raw JSON Bodies and TLS
+
+```yaml
+receivers:
+  bindplaneauditlogs:
+    api_key: 1234567890
+    endpoint: https://bindplane.example.com
+    poll_interval: 1m
+    parse_attributes: false
+    tls:
+      ca_file: /certs/ca.crt
 exporters:
   googlecloud:
     project: my-gcp-project
