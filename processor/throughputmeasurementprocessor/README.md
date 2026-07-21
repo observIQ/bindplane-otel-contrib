@@ -37,7 +37,7 @@ The example configuration below shows ingesting logs and sampling the size of 50
 ```yaml
 receivers:
   file_log:
-    inclucde: ["/var/log/*.log"]
+    include: ["/var/log/*.log"]
 
 processors:
   throughputmeasurement:
