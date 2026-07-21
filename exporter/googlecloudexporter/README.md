@@ -19,6 +19,50 @@ This exporter can be used to send metrics, traces, and logs to Google Cloud Moni
 | `batch`            |                  | `false`  | The config of the exporter's [batch processor](https://github.com/open-telemetry/opentelemetry-collector/blob/v0.156.0/processor/batchprocessor).                                                            |
 | `append_host`      |                  | `true`   | Append the agent's hostname to incoming telemetry if not already present.                                                                                                                                    |
 
+## Example Configurations
+
+### Default Credentials
+
+If running in an environment with [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials) (such as GCE, GKE, or with `GOOGLE_APPLICATION_CREDENTIALS` set), no authentication fields are required:
+
+```yaml
+exporters:
+  googlecloud:
+
+service:
+  pipelines:
+    logs:
+      receivers: [filelog]
+      exporters: [googlecloud]
+    metrics:
+      receivers: [hostmetrics]
+      exporters: [googlecloud]
+    traces:
+      receivers: [otlp]
+      exporters: [googlecloud]
+```
+
+### Credentials File with Project Override
+
+```yaml
+exporters:
+  googlecloud:
+    credentials_file: /opt/observiq/credentials.json
+    project: my-gcp-project
+```
+
+### Custom Batching
+
+```yaml
+exporters:
+  googlecloud:
+    credentials_file: /opt/observiq/credentials.json
+    batch:
+      send_batch_size: 500
+      send_batch_max_size: 500
+      timeout: 5s
+```
+
 ## Metric Processing Steps
 
 When metric data is received by the Google Cloud Exporter, it is processed in the following steps:
