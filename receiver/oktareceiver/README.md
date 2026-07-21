@@ -29,5 +29,33 @@ receivers:
   okta:
     okta_domain: example.okta.com
     api_token: myAPIToken
+```
+
+### Example Configuration With Custom Poll Interval
+```yaml
+receivers:
+  okta:
+    okta_domain: example.okta.com
+    api_token: myAPIToken
     poll_interval: 2m
 ```
+
+## Resource Attributes
+The receiver sets the following resource attribute on all emitted logs:
+
+| Attribute   | Type   | Description                                          |
+|-------------|--------|------------------------------------------------------|
+| okta.domain | string | The Okta domain the logs were collected from.        |
+
+## Log Record Attributes
+Each log record's body contains the full Okta event as JSON. The following event fields are also promoted to log record attributes:
+
+| Attribute         | Description                                    |
+|-------------------|------------------------------------------------|
+| uuid              | The unique identifier of the event.            |
+| eventType         | The type of the event.                         |
+| displayMessage    | The display message of the event.              |
+| outcome.result    | The result of the event (if present).          |
+| actor.id          | The ID of the actor (if present).              |
+| actor.alternateId | The alternate ID of the actor (if present).    |
+| actor.displayName | The display name of the actor (if present).    |
