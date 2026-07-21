@@ -23,9 +23,19 @@ The Chronicle Forwarder Exporter is designed for forwarding logs to a Chronicle 
 | raw_log_field        | string |                   | `false`  | The field name to send raw logs to Chronicle.     |
 | syslog.endpoint      | string | `127.0.0.1:10514` | `false`  | The Chronicle forwarder endpoint.                 |
 | syslog.transport     | string | `tcp`             | `false`  | The network protocol to use (e.g., `tcp`, `udp`). |
-| syslog.tls.key_file  | string |                   | `false`  | Configure the receiver to use TLS.                |
-| syslog.tls.cert_file | string |                   | `false`  | Configure the receiver to use TLS.                |
+| syslog.tls.key_file  | string |                   | `false`  | Configure the exporter to use TLS.                |
+| syslog.tls.cert_file | string |                   | `false`  | Configure the exporter to use TLS.                |
 | file.path            | string |                   | `false`  | The path to the file for storing logs.            |
+
+The `syslog.tls` field supports the full set of client TLS options, documented [here](https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configtls/README.md#client-configuration).
+
+This exporter also supports the standard exporter helper options:
+
+| Field            | Default   | Description                                                                                                                                                                          |
+| ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| timeout          | `5s`      | Time to wait per individual attempt to send data. Documented [here](https://github.com/open-telemetry/opentelemetry-collector/blob/main/exporter/exporterhelper/README.md).           |
+| sending_queue    | enabled   | Queueing and batching settings for the exporter. Documented [here](https://github.com/open-telemetry/opentelemetry-collector/blob/main/exporter/exporterhelper/README.md).            |
+| retry_on_failure | enabled   | Retry settings for failed sends. Documented [here](https://github.com/open-telemetry/opentelemetry-collector/blob/main/exporter/exporterhelper/README.md).                            |
 
 ## Raw Log Field
 
@@ -41,7 +51,29 @@ chronicleforwarder:
   raw_log_field: body
   syslog:
     endpoint: "syslog.example.com:10514"
-    network: "tcp"
+    transport: "tcp"
+```
+
+### Advanced Options Example
+
+```yaml
+chronicleforwarder:
+  export_type: "syslog"
+  raw_log_field: body
+  syslog:
+    endpoint: "syslog.example.com:10514"
+    transport: "tcp"
+    tls:
+      cert_file: "/path/to/cert.pem"
+      key_file: "/path/to/key.pem"
+  timeout: 10s
+  sending_queue:
+    enabled: true
+    queue_size: 5000
+  retry_on_failure:
+    enabled: true
+    initial_interval: 5s
+    max_interval: 30s
 ```
 
 ### File Configuration Example
