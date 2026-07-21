@@ -4,7 +4,7 @@ The REST API receiver is a generic receiver that can pull data from any REST API
 
 ## Supported Pipelines
 
-Alpha:
+Beta:
 
 - Logs
 - Metrics
