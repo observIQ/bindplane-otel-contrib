@@ -28,7 +28,7 @@ This processor utilizes request headers to provide extended topology functionali
 
 ```yaml
 receivers:
-  filelog:
+  file_log:
     include: ["/var/log/*.log"]
 
 extensions:
@@ -50,7 +50,7 @@ service:
   pipelines:
     logs:
       receivers:
-        - filelog
+        - file_log
       processors:
         - topology
       exporters:

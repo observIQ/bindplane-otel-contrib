@@ -32,7 +32,7 @@ exporters:
 service:
   pipelines:
     logs:
-      receivers: [filelog]
+      receivers: [file_log]
       exporters: [googlecloud]
     metrics:
       receivers: [hostmetrics]
