@@ -1,9 +1,12 @@
 type: s3event
 
 status:
+  distributions: [Bindplane]
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]
   class: receiver
   stability:
-    alpha: [logs]
+    beta: [logs]
 
 tests:
   config:

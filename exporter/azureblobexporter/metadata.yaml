@@ -1,10 +1,12 @@
 type: azureblob
 
 status:
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]
   class: exporter
   stability:
-    alpha: [traces, metrics, logs]
-  distributions: [observiq]
+    beta: [traces, metrics, logs]
+  distributions: [Bindplane]
 
 tests:
   config:

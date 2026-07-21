@@ -341,6 +341,18 @@ jobs:
       - name: Check Module Paths
         run: make check-mod-paths
 
+  check-metadata:
+    if: needs.optimize_ci.outputs.skip != 'true' && github.actor != 'dependabot[bot]' && needs.detect-changes.outputs.gomod == 'true'
+    runs-on: ubuntu-latest-8-cores
+    needs:
+      - optimize_ci
+      - detect-changes
+    steps:
+      - name: Checkout Sources
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Check Component Metadata
+        run: make check-metadata
+
   check-dependabot:
     if: needs.optimize_ci.outputs.skip != 'true' && github.actor != 'dependabot[bot]' && (needs.detect-changes.outputs.dependabot == 'true' || needs.detect-changes.outputs.gomod == 'true')
     runs-on: ubuntu-latest-8-cores

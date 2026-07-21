@@ -1,9 +1,12 @@
 ---
 type: badger
 status:
+  distributions: [Bindplane]
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]
   class: extension
   stability:
-    alpha: [extension]
+    beta: [extension]
 attributes:
   operation_type:
     description: The type of operation performed

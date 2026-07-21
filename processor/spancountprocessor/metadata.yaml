@@ -1,0 +1,9 @@
+type: spancount
+
+status:
+  class: processor
+  stability:
+    beta: [traces]
+  distributions: [Bindplane]
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]

@@ -1,9 +1,12 @@
 type: pebble
 
 status:
+  distributions: [Bindplane]
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]
   class: extension
   stability:
-    alpha: [extension]
+    beta: [extension]
 
 tests:
   config:

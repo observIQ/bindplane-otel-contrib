@@ -1,9 +1,12 @@
 type: awss3rehydration
 
 status:
+  distributions: [Bindplane]
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]
   class: receiver
   stability:
-    alpha: [metrics, logs, traces]
+    beta: [metrics, logs, traces]
 
 tests:
   config:
