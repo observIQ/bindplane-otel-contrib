@@ -25,7 +25,7 @@ The exporter supports two protocols, each of which targets a different Chronicle
 | `https`    | [Chronicle API](https://docs.cloud.google.com/chronicle/docs/reference/ingestion-methods)                             | Yes         |
 | `gRPC`     | [Backstory (Malachite) Ingestion API](https://docs.cloud.google.com/chronicle/docs/reference/ingestion-api)           |             |
 
-**`https` is the recommended protocol.** It targets the newer Chronicle API, supports the `v1alpha` and `v1beta` API versions, and uses improved security practices. The `gRPC` protocol targets the legacy Backstory Ingestion API and is retained for backwards compatibility with existing deployments.
+**`https` is the recommended protocol.** It targets the newer Chronicle API, supports the `v1alpha`, `v1beta`, and `v1` API versions, and uses improved security practices. The `gRPC` protocol targets the legacy Backstory Ingestion API and is retained for backwards compatibility with existing deployments.
 
 ## Configuration
 
@@ -38,7 +38,7 @@ The exporter can be configured using the following fields:
 | `location`                      | string            |                                        | `false`  | The Chronicle region (e.g. `us`, `europe`). Required when `protocol` is `https`.                                                                                                         |
 | `project`                       | string            |                                        | `false`  | The Google Cloud project ID. Required when `protocol` is `https`.                                                                                                                        |
 | `customer_id`                   | string            |                                        | `false`  | The Chronicle customer (instance) ID used for sending logs. Required when `protocol` is `https`.                                                                                         |
-| `api_version`                   | string            | `v1alpha`                              | `false`  | The Chronicle API version to use. Valid values are `v1alpha` and `v1beta`. Only applies to `https` protocol.                                                                             |
+| `api_version`                   | string            | `v1alpha`                              | `false`  | The Chronicle API version to use. Valid values are `v1alpha`, `v1beta`, and `v1`. Only applies to `https` protocol.                                                                             |
 | `override_endpoint`             | bool              | `false`                                | `false`  | Whether to ignore the `location` field when constructing the endpoint. Only applies to `https` protocol.                                                                                 |
 | `creds_file_path`               | string            |                                        | `false`  | The file path to the Google credentials JSON file. Mutually exclusive with `creds`. If neither is set, the exporter falls back to Google Application Default Credentials.                |
 | `creds`                         | string            |                                        | `false`  | The Google credentials JSON. Mutually exclusive with `creds_file_path`. If neither is set, the exporter falls back to Google Application Default Credentials.                            |

@@ -36,6 +36,7 @@ const (
 	protocolGRPC      = "gRPC"
 	apiVersionV1Alpha = "v1alpha"
 	apiVersionV1Beta  = "v1beta"
+	apiVersionV1      = "v1"
 )
 
 // Config defines configuration for the Chronicle exporter.
@@ -168,7 +169,7 @@ func (cfg *Config) Validate() error {
 			return errors.New("positive batch request size limit is required when protocol is https")
 		}
 		if cfg.APIVersion != "" {
-			if cfg.APIVersion != apiVersionV1Alpha && cfg.APIVersion != apiVersionV1Beta {
+			if cfg.APIVersion != apiVersionV1Alpha && cfg.APIVersion != apiVersionV1Beta && cfg.APIVersion != apiVersionV1 {
 				return fmt.Errorf("invalid API version: %s", cfg.APIVersion)
 			}
 		}

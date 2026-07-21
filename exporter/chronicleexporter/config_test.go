@@ -184,6 +184,22 @@ func TestConfigValidate(t *testing.T) {
 			},
 		},
 		{
+			desc: "Valid https config with v1 API version",
+			config: &Config{
+				Endpoint:                  "myendpoint.com",
+				CredsFilePath:             "/path/to/creds_file",
+				LogType:                   "log_type_example",
+				Protocol:                  protocolHTTPS,
+				Compression:               noCompression,
+				Project:                   "project_example",
+				Location:                  "location_example",
+				Forwarder:                 "forwarder_example",
+				BatchRequestSizeLimitHTTP: defaultBatchRequestSizeLimitHTTP,
+				HTTPResponseHeaderTimeout: 10 * time.Second,
+				APIVersion:                "v1",
+			},
+		},
+		{
 			desc: "Invalid API version",
 			config: &Config{
 				Endpoint:                  "myendpoint.com",
