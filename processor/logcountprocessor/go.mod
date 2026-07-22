@@ -71,7 +71,7 @@ require (
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
-	google.golang.org/grpc v1.82.0 // indirect
+	google.golang.org/grpc v1.82.1 // indirect
 )
 
 replace github.com/observiq/bindplane-otel-contrib/receiver/routereceiver => ../../receiver/routereceiver
