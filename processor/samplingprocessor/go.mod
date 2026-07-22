@@ -34,7 +34,7 @@ require (
 	go.opentelemetry.io/collector/pdata/xpdata v0.156.0 // indirect
 	go.opentelemetry.io/collector/pipeline v1.62.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
-	google.golang.org/grpc v1.82.0 // indirect
+	google.golang.org/grpc v1.82.1 // indirect
 )
 
 require (
