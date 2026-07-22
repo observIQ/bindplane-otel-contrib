@@ -1,0 +1,9 @@
+type: googlemanagedprometheus
+
+status:
+  class: exporter
+  stability:
+    beta: [metrics]
+  distributions: [Bindplane]
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]

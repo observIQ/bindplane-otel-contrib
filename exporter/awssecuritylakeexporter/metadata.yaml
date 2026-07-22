@@ -1,7 +1,9 @@
 type: aws_security_lake
 
 status:
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]
   class: exporter
   stability:
     alpha: [logs]
-  distributions: [observiq]
+  distributions: [Bindplane]

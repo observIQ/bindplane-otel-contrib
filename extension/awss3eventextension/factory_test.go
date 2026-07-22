@@ -57,7 +57,7 @@ func TestFactoryCreateDefaultConfig(t *testing.T) {
 // Test factory extension creation methods
 func TestFactoryStability(t *testing.T) {
 	factory := awss3eventextension.NewFactory()
-	assert.Equal(t, component.StabilityLevelAlpha, factory.Stability())
+	assert.Equal(t, component.StabilityLevelBeta, factory.Stability())
 }
 
 // Test factory extension creation methods

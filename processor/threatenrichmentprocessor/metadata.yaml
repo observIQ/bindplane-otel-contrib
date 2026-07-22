@@ -1,7 +1,9 @@
 type: threat_enrichment
 
 status:
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]
   class: processor
   stability:
     alpha: [logs]
-  distributions: [observiq]
+  distributions: [Bindplane]

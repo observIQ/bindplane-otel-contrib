@@ -368,7 +368,13 @@ gosec:
 
 # This target performs all checks that CI will do (excluding the build itself)
 .PHONY: ci-checks
-ci-checks: check-fmt check-license check-mod-paths check-dependabot misspell lint gosec test
+ci-checks: check-fmt check-license check-mod-paths check-dependabot check-metadata misspell lint gosec test
+
+# This target checks that every component module has a metadata.yaml with
+# status.stability and status.codeowners.
+.PHONY: check-metadata
+check-metadata:
+	./scripts/check-metadata.sh
 
 # This target checks that every go.mod has the correct module path.
 # Subdirectories must be github.com/observiq/bindplane-otel-contrib/<relative-path>.

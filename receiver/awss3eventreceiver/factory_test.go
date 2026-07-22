@@ -75,7 +75,7 @@ func TestFactoryCreateReceivers(t *testing.T) {
 	assert.NotNil(t, logsReceiver)
 
 	// Test stability levels
-	assert.Equal(t, component.StabilityLevelAlpha, factory.LogsStability())
+	assert.Equal(t, component.StabilityLevelBeta, factory.LogsStability())
 }
 
 // Test factory error cases

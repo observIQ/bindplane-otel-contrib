@@ -1,0 +1,9 @@
+type: randomfailure
+
+status:
+  class: processor
+  stability:
+    alpha: [logs, metrics, traces]
+  distributions: [Bindplane]
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]

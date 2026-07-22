@@ -19,6 +19,9 @@ The QRadar Exporter is designed for forwarding logs to a QRadar instance using i
 | syslog.transport     | string | `tcp`             | `false`  | The network protocol to use (e.g., `tcp`, `udp`). |
 | syslog.tls.key_file  | string |                   | `false`  | Configure the receiver to use TLS.                |
 | syslog.tls.cert_file | string |                   | `false`  | Configure the receiver to use TLS.                |
+| timeout              | string | `5s`              | `false`  | See [doc](https://github.com/open-telemetry/opentelemetry-collector/blob/main/exporter/exporterhelper/README.md) for details |
+| sending_queue        | map    |                   | `false`  | See [doc](https://github.com/open-telemetry/opentelemetry-collector/blob/main/exporter/exporterhelper/README.md) for details |
+| retry_on_failure     | map    |                   | `false`  | See [doc](https://github.com/open-telemetry/opentelemetry-collector/blob/main/exporter/exporterhelper/README.md) for details |
 
 ## Raw Log Field
 
@@ -33,6 +36,38 @@ qradar:
   raw_log_field: body
   syslog:
     endpoint: "syslog.example.com:10514"
-    network: "tcp"
+    transport: "tcp"
+```
+
+### TLS Configuration Example
+
+```yaml
+qradar:
+  raw_log_field: body
+  syslog:
+    endpoint: "syslog.example.com:10514"
+    transport: "tcp"
+    tls:
+      key_file: "/path/to/client.key"
+      cert_file: "/path/to/client.crt"
+```
+
+### Queue and Retry Configuration Example
+
+```yaml
+qradar:
+  raw_log_field: body
+  syslog:
+    endpoint: "syslog.example.com:10514"
+    transport: "tcp"
+  timeout: 30s
+  sending_queue:
+    enabled: true
+    queue_size: 1000
+  retry_on_failure:
+    enabled: true
+    initial_interval: 5s
+    max_interval: 30s
+    max_elapsed_time: 300s
 ```
 

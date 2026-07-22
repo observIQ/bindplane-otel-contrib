@@ -21,7 +21,7 @@ This processor calculates statistics from metrics over a configurable interval, 
 |------------|----------|------------------------|-----------------------------------------------------------------------------------------------------------|
 | `interval` | duration | `1m`                   | The interval on which to emit calculated metrics.                                                         |
 | `include`  | regexp   | `".*"`                 | A regex that specifies which metrics to consider for calculation. The default regex matches all metrics.  |
-| `stats`    | []string | `["min", "max, "avg"]` | A list of statistics to calculate on each metric. Valid values are: `min`, `max`, `avg`, `first`, `last`. |
+| `stats`    | []string | `["min", "max", "avg"]` | A list of statistics to calculate on each metric. Valid values are: `min`, `max`, `avg`, `first`, `last`. |
 
 ### Example configuration
 

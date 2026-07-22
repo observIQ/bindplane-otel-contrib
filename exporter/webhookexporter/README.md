@@ -59,9 +59,10 @@ The following configuration options are available:
 ```yaml
 exporters:
   webhook:
-    endpoint: https://api.example.com/webhook
-    verb: POST
-    content_type: application/json
+    logs:
+      endpoint: https://api.example.com/webhook
+      verb: POST
+      content_type: application/json
 ```
 
 #### Single Log Format
@@ -81,19 +82,20 @@ exporters:
 ```yaml
 exporters:
   webhook:
-    endpoint: https://api.example.com/webhook
-    verb: POST
-    content_type: application/json
-    headers:
-      X-API-Key: "your-api-key"
-    sending_queue:
-      enabled: true
-      queue_size: 1000
-    retry_on_failure:
-      enabled: true
-      initial_interval: 5s
-      max_interval: 30s
-      max_elapsed_time: 300s
+    logs:
+      endpoint: https://api.example.com/webhook
+      verb: POST
+      content_type: application/json
+      headers:
+        X-API-Key: "your-api-key"
+      sending_queue:
+        enabled: true
+        queue_size: 1000
+      retry_on_failure:
+        enabled: true
+        initial_interval: 5s
+        max_interval: 30s
+        max_elapsed_time: 300s
 ```
 
 #### Mutual TLS Configuration
@@ -101,15 +103,16 @@ exporters:
 ```yaml
 exporters:
   webhook:
-    endpoint: https://api.example.com/webhook
-    verb: POST
-    content_type: application/json
-    headers:
-      X-API-Key: "your-api-key"
-    tls:
-      ca_file: /path/to/ca.pem
-      cert_file: /path/to/cert.pem
-      key_file: /path/to/key.pem
+    logs:
+      endpoint: https://api.example.com/webhook
+      verb: POST
+      content_type: application/json
+      headers:
+        X-API-Key: "your-api-key"
+      tls:
+        ca_file: /path/to/ca.pem
+        cert_file: /path/to/cert.pem
+        key_file: /path/to/key.pem
 ```
 
 ## OCB

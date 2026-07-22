@@ -1,6 +1,9 @@
 type: awsneuron
 
 status:
+  distributions: [Bindplane]
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]
   class: receiver
   stability:
     alpha: [metrics]

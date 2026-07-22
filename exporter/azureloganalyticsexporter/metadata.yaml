@@ -1,10 +1,12 @@
 type: azureloganalytics
 
 status:
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]
   class: exporter
   stability:
-    alpha: [logs]
-  distributions: [observiq]
+    beta: [logs]
+  distributions: [Bindplane]
 
 tests:
   skip_lifecycle: true

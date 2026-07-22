@@ -1,0 +1,9 @@
+type: metricextract
+
+status:
+  class: processor
+  stability:
+    beta: [logs]
+  distributions: [Bindplane]
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]

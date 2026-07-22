@@ -1,0 +1,9 @@
+type: googlecloud
+
+status:
+  class: exporter
+  stability:
+    beta: [logs, metrics, traces]
+  distributions: [Bindplane]
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]
