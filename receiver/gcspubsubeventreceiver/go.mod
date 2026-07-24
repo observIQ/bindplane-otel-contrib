@@ -15,7 +15,7 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.27
 	github.com/sorairolake/lzip-go v0.3.8
 	github.com/stretchr/testify v1.11.1
-	github.com/ulikunitz/xz v0.5.15
+	github.com/ulikunitz/xz v0.5.16
 	go.opentelemetry.io/collector/component v1.62.0
 	go.opentelemetry.io/collector/component/componenttest v0.156.0
 	go.opentelemetry.io/collector/confmap v1.62.0
