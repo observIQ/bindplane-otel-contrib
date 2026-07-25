@@ -44,7 +44,7 @@ func defaultConfig() component.Config {
 	}
 }
 
-func createOpAMPGateway(_ context.Context, cs extension.Settings, cfg component.Config) (extension.Extension, error) {
+func createOpAMPGateway(ctx context.Context, cs extension.Settings, cfg component.Config) (extension.Extension, error) {
 	t, err := metadata.NewTelemetryBuilder(cs.TelemetrySettings)
 	if err != nil {
 		return nil, fmt.Errorf("create telemetry builder: %w", err)
@@ -52,10 +52,15 @@ func createOpAMPGateway(_ context.Context, cs extension.Settings, cfg component.
 
 	oCfg := cfg.(*Config)
 
+	tlsConfig, err := oCfg.Server.TLS.LoadTLSConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load upstream TLS config: %w", err)
+	}
+
 	settings := gateway.Settings{
 		UpstreamOpAMPAddress: oCfg.Server.Endpoint,
 		Headers:              oCfg.Server.Headers,
-		TLS:                  oCfg.Server.TLS,
+		TLSConfig:            tlsConfig,
 		UpstreamConnections:  oCfg.Server.Connections,
 		OpAMPServer:          oCfg.Listener,
 	}

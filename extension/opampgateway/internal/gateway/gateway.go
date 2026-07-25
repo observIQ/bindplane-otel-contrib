@@ -18,6 +18,7 @@ package gateway
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"time"
@@ -27,7 +28,6 @@ import (
 	"github.com/open-telemetry/opamp-go/protobufs"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/confighttp"
-	"go.opentelemetry.io/collector/config/configtls"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
@@ -45,7 +45,7 @@ var (
 type Settings struct {
 	UpstreamOpAMPAddress string
 	Headers              http.Header
-	TLS                  configtls.ClientConfig
+	TLSConfig            *tls.Config
 	UpstreamConnections  int
 	OpAMPServer          confighttp.ServerConfig
 	AuthTimeout          time.Duration

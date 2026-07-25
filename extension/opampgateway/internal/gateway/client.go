@@ -58,9 +58,11 @@ func newClient(settings Settings, telemetry *metadata.TelemetryBuilder, callback
 	pool := newConnectionPool(settings.UpstreamConnections, logger)
 	connections := newConnections[*upstreamConnection]()
 	connectionAssignments := newConnectionAssignments(connections, pool)
+	dialer := *websocket.DefaultDialer
+	dialer.TLSClientConfig = settings.TLSConfig
 	return &client{
 		logger:                logger,
-		dialer:                *websocket.DefaultDialer,
+		dialer:                dialer,
 		pool:                  pool,
 		upstreamConnections:   connections,
 		connectionAssignments: connectionAssignments,
