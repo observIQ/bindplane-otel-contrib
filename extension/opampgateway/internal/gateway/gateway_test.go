@@ -456,6 +456,36 @@ func (s *testOpAMPServer) URL() string {
 	return "ws" + s.server.URL[len("http"):]
 }
 
+// newTestOpAMPServerTLS creates a test OpAMP server that serves over TLS using
+// the given PEM-encoded certificate and key.
+func newTestOpAMPServerTLS(t *testing.T, certPEM, keyPEM string) *testOpAMPServer {
+	t.Helper()
+
+	s := &testOpAMPServer{
+		t:      t,
+		recvCh: make(chan upstreamMessage, 128),
+		connCh: make(chan *websocket.Conn, 32),
+		errCh:  make(chan error, 32),
+		upgrader: websocket.Upgrader{
+			CheckOrigin: func(*http.Request) bool { return true },
+		},
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	cert, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
+	require.NoError(t, err)
+
+	s.server = httptest.NewUnstartedServer(http.HandlerFunc(s.handle))
+	s.server.Listener = listener
+	s.server.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
+	s.server.StartTLS()
+	t.Cleanup(s.Close)
+
+	return s
+}
+
 func (s *testOpAMPServer) handle(w http.ResponseWriter, r *http.Request) {
 	// extract the connection id from the request
 	id := r.Header.Get("X-Opamp-Gateway-Connection-Id")
@@ -1157,6 +1187,54 @@ func TestGatewayTLSConnection(t *testing.T) {
 	plainURL := fmt.Sprintf("ws://%s%s", gw.server.addr.String(), handlePath)
 	_, _, err = websocket.DefaultDialer.Dial(plainURL, nil)
 	require.Error(t, err, "plain ws:// connection should fail against TLS server")
+}
+
+// TestGatewayUpstreamTLSConnection verifies that the gateway applies
+// settings.TLSConfig to the upstream dialer. Without it, a wss:// upstream
+// signed by a private CA fails the handshake with "certificate signed by
+// unknown authority" even though the CA is configured.
+func TestGatewayUpstreamTLSConnection(t *testing.T) {
+	t.Parallel()
+
+	certPEM, keyPEM, _ := generateTestTLSPEM(t)
+
+	upstream := newTestOpAMPServerTLS(t, certPEM, keyPEM)
+
+	testTel := componenttest.NewTelemetry()
+	t.Cleanup(func() {
+		require.NoError(t, testTel.Shutdown(context.Background()))
+	})
+	telemetry, err := metadata.NewTelemetryBuilder(testTel.NewTelemetrySettings())
+	require.NoError(t, err)
+
+	clientTLS := configtls.ClientConfig{
+		Config: configtls.Config{
+			CAPem: configopaque.String(certPEM),
+		},
+	}
+	tlsConfig, err := clientTLS.LoadTLSConfig(context.Background())
+	require.NoError(t, err)
+
+	settings := Settings{
+		UpstreamOpAMPAddress: upstream.URL(),
+		Headers: http.Header{
+			"Authorization": []string{"Secret-Key test-secret"},
+		},
+		TLSConfig:           tlsConfig,
+		UpstreamConnections: 1,
+		OpAMPServer:         confighttp.ServerConfig{NetAddr: confignet.AddrConfig{Endpoint: "127.0.0.1:0", Transport: confignet.TransportTypeTCP}},
+	}
+
+	logger := zaptest.NewLogger(t)
+	gw := New(logger, settings, telemetry)
+	require.NoError(t, gw.Start(context.Background(), componenttest.NewNopHost(), testTel.NewTelemetrySettings()))
+	t.Cleanup(func() { _ = gw.Shutdown(context.Background()) })
+
+	upstream.WaitForConnection(t, 5*time.Second)
+	require.Eventually(t, func() bool {
+		conn, ok := gw.client.upstreamConnections.get("upstream-0")
+		return ok && conn.isConnected()
+	}, 5*time.Second, 10*time.Millisecond, "gateway did not establish TLS connection to upstream")
 }
 
 func TestGatewayGracefulShutdownWithActiveConnections(t *testing.T) {
