@@ -4,9 +4,9 @@ go 1.26.4
 
 require (
 	cloud.google.com/go/pubsub v1.51.0
-	cloud.google.com/go/storage v1.63.0
+	cloud.google.com/go/storage v1.64.0
 	github.com/bodgit/sevenzip v1.6.5
-	github.com/gabriel-vasile/mimetype v1.4.13
+	github.com/gabriel-vasile/mimetype v1.4.15
 	github.com/google/go-cmp v0.7.0
 	github.com/klauspost/compress v1.19.1
 	github.com/linkedin/goavro/v2 v2.15.0
@@ -15,7 +15,7 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.27
 	github.com/sorairolake/lzip-go v0.3.8
 	github.com/stretchr/testify v1.11.1
-	github.com/ulikunitz/xz v0.5.15
+	github.com/ulikunitz/xz v0.5.16
 	go.opentelemetry.io/collector/component v1.63.0
 	go.opentelemetry.io/collector/component/componenttest v0.157.0
 	go.opentelemetry.io/collector/confmap v1.63.0
@@ -31,8 +31,8 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.28.0
-	google.golang.org/api v0.289.0
-	google.golang.org/grpc v1.82.0
+	google.golang.org/api v0.290.0
+	google.golang.org/grpc v1.82.1
 )
 
 require (
