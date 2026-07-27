@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/pubsub v1.51.0
 	cloud.google.com/go/storage v1.63.0
 	github.com/bodgit/sevenzip v1.6.5
-	github.com/gabriel-vasile/mimetype v1.4.13
+	github.com/gabriel-vasile/mimetype v1.4.15
 	github.com/google/go-cmp v0.7.0
 	github.com/klauspost/compress v1.19.1
 	github.com/linkedin/goavro/v2 v2.15.0
