@@ -17,26 +17,19 @@ package logtypedetectionprocessor
 import (
 	"context"
 
+	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/processor"
 	"go.opentelemetry.io/collector/processor/processorhelper"
 )
 
-// componentType is the value of the "type" key in configuration.
-var componentType = component.MustNewType("log_type_detection")
-
-const (
-	// stability is the current state of the processor.
-	stability = component.StabilityLevelDevelopment
-)
-
 // NewFactory creates a new factory for the processor.
 func NewFactory() processor.Factory {
 	return processor.NewFactory(
-		componentType,
+		metadata.Type,
 		createDefaultConfig,
-		processor.WithLogs(createLogsProcessor, stability),
+		processor.WithLogs(createLogsProcessor, metadata.LogsStability),
 	)
 }
 

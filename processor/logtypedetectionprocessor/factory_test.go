@@ -18,6 +18,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadata"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/processor/processortest"
@@ -25,12 +26,12 @@ import (
 
 func TestNewFactory(t *testing.T) {
 	f := NewFactory()
-	require.Equal(t, componentType, f.Type())
+	require.Equal(t, metadata.Type, f.Type())
 
 	cfg := f.CreateDefaultConfig()
 	require.NoError(t, cfg.(*Config).Validate())
 
-	p, err := f.CreateLogs(context.Background(), processortest.NewNopSettings(componentType), cfg, consumertest.NewNop())
+	p, err := f.CreateLogs(context.Background(), processortest.NewNopSettings(metadata.Type), cfg, consumertest.NewNop())
 	require.NoError(t, err)
 	require.NotNil(t, p)
 }
