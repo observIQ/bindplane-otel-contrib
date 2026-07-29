@@ -342,7 +342,7 @@ func BenchmarkCompress(b *testing.B) {
 
 			benchGCMetrics(b, func() {
 				for i := 0; i < b.N; i++ {
-					if _, err := compress(data); err != nil {
+					if _, err := Compress(data); err != nil {
 						b.Fatal(err)
 					}
 				}

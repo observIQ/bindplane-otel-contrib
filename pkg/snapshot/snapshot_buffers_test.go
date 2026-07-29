@@ -212,7 +212,7 @@ func TestLogsBufferConstructPayloadSampling(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify that the compressed size fits within the limit
-		compressedPayload, err := compress(uncompressedPayload)
+		compressedPayload, err := Compress(uncompressedPayload)
 		require.NoError(t, err)
 		require.LessOrEqual(t, len(compressedPayload), 2000)
 
@@ -458,7 +458,7 @@ func TestMetricBufferConstructPayloadSampling(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify that the compressed size fits within the limit
-		compressedPayload, err := compress(uncompressedPayload)
+		compressedPayload, err := Compress(uncompressedPayload)
 		require.NoError(t, err)
 		require.LessOrEqual(t, len(compressedPayload), 500)
 
@@ -681,7 +681,7 @@ func TestTraceBufferConstructPayloadSampling(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify that the compressed size fits within the limit
-		compressedPayload, err := compress(uncompressedPayload)
+		compressedPayload, err := Compress(uncompressedPayload)
 		require.NoError(t, err)
 		require.LessOrEqual(t, len(compressedPayload), 2000)
 
@@ -837,7 +837,7 @@ func TestBufferZeroCountPayloadsAreDropped(t *testing.T) {
 func TestCompress(t *testing.T) {
 	t.Run("Compresses and decompresses data correctly", func(t *testing.T) {
 		original := []byte("This is some test data that should be compressed and decompressed correctly")
-		compressed, err := compress(original)
+		compressed, err := Compress(original)
 		require.NoError(t, err)
 		require.NotEmpty(t, compressed)
 
@@ -847,7 +847,7 @@ func TestCompress(t *testing.T) {
 	})
 
 	t.Run("Compresses empty data", func(t *testing.T) {
-		compressed, err := compress([]byte{})
+		compressed, err := Compress([]byte{})
 		require.NoError(t, err)
 
 		decompressed, err := decompress(compressed)
@@ -861,7 +861,7 @@ func TestCompress(t *testing.T) {
 		for i := range original {
 			original[i] = 'a'
 		}
-		compressed, err := compress(original)
+		compressed, err := Compress(original)
 		require.NoError(t, err)
 		require.Less(t, len(compressed), len(original))
 	})
