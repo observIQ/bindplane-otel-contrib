@@ -53,12 +53,24 @@ func wsTestPair(t *testing.T, handler func(conn *websocket.Conn)) *websocket.Con
 	return clientConn
 }
 
+// holdUntil blocks the server-side websocket handler until done is closed (the
+// client reader loop has finished), bounded by a safety timeout so a handler can
+// never hang. It replaces fixed sleeps that guessed how long the client needs to
+// finish reading before the connection is torn down.
+func holdUntil(done <-chan struct{}) {
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+	}
+}
+
 func TestMessageReaderLoopReceivesMessages(t *testing.T) {
 	var mu sync.Mutex
 	var received []*message
 	var receivedTypes []int
 
 	serverReady := make(chan struct{})
+	readerDone := make(chan struct{})
 
 	clientConn := wsTestPair(t, func(conn *websocket.Conn) {
 		defer conn.Close()
@@ -68,8 +80,8 @@ func TestMessageReaderLoopReceivesMessages(t *testing.T) {
 		// close cleanly so the reader exits
 		assert.NoError(t, conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")))
-		// wait for the client to read the close
-		time.Sleep(100 * time.Millisecond)
+		// hold open until the reader has consumed the messages and the close
+		holdUntil(readerDone)
 	})
 
 	reader := newMessageReader(clientConn, "test", readerCallbacks{
@@ -87,6 +99,7 @@ func TestMessageReaderLoopReceivesMessages(t *testing.T) {
 
 	close(serverReady)
 	reader.loop(context.Background(), 0)
+	close(readerDone)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -104,6 +117,7 @@ func TestMessageReaderLoopStartingMessageNumber(t *testing.T) {
 	var received []*message
 
 	serverReady := make(chan struct{})
+	readerDone := make(chan struct{})
 
 	clientConn := wsTestPair(t, func(conn *websocket.Conn) {
 		defer conn.Close()
@@ -111,7 +125,7 @@ func TestMessageReaderLoopStartingMessageNumber(t *testing.T) {
 		assert.NoError(t, conn.WriteMessage(websocket.BinaryMessage, []byte("msg")))
 		assert.NoError(t, conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")))
-		time.Sleep(100 * time.Millisecond)
+		holdUntil(readerDone)
 	})
 
 	reader := newMessageReader(clientConn, "test", readerCallbacks{
@@ -128,6 +142,7 @@ func TestMessageReaderLoopStartingMessageNumber(t *testing.T) {
 
 	close(serverReady)
 	reader.loop(context.Background(), 42)
+	close(readerDone)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -137,11 +152,12 @@ func TestMessageReaderLoopStartingMessageNumber(t *testing.T) {
 
 func TestMessageReaderLoopContextCancelled(t *testing.T) {
 	onErrorCalled := false
+	readerDone := make(chan struct{})
 
 	clientConn := wsTestPair(t, func(conn *websocket.Conn) {
 		defer conn.Close()
-		// don't send anything; just hold the connection open
-		time.Sleep(2 * time.Second)
+		// don't send anything; hold the connection open until the reader loop returns
+		holdUntil(readerDone)
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -172,12 +188,14 @@ func TestMessageReaderLoopContextCancelled(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("loop did not return after context cancellation")
 	}
+	close(readerDone)
 	assert.False(t, onErrorCalled, "OnError should not be called on context cancellation")
 }
 
 func TestMessageReaderLoopConnectionClosed(t *testing.T) {
 	onErrorCalled := false
 	serverReady := make(chan struct{})
+	readerDone := make(chan struct{})
 
 	clientConn := wsTestPair(t, func(conn *websocket.Conn) {
 		defer conn.Close()
@@ -185,7 +203,7 @@ func TestMessageReaderLoopConnectionClosed(t *testing.T) {
 		// close with normal closure
 		assert.NoError(t, conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye")))
-		time.Sleep(100 * time.Millisecond)
+		holdUntil(readerDone)
 	})
 
 	reader := newMessageReader(clientConn, "test", readerCallbacks{
@@ -200,18 +218,20 @@ func TestMessageReaderLoopConnectionClosed(t *testing.T) {
 
 	close(serverReady)
 	reader.loop(context.Background(), 0)
+	close(readerDone)
 	assert.False(t, onErrorCalled, "OnError should not be called on clean close")
 }
 
 func TestMessageReaderLoopOnMessageError(t *testing.T) {
 	var onErrorErr error
 	serverReady := make(chan struct{})
+	readerDone := make(chan struct{})
 
 	clientConn := wsTestPair(t, func(conn *websocket.Conn) {
 		defer conn.Close()
 		<-serverReady
 		assert.NoError(t, conn.WriteMessage(websocket.BinaryMessage, []byte("trigger")))
-		time.Sleep(500 * time.Millisecond)
+		holdUntil(readerDone)
 	})
 
 	callbackErr := errors.New("callback failed")
@@ -227,6 +247,7 @@ func TestMessageReaderLoopOnMessageError(t *testing.T) {
 
 	close(serverReady)
 	reader.loop(context.Background(), 0)
+	close(readerDone)
 
 	require.Error(t, onErrorErr)
 	assert.ErrorIs(t, onErrorErr, callbackErr)
@@ -237,6 +258,7 @@ func TestMessageReaderLoopStopsAfterOnMessageError(t *testing.T) {
 	var mu sync.Mutex
 	messageCount := 0
 	serverReady := make(chan struct{})
+	readerDone := make(chan struct{})
 
 	clientConn := wsTestPair(t, func(conn *websocket.Conn) {
 		defer conn.Close()
@@ -244,7 +266,7 @@ func TestMessageReaderLoopStopsAfterOnMessageError(t *testing.T) {
 		// send two messages; reader should stop after the first
 		assert.NoError(t, conn.WriteMessage(websocket.BinaryMessage, []byte("first")))
 		assert.NoError(t, conn.WriteMessage(websocket.BinaryMessage, []byte("second")))
-		time.Sleep(500 * time.Millisecond)
+		holdUntil(readerDone)
 	})
 
 	reader := newMessageReader(clientConn, "test", readerCallbacks{
@@ -259,6 +281,7 @@ func TestMessageReaderLoopStopsAfterOnMessageError(t *testing.T) {
 
 	close(serverReady)
 	reader.loop(context.Background(), 0)
+	close(readerDone)
 
 	mu.Lock()
 	defer mu.Unlock()
