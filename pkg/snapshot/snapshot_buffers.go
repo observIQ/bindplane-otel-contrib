@@ -72,7 +72,10 @@ func (l *LogBuffer) setBuffer(entries []logEntry) {
 	}
 }
 
-// Add adds the new log payload and adjust buffer to keep ideal size
+// Add copies at most idealSize of the newest log records out of ld into the
+// buffer, evicting the oldest buffered payloads to stay near the ideal size.
+// ld is never retained or mutated, so callers may pass pipeline payloads
+// directly.
 func (l *LogBuffer) Add(ld plog.Logs) {
 	logSize := ld.LogRecordCount()
 	// Zero-count payloads contribute nothing to a snapshot, but the eviction
@@ -82,30 +85,24 @@ func (l *LogBuffer) Add(ld plog.Logs) {
 		return
 	}
 
+	// Copy only what the buffer can retain. This bounds the per-Add copy cost
+	// by idealSize regardless of how large the incoming payload is. The copy
+	// happens before taking the lock so concurrent Adds do not serialize on
+	// the copy work.
+	kept := min(logSize, l.idealSize)
+	incoming := plog.NewLogs()
+	copyLogsTail(ld, incoming, logSize-kept)
+
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	switch {
-	// The number of logs is more than idealSize so reset this to just this log set
-	case logSize > l.idealSize:
-		l.setBuffer([]logEntry{{logs: ld, count: logSize}})
+	l.buffer = append(l.buffer, logEntry{logs: incoming, count: kept})
+	l.total += kept
 
-	// Haven't reached idealSize yet so add this
-	case logSize+l.total < l.idealSize:
-		l.buffer = append(l.buffer, logEntry{logs: ld, count: logSize})
-		l.total += logSize
-
-	// Adding this will put us over idealSize so and add the new logs.
-	// Only remove the oldest if it does not bring buffer under idealSize
-	default:
-		l.buffer = append(l.buffer, logEntry{logs: ld, count: logSize})
-		l.total += logSize
-
-		// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
-		for l.total-l.buffer[0].count >= l.idealSize {
-			l.total -= l.buffer[0].count
-			l.buffer = l.buffer[1:]
-		}
+	// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
+	for l.total-l.buffer[0].count >= l.idealSize {
+		l.total -= l.buffer[0].count
+		l.buffer = l.buffer[1:]
 	}
 }
 
@@ -220,7 +217,10 @@ func (l *MetricBuffer) setBuffer(entries []metricEntry) {
 	}
 }
 
-// Add adds the new metric payload and adjust buffer to keep ideal size
+// Add copies at most idealSize of the newest data points out of md into the
+// buffer, evicting the oldest buffered payloads to stay near the ideal size.
+// md is never retained or mutated, so callers may pass pipeline payloads
+// directly.
 func (l *MetricBuffer) Add(md pmetric.Metrics) {
 	metricSize := md.DataPointCount()
 	// Zero-count payloads contribute nothing to a snapshot, but the eviction
@@ -230,30 +230,24 @@ func (l *MetricBuffer) Add(md pmetric.Metrics) {
 		return
 	}
 
+	// Copy only what the buffer can retain. This bounds the per-Add copy cost
+	// by idealSize regardless of how large the incoming payload is. The copy
+	// happens before taking the lock so concurrent Adds do not serialize on
+	// the copy work.
+	kept := min(metricSize, l.idealSize)
+	incoming := pmetric.NewMetrics()
+	copyMetricsTail(md, incoming, metricSize-kept)
+
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	switch {
-	// The number of metrics is more than idealSize so reset this to just this metric set
-	case metricSize > l.idealSize:
-		l.setBuffer([]metricEntry{{metrics: md, count: metricSize}})
+	l.buffer = append(l.buffer, metricEntry{metrics: incoming, count: kept})
+	l.total += kept
 
-	// Haven't reached idealSize yet so add this
-	case metricSize+l.total < l.idealSize:
-		l.buffer = append(l.buffer, metricEntry{metrics: md, count: metricSize})
-		l.total += metricSize
-
-	// Adding this will put us over idealSize so and add the new metrics.
-	// Only remove the oldest if it does not bring buffer under idealSize
-	default:
-		l.buffer = append(l.buffer, metricEntry{metrics: md, count: metricSize})
-		l.total += metricSize
-
-		// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
-		for l.total-l.buffer[0].count >= l.idealSize {
-			l.total -= l.buffer[0].count
-			l.buffer = l.buffer[1:]
-		}
+	// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
+	for l.total-l.buffer[0].count >= l.idealSize {
+		l.total -= l.buffer[0].count
+		l.buffer = l.buffer[1:]
 	}
 }
 
@@ -368,7 +362,10 @@ func (l *TraceBuffer) setBuffer(entries []traceEntry) {
 	}
 }
 
-// Add adds the new trace payload and adjust buffer to keep ideal size
+// Add copies at most idealSize of the newest spans out of td into the
+// buffer, evicting the oldest buffered payloads to stay near the ideal size.
+// td is never retained or mutated, so callers may pass pipeline payloads
+// directly.
 func (l *TraceBuffer) Add(td ptrace.Traces) {
 	traceSize := td.SpanCount()
 	// Zero-count payloads contribute nothing to a snapshot, but the eviction
@@ -378,30 +375,24 @@ func (l *TraceBuffer) Add(td ptrace.Traces) {
 		return
 	}
 
+	// Copy only what the buffer can retain. This bounds the per-Add copy cost
+	// by idealSize regardless of how large the incoming payload is. The copy
+	// happens before taking the lock so concurrent Adds do not serialize on
+	// the copy work.
+	kept := min(traceSize, l.idealSize)
+	incoming := ptrace.NewTraces()
+	copyTracesTail(td, incoming, traceSize-kept)
+
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	switch {
-	// The number of traces is more than idealSize so reset this to just this trace set
-	case traceSize > l.idealSize:
-		l.setBuffer([]traceEntry{{traces: td, count: traceSize}})
+	l.buffer = append(l.buffer, traceEntry{traces: incoming, count: kept})
+	l.total += kept
 
-	// Haven't reached idealSize yet so add this
-	case traceSize+l.total < l.idealSize:
-		l.buffer = append(l.buffer, traceEntry{traces: td, count: traceSize})
-		l.total += traceSize
-
-	// Adding this will put us over idealSize so and add the new traces.
-	// Only remove the oldest if it does not bring buffer under idealSize
-	default:
-		l.buffer = append(l.buffer, traceEntry{traces: td, count: traceSize})
-		l.total += traceSize
-
-		// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
-		for l.total-l.buffer[0].count >= l.idealSize {
-			l.total -= l.buffer[0].count
-			l.buffer = l.buffer[1:]
-		}
+	// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
+	for l.total-l.buffer[0].count >= l.idealSize {
+		l.total -= l.buffer[0].count
+		l.buffer = l.buffer[1:]
 	}
 }
 

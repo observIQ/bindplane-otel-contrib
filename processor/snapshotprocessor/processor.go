@@ -215,9 +215,9 @@ func (sp *snapshotProcessor) processSnapshotRequest(cm *protobufs.CustomMessage)
 
 func (sp *snapshotProcessor) processTraces(_ context.Context, td ptrace.Traces) (ptrace.Traces, error) {
 	if sp.enabled {
-		newTraces := ptrace.NewTraces()
-		td.CopyTo(newTraces)
-		sp.traceBuffer.Add(newTraces)
+		// Add copies at most the buffer's ideal size out of td; the payload
+		// itself is never retained or mutated.
+		sp.traceBuffer.Add(td)
 	}
 
 	return td, nil
@@ -225,9 +225,9 @@ func (sp *snapshotProcessor) processTraces(_ context.Context, td ptrace.Traces) 
 
 func (sp *snapshotProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.Logs, error) {
 	if sp.enabled {
-		newLogs := plog.NewLogs()
-		ld.CopyTo(newLogs)
-		sp.logBuffer.Add(newLogs)
+		// Add copies at most the buffer's ideal size out of ld; the payload
+		// itself is never retained or mutated.
+		sp.logBuffer.Add(ld)
 	}
 
 	return ld, nil
@@ -235,9 +235,9 @@ func (sp *snapshotProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.
 
 func (sp *snapshotProcessor) processMetrics(_ context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
 	if sp.enabled {
-		newMetrics := pmetric.NewMetrics()
-		md.CopyTo(newMetrics)
-		sp.metricBuffer.Add(newMetrics)
+		// Add copies at most the buffer's ideal size out of md; the payload
+		// itself is never retained or mutated.
+		sp.metricBuffer.Add(md)
 	}
 
 	return md, nil

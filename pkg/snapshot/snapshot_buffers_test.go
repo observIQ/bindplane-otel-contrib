@@ -76,7 +76,9 @@ func TestLogBufferAdd(t *testing.T) {
 				// Add to log buffer
 				logBuffer.Add(toAdd)
 
-				assert.Equal(t, 3, logBuffer.Len())
+				// The buffer copies at most idealSize of the newest records,
+				// so an oversized payload is capped rather than retained whole.
+				assert.Equal(t, 1, logBuffer.Len())
 			},
 		},
 		{
@@ -301,7 +303,10 @@ func TestMetricBufferAdd(t *testing.T) {
 				// Add to log buffer
 				metricBuffer.Add(toAdd)
 
-				assert.Equal(t, 3, metricBuffer.Len())
+				// The buffer copies at most idealSize of the newest data
+				// points, so an oversized payload is capped rather than
+				// retained whole.
+				assert.Equal(t, 1, metricBuffer.Len())
 			},
 		},
 		{
@@ -546,7 +551,9 @@ func TestTraceBufferAdd(t *testing.T) {
 				// Add to log buffer
 				traceBuffer.Add(toAdd)
 
-				assert.Equal(t, 3, traceBuffer.Len())
+				// The buffer copies at most idealSize of the newest spans,
+				// so an oversized payload is capped rather than retained whole.
+				assert.Equal(t, 1, traceBuffer.Len())
 			},
 		},
 		{
