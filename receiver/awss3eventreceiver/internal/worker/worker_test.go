@@ -567,15 +567,9 @@ func TestMessageVisibilityExtension(t *testing.T) {
 		})
 	}()
 
-	// Wait for a short time to allow visibility extension to occur
-	time.Sleep(100 * time.Millisecond)
-
-	// Check that ChangeMessageVisibility was called
-	// We can verify this by checking if the message is still invisible
-	// (if visibility wasn't extended, it would be visible again)
-
-	// Try to receive the same message again - it should not be available
-	// because visibility should have been extended
+	// The message is invisible for the visibility timeout from the moment it was
+	// received, so it is not re-deliverable while processing is in flight. Assert that
+	// directly instead of sleeping to "let extension happen".
 	_, err2 := fakeAWS.SQS().ReceiveMessage(ctx, new(sqs.ReceiveMessageInput))
 	require.ErrorIs(t, err2, fake.ErrEmptyQueue, "Message should still be invisible due to visibility extension")
 
@@ -651,8 +645,11 @@ func TestVisibilityExtensionLogs(t *testing.T) {
 	// Wait for processing to complete
 	<-done
 
-	// Add a small delay to allow visibility extension goroutine to finish logging
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the visibility-extension goroutine to emit its startup and extension logs.
+	require.Eventually(t, func() bool {
+		return containsLogMessage(recorded, "starting visibility extension monitoring") &&
+			containsLogMessage(recorded, "extending message visibility")
+	}, 5*time.Second, 10*time.Millisecond)
 
 	t.Logf("recorded logs:")
 	for i, entry := range recorded.All() {
@@ -744,7 +741,10 @@ func TestExtendToMaxAndStop(t *testing.T) {
 	// Wait for processing to complete
 	<-done
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the visibility-extension goroutine to log that it hit the max window.
+	require.Eventually(t, func() bool {
+		return containsLogMessage(recorded, "reaching maximum visibility window, extending to max and stopping")
+	}, 5*time.Second, 10*time.Millisecond)
 
 	t.Logf("recorded logs:")
 	for i, entry := range recorded.All() {
@@ -804,8 +804,11 @@ func TestVisibilityExtensionContextCancellation(t *testing.T) {
 		w.ProcessMessage(ctx, msg.Messages[0], "myqueue", func() { close(done) })
 	}()
 
-	// Cancel context after a short delay
-	time.Sleep(10 * time.Millisecond)
+	// Cancel once the visibility-extension goroutine has started, so the cancellation
+	// reliably interrupts monitoring instead of racing its startup.
+	require.Eventually(t, func() bool {
+		return containsLogMessage(recorded, "starting visibility extension monitoring")
+	}, 5*time.Second, 10*time.Millisecond)
 	cancel()
 
 	// Wait for processing to complete
@@ -887,8 +890,10 @@ func TestVisibilityExtensionErrorHandling(t *testing.T) {
 	// Wait for processing to complete
 	<-done
 
-	// Add a small delay to allow visibility extension goroutine to finish logging
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the visibility-extension goroutine to log the extension failure.
+	require.Eventually(t, func() bool {
+		return containsLogMessage(recorded, "failed to extend message visibility")
+	}, 5*time.Second, 10*time.Millisecond)
 
 	t.Logf("recorded logs:")
 	for i, entry := range recorded.All() {
@@ -1122,4 +1127,16 @@ func TestProcessMessageWithFilters(t *testing.T) {
 			require.ErrorIs(t, err, fake.ErrEmptyQueue)
 		})
 	}
+}
+
+// containsLogMessage reports whether any recorded log entry's message contains
+// substr. It is used as an Eventually condition to wait for a background goroutine
+// to emit an expected log line instead of sleeping a fixed duration.
+func containsLogMessage(recorded *observer.ObservedLogs, substr string) bool {
+	for _, entry := range recorded.All() {
+		if strings.Contains(entry.Message, substr) {
+			return true
+		}
+	}
+	return false
 }
