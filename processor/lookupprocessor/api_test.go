@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -149,8 +150,11 @@ func TestAPISourceLookup_429Retried(t *testing.T) {
 
 func TestAPISourceLookup_ContextCancelAbortsRetry(t *testing.T) {
 	var attempts atomic.Int32
+	firstAttempt := make(chan struct{})
+	var once sync.Once
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		attempts.Add(1)
+		once.Do(func() { close(firstAttempt) })
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -160,7 +164,9 @@ func TestAPISourceLookup_ContextCancelAbortsRetry(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		// Cancel once the first attempt has failed and the retry backoff is underway,
+		// so the pending retry is aborted instead of timing the cancel with a sleep.
+		<-firstAttempt
 		cancel()
 	}()
 

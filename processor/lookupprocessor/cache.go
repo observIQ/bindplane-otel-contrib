@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/extension/xextension/storage"
 	"go.uber.org/zap"
@@ -45,6 +46,9 @@ type LookupCache struct {
 	ttl     time.Duration
 	enabled bool
 	logger  *zap.Logger
+	// clock backs TTL expiry checks; real in production, a fake clock in tests so
+	// expiry can be exercised without sleeping.
+	clock clockwork.Clock
 }
 
 // NewLookupCache wraps source with TTL caching. When enabled is false, the
@@ -67,6 +71,7 @@ func NewLookupCache(
 		ttl:     ttl,
 		enabled: enabled,
 		logger:  logger,
+		clock:   clockwork.NewRealClock(),
 	}
 
 	if !enabled {
@@ -153,7 +158,7 @@ func (c *LookupCache) get(ctx context.Context, key string) (map[string]string, b
 		if err := json.Unmarshal(data, &entry); err != nil {
 			return nil, false, fmt.Errorf("failed to unmarshal cache entry: %w", err)
 		}
-		if time.Now().After(entry.ExpiresAt) {
+		if c.clock.Now().After(entry.ExpiresAt) {
 			c.logger.Debug("cache entry expired", zap.String("key", key))
 			if delErr := c.storage.Delete(ctx, cacheKey); delErr != nil {
 				c.logger.Debug("failed to delete expired cache entry", zap.String("key", key), zap.Error(delErr))
@@ -169,7 +174,7 @@ func (c *LookupCache) get(ctx context.Context, key string) (map[string]string, b
 	if !ok {
 		return nil, false, nil
 	}
-	if time.Now().After(entry.ExpiresAt) {
+	if c.clock.Now().After(entry.ExpiresAt) {
 		c.logger.Debug("cache entry expired", zap.String("key", key))
 		delete(c.mem, cacheKey)
 		return nil, false, nil
@@ -181,7 +186,7 @@ func (c *LookupCache) set(ctx context.Context, key string, data map[string]strin
 	cacheKey := fmt.Sprintf("lookup:%s", key)
 	entry := cacheEntry{
 		Data:      data,
-		ExpiresAt: time.Now().Add(c.ttl),
+		ExpiresAt: c.clock.Now().Add(c.ttl),
 	}
 
 	if c.storage != nil {
