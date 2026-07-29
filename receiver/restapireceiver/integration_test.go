@@ -76,8 +76,10 @@ func TestIntegration_EndToEnd_Logs(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait for multiple poll cycles
-	time.Sleep(300 * time.Millisecond)
+	// Poll until multiple requests have occurred and data has arrived, then shut down.
+	require.Eventually(t, func() bool {
+		return requestCount.Load() > 1 && len(sink.AllLogs()) > 0
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -132,8 +134,10 @@ func TestIntegration_EndToEnd_Metrics(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait for multiple poll cycles
-	time.Sleep(300 * time.Millisecond)
+	// Poll until multiple requests have occurred and data has arrived, then shut down.
+	require.Eventually(t, func() bool {
+		return requestCount.Load() > 1 && len(sink.AllMetrics()) > 0
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -220,8 +224,10 @@ func TestIntegration_WithPaginationAndAuth(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait for at least one poll cycle (which will fetch all pages)
-	time.Sleep(200 * time.Millisecond)
+	// Poll until all pages of the first cycle have been collected, then shut down.
+	require.Eventually(t, func() bool {
+		return logRecordCount(sink) >= 4
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -305,8 +311,10 @@ func TestIntegration_TimestampPagination(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait for a poll cycle (which will fetch all pages)
-	time.Sleep(200 * time.Millisecond)
+	// Poll until more than one page has been fetched, then shut down.
+	require.Eventually(t, func() bool {
+		return pageCount.Load() > 1
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -369,8 +377,11 @@ func TestIntegration_ErrorRecovery(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait for multiple poll cycles
-	time.Sleep(300 * time.Millisecond)
+	// Poll until the receiver has recovered from the first error and collected data,
+	// then shut down.
+	require.Eventually(t, func() bool {
+		return requestCount.Load() > 1 && len(sink.AllLogs()) > 0
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
