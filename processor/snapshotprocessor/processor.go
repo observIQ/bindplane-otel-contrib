@@ -39,6 +39,11 @@ const (
 	snapshotCapability  = "com.bindplane.snapshot"
 	snapshotRequestType = "requestSnapshot"
 	snapshotReportType  = "reportSnapshot"
+
+	// armIdleWindow is how long on-demand buffering stays armed after the
+	// most recent snapshot request. It must comfortably exceed the snapshot
+	// view's poll interval so buffering does not flap mid-session.
+	armIdleWindow = 60 * time.Second
 )
 
 type snapshotProcessor struct {
@@ -67,6 +72,14 @@ type snapshotProcessor struct {
 	admitMetrics atomic.Bool
 	admitTraces  atomic.Bool
 
+	// onDemand indicates buffer_mode: on_demand. When set, armed is raised by
+	// snapshot requests and lowered after armIdleWindow without one; while
+	// down, batches pass through with a single atomic load and the buffers
+	// hold no telemetry. In always mode, armed is permanently true.
+	onDemand      bool
+	armed         atomic.Bool
+	lastRequestNs atomic.Int64
+
 	started  *atomic.Bool
 	stopped  *atomic.Bool
 	doneChan chan struct{}
@@ -85,11 +98,17 @@ func newSnapshotProcessor(logger *zap.Logger, cfg *Config, processorID component
 		bufferSize:      cfg.BufferSize,
 		refreshInterval: cfg.RefreshInterval,
 
+		onDemand: cfg.BufferMode == bufferModeOnDemand,
+
 		started:  &atomic.Bool{},
 		stopped:  &atomic.Bool{},
 		doneChan: make(chan struct{}),
 		wg:       &sync.WaitGroup{},
 	}
+
+	// In always mode, buffering is permanently armed. In on_demand mode it
+	// stays down until the first snapshot request arrives.
+	sp.armed.Store(!sp.onDemand)
 
 	// Buffers exist only for the configured signal types; pipelines for other
 	// signal types pass telemetry through with no buffering cost.
@@ -146,6 +165,15 @@ func (sp *snapshotProcessor) processOpAMPMessages(o opampcustommessages.CustomCa
 		admitC = admitTicker.C
 	}
 
+	// The disarm ticker lowers on-demand buffering after an idle period (see
+	// maybeDisarm). A nil channel (buffer_mode: always) never fires.
+	var disarmC <-chan time.Time
+	if sp.onDemand {
+		disarmTicker := time.NewTicker(armIdleWindow / 4)
+		defer disarmTicker.Stop()
+		disarmC = disarmTicker.C
+	}
+
 	for {
 		select {
 		case msg := <-o.Message():
@@ -161,6 +189,8 @@ func (sp *snapshotProcessor) processOpAMPMessages(o opampcustommessages.CustomCa
 			sp.admitLogs.Store(true)
 			sp.admitMetrics.Store(true)
 			sp.admitTraces.Store(true)
+		case <-disarmC:
+			sp.maybeDisarm()
 		case <-sp.doneChan:
 			return
 		}
@@ -186,6 +216,28 @@ func (sp *snapshotProcessor) admitBatch(admit *atomic.Bool, buffered int) bool {
 	return admit.Load() && admit.CompareAndSwap(true, false)
 }
 
+// maybeDisarm lowers on-demand buffering and drops the buffered telemetry
+// when no snapshot request has arrived within armIdleWindow.
+func (sp *snapshotProcessor) maybeDisarm() {
+	if !sp.onDemand || !sp.armed.Load() {
+		return
+	}
+	if time.Since(time.Unix(0, sp.lastRequestNs.Load())) <= armIdleWindow {
+		return
+	}
+
+	sp.armed.Store(false)
+	if sp.logBuffer != nil {
+		sp.logBuffer.Reset()
+	}
+	if sp.metricBuffer != nil {
+		sp.metricBuffer.Reset()
+	}
+	if sp.traceBuffer != nil {
+		sp.traceBuffer.Reset()
+	}
+}
+
 func (sp *snapshotProcessor) processSnapshotRequest(cm *protobufs.CustomMessage) {
 	var req snapshotRequest
 	err := yaml.Unmarshal(cm.Data, &req)
@@ -200,6 +252,14 @@ func (sp *snapshotProcessor) processSnapshotRequest(cm *protobufs.CustomMessage)
 	}
 
 	sp.logger.Debug("Processor ID on snapshot message matched", zap.Stringer("processor_id", req.Processor))
+
+	// In on_demand mode, a snapshot request (re-)arms buffering. The first
+	// request after an idle period returns an empty or partial snapshot; the
+	// server's next poll returns a full one.
+	if sp.onDemand {
+		sp.lastRequestNs.Store(time.Now().UnixNano())
+		sp.armed.Store(true)
+	}
 
 	// If not specified, default to 10MiB
 	if req.MaximumPayloadSizeBytes <= 0 {
@@ -286,7 +346,7 @@ func (sp *snapshotProcessor) processSnapshotRequest(cm *protobufs.CustomMessage)
 }
 
 func (sp *snapshotProcessor) processTraces(_ context.Context, td ptrace.Traces) (ptrace.Traces, error) {
-	if sp.enabled && sp.traceBuffer != nil && sp.admitBatch(&sp.admitTraces, sp.traceBuffer.Len()) {
+	if sp.enabled && sp.armed.Load() && sp.traceBuffer != nil && sp.admitBatch(&sp.admitTraces, sp.traceBuffer.Len()) {
 		// Add copies at most the buffer's ideal size out of td; the payload
 		// itself is never retained or mutated.
 		sp.traceBuffer.Add(td)
@@ -296,7 +356,7 @@ func (sp *snapshotProcessor) processTraces(_ context.Context, td ptrace.Traces) 
 }
 
 func (sp *snapshotProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.Logs, error) {
-	if sp.enabled && sp.logBuffer != nil && sp.admitBatch(&sp.admitLogs, sp.logBuffer.Len()) {
+	if sp.enabled && sp.armed.Load() && sp.logBuffer != nil && sp.admitBatch(&sp.admitLogs, sp.logBuffer.Len()) {
 		// Add copies at most the buffer's ideal size out of ld; the payload
 		// itself is never retained or mutated.
 		sp.logBuffer.Add(ld)
@@ -306,7 +366,7 @@ func (sp *snapshotProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.
 }
 
 func (sp *snapshotProcessor) processMetrics(_ context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
-	if sp.enabled && sp.metricBuffer != nil && sp.admitBatch(&sp.admitMetrics, sp.metricBuffer.Len()) {
+	if sp.enabled && sp.armed.Load() && sp.metricBuffer != nil && sp.admitBatch(&sp.admitMetrics, sp.metricBuffer.Len()) {
 		// Add copies at most the buffer's ideal size out of md; the payload
 		// itself is never retained or mutated.
 		sp.metricBuffer.Add(md)

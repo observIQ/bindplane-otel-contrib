@@ -58,6 +58,18 @@ func TestConfigValidate(t *testing.T) {
 		require.ErrorContains(t, cfg.Validate(), "`refresh_interval` cannot be negative")
 	})
 
+	t.Run("buffer_mode must be valid", func(t *testing.T) {
+		cfg := createDefaultConfig().(*Config)
+		cfg.BufferMode = "sometimes"
+		require.ErrorContains(t, cfg.Validate(), `invalid buffer_mode "sometimes"`)
+
+		cfg.BufferMode = "on_demand"
+		require.NoError(t, cfg.Validate())
+
+		cfg.BufferMode = ""
+		require.NoError(t, cfg.Validate())
+	})
+
 	t.Run("signals must be valid", func(t *testing.T) {
 		cfg := createDefaultConfig().(*Config)
 		cfg.Signals = []string{"logs", "gauges"}

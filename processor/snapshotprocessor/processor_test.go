@@ -443,6 +443,43 @@ func TestSignalsConfigLimitsBuffering(t *testing.T) {
 	})
 }
 
+func TestOnDemandBuffering(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	cfg.BufferMode = "on_demand"
+	sp := newSnapshotProcessor(zap.NewNop(), cfg, component.MustNewID("snapshotprocessor"))
+	sp.customCapabilityHandler = benchCapabilityHandler{}
+	ctx := context.Background()
+
+	// Disarmed: telemetry passes through without buffering.
+	_, err := sp.processLogs(ctx, admissionTestBatch("before", 10))
+	require.NoError(t, err)
+	require.Equal(t, 0, sp.logBuffer.Len())
+
+	// A snapshot request for this processor arms buffering.
+	sp.processSnapshotRequest(&protobufs.CustomMessage{
+		Capability: snapshotCapability,
+		Type:       snapshotRequestType,
+		Data:       []byte(fmt.Sprintf(`{"processor":%q,"pipeline_type":"logs","session_id":"s"}`, sp.processorID)),
+	})
+	require.True(t, sp.armed.Load())
+
+	_, err = sp.processLogs(ctx, admissionTestBatch("after", 10))
+	require.NoError(t, err)
+	require.Equal(t, 10, sp.logBuffer.Len())
+
+	// Within the idle window nothing is disarmed.
+	sp.maybeDisarm()
+	require.True(t, sp.armed.Load())
+	require.Equal(t, 10, sp.logBuffer.Len())
+
+	// After the idle window expires, buffering disarms and the buffered
+	// telemetry is dropped.
+	sp.lastRequestNs.Store(time.Now().Add(-2 * armIdleWindow).UnixNano())
+	sp.maybeDisarm()
+	require.False(t, sp.armed.Load())
+	require.Equal(t, 0, sp.logBuffer.Len())
+}
+
 // mockHost for component.Host
 type mockHost struct {
 	extensions map[component.ID]component.Component

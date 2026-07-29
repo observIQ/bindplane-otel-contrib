@@ -42,6 +42,15 @@ const maxBufferSize = 10_000
 // validSignals are the accepted values for the signals option.
 var validSignals = []string{"logs", "metrics", "traces"}
 
+// Buffer modes.
+const (
+	// bufferModeAlways buffers telemetry continuously.
+	bufferModeAlways = "always"
+	// bufferModeOnDemand buffers telemetry only while snapshot requests are
+	// being received.
+	bufferModeOnDemand = "on_demand"
+)
+
 // Config is the configuration for the processor
 type Config struct {
 	// Enable controls whether snapshots are collected
@@ -62,6 +71,15 @@ type Config struct {
 	// "traces"). Signal types not listed pass through with no buffering
 	// cost. An empty list buffers all signal types.
 	Signals []string `mapstructure:"signals"`
+
+	// BufferMode controls when telemetry is buffered. "always" (the default)
+	// buffers continuously. "on_demand" buffers only while snapshot requests
+	// are being received: buffering is armed by the first request and
+	// disarmed - dropping the buffered telemetry - after 60s without one, so
+	// an idle processor costs one atomic load per batch and holds no
+	// telemetry in memory. The first request after an idle period returns an
+	// empty snapshot; the server's next poll returns a full one.
+	BufferMode string `mapstructure:"buffer_mode"`
 }
 
 // Validate validates the processor configuration
@@ -86,6 +104,10 @@ func (cfg Config) Validate() error {
 		if !slices.Contains(validSignals, signal) {
 			return fmt.Errorf("invalid signal type %q: must be one of %v", signal, validSignals)
 		}
+	}
+
+	if cfg.BufferMode != "" && cfg.BufferMode != bufferModeAlways && cfg.BufferMode != bufferModeOnDemand {
+		return fmt.Errorf("invalid buffer_mode %q: must be %q or %q", cfg.BufferMode, bufferModeAlways, bufferModeOnDemand)
 	}
 
 	return nil

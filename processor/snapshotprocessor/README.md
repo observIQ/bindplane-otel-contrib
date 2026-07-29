@@ -24,6 +24,7 @@ The snapshot processor is used in custom distributions of the collector to provi
 | buffer_size      | int      | `100`   | `false`  | Approximate number of log records, metric data points, or spans retained per signal type. Maximum `10000`. |
 | refresh_interval | duration | `250ms` | `false`  | How often a full buffer is refreshed with a new batch. Batches arriving inside the interval pass through with no buffering cost. `0` buffers every batch. |
 | signals          | []string | all     | `false`  | Limits which signal types are buffered (`logs`, `metrics`, `traces`). Signal types not listed pass through with no buffering cost. Empty buffers all signal types. |
+| buffer_mode      | string   | `always`| `false`  | `always` buffers continuously. `on_demand` buffers only while snapshot requests are being received: buffering starts on the first request and stops (dropping buffered telemetry) after 60s without one. With `on_demand`, the first snapshot after an idle period is empty; the server's next poll returns a full one. |
 
 
 ## Examples

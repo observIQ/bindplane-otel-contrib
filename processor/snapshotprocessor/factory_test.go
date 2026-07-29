@@ -31,6 +31,7 @@ func TestNewFactory(t *testing.T) {
 		OpAMP:           defaultOpAMPExtensionID,
 		BufferSize:      defaultBufferSize,
 		RefreshInterval: defaultRefreshInterval,
+		BufferMode:      bufferModeAlways,
 	}
 
 	cfg, ok := factory.CreateDefaultConfig().(*Config)
