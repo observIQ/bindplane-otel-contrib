@@ -15,8 +15,6 @@
 package snapshotprocessor
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -190,7 +188,7 @@ func (sp *snapshotProcessor) processSnapshotRequest(cm *protobufs.CustomMessage)
 		return
 	}
 
-	compressedResponse, err := compress(response)
+	compressedResponse, err := snapshot.Compress(response)
 	if err != nil {
 		sp.logger.Error("Failed to compress snapshot payload.", zap.Error(err))
 		return
@@ -274,20 +272,4 @@ func (sp *snapshotProcessor) stop(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// compress gzip compresses the input data
-func compress(data []byte) ([]byte, error) {
-	var b bytes.Buffer
-	w := gzip.NewWriter(&b)
-	_, err := w.Write(data)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
-
-	return b.Bytes(), nil
 }

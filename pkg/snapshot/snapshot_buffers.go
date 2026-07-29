@@ -15,8 +15,6 @@
 package snapshot
 
 import (
-	"bytes"
-	"compress/gzip"
 	"fmt"
 	"sync"
 	"time"
@@ -148,7 +146,7 @@ func (l *LogBuffer) ConstructPayload(logsMarshaler plog.Marshaler, searchQuery *
 		}
 
 		// Compress and check size
-		compressedPayload, err := compress(payload)
+		compressedPayload, err := Compress(payload)
 		if err != nil {
 			lastError = fmt.Errorf("failed to compress payload: %w", err)
 			break
@@ -296,7 +294,7 @@ func (l *MetricBuffer) ConstructPayload(metricMarshaler pmetric.Marshaler, searc
 		}
 
 		// Compress and check size
-		compressedPayload, err := compress(payload)
+		compressedPayload, err := Compress(payload)
 		if err != nil {
 			lastError = fmt.Errorf("failed to compress payload: %w", err)
 			break
@@ -444,7 +442,7 @@ func (l *TraceBuffer) ConstructPayload(traceMarshaler ptrace.Marshaler, searchQu
 		}
 
 		// Compress and check size
-		compressedPayload, err := compress(payload)
+		compressedPayload, err := Compress(payload)
 		if err != nil {
 			lastError = fmt.Errorf("failed to compress payload: %w", err)
 			break
@@ -468,20 +466,4 @@ func (l *TraceBuffer) ConstructPayload(traceMarshaler ptrace.Marshaler, searchQu
 	// so clear the buffer and return the last error seen
 	l.setBuffer([]traceEntry{})
 	return nil, lastError
-}
-
-// compress gzip compresses the data
-func compress(data []byte) ([]byte, error) {
-	var b bytes.Buffer
-	w := gzip.NewWriter(&b)
-	_, err := w.Write(data)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
-
-	return b.Bytes(), nil
 }
