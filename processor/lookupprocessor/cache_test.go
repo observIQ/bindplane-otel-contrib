@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/extension"
@@ -75,6 +76,8 @@ func TestLookupCache_InMemory_HitMissExpiry(t *testing.T) {
 	c, err := NewLookupCache(context.Background(), fs, 500*time.Millisecond, true, nil, nil, newComponentID(t, "mem"), "logs", zap.NewNop())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
+	fclock := clockwork.NewFakeClock()
+	c.clock = fclock
 
 	// First call populates cache.
 	_, err = c.Lookup(context.Background(), "k")
@@ -86,8 +89,8 @@ func TestLookupCache_InMemory_HitMissExpiry(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, fs.calls)
 
-	// Wait past TTL, expect another source call.
-	time.Sleep(1100 * time.Millisecond)
+	// Advance past the TTL, expect another source call.
+	fclock.Advance(600 * time.Millisecond)
 	_, err = c.Lookup(context.Background(), "k")
 	require.NoError(t, err)
 	require.Equal(t, 2, fs.calls)
@@ -98,12 +101,14 @@ func TestLookupCache_InMemory_ExpiredEntryDeleted(t *testing.T) {
 	c, err := NewLookupCache(context.Background(), fs, 50*time.Millisecond, true, nil, nil, newComponentID(t, "evict"), "logs", zap.NewNop())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
+	fclock := clockwork.NewFakeClock()
+	c.clock = fclock
 
 	_, err = c.Lookup(context.Background(), "k")
 	require.NoError(t, err)
 	require.Len(t, c.mem, 1)
 
-	time.Sleep(100 * time.Millisecond)
+	fclock.Advance(60 * time.Millisecond)
 
 	// Lookup a different key after expiry; the expired entry for "k" must be
 	// evicted as a side effect of the get() path even though we are not
@@ -126,6 +131,8 @@ func TestLookupCache_StorageExtension_ExpiredEntryDeleted(t *testing.T) {
 	c, err := NewLookupCache(context.Background(), fs, 50*time.Millisecond, true, &storageID, host, newComponentID(t, "evict-stor"), "logs", zap.NewNop())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
+	fclock := clockwork.NewFakeClock()
+	c.clock = fclock
 
 	_, err = c.Lookup(context.Background(), "k")
 	require.NoError(t, err)
@@ -134,7 +141,7 @@ func TestLookupCache_StorageExtension_ExpiredEntryDeleted(t *testing.T) {
 	require.NotNil(t, client)
 	require.Len(t, client.data, 1)
 
-	time.Sleep(100 * time.Millisecond)
+	fclock.Advance(60 * time.Millisecond)
 
 	_, found, err := c.get(context.Background(), "k")
 	require.NoError(t, err)
@@ -266,6 +273,8 @@ func TestLookupCache_StorageExtension_HitMissExpiryAndNaming(t *testing.T) {
 	fs := &fakeSource{data: map[string]map[string]string{"k": {"a": "1"}}}
 	logsCache, err := NewLookupCache(context.Background(), fs, 200*time.Millisecond, true, &storageID, host, cid, "logs", zap.NewNop())
 	require.NoError(t, err)
+	fclock := clockwork.NewFakeClock()
+	logsCache.clock = fclock
 
 	fs2 := &fakeSource{data: map[string]map[string]string{"k": {"a": "1"}}}
 	tracesCache, err := NewLookupCache(context.Background(), fs2, 200*time.Millisecond, true, &storageID, host, cid, "traces", zap.NewNop())
@@ -280,8 +289,8 @@ func TestLookupCache_StorageExtension_HitMissExpiryAndNaming(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, fs.calls)
 
-	// Expire and re-fetch.
-	time.Sleep(250 * time.Millisecond)
+	// Advance past the TTL and re-fetch.
+	fclock.Advance(210 * time.Millisecond)
 	_, err = logsCache.Lookup(context.Background(), "k")
 	require.NoError(t, err)
 	require.Equal(t, 2, fs.calls)
