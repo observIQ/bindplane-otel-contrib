@@ -19,7 +19,7 @@ The snapshot processor is used in custom distributions of the collector to provi
 
 | Field            | Type     | Default | Required | Description                                                            |
 |------------------|----------|---------|----------|------------------------------------------------------------------------|
-| enabled          | bool     | `true`  | `false`  | Whether the snapshot processor is enabled or not. When disabled, telemetry passes through without being buffered. |
+| enabled          | bool     | `true`  | `false`  | Whether the snapshot processor is enabled or not. When disabled, telemetry passes through without being buffered. The component still reports the collector's standard processor telemetry (incoming/outgoing item counts and duration) per batch; remove the processor from the pipeline entirely to eliminate all overhead. |
 | opamp            | string   | `opamp` | `false`  | Specifies the ID of the opamp extension for sending custom messages.   |
 | buffer_size      | int      | `100`   | `false`  | Approximate number of log records, metric data points, or spans retained per signal type. Maximum `10000`. |
 | refresh_interval | duration | `250ms` | `false`  | How often a full buffer is refreshed with a new batch. Batches arriving inside the interval pass through with no buffering cost. `0` buffers every batch. |
