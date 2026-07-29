@@ -8,6 +8,7 @@ require (
 	github.com/bodgit/sevenzip v1.6.5
 	github.com/gabriel-vasile/mimetype v1.4.15
 	github.com/google/go-cmp v0.7.0
+	github.com/jonboulle/clockwork v0.5.0
 	github.com/klauspost/compress v1.19.1
 	github.com/linkedin/goavro/v2 v2.15.0
 	github.com/nwaples/rardecode/v2 v2.2.5

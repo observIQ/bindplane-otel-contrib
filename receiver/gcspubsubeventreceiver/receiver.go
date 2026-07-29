@@ -26,6 +26,7 @@ import (
 	subscriber "cloud.google.com/go/pubsub/apiv1"
 	"cloud.google.com/go/pubsub/apiv1/pubsubpb"
 	"cloud.google.com/go/storage"
+	"github.com/jonboulle/clockwork"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pipeline"
@@ -418,12 +419,16 @@ type recentTracker struct {
 	mu   sync.Mutex
 	seen map[objectKey]time.Time
 	ttl  time.Duration
+	// clock backs the TTL window; real in production, a fake clock in tests so
+	// expiry can be exercised without sleeping.
+	clock clockwork.Clock
 }
 
 func newRecentTracker(ttl time.Duration) *recentTracker {
 	return &recentTracker{
-		seen: make(map[objectKey]time.Time),
-		ttl:  ttl,
+		seen:  make(map[objectKey]time.Time),
+		ttl:   ttl,
+		clock: clockwork.NewRealClock(),
 	}
 }
 
@@ -431,7 +436,7 @@ func newRecentTracker(ttl time.Duration) *recentTracker {
 func (rt *recentTracker) Mark(key objectKey) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	rt.seen[key] = time.Now()
+	rt.seen[key] = rt.clock.Now()
 }
 
 // IsDuplicate returns true if the key was processed within the TTL window.
@@ -439,7 +444,7 @@ func (rt *recentTracker) IsDuplicate(key objectKey) bool {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	if t, ok := rt.seen[key]; ok {
-		if time.Since(t) < rt.ttl {
+		if rt.clock.Now().Sub(t) < rt.ttl {
 			return true
 		}
 		delete(rt.seen, key) // expired
@@ -451,7 +456,7 @@ func (rt *recentTracker) IsDuplicate(key objectKey) bool {
 func (rt *recentTracker) Evict() {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	now := time.Now()
+	now := rt.clock.Now()
 	for k, t := range rt.seen {
 		if now.Sub(t) >= rt.ttl {
 			delete(rt.seen, k)
