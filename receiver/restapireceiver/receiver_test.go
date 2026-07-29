@@ -460,8 +460,10 @@ func TestRESTAPILogsReceiver_StartShutdown(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait a bit for polling
-	time.Sleep(200 * time.Millisecond)
+	// Poll until the receiver emits at least one batch, then shut down.
+	require.Eventually(t, func() bool {
+		return len(sink.AllLogs()) > 0
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -509,8 +511,10 @@ func TestRESTAPIMetricsReceiver_StartShutdown(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait a bit for polling
-	time.Sleep(200 * time.Millisecond)
+	// Poll until the receiver emits at least one batch, then shut down.
+	require.Eventually(t, func() bool {
+		return len(sink.AllMetrics()) > 0
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -587,8 +591,10 @@ func TestRESTAPILogsReceiver_WithPagination(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait for at least one poll cycle (which will fetch all pages)
-	time.Sleep(200 * time.Millisecond)
+	// Poll until all pages of the first cycle have been collected, then shut down.
+	require.Eventually(t, func() bool {
+		return logRecordCount(sink) >= 4
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -671,8 +677,10 @@ func TestRESTAPILogsReceiver_WithTimestampPagination(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait for a poll cycle (which will fetch all pages)
-	time.Sleep(200 * time.Millisecond)
+	// Poll until more than one page has been fetched, then shut down.
+	require.Eventually(t, func() bool {
+		return pageCount.Load() > 1
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -691,7 +699,9 @@ func TestRESTAPILogsReceiver_WithTimestampPagination(t *testing.T) {
 }
 
 func TestRESTAPILogsReceiver_ErrorHandling(t *testing.T) {
+	var requestCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount.Add(1)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Internal Server Error"))
 	}))
@@ -722,17 +732,23 @@ func TestRESTAPILogsReceiver_ErrorHandling(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait a bit - should handle errors gracefully
-	time.Sleep(200 * time.Millisecond)
+	// Poll until the receiver has attempted at least two polls, proving it keeps
+	// polling after a server error instead of crashing or stopping.
+	require.Eventually(t, func() bool {
+		return requestCount.Load() >= 2
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
 
 	// Receiver should still be running (errors logged but don't crash)
+	require.GreaterOrEqual(t, int(requestCount.Load()), 2)
 }
 
 func TestRESTAPILogsReceiver_EmptyResponse(t *testing.T) {
+	var requestCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount.Add(1)
 		response := []map[string]any{}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
@@ -764,14 +780,17 @@ func TestRESTAPILogsReceiver_EmptyResponse(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait a bit
-	time.Sleep(200 * time.Millisecond)
+	// Poll until at least one poll cycle has hit the endpoint, then shut down.
+	require.Eventually(t, func() bool {
+		return requestCount.Load() >= 1
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
 
 	// Empty responses should be handled gracefully
 	// May or may not have logs depending on implementation
+	require.GreaterOrEqual(t, int(requestCount.Load()), 1)
 }
 
 func TestRESTAPILogsReceiver_NestedResponseField(t *testing.T) {
@@ -819,8 +838,10 @@ func TestRESTAPILogsReceiver_NestedResponseField(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait a bit for polling
-	time.Sleep(200 * time.Millisecond)
+	// Poll until the nested field has yielded records, then shut down.
+	require.Eventually(t, func() bool {
+		return logRecordCount(sink) >= 2
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -883,8 +904,10 @@ func TestRESTAPILogsReceiver_DeeplyNestedResponseField(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait a bit for polling
-	time.Sleep(200 * time.Millisecond)
+	// Poll until the deeply nested field has yielded records, then shut down.
+	require.Eventually(t, func() bool {
+		return logRecordCount(sink) >= 3
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -949,7 +972,10 @@ func TestRESTAPILogsReceiver_ArrayIndexedResponseField(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	// Poll until intervals[0].readings has yielded its records, then shut down.
+	require.Eventually(t, func() bool {
+		return logRecordCount(sink) >= 2
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -1014,9 +1040,11 @@ func TestRESTAPILogsReceiver_AdaptivePolling_Backoff(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait for several poll cycles - with backoff, interval increases: 1s -> 2s -> 4s... capped at 100ms
-	// Starting from min_poll_interval, it would take multiple empty responses to reach max
-	time.Sleep(500 * time.Millisecond)
+	// Poll until more than one request has occurred (initial poll plus at least one
+	// backoff cycle), then shut down.
+	require.Eventually(t, func() bool {
+		return requestCount.Load() > 1
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -1064,8 +1092,10 @@ func TestRESTAPILogsReceiver_AdaptivePolling_PartialResponseBacksOff(t *testing.
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// Wait for several poll cycles - partial responses should back off
-	time.Sleep(300 * time.Millisecond)
+	// Poll until multiple requests have occurred and logs have arrived, then shut down.
+	require.Eventually(t, func() bool {
+		return requestCount.Load() > 1 && len(sink.AllLogs()) > 0
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -1128,9 +1158,11 @@ func TestRESTAPILogsReceiver_AdaptivePolling_PageLimitResetsInterval(t *testing.
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	// With page limit hit each cycle, interval should stay at min (10s),
-	// so we should see many requests in a short window.
-	time.Sleep(200 * time.Millisecond)
+	// Poll until many requests have occurred (page limit hit each cycle keeps the
+	// interval at min), then shut down.
+	require.Eventually(t, func() bool {
+		return requestCount.Load() > 4
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -1186,7 +1218,10 @@ func TestRESTAPILogsReceiver_NDJSONWithBodyOffset(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
+	// Poll until the NDJSON pages have yielded their records, then shut down.
+	require.Eventually(t, func() bool {
+		return logRecordCount(sink) >= 2
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -1268,7 +1303,10 @@ func TestRESTAPILogsReceiver_HeaderBasedOffset(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
+	// Poll until both pages have yielded their records, then shut down.
+	require.Eventually(t, func() bool {
+		return logRecordCount(sink) >= 11 && requestCount.Load() >= 2
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -1343,7 +1381,10 @@ func TestRESTAPILogsReceiver_HeaderBasedTotalCount(t *testing.T) {
 	err = receiver.Start(ctx, host)
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
+	// Poll until both pages have yielded their records, then shut down.
+	require.Eventually(t, func() bool {
+		return logRecordCount(sink) >= 4
+	}, 5*time.Second, 10*time.Millisecond)
 
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
@@ -1533,4 +1574,15 @@ func TestGetNestedField(t *testing.T) {
 			}
 		})
 	}
+}
+
+// logRecordCount returns the total number of log records the sink has collected
+// across all batches. It is used as an Eventually condition to wait for a poll
+// cycle to deliver the expected records instead of sleeping a fixed duration.
+func logRecordCount(sink *consumertest.LogsSink) int {
+	total := 0
+	for _, logs := range sink.AllLogs() {
+		total += logs.LogRecordCount()
+	}
+	return total
 }
