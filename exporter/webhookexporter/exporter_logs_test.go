@@ -953,8 +953,13 @@ func TestQueueBatchSettings(t *testing.T) {
 			} else {
 				require.NoError(t, err, tc.description)
 
-				// Wait a bit for async processing
-				time.Sleep(100 * time.Millisecond)
+				// Poll until all logs have been received; requests are made concurrently.
+				require.Eventually(t, func() bool {
+					<-requestCountLock
+					n := len(receivedLogs)
+					requestCountLock <- struct{}{}
+					return n == tc.numLogs
+				}, 5*time.Second, 10*time.Millisecond)
 
 				<-requestCountLock
 				finalRequestCount := requestCount
