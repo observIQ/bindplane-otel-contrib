@@ -4,6 +4,7 @@ go 1.26.4
 
 require (
 	github.com/dgraph-io/badger/v4 v4.9.5
+	github.com/jonboulle/clockwork v0.5.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.63.0
 	go.opentelemetry.io/collector/component/componenttest v0.157.0

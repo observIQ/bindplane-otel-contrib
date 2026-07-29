@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/observiq/bindplane-otel-contrib/extension/badgerextension/internal/client/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -380,11 +381,17 @@ func TestBadgerExtension_GarbageCollection(t *testing.T) {
 		require.NoError(t, err)
 
 		// Start the extension (which starts GC)
+		fclock := clockwork.NewFakeClock()
+		ext.clock = fclock
 		err = ext.Start(context.Background(), nil)
 		require.NoError(t, err)
 
-		// Wait for at least one GC cycle
-		time.Sleep(100 * time.Millisecond)
+		// Fire one GC cycle deterministically: wait until the GC loop parks on the
+		// ticker, then advance past the interval.
+		bctx, bcancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer bcancel()
+		require.NoError(t, fclock.BlockUntilContext(bctx, 1))
+		fclock.Advance(cfg.BlobGarbageCollection.Interval)
 
 		// Shutdown
 		err = ext.Shutdown(context.Background())
@@ -416,11 +423,20 @@ func TestBadgerExtension_GarbageCollection(t *testing.T) {
 		ext.clients["test_client"] = mockClient
 
 		// Start the extension (which starts GC)
+		fclock := clockwork.NewFakeClock()
+		ext.clock = fclock
 		err := ext.Start(context.Background(), nil)
 		require.NoError(t, err)
 
-		// Wait for at least one GC cycle to execute
-		time.Sleep(100 * time.Millisecond)
+		// Fire one GC cycle deterministically, then wait for the failure to be logged.
+		bctx, bcancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer bcancel()
+		require.NoError(t, fclock.BlockUntilContext(bctx, 1))
+		fclock.Advance(cfg.BlobGarbageCollection.Interval)
+
+		require.Eventually(t, func() bool {
+			return logs.FilterMessage("value log garbage collection failed").Len() > 0
+		}, 5*time.Second, 10*time.Millisecond)
 
 		// Shutdown
 		err = ext.Shutdown(context.Background())
