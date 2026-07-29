@@ -22,6 +22,7 @@ import (
 	subscriber "cloud.google.com/go/pubsub/apiv1"
 	"cloud.google.com/go/pubsub/apiv1/pubsubpb"
 	"cloud.google.com/go/pubsub/pstest"
+	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/receiver/receivertest"
@@ -216,10 +217,12 @@ func TestRecentTracker_Expiry(t *testing.T) {
 	t.Parallel()
 
 	key := objectKey{Bucket: "b", Object: "o", Generation: "1"}
+	fclock := clockwork.NewFakeClock()
 	rt := newRecentTracker(1 * time.Millisecond) // tiny TTL for test
+	rt.clock = fclock
 
 	rt.Mark(key)
-	time.Sleep(5 * time.Millisecond) // wait for expiry
+	fclock.Advance(2 * time.Millisecond) // advance past the TTL
 
 	require.False(t, rt.IsDuplicate(key), "expired key must not be duplicate")
 }
@@ -228,10 +231,12 @@ func TestRecentTracker_Expiry(t *testing.T) {
 func TestRecentTracker_Evict(t *testing.T) {
 	t.Parallel()
 
+	fclock := clockwork.NewFakeClock()
 	rt := newRecentTracker(1 * time.Millisecond)
+	rt.clock = fclock
 	rt.Mark(objectKey{Bucket: "b", Object: "o", Generation: "1"})
 
-	time.Sleep(5 * time.Millisecond)
+	fclock.Advance(2 * time.Millisecond)
 	rt.Evict()
 
 	rt.mu.Lock()
