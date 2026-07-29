@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/observiq/bindplane-otel-contrib/pkg/snapshot"
 	"github.com/open-telemetry/opamp-go/client/types"
@@ -53,6 +54,19 @@ type snapshotProcessor struct {
 	metricBuffer *snapshot.MetricBuffer
 	traceBuffer  *snapshot.TraceBuffer
 
+	// bufferSize is the per-signal buffer capacity in records/data points/spans.
+	bufferSize int
+	// refreshInterval bounds how often a batch is admitted to a full buffer.
+	// Zero admits every batch.
+	refreshInterval time.Duration
+
+	// admit* re-arm once per refreshInterval (from the processOpAMPMessages
+	// goroutine) and are consumed by the first batch to CAS them off. The
+	// rejected path costs two atomic loads and never takes a lock.
+	admitLogs    atomic.Bool
+	admitMetrics atomic.Bool
+	admitTraces  atomic.Bool
+
 	started  *atomic.Bool
 	stopped  *atomic.Bool
 	doneChan chan struct{}
@@ -71,6 +85,9 @@ func newSnapshotProcessor(logger *zap.Logger, cfg *Config, processorID component
 		logBuffer:    snapshot.NewLogBuffer(100),
 		metricBuffer: snapshot.NewMetricBuffer(100),
 		traceBuffer:  snapshot.NewTraceBuffer(100),
+
+		bufferSize:      100,
+		refreshInterval: cfg.RefreshInterval,
 
 		started:  &atomic.Bool{},
 		stopped:  &atomic.Bool{},
@@ -109,6 +126,16 @@ func (sp *snapshotProcessor) start(_ context.Context, host component.Host) error
 
 func (sp *snapshotProcessor) processOpAMPMessages(o opampcustommessages.CustomCapabilityHandler) {
 	defer sp.wg.Done()
+
+	// The admit ticker re-arms buffer admission once per refresh interval
+	// (see admitBatch). A nil channel (refresh_interval of 0) never fires.
+	var admitC <-chan time.Time
+	if sp.refreshInterval > 0 {
+		admitTicker := time.NewTicker(sp.refreshInterval)
+		defer admitTicker.Stop()
+		admitC = admitTicker.C
+	}
+
 	for {
 		select {
 		case msg := <-o.Message():
@@ -120,10 +147,33 @@ func (sp *snapshotProcessor) processOpAMPMessages(o opampcustommessages.CustomCa
 				sp.logger.Warn("Received message of unknown type.", zap.String("messageType", msg.Type))
 			}
 			continue
+		case <-admitC:
+			sp.admitLogs.Store(true)
+			sp.admitMetrics.Store(true)
+			sp.admitTraces.Store(true)
 		case <-sp.doneChan:
 			return
 		}
 	}
+}
+
+// admitBatch reports whether a batch should be admitted to a buffer. Batches
+// are admitted freely until the buffer reaches capacity so low-rate pipelines
+// fill it promptly; after that, one batch is admitted per refresh interval.
+// The rejected path is lock-free: one atomic buffer-length load plus one
+// atomic flag load.
+func (sp *snapshotProcessor) admitBatch(admit *atomic.Bool, buffered int) bool {
+	if sp.refreshInterval <= 0 {
+		return true
+	}
+
+	if buffered < sp.bufferSize {
+		return true
+	}
+
+	// Load before the CAS so the common rejected case is a plain read that
+	// causes no cross-core cache-line traffic.
+	return admit.Load() && admit.CompareAndSwap(true, false)
 }
 
 func (sp *snapshotProcessor) processSnapshotRequest(cm *protobufs.CustomMessage) {
@@ -214,7 +264,7 @@ func (sp *snapshotProcessor) processSnapshotRequest(cm *protobufs.CustomMessage)
 }
 
 func (sp *snapshotProcessor) processTraces(_ context.Context, td ptrace.Traces) (ptrace.Traces, error) {
-	if sp.enabled {
+	if sp.enabled && sp.admitBatch(&sp.admitTraces, sp.traceBuffer.Len()) {
 		// Add copies at most the buffer's ideal size out of td; the payload
 		// itself is never retained or mutated.
 		sp.traceBuffer.Add(td)
@@ -224,7 +274,7 @@ func (sp *snapshotProcessor) processTraces(_ context.Context, td ptrace.Traces) 
 }
 
 func (sp *snapshotProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.Logs, error) {
-	if sp.enabled {
+	if sp.enabled && sp.admitBatch(&sp.admitLogs, sp.logBuffer.Len()) {
 		// Add copies at most the buffer's ideal size out of ld; the payload
 		// itself is never retained or mutated.
 		sp.logBuffer.Add(ld)
@@ -234,7 +284,7 @@ func (sp *snapshotProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.
 }
 
 func (sp *snapshotProcessor) processMetrics(_ context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
-	if sp.enabled {
+	if sp.enabled && sp.admitBatch(&sp.admitMetrics, sp.metricBuffer.Len()) {
 		// Add copies at most the buffer's ideal size out of md; the payload
 		// itself is never retained or mutated.
 		sp.metricBuffer.Add(md)

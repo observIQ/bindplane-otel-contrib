@@ -17,17 +17,29 @@ package snapshotprocessor
 
 import (
 	"errors"
+	"time"
 
 	"go.opentelemetry.io/collector/component"
 )
 
 var defaultOpAMPExtensionID = component.MustNewID("opamp")
 
+// defaultRefreshInterval bounds how often full snapshot buffers are refreshed
+// with a new batch. A snapshot is an on-demand debug view, so refreshing it
+// faster than a few times per second buys nothing a human can perceive.
+const defaultRefreshInterval = 250 * time.Millisecond
+
 // Config is the configuration for the processor
 type Config struct {
 	// Enable controls whether snapshots are collected
 	Enabled bool         `mapstructure:"enabled"`
 	OpAMP   component.ID `mapstructure:"opamp"`
+
+	// RefreshInterval bounds how often a telemetry batch is admitted to the
+	// snapshot buffers once they are full. Batches arriving inside the
+	// interval pass through with no buffering cost. Zero admits every batch.
+	// Defaults to 250ms.
+	RefreshInterval time.Duration `mapstructure:"refresh_interval"`
 }
 
 // Validate validates the processor configuration
@@ -35,6 +47,10 @@ func (cfg Config) Validate() error {
 	var emptyID component.ID
 	if cfg.OpAMP == emptyID {
 		return errors.New("`opamp` must be specified")
+	}
+
+	if cfg.RefreshInterval < 0 {
+		return errors.New("`refresh_interval` cannot be negative")
 	}
 
 	return nil

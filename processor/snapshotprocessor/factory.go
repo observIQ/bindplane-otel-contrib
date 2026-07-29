@@ -45,8 +45,9 @@ func NewFactory() processor.Factory {
 
 func createDefaultConfig() component.Config {
 	return &Config{
-		Enabled: true,
-		OpAMP:   defaultOpAMPExtensionID,
+		Enabled:         true,
+		OpAMP:           defaultOpAMPExtensionID,
+		RefreshInterval: defaultRefreshInterval,
 	}
 }
 

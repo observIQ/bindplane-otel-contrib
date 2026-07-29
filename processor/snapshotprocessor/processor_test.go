@@ -33,7 +33,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer/consumertest"
+	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/processor/processortest"
+	"go.uber.org/zap"
 )
 
 func TestProcess_Logs(t *testing.T) {
@@ -317,6 +319,93 @@ func TestProcess_Metrics_PreservesTemporalityWithFiltering(t *testing.T) {
 		}
 	}
 	require.True(t, foundTransmit, "Filtered metric should contain 'transmit' attribute")
+}
+
+// admissionTestBatch builds a logs batch of the given size whose record
+// bodies carry the given tag, so tests can tell which batch the buffer holds.
+func admissionTestBatch(tag string, records int) plog.Logs {
+	ld := plog.NewLogs()
+	sl := ld.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty()
+	for i := 0; i < records; i++ {
+		sl.LogRecords().AppendEmpty().Body().SetStr(tag)
+	}
+	return ld
+}
+
+// bufferedBody returns the body of the first buffered log record.
+func bufferedBody(t *testing.T, sp *snapshotProcessor) string {
+	t.Helper()
+
+	payload, err := sp.logBuffer.ConstructPayload(&plog.ProtoMarshaler{}, nil, nil, 10*1024*1024)
+	require.NoError(t, err)
+
+	ld, err := (&plog.ProtoUnmarshaler{}).UnmarshalLogs(payload)
+	require.NoError(t, err)
+	require.Greater(t, ld.LogRecordCount(), 0)
+
+	return ld.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0).Body().Str()
+}
+
+func TestRateLimitedAdmission(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	cfg.RefreshInterval = time.Hour // never re-arms during the test
+	sp := newSnapshotProcessor(zap.NewNop(), cfg, component.MustNewID("snapshotprocessor"))
+	ctx := context.Background()
+
+	// An empty buffer admits unconditionally so it fills promptly.
+	_, err := sp.processLogs(ctx, admissionTestBatch("first", 100))
+	require.NoError(t, err)
+	require.Equal(t, 100, sp.logBuffer.Len())
+	require.Equal(t, "first", bufferedBody(t, sp))
+
+	// The buffer is full and the admit flag is down: rejected.
+	_, err = sp.processLogs(ctx, admissionTestBatch("second", 100))
+	require.NoError(t, err)
+	require.Equal(t, "first", bufferedBody(t, sp))
+
+	// Re-arm (normally done by the refresh ticker): exactly one batch is
+	// admitted, then admission closes again.
+	sp.admitLogs.Store(true)
+	_, err = sp.processLogs(ctx, admissionTestBatch("third", 100))
+	require.NoError(t, err)
+	require.Equal(t, "third", bufferedBody(t, sp))
+
+	_, err = sp.processLogs(ctx, admissionTestBatch("fourth", 100))
+	require.NoError(t, err)
+	require.Equal(t, "third", bufferedBody(t, sp))
+}
+
+func TestAdmissionDisabledRefreshAdmitsEveryBatch(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	cfg.RefreshInterval = 0
+	sp := newSnapshotProcessor(zap.NewNop(), cfg, component.MustNewID("snapshotprocessor"))
+	ctx := context.Background()
+
+	_, err := sp.processLogs(ctx, admissionTestBatch("first", 100))
+	require.NoError(t, err)
+	_, err = sp.processLogs(ctx, admissionTestBatch("second", 100))
+	require.NoError(t, err)
+
+	require.Equal(t, "second", bufferedBody(t, sp))
+}
+
+// TestProcessLogs_RejectedPathDoesNotAllocate pins the steady-state hot path:
+// once the buffer is full and the refresh interval has not elapsed, a batch
+// must pass through without allocating.
+func TestProcessLogs_RejectedPathDoesNotAllocate(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	sp := newSnapshotProcessor(zap.NewNop(), cfg, component.MustNewID("snapshotprocessor"))
+	ctx := context.Background()
+
+	// Fill the buffer so subsequent batches take the rejected path.
+	_, err := sp.processLogs(ctx, admissionTestBatch("fill", 100))
+	require.NoError(t, err)
+
+	ld := admissionTestBatch("steady", 1000)
+	allocs := testing.AllocsPerRun(100, func() {
+		_, _ = sp.processLogs(ctx, ld)
+	})
+	require.Zero(t, allocs, "rejected-path processLogs must not allocate")
 }
 
 // mockHost for component.Host

@@ -67,11 +67,11 @@ func benchGCMetrics(b *testing.B, loop func()) {
 
 // benchProcessor constructs a processor directly, bypassing the factory so the
 // shared processors map is not involved and no OpAMP extension is required.
+// It uses the default configuration, so once the buffer is full the steady
+// state measured is the default rate-limited admission path.
 func benchProcessor(enabled bool) *snapshotProcessor {
-	cfg := &Config{
-		Enabled: enabled,
-		OpAMP:   defaultOpAMPExtensionID,
-	}
+	cfg := createDefaultConfig().(*Config)
+	cfg.Enabled = enabled
 	return newSnapshotProcessor(zap.NewNop(), cfg, component.MustNewID("snapshotprocessor"))
 }
 
@@ -272,6 +272,25 @@ func BenchmarkProcessLogs_AttributeCount(b *testing.B) {
 			})
 		})
 	}
+}
+
+// BenchmarkProcessLogs_AdmitEveryBatch measures the per-batch cost with rate
+// limiting disabled (refresh_interval: 0), so every batch pays the bounded
+// buffer copy.
+func BenchmarkProcessLogs_AdmitEveryBatch(b *testing.B) {
+	cfg := createDefaultConfig().(*Config)
+	cfg.RefreshInterval = 0
+	sp := newSnapshotProcessor(zap.NewNop(), cfg, component.MustNewID("snapshotprocessor"))
+	ld := benchLogs(1_000, 10, 256)
+	ctx := context.Background()
+
+	benchGCMetrics(b, func() {
+		for i := 0; i < b.N; i++ {
+			if _, err := sp.processLogs(ctx, ld); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }
 
 // BenchmarkProcessLogs_Disabled measures the cost of a batch passing through a

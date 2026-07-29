@@ -27,8 +27,9 @@ func TestNewFactory(t *testing.T) {
 	require.Equal(t, componentType, factory.Type())
 
 	expectedCfg := &Config{
-		Enabled: true,
-		OpAMP:   defaultOpAMPExtensionID,
+		Enabled:         true,
+		OpAMP:           defaultOpAMPExtensionID,
+		RefreshInterval: defaultRefreshInterval,
 	}
 
 	cfg, ok := factory.CreateDefaultConfig().(*Config)
