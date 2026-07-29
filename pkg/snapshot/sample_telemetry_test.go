@@ -24,64 +24,42 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
-func TestGenerateLogPositions(t *testing.T) {
-	testCases := []struct {
-		desc     string
-		logs     plog.Logs
-		expected []logPosition
-	}{
-		{
-			desc:     "Empty logs",
-			logs:     plog.NewLogs(),
-			expected: []logPosition{},
-		},
-		{
-			desc: "Single log record",
-			logs: func() plog.Logs {
-				logs := plog.NewLogs()
-				logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
-				return logs
-			}(),
-			expected: []logPosition{
-				{resourceIdx: 0, scopeIdx: 0, logIdx: 0},
-			},
-		},
-		{
-			desc: "Multiple resources, scopes, and logs",
-			logs: func() plog.Logs {
-				logs := plog.NewLogs()
-				// Resource 0, Scope 0: 2 logs
-				rl0 := logs.ResourceLogs().AppendEmpty()
-				sl0 := rl0.ScopeLogs().AppendEmpty()
-				sl0.LogRecords().AppendEmpty()
-				sl0.LogRecords().AppendEmpty()
-				// Resource 0, Scope 1: 1 log
-				sl1 := rl0.ScopeLogs().AppendEmpty()
-				sl1.LogRecords().AppendEmpty()
-				// Resource 1, Scope 0: 1 log
-				rl1 := logs.ResourceLogs().AppendEmpty()
-				rl1.ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
-				return logs
-			}(),
-			expected: []logPosition{
-				{resourceIdx: 0, scopeIdx: 0, logIdx: 0},
-				{resourceIdx: 0, scopeIdx: 0, logIdx: 1},
-				{resourceIdx: 0, scopeIdx: 1, logIdx: 0},
-				{resourceIdx: 1, scopeIdx: 0, logIdx: 0},
-			},
-		},
-	}
+func TestSelectSampledIndices(t *testing.T) {
+	t.Run("selects exactly target indices", func(t *testing.T) {
+		keep := selectSampledIndices(100, 25)
+		require.Len(t, keep, 100)
 
-	for _, tc := range testCases {
-		t.Run(tc.desc, func(t *testing.T) {
-			result := generateLogPositions(tc.logs)
-			assert.Equal(t, tc.expected, result)
-		})
-	}
+		selected := 0
+		for _, k := range keep {
+			if k {
+				selected++
+			}
+		}
+		assert.Equal(t, 25, selected)
+	})
+
+	t.Run("zero target selects nothing", func(t *testing.T) {
+		keep := selectSampledIndices(100, 0)
+		for _, k := range keep {
+			assert.False(t, k)
+		}
+	})
+
+	t.Run("target equal to n selects everything", func(t *testing.T) {
+		keep := selectSampledIndices(10, 10)
+		for _, k := range keep {
+			assert.True(t, k)
+		}
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		keep := selectSampledIndices(0, 0)
+		assert.Empty(t, keep)
+	})
 }
 
 func TestRandomSampleLogs(t *testing.T) {
-	// Create logs with 100 log records
+	// Create logs with the given number of log records
 	createLogs := func(count int) plog.Logs {
 		logs := plog.NewLogs()
 		rl := logs.ResourceLogs().AppendEmpty()
@@ -97,40 +75,35 @@ func TestRandomSampleLogs(t *testing.T) {
 
 	t.Run("100% retention returns original", func(t *testing.T) {
 		logs := createLogs(100)
-		positions := generateLogPositions(logs)
-		result := randomSampleLogs(logs, positions, 100)
+		result := randomSampleLogs(logs, logs.LogRecordCount(), 100)
 		// Should return original logs object
 		assert.Equal(t, 100, result.LogRecordCount())
 	})
 
 	t.Run("0% retention becomes 1%", func(t *testing.T) {
 		logs := createLogs(100)
-		positions := generateLogPositions(logs)
-		result := randomSampleLogs(logs, positions, 0)
+		result := randomSampleLogs(logs, logs.LogRecordCount(), 0)
 		// 1% of 100 = 1
 		assert.Equal(t, 1, result.LogRecordCount())
 	})
 
 	t.Run("50% retention", func(t *testing.T) {
 		logs := createLogs(100)
-		positions := generateLogPositions(logs)
-		result := randomSampleLogs(logs, positions, 50)
+		result := randomSampleLogs(logs, logs.LogRecordCount(), 50)
 		// 50% of 100 = 50
 		assert.Equal(t, 50, result.LogRecordCount())
 	})
 
 	t.Run("25% retention", func(t *testing.T) {
 		logs := createLogs(100)
-		positions := generateLogPositions(logs)
-		result := randomSampleLogs(logs, positions, 25)
+		result := randomSampleLogs(logs, logs.LogRecordCount(), 25)
 		// 25% of 100 = 25
 		assert.Equal(t, 25, result.LogRecordCount())
 	})
 
 	t.Run("Preserves resource and scope attributes", func(t *testing.T) {
 		logs := createLogs(10)
-		positions := generateLogPositions(logs)
-		result := randomSampleLogs(logs, positions, 50)
+		result := randomSampleLogs(logs, logs.LogRecordCount(), 50)
 
 		require.Greater(t, result.ResourceLogs().Len(), 0)
 		resourceVal, ok := result.ResourceLogs().At(0).Resource().Attributes().Get("resource")
@@ -158,69 +131,10 @@ func TestRandomSampleLogs(t *testing.T) {
 			sl1.LogRecords().AppendEmpty()
 		}
 
-		positions := generateLogPositions(logs)
-		result := randomSampleLogs(logs, positions, 50)
+		result := randomSampleLogs(logs, logs.LogRecordCount(), 50)
 		// 50% of 100 = 50
 		assert.Equal(t, 50, result.LogRecordCount())
 	})
-}
-
-func TestGenerateDataPointPositions(t *testing.T) {
-	testCases := []struct {
-		desc     string
-		metrics  pmetric.Metrics
-		expected int // number of positions expected
-	}{
-		{
-			desc:     "Empty metrics",
-			metrics:  pmetric.NewMetrics(),
-			expected: 0,
-		},
-		{
-			desc: "Single gauge metric with one datapoint",
-			metrics: func() pmetric.Metrics {
-				metrics := pmetric.NewMetrics()
-				m := metrics.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
-				m.SetEmptyGauge()
-				m.Gauge().DataPoints().AppendEmpty()
-				return metrics
-			}(),
-			expected: 1,
-		},
-		{
-			desc: "Multiple metric types",
-			metrics: func() pmetric.Metrics {
-				metrics := pmetric.NewMetrics()
-				sm := metrics.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty()
-
-				// Gauge with 2 data points
-				gauge := sm.Metrics().AppendEmpty()
-				gauge.SetEmptyGauge()
-				gauge.Gauge().DataPoints().AppendEmpty()
-				gauge.Gauge().DataPoints().AppendEmpty()
-
-				// Sum with 1 data point
-				sum := sm.Metrics().AppendEmpty()
-				sum.SetEmptySum()
-				sum.Sum().DataPoints().AppendEmpty()
-
-				// Histogram with 1 data point
-				histogram := sm.Metrics().AppendEmpty()
-				histogram.SetEmptyHistogram()
-				histogram.Histogram().DataPoints().AppendEmpty()
-
-				return metrics
-			}(),
-			expected: 4,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.desc, func(t *testing.T) {
-			result := generateDataPointPositions(tc.metrics)
-			assert.Equal(t, tc.expected, len(result))
-		})
-	}
 }
 
 func TestGetDataPointCount(t *testing.T) {
@@ -322,31 +236,27 @@ func TestRandomSampleMetrics(t *testing.T) {
 
 	t.Run("100% retention returns original", func(t *testing.T) {
 		metrics := createMetrics(100)
-		positions := generateDataPointPositions(metrics)
-		result := randomSampleMetrics(metrics, positions, 100)
+		result := randomSampleMetrics(metrics, metrics.DataPointCount(), 100)
 		assert.Equal(t, 100, result.DataPointCount())
 	})
 
 	t.Run("0% retention becomes 1%", func(t *testing.T) {
 		metrics := createMetrics(100)
-		positions := generateDataPointPositions(metrics)
-		result := randomSampleMetrics(metrics, positions, 0)
+		result := randomSampleMetrics(metrics, metrics.DataPointCount(), 0)
 		// 1% of 100 = 1
 		assert.Equal(t, 1, result.DataPointCount())
 	})
 
 	t.Run("50% retention", func(t *testing.T) {
 		metrics := createMetrics(100)
-		positions := generateDataPointPositions(metrics)
-		result := randomSampleMetrics(metrics, positions, 50)
+		result := randomSampleMetrics(metrics, metrics.DataPointCount(), 50)
 		// 50% of 100 = 50
 		assert.Equal(t, 50, result.DataPointCount())
 	})
 
 	t.Run("Preserves metric metadata", func(t *testing.T) {
 		metrics := createMetrics(10)
-		positions := generateDataPointPositions(metrics)
-		result := randomSampleMetrics(metrics, positions, 50)
+		result := randomSampleMetrics(metrics, metrics.DataPointCount(), 50)
 
 		require.Greater(t, result.ResourceMetrics().Len(), 0)
 		require.Greater(t, result.ResourceMetrics().At(0).ScopeMetrics().Len(), 0)
@@ -397,10 +307,9 @@ func TestRandomSampleMetrics(t *testing.T) {
 			summary.Summary().DataPoints().AppendEmpty()
 		}
 
-		positions := generateDataPointPositions(metrics)
-		assert.Equal(t, 100, len(positions))
+		require.Equal(t, 100, metrics.DataPointCount())
 
-		result := randomSampleMetrics(metrics, positions, 50)
+		result := randomSampleMetrics(metrics, metrics.DataPointCount(), 50)
 		// 50% of 100 = 50
 		assert.Equal(t, 50, result.DataPointCount())
 	})
@@ -417,8 +326,7 @@ func TestRandomSampleMetrics(t *testing.T) {
 			sum.Sum().DataPoints().AppendEmpty()
 		}
 
-		positions := generateDataPointPositions(metrics)
-		result := randomSampleMetrics(metrics, positions, 50)
+		result := randomSampleMetrics(metrics, metrics.DataPointCount(), 50)
 
 		require.Greater(t, result.ResourceMetrics().Len(), 0)
 		require.Greater(t, result.ResourceMetrics().At(0).ScopeMetrics().Len(), 0)
@@ -429,62 +337,6 @@ func TestRandomSampleMetrics(t *testing.T) {
 		assert.True(t, m.Sum().IsMonotonic())
 		assert.Equal(t, pmetric.AggregationTemporalityCumulative, m.Sum().AggregationTemporality())
 	})
-}
-
-func TestGenerateSpanPositions(t *testing.T) {
-	testCases := []struct {
-		desc     string
-		traces   ptrace.Traces
-		expected []spanPosition
-	}{
-		{
-			desc:     "Empty traces",
-			traces:   ptrace.NewTraces(),
-			expected: []spanPosition{},
-		},
-		{
-			desc: "Single span",
-			traces: func() ptrace.Traces {
-				traces := ptrace.NewTraces()
-				traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
-				return traces
-			}(),
-			expected: []spanPosition{
-				{resourceIdx: 0, scopeIdx: 0, spanIdx: 0},
-			},
-		},
-		{
-			desc: "Multiple resources, scopes, and spans",
-			traces: func() ptrace.Traces {
-				traces := ptrace.NewTraces()
-				// Resource 0, Scope 0: 2 spans
-				rs0 := traces.ResourceSpans().AppendEmpty()
-				ss0 := rs0.ScopeSpans().AppendEmpty()
-				ss0.Spans().AppendEmpty()
-				ss0.Spans().AppendEmpty()
-				// Resource 0, Scope 1: 1 span
-				ss1 := rs0.ScopeSpans().AppendEmpty()
-				ss1.Spans().AppendEmpty()
-				// Resource 1, Scope 0: 1 span
-				rs1 := traces.ResourceSpans().AppendEmpty()
-				rs1.ScopeSpans().AppendEmpty().Spans().AppendEmpty()
-				return traces
-			}(),
-			expected: []spanPosition{
-				{resourceIdx: 0, scopeIdx: 0, spanIdx: 0},
-				{resourceIdx: 0, scopeIdx: 0, spanIdx: 1},
-				{resourceIdx: 0, scopeIdx: 1, spanIdx: 0},
-				{resourceIdx: 1, scopeIdx: 0, spanIdx: 0},
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.desc, func(t *testing.T) {
-			result := generateSpanPositions(tc.traces)
-			assert.Equal(t, tc.expected, result)
-		})
-	}
 }
 
 func TestRandomSampleTraces(t *testing.T) {
@@ -504,39 +356,34 @@ func TestRandomSampleTraces(t *testing.T) {
 
 	t.Run("100% retention returns original", func(t *testing.T) {
 		traces := createTraces(100)
-		positions := generateSpanPositions(traces)
-		result := randomSampleTraces(traces, positions, 100)
+		result := randomSampleTraces(traces, traces.SpanCount(), 100)
 		assert.Equal(t, 100, result.SpanCount())
 	})
 
 	t.Run("0% retention becomes 1%", func(t *testing.T) {
 		traces := createTraces(100)
-		positions := generateSpanPositions(traces)
-		result := randomSampleTraces(traces, positions, 0)
+		result := randomSampleTraces(traces, traces.SpanCount(), 0)
 		// 1% of 100 = 1
 		assert.Equal(t, 1, result.SpanCount())
 	})
 
 	t.Run("50% retention", func(t *testing.T) {
 		traces := createTraces(100)
-		positions := generateSpanPositions(traces)
-		result := randomSampleTraces(traces, positions, 50)
+		result := randomSampleTraces(traces, traces.SpanCount(), 50)
 		// 50% of 100 = 50
 		assert.Equal(t, 50, result.SpanCount())
 	})
 
 	t.Run("25% retention", func(t *testing.T) {
 		traces := createTraces(100)
-		positions := generateSpanPositions(traces)
-		result := randomSampleTraces(traces, positions, 25)
+		result := randomSampleTraces(traces, traces.SpanCount(), 25)
 		// 25% of 100 = 25
 		assert.Equal(t, 25, result.SpanCount())
 	})
 
 	t.Run("Preserves resource and scope attributes", func(t *testing.T) {
 		traces := createTraces(10)
-		positions := generateSpanPositions(traces)
-		result := randomSampleTraces(traces, positions, 50)
+		result := randomSampleTraces(traces, traces.SpanCount(), 50)
 
 		require.Greater(t, result.ResourceSpans().Len(), 0)
 		resourceVal, ok := result.ResourceSpans().At(0).Resource().Attributes().Get("resource")
@@ -564,8 +411,7 @@ func TestRandomSampleTraces(t *testing.T) {
 			ss1.Spans().AppendEmpty()
 		}
 
-		positions := generateSpanPositions(traces)
-		result := randomSampleTraces(traces, positions, 50)
+		result := randomSampleTraces(traces, traces.SpanCount(), 50)
 		// 50% of 100 = 50
 		assert.Equal(t, 50, result.SpanCount())
 	})
