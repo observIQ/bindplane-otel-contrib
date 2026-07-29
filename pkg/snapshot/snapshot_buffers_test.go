@@ -19,6 +19,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -726,6 +727,52 @@ func TestTraceBufferConstructPayloadSampling(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 0, actual.SpanCount())
 	})
+}
+
+// TestLogBufferConcurrentAccess exercises Add, Len, and ConstructPayload
+// concurrently. It exists to fail under -race if any of them touch the
+// buffer without synchronization.
+func TestLogBufferConcurrentAccess(t *testing.T) {
+	logBuffer := NewLogBuffer(10)
+
+	makeLogs := func(records int) plog.Logs {
+		ld := plog.NewLogs()
+		sl := ld.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty()
+		for i := 0; i < records; i++ {
+			sl.LogRecords().AppendEmpty().Body().SetStr("concurrent log")
+		}
+		return ld
+	}
+
+	var wg sync.WaitGroup
+	for g := 0; g < 4; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				logBuffer.Add(makeLogs(3))
+			}
+		}()
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			_ = logBuffer.Len()
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 20; i++ {
+			_, err := logBuffer.ConstructPayload(&plog.ProtoMarshaler{}, nil, nil, 1024*1024)
+			assert.NoError(t, err)
+		}
+	}()
+
+	wg.Wait()
 }
 
 func TestBufferZeroCountPayloadsAreDropped(t *testing.T) {

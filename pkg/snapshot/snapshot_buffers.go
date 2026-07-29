@@ -41,8 +41,17 @@ func NewLogBuffer(idealSize int) *LogBuffer {
 	}
 }
 
-// Len counts the number of log records in all Log payloads in buffer
+// Len counts the number of log records in all Log payloads in buffer.
+// It is safe for concurrent use.
 func (l *LogBuffer) Len() int {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	return l.size()
+}
+
+// size counts the number of log records in all Log payloads in buffer.
+// Callers must hold l.mutex.
+func (l *LogBuffer) size() int {
 	size := 0
 	for _, ld := range l.buffer {
 		size += ld.LogRecordCount()
@@ -64,7 +73,7 @@ func (l *LogBuffer) Add(ld plog.Logs) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	bufferSize := l.Len()
+	bufferSize := l.size()
 	switch {
 	// The number of logs is more than idealSize so reset this to just this log set
 	case logSize > l.idealSize:
@@ -81,7 +90,7 @@ func (l *LogBuffer) Add(ld plog.Logs) {
 
 		// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
 		for {
-			newBufferSize := l.Len()
+			newBufferSize := l.size()
 			oldest := l.buffer[0]
 
 			// If removing this one will put us under ideal size then break
@@ -173,8 +182,17 @@ func NewMetricBuffer(idealSize int) *MetricBuffer {
 	}
 }
 
-// Len counts the number of data points in all Metric payloads in buffer
+// Len counts the number of data points in all Metric payloads in buffer.
+// It is safe for concurrent use.
 func (l *MetricBuffer) Len() int {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	return l.size()
+}
+
+// size counts the number of data points in all Metric payloads in buffer.
+// Callers must hold l.mutex.
+func (l *MetricBuffer) size() int {
 	size := 0
 	for _, md := range l.buffer {
 		size += md.DataPointCount()
@@ -196,7 +214,7 @@ func (l *MetricBuffer) Add(md pmetric.Metrics) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	bufferSize := l.Len()
+	bufferSize := l.size()
 	switch {
 	// The number of metrics is more than idealSize so reset this to just this metric set
 	case metricSize > l.idealSize:
@@ -213,7 +231,7 @@ func (l *MetricBuffer) Add(md pmetric.Metrics) {
 
 		// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
 		for {
-			newBufferSize := l.Len()
+			newBufferSize := l.size()
 			oldest := l.buffer[0]
 
 			// If removing this one will put us under ideal size then break
@@ -305,8 +323,17 @@ func NewTraceBuffer(idealSize int) *TraceBuffer {
 	}
 }
 
-// Len counts the number of spans in all Traces payloads in buffer
+// Len counts the number of spans in all Traces payloads in buffer.
+// It is safe for concurrent use.
 func (l *TraceBuffer) Len() int {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	return l.size()
+}
+
+// size counts the number of spans in all Traces payloads in buffer.
+// Callers must hold l.mutex.
+func (l *TraceBuffer) size() int {
 	size := 0
 	for _, td := range l.buffer {
 		size += td.SpanCount()
@@ -328,7 +355,7 @@ func (l *TraceBuffer) Add(td ptrace.Traces) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	bufferSize := l.Len()
+	bufferSize := l.size()
 	switch {
 	// The number of traces is more than idealSize so reset this to just this trace set
 	case traceSize > l.idealSize:
@@ -345,7 +372,7 @@ func (l *TraceBuffer) Add(td ptrace.Traces) {
 
 		// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
 		for {
-			newBufferSize := l.Len()
+			newBufferSize := l.size()
 			oldest := l.buffer[0]
 
 			// If removing this one will put us under ideal size then break
