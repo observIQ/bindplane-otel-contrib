@@ -42,7 +42,7 @@ func decompress(data []byte) ([]byte, error) {
 func TestNewLogBuffer(t *testing.T) {
 	idealSize := 100
 	expected := &LogBuffer{
-		buffer:    make([]plog.Logs, 0),
+		buffer:    make([]logEntry, 0),
 		idealSize: idealSize,
 	}
 
@@ -63,7 +63,7 @@ func TestLogBufferAdd(t *testing.T) {
 				// Seed buffer with one entry
 				initialBufferContents := plog.NewLogs()
 				initialBufferContents.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
-				logBuffer.buffer = append(logBuffer.buffer, initialBufferContents)
+				logBuffer.Add(initialBufferContents)
 
 				// Create payload with more than ideal size
 				toAdd := plog.NewLogs()
@@ -87,7 +87,7 @@ func TestLogBufferAdd(t *testing.T) {
 				// Seed buffer with one entry
 				initialBufferContents := plog.NewLogs()
 				initialBufferContents.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
-				logBuffer.buffer = append(logBuffer.buffer, initialBufferContents)
+				logBuffer.Add(initialBufferContents)
 
 				// Create payload with more than ideal size
 				toAdd := plog.NewLogs()
@@ -111,11 +111,11 @@ func TestLogBufferAdd(t *testing.T) {
 				// Seed buffer with several payloads
 				initialBufferContents := plog.NewLogs()
 				initialBufferContents.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
-				logBuffer.buffer = append(logBuffer.buffer, initialBufferContents)
+				logBuffer.Add(initialBufferContents)
 
 				secondBufferContents := plog.NewLogs()
 				secondBufferContents.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
-				logBuffer.buffer = append(logBuffer.buffer, secondBufferContents)
+				logBuffer.Add(secondBufferContents)
 
 				// Create payload with more than ideal size
 				toAdd := plog.NewLogs()
@@ -142,7 +142,7 @@ func TestLogBufferAdd(t *testing.T) {
 				initialSl.LogRecords().AppendEmpty()
 				initialSl.LogRecords().AppendEmpty()
 				initialSl.LogRecords().AppendEmpty()
-				logBuffer.buffer = append(logBuffer.buffer, initialBufferContents)
+				logBuffer.Add(initialBufferContents)
 
 				// Create payload with more than ideal size
 				toAdd := plog.NewLogs()
@@ -263,7 +263,7 @@ func TestLogsBufferConstructPayloadSampling(t *testing.T) {
 func TestNewMetricBuffer(t *testing.T) {
 	idealSize := 100
 	expected := &MetricBuffer{
-		buffer:    make([]pmetric.Metrics, 0),
+		buffer:    make([]metricEntry, 0),
 		idealSize: idealSize,
 	}
 
@@ -286,7 +286,7 @@ func TestMetricBufferAdd(t *testing.T) {
 				initialMetric := initialBufferContents.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
 				initialMetric.SetEmptyGauge()
 				initialMetric.Gauge().DataPoints().AppendEmpty()
-				metricBuffer.buffer = append(metricBuffer.buffer, initialBufferContents)
+				metricBuffer.Add(initialBufferContents)
 
 				// Create payload with more than ideal size
 				toAdd := pmetric.NewMetrics()
@@ -315,7 +315,7 @@ func TestMetricBufferAdd(t *testing.T) {
 				initialMetric := initialBufferContents.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
 				initialMetric.SetEmptyGauge()
 				initialMetric.Gauge().DataPoints().AppendEmpty()
-				metricBuffer.buffer = append(metricBuffer.buffer, initialBufferContents)
+				metricBuffer.Add(initialBufferContents)
 
 				// Create payload with more than ideal size
 				toAdd := pmetric.NewMetrics()
@@ -343,13 +343,13 @@ func TestMetricBufferAdd(t *testing.T) {
 				initialMetric := initialBufferContents.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
 				initialMetric.SetEmptyGauge()
 				initialMetric.Gauge().DataPoints().AppendEmpty()
-				metricBuffer.buffer = append(metricBuffer.buffer, initialBufferContents)
+				metricBuffer.Add(initialBufferContents)
 
 				secondBufferContents := pmetric.NewMetrics()
 				secondMetric := secondBufferContents.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
 				secondMetric.SetEmptyGauge()
 				secondMetric.Gauge().DataPoints().AppendEmpty()
-				metricBuffer.buffer = append(metricBuffer.buffer, secondBufferContents)
+				metricBuffer.Add(secondBufferContents)
 
 				// Create payload with more than ideal size
 				toAdd := pmetric.NewMetrics()
@@ -379,7 +379,7 @@ func TestMetricBufferAdd(t *testing.T) {
 				initialMetric.Gauge().DataPoints().AppendEmpty()
 				initialMetric.Gauge().DataPoints().AppendEmpty()
 				initialMetric.Gauge().DataPoints().AppendEmpty()
-				metricBuffer.buffer = append(metricBuffer.buffer, initialBufferContents)
+				metricBuffer.Add(initialBufferContents)
 
 				// Create payload with more than ideal size
 				toAdd := pmetric.NewMetrics()
@@ -512,7 +512,7 @@ func TestMetricBufferConstructPayloadSampling(t *testing.T) {
 func TestNewTraceBuffer(t *testing.T) {
 	idealSize := 100
 	expected := &TraceBuffer{
-		buffer:    make([]ptrace.Traces, 0),
+		buffer:    make([]traceEntry, 0),
 		idealSize: idealSize,
 	}
 
@@ -533,7 +533,7 @@ func TestTraceBufferAdd(t *testing.T) {
 				// Seed buffer with one entry
 				initialBufferContents := ptrace.NewTraces()
 				initialBufferContents.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
-				traceBuffer.buffer = append(traceBuffer.buffer, initialBufferContents)
+				traceBuffer.Add(initialBufferContents)
 
 				// Create payload with more than ideal size
 				toAdd := ptrace.NewTraces()
@@ -557,7 +557,7 @@ func TestTraceBufferAdd(t *testing.T) {
 				// Seed buffer with one entry
 				initialBufferContents := ptrace.NewTraces()
 				initialBufferContents.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
-				traceBuffer.buffer = append(traceBuffer.buffer, initialBufferContents)
+				traceBuffer.Add(initialBufferContents)
 
 				// Create payload with more than ideal size
 				toAdd := ptrace.NewTraces()
@@ -581,11 +581,11 @@ func TestTraceBufferAdd(t *testing.T) {
 				// Seed buffer with several payloads
 				initialBufferContents := ptrace.NewTraces()
 				initialBufferContents.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
-				traceBuffer.buffer = append(traceBuffer.buffer, initialBufferContents)
+				traceBuffer.Add(initialBufferContents)
 
 				secondBufferContents := ptrace.NewTraces()
 				secondBufferContents.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
-				traceBuffer.buffer = append(traceBuffer.buffer, secondBufferContents)
+				traceBuffer.Add(secondBufferContents)
 
 				// Create payload with more than ideal size
 				toAdd := ptrace.NewTraces()
@@ -612,7 +612,7 @@ func TestTraceBufferAdd(t *testing.T) {
 				initialSl.Spans().AppendEmpty()
 				initialSl.Spans().AppendEmpty()
 				initialSl.Spans().AppendEmpty()
-				traceBuffer.buffer = append(traceBuffer.buffer, initialBufferContents)
+				traceBuffer.Add(initialBufferContents)
 
 				// Create payload with more than ideal size
 				toAdd := ptrace.NewTraces()

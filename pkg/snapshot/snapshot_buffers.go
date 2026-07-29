@@ -26,17 +26,26 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
+// logEntry is a buffered log payload together with its cached record count.
+type logEntry struct {
+	logs  plog.Logs
+	count int
+}
+
 // LogBuffer is a buffer for plog.Logs
 type LogBuffer struct {
-	mutex     sync.Mutex
-	buffer    []plog.Logs
+	mutex  sync.Mutex
+	buffer []logEntry
+	// total is the cached sum of buffer[i].count, maintained on every
+	// mutation so size checks do not re-walk the buffered payloads.
+	total     int
 	idealSize int
 }
 
 // NewLogBuffer creates a logBuffer with the ideal size set
 func NewLogBuffer(idealSize int) *LogBuffer {
 	return &LogBuffer{
-		buffer:    make([]plog.Logs, 0),
+		buffer:    make([]logEntry, 0),
 		idealSize: idealSize,
 	}
 }
@@ -49,15 +58,20 @@ func (l *LogBuffer) Len() int {
 	return l.size()
 }
 
-// size counts the number of log records in all Log payloads in buffer.
+// size returns the number of log records in all Log payloads in buffer.
 // Callers must hold l.mutex.
 func (l *LogBuffer) size() int {
-	size := 0
-	for _, ld := range l.buffer {
-		size += ld.LogRecordCount()
-	}
+	return l.total
+}
 
-	return size
+// setBuffer replaces the buffer contents and keeps the cached total in sync.
+// Callers must hold l.mutex.
+func (l *LogBuffer) setBuffer(entries []logEntry) {
+	l.buffer = entries
+	l.total = 0
+	for _, e := range entries {
+		l.total += e.count
+	}
 }
 
 // Add adds the new log payload and adjust buffer to keep ideal size
@@ -73,32 +87,25 @@ func (l *LogBuffer) Add(ld plog.Logs) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	bufferSize := l.size()
 	switch {
 	// The number of logs is more than idealSize so reset this to just this log set
 	case logSize > l.idealSize:
-		l.buffer = []plog.Logs{ld}
+		l.setBuffer([]logEntry{{logs: ld, count: logSize}})
 
 	// Haven't reached idealSize yet so add this
-	case logSize+bufferSize < l.idealSize:
-		l.buffer = append(l.buffer, ld)
+	case logSize+l.total < l.idealSize:
+		l.buffer = append(l.buffer, logEntry{logs: ld, count: logSize})
+		l.total += logSize
 
 	// Adding this will put us over idealSize so and add the new logs.
 	// Only remove the oldest if it does not bring buffer under idealSize
-	case logSize+bufferSize >= l.idealSize:
-		l.buffer = append(l.buffer, ld)
+	default:
+		l.buffer = append(l.buffer, logEntry{logs: ld, count: logSize})
+		l.total += logSize
 
 		// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
-		for {
-			newBufferSize := l.size()
-			oldest := l.buffer[0]
-
-			// If removing this one will put us under ideal size then break
-			if newBufferSize-oldest.LogRecordCount() < l.idealSize {
-				break
-			}
-
-			// Remove the oldest
+		for l.total-l.buffer[0].count >= l.idealSize {
+			l.total -= l.buffer[0].count
 			l.buffer = l.buffer[1:]
 		}
 	}
@@ -113,12 +120,12 @@ func (l *LogBuffer) ConstructPayload(logsMarshaler plog.Marshaler, searchQuery *
 	defer l.mutex.Unlock()
 
 	payloadLogs := plog.NewLogs()
-	for _, ld := range l.buffer {
-		ld.ResourceLogs().MoveAndAppendTo(payloadLogs.ResourceLogs())
+	for _, e := range l.buffer {
+		e.logs.ResourceLogs().MoveAndAppendTo(payloadLogs.ResourceLogs())
 	}
 
 	// update the buffer to retain the current logs which were moved to the new payload
-	l.buffer = []plog.Logs{payloadLogs}
+	l.setBuffer([]logEntry{{logs: payloadLogs, count: l.total}})
 
 	// Filter the payload
 	filteredPayload := filterLogs(payloadLogs, searchQuery, minimumTimestamp)
@@ -163,21 +170,30 @@ func (l *LogBuffer) ConstructPayload(logsMarshaler plog.Marshaler, searchQuery *
 
 	// Encountered an error or we've tried all retentions and still can't fit the payload
 	// so clear the buffer and return the last error seen
-	l.buffer = []plog.Logs{}
+	l.setBuffer([]logEntry{})
 	return nil, lastError
+}
+
+// metricEntry is a buffered metric payload together with its cached data point count.
+type metricEntry struct {
+	metrics pmetric.Metrics
+	count   int
 }
 
 // MetricBuffer is a buffer for pmetric.Metrics
 type MetricBuffer struct {
-	mutex     sync.Mutex
-	buffer    []pmetric.Metrics
+	mutex  sync.Mutex
+	buffer []metricEntry
+	// total is the cached sum of buffer[i].count, maintained on every
+	// mutation so size checks do not re-walk the buffered payloads.
+	total     int
 	idealSize int
 }
 
 // NewMetricBuffer creates a metricBuffer with the ideal size set
 func NewMetricBuffer(idealSize int) *MetricBuffer {
 	return &MetricBuffer{
-		buffer:    make([]pmetric.Metrics, 0),
+		buffer:    make([]metricEntry, 0),
 		idealSize: idealSize,
 	}
 }
@@ -190,15 +206,20 @@ func (l *MetricBuffer) Len() int {
 	return l.size()
 }
 
-// size counts the number of data points in all Metric payloads in buffer.
+// size returns the number of data points in all Metric payloads in buffer.
 // Callers must hold l.mutex.
 func (l *MetricBuffer) size() int {
-	size := 0
-	for _, md := range l.buffer {
-		size += md.DataPointCount()
-	}
+	return l.total
+}
 
-	return size
+// setBuffer replaces the buffer contents and keeps the cached total in sync.
+// Callers must hold l.mutex.
+func (l *MetricBuffer) setBuffer(entries []metricEntry) {
+	l.buffer = entries
+	l.total = 0
+	for _, e := range entries {
+		l.total += e.count
+	}
 }
 
 // Add adds the new metric payload and adjust buffer to keep ideal size
@@ -214,32 +235,25 @@ func (l *MetricBuffer) Add(md pmetric.Metrics) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	bufferSize := l.size()
 	switch {
 	// The number of metrics is more than idealSize so reset this to just this metric set
 	case metricSize > l.idealSize:
-		l.buffer = []pmetric.Metrics{md}
+		l.setBuffer([]metricEntry{{metrics: md, count: metricSize}})
 
 	// Haven't reached idealSize yet so add this
-	case metricSize+bufferSize < l.idealSize:
-		l.buffer = append(l.buffer, md)
+	case metricSize+l.total < l.idealSize:
+		l.buffer = append(l.buffer, metricEntry{metrics: md, count: metricSize})
+		l.total += metricSize
 
 	// Adding this will put us over idealSize so and add the new metrics.
 	// Only remove the oldest if it does not bring buffer under idealSize
-	case metricSize+bufferSize >= l.idealSize:
-		l.buffer = append(l.buffer, md)
+	default:
+		l.buffer = append(l.buffer, metricEntry{metrics: md, count: metricSize})
+		l.total += metricSize
 
 		// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
-		for {
-			newBufferSize := l.size()
-			oldest := l.buffer[0]
-
-			// If removing this one will put us under ideal size then break
-			if newBufferSize-oldest.DataPointCount() < l.idealSize {
-				break
-			}
-
-			// Remove the oldest
+		for l.total-l.buffer[0].count >= l.idealSize {
+			l.total -= l.buffer[0].count
 			l.buffer = l.buffer[1:]
 		}
 	}
@@ -254,12 +268,12 @@ func (l *MetricBuffer) ConstructPayload(metricMarshaler pmetric.Marshaler, searc
 	defer l.mutex.Unlock()
 
 	payloadMetrics := pmetric.NewMetrics()
-	for _, md := range l.buffer {
-		md.ResourceMetrics().MoveAndAppendTo(payloadMetrics.ResourceMetrics())
+	for _, e := range l.buffer {
+		e.metrics.ResourceMetrics().MoveAndAppendTo(payloadMetrics.ResourceMetrics())
 	}
 
 	// update the buffer to retain the current metrics which were moved to the new payload
-	l.buffer = []pmetric.Metrics{payloadMetrics}
+	l.setBuffer([]metricEntry{{metrics: payloadMetrics, count: l.total}})
 
 	// filter the payload
 	filteredPayload := filterMetrics(payloadMetrics, searchQuery, minimumTimestamp)
@@ -304,21 +318,30 @@ func (l *MetricBuffer) ConstructPayload(metricMarshaler pmetric.Marshaler, searc
 
 	// Encountered an error or we've tried all retentions and still can't fit the payload
 	// so clear the buffer and return the last error seen
-	l.buffer = []pmetric.Metrics{}
+	l.setBuffer([]metricEntry{})
 	return nil, lastError
+}
+
+// traceEntry is a buffered trace payload together with its cached span count.
+type traceEntry struct {
+	traces ptrace.Traces
+	count  int
 }
 
 // TraceBuffer is a buffer for ptrace.Traces
 type TraceBuffer struct {
-	mutex     sync.Mutex
-	buffer    []ptrace.Traces
+	mutex  sync.Mutex
+	buffer []traceEntry
+	// total is the cached sum of buffer[i].count, maintained on every
+	// mutation so size checks do not re-walk the buffered payloads.
+	total     int
 	idealSize int
 }
 
 // NewTraceBuffer creates a traceBuffer with the ideal size set
 func NewTraceBuffer(idealSize int) *TraceBuffer {
 	return &TraceBuffer{
-		buffer:    make([]ptrace.Traces, 0),
+		buffer:    make([]traceEntry, 0),
 		idealSize: idealSize,
 	}
 }
@@ -331,15 +354,20 @@ func (l *TraceBuffer) Len() int {
 	return l.size()
 }
 
-// size counts the number of spans in all Traces payloads in buffer.
+// size returns the number of spans in all Traces payloads in buffer.
 // Callers must hold l.mutex.
 func (l *TraceBuffer) size() int {
-	size := 0
-	for _, td := range l.buffer {
-		size += td.SpanCount()
-	}
+	return l.total
+}
 
-	return size
+// setBuffer replaces the buffer contents and keeps the cached total in sync.
+// Callers must hold l.mutex.
+func (l *TraceBuffer) setBuffer(entries []traceEntry) {
+	l.buffer = entries
+	l.total = 0
+	for _, e := range entries {
+		l.total += e.count
+	}
 }
 
 // Add adds the new trace payload and adjust buffer to keep ideal size
@@ -355,32 +383,25 @@ func (l *TraceBuffer) Add(td ptrace.Traces) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	bufferSize := l.size()
 	switch {
 	// The number of traces is more than idealSize so reset this to just this trace set
 	case traceSize > l.idealSize:
-		l.buffer = []ptrace.Traces{td}
+		l.setBuffer([]traceEntry{{traces: td, count: traceSize}})
 
 	// Haven't reached idealSize yet so add this
-	case traceSize+bufferSize < l.idealSize:
-		l.buffer = append(l.buffer, td)
+	case traceSize+l.total < l.idealSize:
+		l.buffer = append(l.buffer, traceEntry{traces: td, count: traceSize})
+		l.total += traceSize
 
 	// Adding this will put us over idealSize so and add the new traces.
 	// Only remove the oldest if it does not bring buffer under idealSize
-	case traceSize+bufferSize >= l.idealSize:
-		l.buffer = append(l.buffer, td)
+	default:
+		l.buffer = append(l.buffer, traceEntry{traces: td, count: traceSize})
+		l.total += traceSize
 
 		// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
-		for {
-			newBufferSize := l.size()
-			oldest := l.buffer[0]
-
-			// If removing this one will put us under ideal size then break
-			if newBufferSize-oldest.SpanCount() < l.idealSize {
-				break
-			}
-
-			// Remove the oldest
+		for l.total-l.buffer[0].count >= l.idealSize {
+			l.total -= l.buffer[0].count
 			l.buffer = l.buffer[1:]
 		}
 	}
@@ -395,12 +416,12 @@ func (l *TraceBuffer) ConstructPayload(traceMarshaler ptrace.Marshaler, searchQu
 	defer l.mutex.Unlock()
 
 	payloadTraces := ptrace.NewTraces()
-	for _, md := range l.buffer {
-		md.ResourceSpans().MoveAndAppendTo(payloadTraces.ResourceSpans())
+	for _, e := range l.buffer {
+		e.traces.ResourceSpans().MoveAndAppendTo(payloadTraces.ResourceSpans())
 	}
 
 	// update the buffer to retain the current traces which were moved to the new payload
-	l.buffer = []ptrace.Traces{payloadTraces}
+	l.setBuffer([]traceEntry{{traces: payloadTraces, count: l.total}})
 
 	// Filter the payload
 	filteredPayload := filterTraces(payloadTraces, searchQuery, minimumTimestamp)
@@ -445,7 +466,7 @@ func (l *TraceBuffer) ConstructPayload(traceMarshaler ptrace.Marshaler, searchQu
 
 	// Encountered an error or we've tried all retentions and still can't fit the payload
 	// so clear the buffer and return the last error seen
-	l.buffer = []ptrace.Traces{}
+	l.setBuffer([]traceEntry{})
 	return nil, lastError
 }
 
