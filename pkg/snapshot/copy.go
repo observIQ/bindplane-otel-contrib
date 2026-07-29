@@ -244,3 +244,110 @@ func resourceSpansSpanCount(rs ptrace.ResourceSpans) int {
 	}
 	return count
 }
+
+// The dropOldest* helpers remove the first drop items (in traversal order)
+// from a payload in place, removing any resource/scope/metric groups emptied
+// as a result. RemoveIf compacts in place and retains slice capacity, so
+// steady-state eviction does not reallocate.
+
+// takeDrop decrements *drop and reports whether the current item should be
+// removed.
+func takeDrop(drop *int) bool {
+	if *drop > 0 {
+		*drop--
+		return true
+	}
+	return false
+}
+
+// dropOldestLogRecords removes the drop oldest log records from ld in place.
+func dropOldestLogRecords(ld plog.Logs, drop int) {
+	ld.ResourceLogs().RemoveIf(func(rl plog.ResourceLogs) bool {
+		if drop == 0 {
+			return false
+		}
+		rl.ScopeLogs().RemoveIf(func(sl plog.ScopeLogs) bool {
+			if drop == 0 {
+				return false
+			}
+			lrs := sl.LogRecords()
+			if lrs.Len() <= drop {
+				drop -= lrs.Len()
+				return true
+			}
+			lrs.RemoveIf(func(plog.LogRecord) bool {
+				return takeDrop(&drop)
+			})
+			return false
+		})
+		return rl.ScopeLogs().Len() == 0
+	})
+}
+
+// dropOldestDataPoints removes the drop oldest data points from md in place.
+func dropOldestDataPoints(md pmetric.Metrics, drop int) {
+	md.ResourceMetrics().RemoveIf(func(rm pmetric.ResourceMetrics) bool {
+		if drop == 0 {
+			return false
+		}
+		rm.ScopeMetrics().RemoveIf(func(sm pmetric.ScopeMetrics) bool {
+			if drop == 0 {
+				return false
+			}
+			sm.Metrics().RemoveIf(func(m pmetric.Metric) bool {
+				if drop == 0 {
+					return false
+				}
+				if count := getDataPointCount(m); count <= drop {
+					drop -= count
+					return true
+				}
+				dropOldestMetricDataPoints(m, &drop)
+				return false
+			})
+			return sm.Metrics().Len() == 0
+		})
+		return rm.ScopeMetrics().Len() == 0
+	})
+}
+
+// dropOldestMetricDataPoints removes the *drop oldest data points from the
+// metric in place, decrementing *drop for each removed data point.
+func dropOldestMetricDataPoints(m pmetric.Metric, drop *int) {
+	switch m.Type() {
+	case pmetric.MetricTypeGauge:
+		m.Gauge().DataPoints().RemoveIf(func(pmetric.NumberDataPoint) bool { return takeDrop(drop) })
+	case pmetric.MetricTypeSum:
+		m.Sum().DataPoints().RemoveIf(func(pmetric.NumberDataPoint) bool { return takeDrop(drop) })
+	case pmetric.MetricTypeHistogram:
+		m.Histogram().DataPoints().RemoveIf(func(pmetric.HistogramDataPoint) bool { return takeDrop(drop) })
+	case pmetric.MetricTypeExponentialHistogram:
+		m.ExponentialHistogram().DataPoints().RemoveIf(func(pmetric.ExponentialHistogramDataPoint) bool { return takeDrop(drop) })
+	case pmetric.MetricTypeSummary:
+		m.Summary().DataPoints().RemoveIf(func(pmetric.SummaryDataPoint) bool { return takeDrop(drop) })
+	}
+}
+
+// dropOldestSpans removes the drop oldest spans from td in place.
+func dropOldestSpans(td ptrace.Traces, drop int) {
+	td.ResourceSpans().RemoveIf(func(rs ptrace.ResourceSpans) bool {
+		if drop == 0 {
+			return false
+		}
+		rs.ScopeSpans().RemoveIf(func(ss ptrace.ScopeSpans) bool {
+			if drop == 0 {
+				return false
+			}
+			sps := ss.Spans()
+			if sps.Len() <= drop {
+				drop -= sps.Len()
+				return true
+			}
+			sps.RemoveIf(func(ptrace.Span) bool {
+				return takeDrop(&drop)
+			})
+			return false
+		})
+		return rs.ScopeSpans().Len() == 0
+	})
+}

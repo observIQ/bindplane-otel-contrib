@@ -24,18 +24,15 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
-// logEntry is a buffered log payload together with its cached record count.
-type logEntry struct {
-	logs  plog.Logs
-	count int
-}
-
-// LogBuffer is a buffer for plog.Logs
+// LogBuffer is a buffer for plog.Logs. It owns a single bounded store of at
+// most idealSize log records: there is no list of payload entries to grow,
+// re-count, or pin evicted payloads.
 type LogBuffer struct {
-	mutex  sync.Mutex
-	buffer []logEntry
-	// total is the cached sum of buffer[i].count, maintained on every
-	// mutation so size checks do not re-walk the buffered payloads.
+	mutex sync.Mutex
+	// store holds the retained records, oldest first, capped at idealSize.
+	store plog.Logs
+	// total is the number of log records in store, maintained on every
+	// mutation so size checks never re-walk the store.
 	total     int
 	idealSize int
 }
@@ -43,44 +40,40 @@ type LogBuffer struct {
 // NewLogBuffer creates a logBuffer with the ideal size set
 func NewLogBuffer(idealSize int) *LogBuffer {
 	return &LogBuffer{
-		buffer:    make([]logEntry, 0),
+		store:     plog.NewLogs(),
 		idealSize: idealSize,
 	}
 }
 
-// Len counts the number of log records in all Log payloads in buffer.
+// Len returns the number of log records in the buffer.
 // It is safe for concurrent use.
 func (l *LogBuffer) Len() int {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
-	return l.size()
-}
-
-// size returns the number of log records in all Log payloads in buffer.
-// Callers must hold l.mutex.
-func (l *LogBuffer) size() int {
 	return l.total
 }
 
-// setBuffer replaces the buffer contents and keeps the cached total in sync.
-// Callers must hold l.mutex.
-func (l *LogBuffer) setBuffer(entries []logEntry) {
-	l.buffer = entries
+// Reset drops all buffered log records, releasing the retained telemetry.
+// It is safe for concurrent use.
+func (l *LogBuffer) Reset() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.reset()
+}
+
+// reset drops all buffered log records. Callers must hold l.mutex.
+func (l *LogBuffer) reset() {
+	l.store = plog.NewLogs()
 	l.total = 0
-	for _, e := range entries {
-		l.total += e.count
-	}
 }
 
 // Add copies at most idealSize of the newest log records out of ld into the
-// buffer, evicting the oldest buffered payloads to stay near the ideal size.
-// ld is never retained or mutated, so callers may pass pipeline payloads
-// directly.
+// buffer, evicting the oldest buffered records to stay within the ideal
+// size. ld is never retained or mutated, so callers may pass pipeline
+// payloads directly.
 func (l *LogBuffer) Add(ld plog.Logs) {
 	logSize := ld.LogRecordCount()
-	// Zero-count payloads contribute nothing to a snapshot, but the eviction
-	// loop below can never remove them once a large entry sits at the head of
-	// the buffer, so admitting them grows the buffer without bound.
+	// Zero-count payloads contribute nothing to a snapshot.
 	if logSize == 0 {
 		return
 	}
@@ -96,13 +89,13 @@ func (l *LogBuffer) Add(ld plog.Logs) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	l.buffer = append(l.buffer, logEntry{logs: incoming, count: kept})
+	// Append the copied records and evict the oldest overflow, so the store
+	// never holds more than idealSize records.
+	incoming.ResourceLogs().MoveAndAppendTo(l.store.ResourceLogs())
 	l.total += kept
-
-	// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
-	for l.total-l.buffer[0].count >= l.idealSize {
-		l.total -= l.buffer[0].count
-		l.buffer = l.buffer[1:]
+	if over := l.total - l.idealSize; over > 0 {
+		dropOldestLogRecords(l.store, over)
+		l.total = l.idealSize
 	}
 }
 
@@ -114,16 +107,9 @@ func (l *LogBuffer) ConstructPayload(logsMarshaler plog.Marshaler, searchQuery *
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	payloadLogs := plog.NewLogs()
-	for _, e := range l.buffer {
-		e.logs.ResourceLogs().MoveAndAppendTo(payloadLogs.ResourceLogs())
-	}
-
-	// update the buffer to retain the current logs which were moved to the new payload
-	l.setBuffer([]logEntry{{logs: payloadLogs, count: l.total}})
-
-	// Filter the payload
-	filteredPayload := filterLogs(payloadLogs, searchQuery, minimumTimestamp)
+	// Filter the payload. The store is only read; filtering copies matching
+	// records into a new payload when any filter is set.
+	filteredPayload := filterLogs(l.store, searchQuery, minimumTimestamp)
 
 	// Count the log records in the filtered payload once; sampling identifies
 	// records by their flat position in traversal order.
@@ -165,22 +151,19 @@ func (l *LogBuffer) ConstructPayload(logsMarshaler plog.Marshaler, searchQuery *
 
 	// Encountered an error or we've tried all retentions and still can't fit the payload
 	// so clear the buffer and return the last error seen
-	l.setBuffer([]logEntry{})
+	l.reset()
 	return nil, lastError
 }
 
-// metricEntry is a buffered metric payload together with its cached data point count.
-type metricEntry struct {
-	metrics pmetric.Metrics
-	count   int
-}
-
-// MetricBuffer is a buffer for pmetric.Metrics
+// MetricBuffer is a buffer for pmetric.Metrics. It owns a single bounded
+// store of at most idealSize data points: there is no list of payload
+// entries to grow, re-count, or pin evicted payloads.
 type MetricBuffer struct {
-	mutex  sync.Mutex
-	buffer []metricEntry
-	// total is the cached sum of buffer[i].count, maintained on every
-	// mutation so size checks do not re-walk the buffered payloads.
+	mutex sync.Mutex
+	// store holds the retained data points, oldest first, capped at idealSize.
+	store pmetric.Metrics
+	// total is the number of data points in store, maintained on every
+	// mutation so size checks never re-walk the store.
 	total     int
 	idealSize int
 }
@@ -188,44 +171,40 @@ type MetricBuffer struct {
 // NewMetricBuffer creates a metricBuffer with the ideal size set
 func NewMetricBuffer(idealSize int) *MetricBuffer {
 	return &MetricBuffer{
-		buffer:    make([]metricEntry, 0),
+		store:     pmetric.NewMetrics(),
 		idealSize: idealSize,
 	}
 }
 
-// Len counts the number of data points in all Metric payloads in buffer.
+// Len returns the number of data points in the buffer.
 // It is safe for concurrent use.
 func (l *MetricBuffer) Len() int {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
-	return l.size()
-}
-
-// size returns the number of data points in all Metric payloads in buffer.
-// Callers must hold l.mutex.
-func (l *MetricBuffer) size() int {
 	return l.total
 }
 
-// setBuffer replaces the buffer contents and keeps the cached total in sync.
-// Callers must hold l.mutex.
-func (l *MetricBuffer) setBuffer(entries []metricEntry) {
-	l.buffer = entries
+// Reset drops all buffered data points, releasing the retained telemetry.
+// It is safe for concurrent use.
+func (l *MetricBuffer) Reset() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.reset()
+}
+
+// reset drops all buffered data points. Callers must hold l.mutex.
+func (l *MetricBuffer) reset() {
+	l.store = pmetric.NewMetrics()
 	l.total = 0
-	for _, e := range entries {
-		l.total += e.count
-	}
 }
 
 // Add copies at most idealSize of the newest data points out of md into the
-// buffer, evicting the oldest buffered payloads to stay near the ideal size.
-// md is never retained or mutated, so callers may pass pipeline payloads
-// directly.
+// buffer, evicting the oldest buffered data points to stay within the ideal
+// size. md is never retained or mutated, so callers may pass pipeline
+// payloads directly.
 func (l *MetricBuffer) Add(md pmetric.Metrics) {
 	metricSize := md.DataPointCount()
-	// Zero-count payloads contribute nothing to a snapshot, but the eviction
-	// loop below can never remove them once a large entry sits at the head of
-	// the buffer, so admitting them grows the buffer without bound.
+	// Zero-count payloads contribute nothing to a snapshot.
 	if metricSize == 0 {
 		return
 	}
@@ -241,13 +220,13 @@ func (l *MetricBuffer) Add(md pmetric.Metrics) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	l.buffer = append(l.buffer, metricEntry{metrics: incoming, count: kept})
+	// Append the copied data points and evict the oldest overflow, so the
+	// store never holds more than idealSize data points.
+	incoming.ResourceMetrics().MoveAndAppendTo(l.store.ResourceMetrics())
 	l.total += kept
-
-	// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
-	for l.total-l.buffer[0].count >= l.idealSize {
-		l.total -= l.buffer[0].count
-		l.buffer = l.buffer[1:]
+	if over := l.total - l.idealSize; over > 0 {
+		dropOldestDataPoints(l.store, over)
+		l.total = l.idealSize
 	}
 }
 
@@ -259,16 +238,9 @@ func (l *MetricBuffer) ConstructPayload(metricMarshaler pmetric.Marshaler, searc
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	payloadMetrics := pmetric.NewMetrics()
-	for _, e := range l.buffer {
-		e.metrics.ResourceMetrics().MoveAndAppendTo(payloadMetrics.ResourceMetrics())
-	}
-
-	// update the buffer to retain the current metrics which were moved to the new payload
-	l.setBuffer([]metricEntry{{metrics: payloadMetrics, count: l.total}})
-
-	// filter the payload
-	filteredPayload := filterMetrics(payloadMetrics, searchQuery, minimumTimestamp)
+	// filter the payload. The store is only read; filtering copies matching
+	// data points into a new payload when any filter is set.
+	filteredPayload := filterMetrics(l.store, searchQuery, minimumTimestamp)
 
 	// Count the data points in the filtered payload once; sampling identifies
 	// data points by their flat position in traversal order.
@@ -310,22 +282,19 @@ func (l *MetricBuffer) ConstructPayload(metricMarshaler pmetric.Marshaler, searc
 
 	// Encountered an error or we've tried all retentions and still can't fit the payload
 	// so clear the buffer and return the last error seen
-	l.setBuffer([]metricEntry{})
+	l.reset()
 	return nil, lastError
 }
 
-// traceEntry is a buffered trace payload together with its cached span count.
-type traceEntry struct {
-	traces ptrace.Traces
-	count  int
-}
-
-// TraceBuffer is a buffer for ptrace.Traces
+// TraceBuffer is a buffer for ptrace.Traces. It owns a single bounded store
+// of at most idealSize spans: there is no list of payload entries to grow,
+// re-count, or pin evicted payloads.
 type TraceBuffer struct {
-	mutex  sync.Mutex
-	buffer []traceEntry
-	// total is the cached sum of buffer[i].count, maintained on every
-	// mutation so size checks do not re-walk the buffered payloads.
+	mutex sync.Mutex
+	// store holds the retained spans, oldest first, capped at idealSize.
+	store ptrace.Traces
+	// total is the number of spans in store, maintained on every mutation so
+	// size checks never re-walk the store.
 	total     int
 	idealSize int
 }
@@ -333,44 +302,40 @@ type TraceBuffer struct {
 // NewTraceBuffer creates a traceBuffer with the ideal size set
 func NewTraceBuffer(idealSize int) *TraceBuffer {
 	return &TraceBuffer{
-		buffer:    make([]traceEntry, 0),
+		store:     ptrace.NewTraces(),
 		idealSize: idealSize,
 	}
 }
 
-// Len counts the number of spans in all Traces payloads in buffer.
+// Len returns the number of spans in the buffer.
 // It is safe for concurrent use.
 func (l *TraceBuffer) Len() int {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
-	return l.size()
-}
-
-// size returns the number of spans in all Traces payloads in buffer.
-// Callers must hold l.mutex.
-func (l *TraceBuffer) size() int {
 	return l.total
 }
 
-// setBuffer replaces the buffer contents and keeps the cached total in sync.
-// Callers must hold l.mutex.
-func (l *TraceBuffer) setBuffer(entries []traceEntry) {
-	l.buffer = entries
+// Reset drops all buffered spans, releasing the retained telemetry.
+// It is safe for concurrent use.
+func (l *TraceBuffer) Reset() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.reset()
+}
+
+// reset drops all buffered spans. Callers must hold l.mutex.
+func (l *TraceBuffer) reset() {
+	l.store = ptrace.NewTraces()
 	l.total = 0
-	for _, e := range entries {
-		l.total += e.count
-	}
 }
 
 // Add copies at most idealSize of the newest spans out of td into the
-// buffer, evicting the oldest buffered payloads to stay near the ideal size.
+// buffer, evicting the oldest buffered spans to stay within the ideal size.
 // td is never retained or mutated, so callers may pass pipeline payloads
 // directly.
 func (l *TraceBuffer) Add(td ptrace.Traces) {
 	traceSize := td.SpanCount()
-	// Zero-count payloads contribute nothing to a snapshot, but the eviction
-	// loop below can never remove them once a large entry sits at the head of
-	// the buffer, so admitting them grows the buffer without bound.
+	// Zero-count payloads contribute nothing to a snapshot.
 	if traceSize == 0 {
 		return
 	}
@@ -386,13 +351,13 @@ func (l *TraceBuffer) Add(td ptrace.Traces) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	l.buffer = append(l.buffer, traceEntry{traces: incoming, count: kept})
+	// Append the copied spans and evict the oldest overflow, so the store
+	// never holds more than idealSize spans.
+	incoming.ResourceSpans().MoveAndAppendTo(l.store.ResourceSpans())
 	l.total += kept
-
-	// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
-	for l.total-l.buffer[0].count >= l.idealSize {
-		l.total -= l.buffer[0].count
-		l.buffer = l.buffer[1:]
+	if over := l.total - l.idealSize; over > 0 {
+		dropOldestSpans(l.store, over)
+		l.total = l.idealSize
 	}
 }
 
@@ -404,16 +369,9 @@ func (l *TraceBuffer) ConstructPayload(traceMarshaler ptrace.Marshaler, searchQu
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	payloadTraces := ptrace.NewTraces()
-	for _, e := range l.buffer {
-		e.traces.ResourceSpans().MoveAndAppendTo(payloadTraces.ResourceSpans())
-	}
-
-	// update the buffer to retain the current traces which were moved to the new payload
-	l.setBuffer([]traceEntry{{traces: payloadTraces, count: l.total}})
-
-	// Filter the payload
-	filteredPayload := filterTraces(payloadTraces, searchQuery, minimumTimestamp)
+	// Filter the payload. The store is only read; filtering copies matching
+	// spans into a new payload when any filter is set.
+	filteredPayload := filterTraces(l.store, searchQuery, minimumTimestamp)
 
 	// Count the spans in the filtered payload once; sampling identifies spans
 	// by their flat position in traversal order.
@@ -455,6 +413,6 @@ func (l *TraceBuffer) ConstructPayload(traceMarshaler ptrace.Marshaler, searchQu
 
 	// Encountered an error or we've tried all retentions and still can't fit the payload
 	// so clear the buffer and return the last error seen
-	l.setBuffer([]traceEntry{})
+	l.reset()
 	return nil, lastError
 }
