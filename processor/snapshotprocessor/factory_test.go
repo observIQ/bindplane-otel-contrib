@@ -29,6 +29,7 @@ func TestNewFactory(t *testing.T) {
 	expectedCfg := &Config{
 		Enabled:         true,
 		OpAMP:           defaultOpAMPExtensionID,
+		BufferSize:      defaultBufferSize,
 		RefreshInterval: defaultRefreshInterval,
 	}
 

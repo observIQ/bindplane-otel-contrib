@@ -75,18 +75,14 @@ type snapshotProcessor struct {
 
 // newSnapshotProcessor creates a new snapshot processor
 func newSnapshotProcessor(logger *zap.Logger, cfg *Config, processorID component.ID) *snapshotProcessor {
-	return &snapshotProcessor{
+	sp := &snapshotProcessor{
 		logger: logger,
 
 		enabled:          cfg.Enabled,
 		processorID:      processorID,
 		opampExtensionID: cfg.OpAMP,
 
-		logBuffer:    snapshot.NewLogBuffer(100),
-		metricBuffer: snapshot.NewMetricBuffer(100),
-		traceBuffer:  snapshot.NewTraceBuffer(100),
-
-		bufferSize:      100,
+		bufferSize:      cfg.BufferSize,
 		refreshInterval: cfg.RefreshInterval,
 
 		started:  &atomic.Bool{},
@@ -94,6 +90,20 @@ func newSnapshotProcessor(logger *zap.Logger, cfg *Config, processorID component
 		doneChan: make(chan struct{}),
 		wg:       &sync.WaitGroup{},
 	}
+
+	// Buffers exist only for the configured signal types; pipelines for other
+	// signal types pass telemetry through with no buffering cost.
+	if cfg.buffersSignal("logs") {
+		sp.logBuffer = snapshot.NewLogBuffer(cfg.BufferSize)
+	}
+	if cfg.buffersSignal("metrics") {
+		sp.metricBuffer = snapshot.NewMetricBuffer(cfg.BufferSize)
+	}
+	if cfg.buffersSignal("traces") {
+		sp.traceBuffer = snapshot.NewTraceBuffer(cfg.BufferSize)
+	}
+
+	return sp
 }
 
 func (sp *snapshotProcessor) start(_ context.Context, host component.Host) error {
@@ -199,6 +209,10 @@ func (sp *snapshotProcessor) processSnapshotRequest(cm *protobufs.CustomMessage)
 	var report snapshotReport
 	switch req.PipelineType {
 	case "logs":
+		if sp.logBuffer == nil {
+			sp.logger.Error("Snapshot requested for a signal type this processor does not buffer.", zap.String("PipelineType", req.PipelineType))
+			return
+		}
 		telemetryPayload, err := sp.logBuffer.ConstructPayload(&plog.JSONMarshaler{}, req.SearchQuery, req.MinimumTimestamp, req.MaximumPayloadSizeBytes)
 		if err != nil {
 			sp.logger.Error("Failed to construct snapshot payload.", zap.Error(err))
@@ -208,6 +222,10 @@ func (sp *snapshotProcessor) processSnapshotRequest(cm *protobufs.CustomMessage)
 		report = logsReport(req.SessionID, telemetryPayload)
 
 	case "metrics":
+		if sp.metricBuffer == nil {
+			sp.logger.Error("Snapshot requested for a signal type this processor does not buffer.", zap.String("PipelineType", req.PipelineType))
+			return
+		}
 		telemetryPayload, err := sp.metricBuffer.ConstructPayload(&pmetric.JSONMarshaler{}, req.SearchQuery, req.MinimumTimestamp, req.MaximumPayloadSizeBytes)
 		if err != nil {
 			sp.logger.Error("Failed to construct metrics snapshot payload.", zap.Error(err))
@@ -217,6 +235,10 @@ func (sp *snapshotProcessor) processSnapshotRequest(cm *protobufs.CustomMessage)
 		report = metricsReport(req.SessionID, telemetryPayload)
 
 	case "traces":
+		if sp.traceBuffer == nil {
+			sp.logger.Error("Snapshot requested for a signal type this processor does not buffer.", zap.String("PipelineType", req.PipelineType))
+			return
+		}
 		telemetryPayload, err := sp.traceBuffer.ConstructPayload(&ptrace.JSONMarshaler{}, req.SearchQuery, req.MinimumTimestamp, req.MaximumPayloadSizeBytes)
 		if err != nil {
 			sp.logger.Error("Failed to construct traces payload.", zap.Error(err))
@@ -264,7 +286,7 @@ func (sp *snapshotProcessor) processSnapshotRequest(cm *protobufs.CustomMessage)
 }
 
 func (sp *snapshotProcessor) processTraces(_ context.Context, td ptrace.Traces) (ptrace.Traces, error) {
-	if sp.enabled && sp.admitBatch(&sp.admitTraces, sp.traceBuffer.Len()) {
+	if sp.enabled && sp.traceBuffer != nil && sp.admitBatch(&sp.admitTraces, sp.traceBuffer.Len()) {
 		// Add copies at most the buffer's ideal size out of td; the payload
 		// itself is never retained or mutated.
 		sp.traceBuffer.Add(td)
@@ -274,7 +296,7 @@ func (sp *snapshotProcessor) processTraces(_ context.Context, td ptrace.Traces) 
 }
 
 func (sp *snapshotProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.Logs, error) {
-	if sp.enabled && sp.admitBatch(&sp.admitLogs, sp.logBuffer.Len()) {
+	if sp.enabled && sp.logBuffer != nil && sp.admitBatch(&sp.admitLogs, sp.logBuffer.Len()) {
 		// Add copies at most the buffer's ideal size out of ld; the payload
 		// itself is never retained or mutated.
 		sp.logBuffer.Add(ld)
@@ -284,7 +306,7 @@ func (sp *snapshotProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.
 }
 
 func (sp *snapshotProcessor) processMetrics(_ context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
-	if sp.enabled && sp.admitBatch(&sp.admitMetrics, sp.metricBuffer.Len()) {
+	if sp.enabled && sp.metricBuffer != nil && sp.admitBatch(&sp.admitMetrics, sp.metricBuffer.Len()) {
 		// Add copies at most the buffer's ideal size out of md; the payload
 		// itself is never retained or mutated.
 		sp.metricBuffer.Add(md)

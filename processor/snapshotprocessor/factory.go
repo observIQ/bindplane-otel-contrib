@@ -47,6 +47,7 @@ func createDefaultConfig() component.Config {
 	return &Config{
 		Enabled:         true,
 		OpAMP:           defaultOpAMPExtensionID,
+		BufferSize:      defaultBufferSize,
 		RefreshInterval: defaultRefreshInterval,
 	}
 }

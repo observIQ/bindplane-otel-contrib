@@ -408,6 +408,41 @@ func TestProcessLogs_RejectedPathDoesNotAllocate(t *testing.T) {
 	require.Zero(t, allocs, "rejected-path processLogs must not allocate")
 }
 
+func TestSignalsConfigLimitsBuffering(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	cfg.Signals = []string{"logs"}
+	sp := newSnapshotProcessor(zap.NewNop(), cfg, component.MustNewID("snapshotprocessor"))
+	ctx := context.Background()
+
+	require.NotNil(t, sp.logBuffer)
+	require.Nil(t, sp.metricBuffer)
+	require.Nil(t, sp.traceBuffer)
+
+	// Logs are buffered.
+	_, err := sp.processLogs(ctx, admissionTestBatch("logs", 10))
+	require.NoError(t, err)
+	require.Equal(t, 10, sp.logBuffer.Len())
+
+	// Metrics and traces pass through without buffering (and without panic).
+	md, err := golden.ReadMetrics(filepath.Join("testdata", "metrics", "host-metrics.yaml"))
+	require.NoError(t, err)
+	_, err = sp.processMetrics(ctx, md)
+	require.NoError(t, err)
+
+	td, err := golden.ReadTraces(filepath.Join("testdata", "traces", "bindplane-traces.yaml"))
+	require.NoError(t, err)
+	_, err = sp.processTraces(ctx, td)
+	require.NoError(t, err)
+
+	// A snapshot request for an unbuffered signal type is rejected without
+	// panicking.
+	sp.processSnapshotRequest(&protobufs.CustomMessage{
+		Capability: snapshotCapability,
+		Type:       snapshotRequestType,
+		Data:       []byte(fmt.Sprintf(`{"processor":%q,"pipeline_type":"metrics","session_id":"s"}`, sp.processorID)),
+	})
+}
+
 // mockHost for component.Host
 type mockHost struct {
 	extensions map[component.ID]component.Component

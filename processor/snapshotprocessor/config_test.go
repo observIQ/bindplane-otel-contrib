@@ -16,6 +16,7 @@ package snapshotprocessor
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
@@ -35,4 +36,46 @@ func TestConfigValidate(t *testing.T) {
 
 		require.ErrorContains(t, cfg.Validate(), "`opamp` must be specified")
 	})
+
+	t.Run("buffer_size must be positive", func(t *testing.T) {
+		cfg := createDefaultConfig().(*Config)
+		cfg.BufferSize = 0
+		require.ErrorContains(t, cfg.Validate(), "`buffer_size` must be positive")
+
+		cfg.BufferSize = -1
+		require.ErrorContains(t, cfg.Validate(), "`buffer_size` must be positive")
+	})
+
+	t.Run("buffer_size is capped", func(t *testing.T) {
+		cfg := createDefaultConfig().(*Config)
+		cfg.BufferSize = maxBufferSize + 1
+		require.ErrorContains(t, cfg.Validate(), "`buffer_size` cannot exceed")
+	})
+
+	t.Run("refresh_interval cannot be negative", func(t *testing.T) {
+		cfg := createDefaultConfig().(*Config)
+		cfg.RefreshInterval = -time.Second
+		require.ErrorContains(t, cfg.Validate(), "`refresh_interval` cannot be negative")
+	})
+
+	t.Run("signals must be valid", func(t *testing.T) {
+		cfg := createDefaultConfig().(*Config)
+		cfg.Signals = []string{"logs", "gauges"}
+		require.ErrorContains(t, cfg.Validate(), `invalid signal type "gauges"`)
+
+		cfg.Signals = []string{"logs", "metrics", "traces"}
+		require.NoError(t, cfg.Validate())
+	})
+}
+
+func TestConfigBuffersSignal(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	require.True(t, cfg.buffersSignal("logs"))
+	require.True(t, cfg.buffersSignal("metrics"))
+	require.True(t, cfg.buffersSignal("traces"))
+
+	cfg.Signals = []string{"logs"}
+	require.True(t, cfg.buffersSignal("logs"))
+	require.False(t, cfg.buffersSignal("metrics"))
+	require.False(t, cfg.buffersSignal("traces"))
 }
