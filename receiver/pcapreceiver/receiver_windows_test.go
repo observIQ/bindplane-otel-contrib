@@ -304,10 +304,8 @@ func TestShutdown_Windows(t *testing.T) {
 	err := receiver.Start(ctx, componenttest.NewNopHost())
 	require.NoError(t, err)
 
-	// Wait a short time for goroutines to start
-	time.Sleep(10 * time.Millisecond)
-
-	// Shutdown
+	// Shutdown. The handle is stored synchronously in Start, so it is closed on
+	// Shutdown regardless of whether the read goroutine has started.
 	err = receiver.Shutdown(ctx)
 	require.NoError(t, err)
 
