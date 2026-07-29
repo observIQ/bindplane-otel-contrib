@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/extension"
 	"go.opentelemetry.io/collector/extension/xextension/storage"
@@ -46,6 +47,9 @@ type badgerExtension struct {
 	clients           map[string]client.Client
 	doneChan          chan struct{}
 	telemetrySettings component.TelemetrySettings
+	// clock backs the GC and telemetry tickers; real in production, a fake clock in
+	// tests so scheduled cycles can be triggered without sleeping.
+	clock clockwork.Clock
 
 	mb *metadata.TelemetryBuilder
 }
@@ -63,6 +67,7 @@ func newBadgerExtension(logger *zap.Logger, cfg *Config, telemetrySettings compo
 		clients:           make(map[string]client.Client),
 		clientsMutex:      sync.RWMutex{},
 		telemetrySettings: telemetrySettings,
+		clock:             clockwork.NewRealClock(),
 	}
 }
 
@@ -143,7 +148,7 @@ func (b *badgerExtension) Start(_ context.Context, _ component.Host) error {
 
 // runGC runs the garbage collection process in a loop
 func (b *badgerExtension) runGC(ctx context.Context) {
-	ticker := time.NewTicker(b.cfg.BlobGarbageCollection.Interval)
+	ticker := b.clock.NewTicker(b.cfg.BlobGarbageCollection.Interval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -151,7 +156,7 @@ func (b *badgerExtension) runGC(ctx context.Context) {
 			return
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-ticker.Chan():
 			beginning := b.startGCOperation()
 
 			b.clientsMutex.RLock()
@@ -192,7 +197,7 @@ func (b *badgerExtension) monitor(ctx context.Context) {
 	b.mb = mb
 	defer mb.Shutdown()
 
-	ticker := time.NewTicker(b.cfg.Telemetry.UpdateInterval)
+	ticker := b.clock.NewTicker(b.cfg.Telemetry.UpdateInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -200,7 +205,7 @@ func (b *badgerExtension) monitor(ctx context.Context) {
 			return
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-ticker.Chan():
 			b.clientsMutex.RLock()
 			clientCount := len(b.clients)
 			// make a shallow copy of the clients under lock so we can process them outside of the lock
