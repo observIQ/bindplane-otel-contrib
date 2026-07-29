@@ -728,6 +728,65 @@ func TestTraceBufferConstructPayloadSampling(t *testing.T) {
 	})
 }
 
+func TestBufferZeroCountPayloadsAreDropped(t *testing.T) {
+	t.Run("logs", func(t *testing.T) {
+		logBuffer := NewLogBuffer(4)
+
+		// Fill the buffer to exactly idealSize so the eviction loop can never
+		// remove the head entry.
+		seed := plog.NewLogs()
+		sl := seed.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty()
+		for i := 0; i < 4; i++ {
+			sl.LogRecords().AppendEmpty()
+		}
+		logBuffer.Add(seed)
+
+		for i := 0; i < 1000; i++ {
+			logBuffer.Add(plog.NewLogs())
+		}
+
+		assert.Equal(t, 4, logBuffer.Len())
+		assert.Len(t, logBuffer.buffer, 1, "zero-count payloads must not grow the buffer")
+	})
+
+	t.Run("metrics", func(t *testing.T) {
+		metricBuffer := NewMetricBuffer(4)
+
+		seed := pmetric.NewMetrics()
+		m := seed.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
+		m.SetEmptyGauge()
+		for i := 0; i < 4; i++ {
+			m.Gauge().DataPoints().AppendEmpty()
+		}
+		metricBuffer.Add(seed)
+
+		for i := 0; i < 1000; i++ {
+			metricBuffer.Add(pmetric.NewMetrics())
+		}
+
+		assert.Equal(t, 4, metricBuffer.Len())
+		assert.Len(t, metricBuffer.buffer, 1, "zero-count payloads must not grow the buffer")
+	})
+
+	t.Run("traces", func(t *testing.T) {
+		traceBuffer := NewTraceBuffer(4)
+
+		seed := ptrace.NewTraces()
+		ss := seed.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty()
+		for i := 0; i < 4; i++ {
+			ss.Spans().AppendEmpty()
+		}
+		traceBuffer.Add(seed)
+
+		for i := 0; i < 1000; i++ {
+			traceBuffer.Add(ptrace.NewTraces())
+		}
+
+		assert.Equal(t, 4, traceBuffer.Len())
+		assert.Len(t, traceBuffer.buffer, 1, "zero-count payloads must not grow the buffer")
+	})
+}
+
 func TestCompress(t *testing.T) {
 	t.Run("Compresses and decompresses data correctly", func(t *testing.T) {
 		original := []byte("This is some test data that should be compressed and decompressed correctly")
