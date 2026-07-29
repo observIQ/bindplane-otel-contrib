@@ -128,16 +128,17 @@ func (l *LogBuffer) ConstructPayload(logsMarshaler plog.Marshaler, searchQuery *
 	// Filter the payload
 	filteredPayload := filterLogs(payloadLogs, searchQuery, minimumTimestamp)
 
-	// Generate the positions of the log records in the payload
-	logPositions := generateLogPositions(filteredPayload)
+	// Count the log records in the filtered payload once; sampling identifies
+	// records by their flat position in traversal order.
+	recordCount := filteredPayload.LogRecordCount()
 
 	var lastError error
 
 	// Walk retention from highest to lowest and return the first payload that
 	// fits within the maximum payload size once compressed.
 	for _, retentionPercent := range []int{100, 75, 50, 25, 1} {
-		// Sample the logs based on the positions and the retention percentage
-		logsToMarshal := randomSampleLogs(filteredPayload, logPositions, retentionPercent)
+		// Sample the logs based on the retention percentage
+		logsToMarshal := randomSampleLogs(filteredPayload, recordCount, retentionPercent)
 
 		payload, err := logsMarshaler.MarshalLogs(logsToMarshal)
 		if err != nil {
@@ -275,16 +276,17 @@ func (l *MetricBuffer) ConstructPayload(metricMarshaler pmetric.Marshaler, searc
 	// filter the payload
 	filteredPayload := filterMetrics(payloadMetrics, searchQuery, minimumTimestamp)
 
-	// Generate the positions of the data points in the payload
-	dataPointPositions := generateDataPointPositions(filteredPayload)
+	// Count the data points in the filtered payload once; sampling identifies
+	// data points by their flat position in traversal order.
+	dataPointCount := filteredPayload.DataPointCount()
 
 	var lastError error
 
 	// Walk retention from highest to lowest and return the first payload that
 	// fits within the maximum payload size once compressed.
 	for _, retentionPercent := range []int{100, 75, 50, 25, 1} {
-		// Sample the metrics based on the positions and the retention percentage
-		metricsToMarshal := randomSampleMetrics(filteredPayload, dataPointPositions, retentionPercent)
+		// Sample the metrics based on the retention percentage
+		metricsToMarshal := randomSampleMetrics(filteredPayload, dataPointCount, retentionPercent)
 
 		payload, err := metricMarshaler.MarshalMetrics(metricsToMarshal)
 		if err != nil {
@@ -422,16 +424,17 @@ func (l *TraceBuffer) ConstructPayload(traceMarshaler ptrace.Marshaler, searchQu
 	// Filter the payload
 	filteredPayload := filterTraces(payloadTraces, searchQuery, minimumTimestamp)
 
-	// Generate the positions of the spans in the payload
-	spanPositions := generateSpanPositions(filteredPayload)
+	// Count the spans in the filtered payload once; sampling identifies spans
+	// by their flat position in traversal order.
+	spanCount := filteredPayload.SpanCount()
 
 	var lastError error
 
 	// Walk retention from highest to lowest and return the first payload that
 	// fits within the maximum payload size once compressed.
 	for _, retentionPercent := range []int{100, 75, 50, 25, 1} {
-		// Sample the traces based on the positions and the retention percentage
-		tracesToMarshal := randomSampleTraces(filteredPayload, spanPositions, retentionPercent)
+		// Sample the traces based on the retention percentage
+		tracesToMarshal := randomSampleTraces(filteredPayload, spanCount, retentionPercent)
 
 		payload, err := traceMarshaler.MarshalTraces(tracesToMarshal)
 		if err != nil {

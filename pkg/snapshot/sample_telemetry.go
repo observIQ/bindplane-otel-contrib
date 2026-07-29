@@ -22,30 +22,32 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
-// logPosition is a tuple of the resource index, scope index, and log index of a log record
-type logPosition struct {
-	resourceIdx int
-	scopeIdx    int
-	logIdx      int
-}
-
-// generateLogPositions generates a list of log positions for all log records in the given logs
-func generateLogPositions(logs plog.Logs) []logPosition {
-	positions := make([]logPosition, 0)
-	for ri := 0; ri < logs.ResourceLogs().Len(); ri++ {
-		for si := 0; si < logs.ResourceLogs().At(ri).ScopeLogs().Len(); si++ {
-			for li := 0; li < logs.ResourceLogs().At(ri).ScopeLogs().At(si).LogRecords().Len(); li++ {
-				positions = append(positions, logPosition{resourceIdx: ri, scopeIdx: si, logIdx: li})
-			}
-		}
+// selectSampledIndices returns a boolean membership set of size n with target
+// randomly chosen entries set to true. Items are identified by their flat
+// position in traversal order, so membership checks during the rebuild are a
+// slice index instead of a struct-keyed map lookup. Selection is a partial
+// Fisher-Yates shuffle costing O(target) swaps instead of shuffling the whole
+// index space.
+func selectSampledIndices(n, target int) []bool {
+	idx := make([]int32, n)
+	for i := range idx {
+		idx[i] = int32(i)
 	}
-	return positions
+
+	keep := make([]bool, n)
+	for i := 0; i < target; i++ {
+		j := i + rand.IntN(n-i)
+		idx[i], idx[j] = idx[j], idx[i]
+		keep[idx[i]] = true
+	}
+
+	return keep
 }
 
-// randomSampleLogs samples a given percentage of log records from the given logs based on the given positions
-// Uses rand.Shuffle to randomize the positions array before sampling to ensure a random sample.
+// randomSampleLogs samples a given percentage of log records from the given logs.
+// n must be the total number of log records in originalLogs.
 // Returns a new logs object with only the sampled log records.
-func randomSampleLogs(originalLogs plog.Logs, positions []logPosition, retentionPercent int) plog.Logs {
+func randomSampleLogs(originalLogs plog.Logs, n int, retentionPercent int) plog.Logs {
 	// If retention is 100%, return the original logs
 	// If retention is 0%, set to 1%
 	switch retentionPercent {
@@ -55,34 +57,28 @@ func randomSampleLogs(originalLogs plog.Logs, positions []logPosition, retention
 		retentionPercent = 1
 	}
 
-	// Randomize the positions array to ensure a random sample
-	rand.Shuffle(len(positions), func(i, j int) {
-		positions[i], positions[j] = positions[j], positions[i]
-	})
-
 	// Calculate the number of log records to keep based on the retention percentage
-	targetCount := (originalLogs.LogRecordCount() * retentionPercent) / 100
-
-	// Create a map of the positions to keep
-	keepPositions := make(map[logPosition]bool, targetCount)
-	for i := 0; i < targetCount; i++ {
-		keepPositions[positions[i]] = true
-	}
+	targetCount := (n * retentionPercent) / 100
+	keep := selectSampledIndices(n, targetCount)
 
 	// Rebuild the logs with only the kept log records without modifying the original logs
 	result := plog.NewLogs()
-	for ri := 0; ri < originalLogs.ResourceLogs().Len(); ri++ {
-		srcRL := originalLogs.ResourceLogs().At(ri)
+	flat := 0
+	rls := originalLogs.ResourceLogs()
+	for ri := 0; ri < rls.Len(); ri++ {
+		srcRL := rls.At(ri)
 		var dstRL plog.ResourceLogs
 		rlCreated := false
 
-		for si := 0; si < srcRL.ScopeLogs().Len(); si++ {
-			srcSL := srcRL.ScopeLogs().At(si)
+		sls := srcRL.ScopeLogs()
+		for si := 0; si < sls.Len(); si++ {
+			srcSL := sls.At(si)
 			var dstSL plog.ScopeLogs
 			slCreated := false
 
-			for li := 0; li < srcSL.LogRecords().Len(); li++ {
-				if keepPositions[logPosition{resourceIdx: ri, scopeIdx: si, logIdx: li}] {
+			lrs := srcSL.LogRecords()
+			for li := 0; li < lrs.Len(); li++ {
+				if keep[flat] {
 					if !rlCreated {
 						dstRL = result.ResourceLogs().AppendEmpty()
 						srcRL.Resource().CopyTo(dstRL.Resource())
@@ -93,38 +89,14 @@ func randomSampleLogs(originalLogs plog.Logs, positions []logPosition, retention
 						srcSL.Scope().CopyTo(dstSL.Scope())
 						slCreated = true
 					}
-					srcSL.LogRecords().At(li).CopyTo(dstSL.LogRecords().AppendEmpty())
+					lrs.At(li).CopyTo(dstSL.LogRecords().AppendEmpty())
 				}
+				flat++
 			}
 		}
 	}
 
 	return result
-}
-
-// dataPointPosition is a tuple identifying a specific data point in the metrics structure
-type dataPointPosition struct {
-	resourceIdx  int
-	scopeIdx     int
-	metricIdx    int
-	dataPointIdx int
-}
-
-// generateDataPointPositions generates a list of data point positions for all data points in the given metrics
-func generateDataPointPositions(metrics pmetric.Metrics) []dataPointPosition {
-	positions := make([]dataPointPosition, 0)
-	for ri := 0; ri < metrics.ResourceMetrics().Len(); ri++ {
-		for si := 0; si < metrics.ResourceMetrics().At(ri).ScopeMetrics().Len(); si++ {
-			for mi := 0; mi < metrics.ResourceMetrics().At(ri).ScopeMetrics().At(si).Metrics().Len(); mi++ {
-				metric := metrics.ResourceMetrics().At(ri).ScopeMetrics().At(si).Metrics().At(mi)
-				dpCount := getDataPointCount(metric)
-				for di := 0; di < dpCount; di++ {
-					positions = append(positions, dataPointPosition{resourceIdx: ri, scopeIdx: si, metricIdx: mi, dataPointIdx: di})
-				}
-			}
-		}
-	}
-	return positions
 }
 
 // getDataPointCount returns the number of data points in a metric based on its type
@@ -145,10 +117,10 @@ func getDataPointCount(metric pmetric.Metric) int {
 	}
 }
 
-// randomSampleMetrics samples a given percentage of data points from the given metrics based on the given positions
-// Uses rand.Shuffle to randomize the positions array before sampling to ensure a random sample.
+// randomSampleMetrics samples a given percentage of data points from the given metrics.
+// n must be the total number of data points in originalMetrics.
 // Returns a new metrics object with only the sampled data points.
-func randomSampleMetrics(originalMetrics pmetric.Metrics, positions []dataPointPosition, retentionPercent int) pmetric.Metrics {
+func randomSampleMetrics(originalMetrics pmetric.Metrics, n int, retentionPercent int) pmetric.Metrics {
 	// If retention is 100%, return the original metrics
 	// If retention is 0%, set to 1%
 	switch retentionPercent {
@@ -158,40 +130,34 @@ func randomSampleMetrics(originalMetrics pmetric.Metrics, positions []dataPointP
 		retentionPercent = 1
 	}
 
-	// Randomize the positions array to ensure a random sample
-	rand.Shuffle(len(positions), func(i, j int) {
-		positions[i], positions[j] = positions[j], positions[i]
-	})
-
 	// Calculate the number of data points to keep based on the retention percentage
-	targetCount := (originalMetrics.DataPointCount() * retentionPercent) / 100
-
-	// Create a map of the positions to keep
-	keepPositions := make(map[dataPointPosition]bool, targetCount)
-	for i := 0; i < targetCount; i++ {
-		keepPositions[positions[i]] = true
-	}
+	targetCount := (n * retentionPercent) / 100
+	keep := selectSampledIndices(n, targetCount)
 
 	// Rebuild the metrics with only the kept data points without modifying the original metrics
 	result := pmetric.NewMetrics()
-	for ri := 0; ri < originalMetrics.ResourceMetrics().Len(); ri++ {
-		srcRM := originalMetrics.ResourceMetrics().At(ri)
+	flat := 0
+	rms := originalMetrics.ResourceMetrics()
+	for ri := 0; ri < rms.Len(); ri++ {
+		srcRM := rms.At(ri)
 		var dstRM pmetric.ResourceMetrics
 		rmCreated := false
 
-		for si := 0; si < srcRM.ScopeMetrics().Len(); si++ {
-			srcSM := srcRM.ScopeMetrics().At(si)
+		sms := srcRM.ScopeMetrics()
+		for si := 0; si < sms.Len(); si++ {
+			srcSM := sms.At(si)
 			var dstSM pmetric.ScopeMetrics
 			smCreated := false
 
-			for mi := 0; mi < srcSM.Metrics().Len(); mi++ {
-				srcMetric := srcSM.Metrics().At(mi)
+			ms := srcSM.Metrics()
+			for mi := 0; mi < ms.Len(); mi++ {
+				srcMetric := ms.At(mi)
 				var dstMetric pmetric.Metric
 				metricCreated := false
 
 				dpCount := getDataPointCount(srcMetric)
 				for di := 0; di < dpCount; di++ {
-					if keepPositions[dataPointPosition{resourceIdx: ri, scopeIdx: si, metricIdx: mi, dataPointIdx: di}] {
+					if keep[flat] {
 						if !rmCreated {
 							dstRM = result.ResourceMetrics().AppendEmpty()
 							srcRM.Resource().CopyTo(dstRM.Resource())
@@ -212,6 +178,7 @@ func randomSampleMetrics(originalMetrics pmetric.Metrics, positions []dataPointP
 						}
 						copyDataPoint(srcMetric, dstMetric, di)
 					}
+					flat++
 				}
 			}
 		}
@@ -256,30 +223,10 @@ func copyDataPoint(src, dst pmetric.Metric, idx int) {
 	}
 }
 
-// spanPosition is a tuple identifying a specific span in the traces structure
-type spanPosition struct {
-	resourceIdx int
-	scopeIdx    int
-	spanIdx     int
-}
-
-// generateSpanPositions generates a list of span positions for all spans in the given traces
-func generateSpanPositions(traces ptrace.Traces) []spanPosition {
-	positions := make([]spanPosition, 0)
-	for ri := 0; ri < traces.ResourceSpans().Len(); ri++ {
-		for si := 0; si < traces.ResourceSpans().At(ri).ScopeSpans().Len(); si++ {
-			for spi := 0; spi < traces.ResourceSpans().At(ri).ScopeSpans().At(si).Spans().Len(); spi++ {
-				positions = append(positions, spanPosition{resourceIdx: ri, scopeIdx: si, spanIdx: spi})
-			}
-		}
-	}
-	return positions
-}
-
-// randomSampleTraces samples a given percentage of spans from the given traces based on the given positions
-// Uses rand.Shuffle to randomize the positions array before sampling to ensure a random sample.
+// randomSampleTraces samples a given percentage of spans from the given traces.
+// n must be the total number of spans in originalTraces.
 // Returns a new traces object with only the sampled spans.
-func randomSampleTraces(originalTraces ptrace.Traces, positions []spanPosition, retentionPercent int) ptrace.Traces {
+func randomSampleTraces(originalTraces ptrace.Traces, n int, retentionPercent int) ptrace.Traces {
 	// If retention is 100%, return the original traces
 	// If retention is 0%, set to 1%
 	switch retentionPercent {
@@ -289,34 +236,28 @@ func randomSampleTraces(originalTraces ptrace.Traces, positions []spanPosition, 
 		retentionPercent = 1
 	}
 
-	// Randomize the positions array to ensure a random sample
-	rand.Shuffle(len(positions), func(i, j int) {
-		positions[i], positions[j] = positions[j], positions[i]
-	})
-
 	// Calculate the number of spans to keep based on the retention percentage
-	targetCount := (originalTraces.SpanCount() * retentionPercent) / 100
-
-	// Create a map of the positions to keep
-	keepPositions := make(map[spanPosition]bool, targetCount)
-	for i := 0; i < targetCount; i++ {
-		keepPositions[positions[i]] = true
-	}
+	targetCount := (n * retentionPercent) / 100
+	keep := selectSampledIndices(n, targetCount)
 
 	// Rebuild the traces with only the kept spans without modifying the original traces
 	result := ptrace.NewTraces()
-	for ri := 0; ri < originalTraces.ResourceSpans().Len(); ri++ {
-		srcRS := originalTraces.ResourceSpans().At(ri)
+	flat := 0
+	rss := originalTraces.ResourceSpans()
+	for ri := 0; ri < rss.Len(); ri++ {
+		srcRS := rss.At(ri)
 		var dstRS ptrace.ResourceSpans
 		rsCreated := false
 
-		for si := 0; si < srcRS.ScopeSpans().Len(); si++ {
-			srcSS := srcRS.ScopeSpans().At(si)
+		sss := srcRS.ScopeSpans()
+		for si := 0; si < sss.Len(); si++ {
+			srcSS := sss.At(si)
 			var dstSS ptrace.ScopeSpans
 			ssCreated := false
 
-			for spi := 0; spi < srcSS.Spans().Len(); spi++ {
-				if keepPositions[spanPosition{resourceIdx: ri, scopeIdx: si, spanIdx: spi}] {
+			sps := srcSS.Spans()
+			for spi := 0; spi < sps.Len(); spi++ {
+				if keep[flat] {
 					if !rsCreated {
 						dstRS = result.ResourceSpans().AppendEmpty()
 						srcRS.Resource().CopyTo(dstRS.Resource())
@@ -327,8 +268,9 @@ func randomSampleTraces(originalTraces ptrace.Traces, positions []spanPosition, 
 						srcSS.Scope().CopyTo(dstSS.Scope())
 						ssCreated = true
 					}
-					srcSS.Spans().At(spi).CopyTo(dstSS.Spans().AppendEmpty())
+					sps.At(spi).CopyTo(dstSS.Spans().AppendEmpty())
 				}
+				flat++
 			}
 		}
 	}
