@@ -213,9 +213,10 @@ func TestReadPackets_Unix_EmptyInput(t *testing.T) {
 
 	go receiver.readPackets(ctx, stdout)
 
-	// Wait a bit to ensure no packets are processed
-	time.Sleep(100 * time.Millisecond)
-	require.Equal(t, 0, sink.LogRecordCount())
+	// No packets should be processed; confirm the count stays zero.
+	require.Never(t, func() bool {
+		return sink.LogRecordCount() != 0
+	}, 100*time.Millisecond, 10*time.Millisecond)
 }
 
 func TestReadPackets_Unix_MalformedPacket(t *testing.T) {
@@ -235,9 +236,10 @@ func TestReadPackets_Unix_MalformedPacket(t *testing.T) {
 
 	go receiver.readPackets(ctx, stdout)
 
-	// Wait a bit - malformed packets should not be processed
-	time.Sleep(200 * time.Millisecond)
-	require.Equal(t, 0, sink.LogRecordCount())
+	// Malformed packets should not be processed; confirm the count stays zero.
+	require.Never(t, func() bool {
+		return sink.LogRecordCount() != 0
+	}, 200*time.Millisecond, 10*time.Millisecond)
 }
 
 func TestReadPackets_Unix_LargePacket(t *testing.T) {
@@ -291,10 +293,11 @@ func TestReadPackets_Unix_PacketWithOnlyTimestamp(t *testing.T) {
 
 	go receiver.readPackets(ctx, stdout)
 
-	// Wait a bit - packets without hex data should fail parsing
-	time.Sleep(200 * time.Millisecond)
-	// Should have attempted to process but failed due to missing hex data
-	require.Equal(t, 0, sink.LogRecordCount())
+	// Packets without hex data should fail parsing and never be processed; confirm
+	// the count stays zero.
+	require.Never(t, func() bool {
+		return sink.LogRecordCount() != 0
+	}, 200*time.Millisecond, 10*time.Millisecond)
 }
 
 func TestReadPackets_Unix_IPv6Packet(t *testing.T) {
@@ -389,12 +392,19 @@ func TestReadPackets_Unix_ScannerError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go receiver.readPackets(ctx, stdout)
+	done := make(chan struct{})
+	go func() {
+		receiver.readPackets(ctx, stdout)
+		close(done)
+	}()
 
-	// Wait for error to be handled
-	time.Sleep(200 * time.Millisecond)
-	// Should handle error gracefully without panicking
-	_ = sink.LogRecordCount()
+	// readPackets should return once the scanner hits the injected error, handling it
+	// gracefully without panicking. Wait for it to exit rather than sleeping.
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("readPackets did not return after scanner error")
+	}
 }
 
 // errorReader is a test utility that returns an error after reading some data

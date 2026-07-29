@@ -211,9 +211,10 @@ func TestProcessPacket_InvalidPacket(t *testing.T) {
 	ctx := context.Background()
 	receiver.processPacket(ctx, lines)
 
-	// Consumer should not have received any logs
-	time.Sleep(100 * time.Millisecond)
-	require.Equal(t, 0, sink.LogRecordCount())
+	// Consumer should not have received any logs; confirm the count stays zero.
+	require.Never(t, func() bool {
+		return sink.LogRecordCount() != 0
+	}, 100*time.Millisecond, 10*time.Millisecond)
 }
 
 func TestProcessPacket_ICMPNoPort(t *testing.T) {
