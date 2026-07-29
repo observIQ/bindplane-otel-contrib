@@ -31,6 +31,34 @@ var gzipWriterPool = sync.Pool{
 	},
 }
 
+// countingWriter counts the bytes written to it, discarding the data.
+type countingWriter struct{ n int }
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	c.n += len(p)
+	return len(p), nil
+}
+
+// compressedSize returns the size data would gzip compress to, without
+// allocating or retaining the compressed bytes. It is safe for concurrent
+// use.
+func compressedSize(data []byte) (int, error) {
+	cw := &countingWriter{}
+
+	w := gzipWriterPool.Get().(*gzip.Writer)
+	defer gzipWriterPool.Put(w)
+	w.Reset(cw)
+
+	if _, err := w.Write(data); err != nil {
+		return 0, err
+	}
+	if err := w.Close(); err != nil {
+		return 0, err
+	}
+
+	return cw.n, nil
+}
+
 // Compress gzip compresses the input data. It is safe for concurrent use.
 func Compress(data []byte) ([]byte, error) {
 	// Pre-size the output buffer with a rough gzip ratio estimate to avoid
