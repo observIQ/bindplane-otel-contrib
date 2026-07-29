@@ -53,10 +53,17 @@ func (l *LogBuffer) Len() int {
 
 // Add adds the new log payload and adjust buffer to keep ideal size
 func (l *LogBuffer) Add(ld plog.Logs) {
+	logSize := ld.LogRecordCount()
+	// Zero-count payloads contribute nothing to a snapshot, but the eviction
+	// loop below can never remove them once a large entry sits at the head of
+	// the buffer, so admitting them grows the buffer without bound.
+	if logSize == 0 {
+		return
+	}
+
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	logSize := ld.LogRecordCount()
 	bufferSize := l.Len()
 	switch {
 	// The number of logs is more than idealSize so reset this to just this log set
@@ -178,10 +185,17 @@ func (l *MetricBuffer) Len() int {
 
 // Add adds the new metric payload and adjust buffer to keep ideal size
 func (l *MetricBuffer) Add(md pmetric.Metrics) {
+	metricSize := md.DataPointCount()
+	// Zero-count payloads contribute nothing to a snapshot, but the eviction
+	// loop below can never remove them once a large entry sits at the head of
+	// the buffer, so admitting them grows the buffer without bound.
+	if metricSize == 0 {
+		return
+	}
+
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	metricSize := md.DataPointCount()
 	bufferSize := l.Len()
 	switch {
 	// The number of metrics is more than idealSize so reset this to just this metric set
@@ -303,10 +317,17 @@ func (l *TraceBuffer) Len() int {
 
 // Add adds the new trace payload and adjust buffer to keep ideal size
 func (l *TraceBuffer) Add(td ptrace.Traces) {
+	traceSize := td.SpanCount()
+	// Zero-count payloads contribute nothing to a snapshot, but the eviction
+	// loop below can never remove them once a large entry sits at the head of
+	// the buffer, so admitting them grows the buffer without bound.
+	if traceSize == 0 {
+		return
+	}
+
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	traceSize := td.SpanCount()
 	bufferSize := l.Len()
 	switch {
 	// The number of traces is more than idealSize so reset this to just this trace set
