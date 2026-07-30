@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
@@ -51,6 +52,7 @@ func createDefaultConfig() component.Config {
 	return &Config{
 		Enabled:            true,
 		SamplingRatio:      0.5,
+		Interval:           time.Minute,
 		MeasureLogRawBytes: false,
 	}
 }

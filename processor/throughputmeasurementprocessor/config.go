@@ -17,11 +17,15 @@ package throughputmeasurementprocessor
 
 import (
 	"errors"
+	"time"
 
 	"go.opentelemetry.io/collector/component"
 )
 
-var errInvalidSamplingRatio = errors.New("sampling_ratio must be between 0.0 and 1.0")
+var (
+	errInvalidSamplingRatio = errors.New("sampling_ratio must be between 0.0 and 1.0")
+	errInvalidInterval      = errors.New("interval must be positive when opamp is specified")
+)
 
 // Config is the configuration for the processor
 type Config struct {
@@ -31,7 +35,23 @@ type Config struct {
 	// SamplingRatio is the ratio of payloads that are measured. Values between 0.0 and 1.0 are valid.
 	SamplingRatio float64 `mapstructure:"sampling_ratio"`
 
-	// Bindplane extension to use in order to report metrics. Optional.
+	// OpAMP is the component ID of an opamp extension implementing
+	// opampcustommessages.CustomCapabilityRegistry. If set, the processor reports
+	// its measurements to Bindplane as custom messages on an interval.
+	// If unset, the processor falls back to registering its measurements with the
+	// extension named by BindplaneExtension, or with the package-level registry
+	// read by the bindplane agent when neither is set.
+	OpAMP component.ID `mapstructure:"opamp"`
+
+	// Interval is the interval on which measurements are reported over opamp.
+	// Only used when OpAMP is set.
+	Interval time.Duration `mapstructure:"interval"`
+
+	// BindplaneExtension is the component ID of a bindplane extension to register
+	// measurements with.
+	// Deprecated: configure OpAMP instead. Kept only for backwards compatibility
+	// with Bindplane servers that render this field; ignored when OpAMP is set.
+	// Delete when all supported Bindplane servers render `opamp` (BPOP-5622).
 	BindplaneExtension component.ID `mapstructure:"bindplane_extension"`
 
 	// Extra labels to add to measurements and associate with emitted metrics
@@ -51,6 +71,11 @@ func (cfg Config) Validate() error {
 	// Validate sampling ration
 	if cfg.SamplingRatio < 0.0 || cfg.SamplingRatio > 1.0 {
 		return errInvalidSamplingRatio
+	}
+
+	var emptyID component.ID
+	if cfg.OpAMP != emptyID && cfg.Interval <= 0 {
+		return errInvalidInterval
 	}
 
 	return nil
