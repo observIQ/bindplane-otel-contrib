@@ -17,7 +17,9 @@ package topologyprocessor
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/open-telemetry/opamp-go/protobufs"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer/consumertest"
@@ -28,7 +30,9 @@ func TestNewFactory(t *testing.T) {
 	factory := NewFactory()
 	require.Equal(t, componentType, factory.Type())
 
-	expectedCfg := &Config{}
+	expectedCfg := &Config{
+		Interval: time.Minute,
+	}
 
 	cfg, ok := factory.CreateDefaultConfig().(*Config)
 	require.True(t, ok)
@@ -58,16 +62,17 @@ func TestCreateOrGetProcessor(t *testing.T) {
 // Test that 2 instances with the same processor ID will not error when started
 func TestCreateProcessorTwice_Logs(t *testing.T) {
 	processorID := component.NewIDWithName(componentType, "1")
-	bindplaneExtensionID := component.MustNewID("bindplane")
+	opampExtensionID := component.MustNewID("opamp")
 
 	set := processortest.NewNopSettings(componentType)
 	set.ID = processorID
 
 	cfg := &Config{
-		Configuration:      "myConf",
-		AccountID:          "myAcct",
-		OrganizationID:     "myOrg",
-		BindplaneExtension: &bindplaneExtensionID,
+		Configuration:  "myConf",
+		AccountID:      "myAcct",
+		OrganizationID: "myOrg",
+		OpAMP:          opampExtensionID,
+		Interval:       time.Minute,
 	}
 
 	l1, err := createLogsProcessor(context.Background(), set, cfg, consumertest.NewNop())
@@ -75,13 +80,9 @@ func TestCreateProcessorTwice_Logs(t *testing.T) {
 	l2, err := createLogsProcessor(context.Background(), set, cfg, consumertest.NewNop())
 	require.NoError(t, err)
 
-	mockBindplane := mockTopologyRegistry{
-		ResettableTopologyRegistry: NewResettableTopologyRegistry(),
-	}
-
 	mh := mockHost{
 		extMap: map[component.ID]component.Component{
-			bindplaneExtensionID: mockBindplane,
+			opampExtensionID: &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)},
 		},
 	}
 
@@ -94,16 +95,17 @@ func TestCreateProcessorTwice_Logs(t *testing.T) {
 // Test that 2 instances with the same processor ID will not error when started
 func TestCreateProcessorTwice_Metrics(t *testing.T) {
 	processorID := component.MustNewIDWithName("throughputmeasurement", "1")
-	bindplaneExtensionID := component.MustNewID("bindplane")
+	opampExtensionID := component.MustNewID("opamp")
 
 	set := processortest.NewNopSettings(componentType)
 	set.ID = processorID
 
 	cfg := &Config{
-		Configuration:      "myConf",
-		AccountID:          "myAcct",
-		OrganizationID:     "myOrg",
-		BindplaneExtension: &bindplaneExtensionID,
+		Configuration:  "myConf",
+		AccountID:      "myAcct",
+		OrganizationID: "myOrg",
+		OpAMP:          opampExtensionID,
+		Interval:       time.Minute,
 	}
 
 	l1, err := createMetricsProcessor(context.Background(), set, cfg, consumertest.NewNop())
@@ -111,13 +113,9 @@ func TestCreateProcessorTwice_Metrics(t *testing.T) {
 	l2, err := createMetricsProcessor(context.Background(), set, cfg, consumertest.NewNop())
 	require.NoError(t, err)
 
-	mockBindplane := mockTopologyRegistry{
-		ResettableTopologyRegistry: NewResettableTopologyRegistry(),
-	}
-
 	mh := mockHost{
 		extMap: map[component.ID]component.Component{
-			bindplaneExtensionID: mockBindplane,
+			opampExtensionID: &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)},
 		},
 	}
 
@@ -130,16 +128,17 @@ func TestCreateProcessorTwice_Metrics(t *testing.T) {
 // Test that 2 instances with the same processor ID will not error when started
 func TestCreateProcessorTwice_Traces(t *testing.T) {
 	processorID := component.MustNewIDWithName("throughputmeasurement", "1")
-	bindplaneExtensionID := component.MustNewID("bindplane")
+	opampExtensionID := component.MustNewID("opamp")
 
 	set := processortest.NewNopSettings(componentType)
 	set.ID = processorID
 
 	cfg := &Config{
-		Configuration:      "myConf",
-		AccountID:          "myAcct",
-		OrganizationID:     "myOrg",
-		BindplaneExtension: &bindplaneExtensionID,
+		Configuration:  "myConf",
+		AccountID:      "myAcct",
+		OrganizationID: "myOrg",
+		OpAMP:          opampExtensionID,
+		Interval:       time.Minute,
 	}
 
 	l1, err := createTracesProcessor(context.Background(), set, cfg, consumertest.NewNop())
@@ -147,13 +146,9 @@ func TestCreateProcessorTwice_Traces(t *testing.T) {
 	l2, err := createTracesProcessor(context.Background(), set, cfg, consumertest.NewNop())
 	require.NoError(t, err)
 
-	mockBindplane := mockTopologyRegistry{
-		ResettableTopologyRegistry: NewResettableTopologyRegistry(),
-	}
-
 	mh := mockHost{
 		extMap: map[component.ID]component.Component{
-			bindplaneExtensionID: mockBindplane,
+			opampExtensionID: &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)},
 		},
 	}
 
@@ -174,10 +169,3 @@ func (m *mockHost) GetFactory(component.Kind, component.Type) component.Factory 
 func (m mockHost) GetExtensions() map[component.ID]component.Component {
 	return m.extMap
 }
-
-type mockTopologyRegistry struct {
-	*ResettableTopologyRegistry
-}
-
-func (mockTopologyRegistry) Start(_ context.Context, _ component.Host) error { return nil }
-func (mockTopologyRegistry) Shutdown(_ context.Context) error                { return nil }
