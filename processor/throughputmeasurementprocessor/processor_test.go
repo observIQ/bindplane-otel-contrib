@@ -17,18 +17,27 @@ package throughputmeasurementprocessor
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/golang/snappy"
+	"github.com/jonboulle/clockwork"
+	"github.com/open-telemetry/opamp-go/protobufs"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest/plogtest"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest/pmetrictest"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest/ptracetest"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.uber.org/zap"
+
+	"github.com/observiq/bindplane-otel-contrib/pkg/measurements"
 )
 
 func TestProcessor_Logs(t *testing.T) {
@@ -396,4 +405,204 @@ func TestProcessor_Logs_TwoInstancesDifferentID(t *testing.T) {
 
 	require.Equal(t, int64(2*3974), logSize2)
 	require.Equal(t, int64(2*16), logCount2)
+}
+
+func TestProcessor_ReportsMeasurementsOverOpAMP(t *testing.T) {
+	mp := metric.NewMeterProvider()
+	defer mp.Shutdown(context.Background())
+
+	processorID := component.MustNewIDWithName("throughputmeasurement", "1")
+	opampID := component.MustNewID("opamp")
+
+	tmp, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
+		Enabled:       true,
+		SamplingRatio: 1,
+		OpAMP:         opampID,
+		Interval:      time.Minute,
+	}, processorID)
+	require.NoError(t, err)
+
+	clk := clockwork.NewFakeClock()
+	tmp.clock = clk
+
+	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
+	mh := mockHost{
+		extMap: map[component.ID]component.Component{
+			opampID: mockOpamp,
+		},
+	}
+
+	require.NoError(t, tmp.start(context.Background(), mh))
+	require.Equal(t, measurements.ReportMeasurementsV1Capability, mockOpamp.capability)
+
+	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
+	require.NoError(t, err)
+
+	_, err = tmp.processLogs(context.Background(), logs)
+	require.NoError(t, err)
+
+	// Wait for the report loop's ticker to exist, then fire it.
+	clk.BlockUntil(1)
+	clk.Advance(time.Minute)
+
+	require.Eventually(t, func() bool {
+		return mockOpamp.GotMessage()
+	}, 5*time.Second, 10*time.Millisecond)
+
+	require.Equal(t, measurements.ReportMeasurementsType, mockOpamp.sentMessageType)
+
+	decoded, err := snappy.Decode(nil, mockOpamp.sentMessage)
+	require.NoError(t, err)
+
+	unmarshaler := pmetric.ProtoUnmarshaler{}
+	m, err := unmarshaler.UnmarshalMetrics(decoded)
+	require.NoError(t, err)
+
+	metricNames := map[string]struct{}{}
+	sm := m.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics()
+	for i := 0; i < sm.Len(); i++ {
+		metricNames[sm.At(i).Name()] = struct{}{}
+		dp := sm.At(i).Sum().DataPoints().At(0)
+		processorAttr, ok := dp.Attributes().Get("processor")
+		require.True(t, ok, "processor attribute was not found")
+		require.Equal(t, processorID.String(), processorAttr.Str())
+	}
+	require.Contains(t, metricNames, "otelcol_processor_throughputmeasurement_log_data_size")
+
+	require.NoError(t, tmp.shutdown(context.Background()))
+}
+
+type mockOpAMPExtension struct {
+	msgChan chan *protobufs.CustomMessage
+
+	capability string
+
+	gotMessageMux   sync.Mutex
+	gotMessage      bool
+	sentMessageType string
+	sentMessage     []byte
+}
+
+func (m *mockOpAMPExtension) Start(_ context.Context, _ component.Host) error { return nil }
+
+func (m *mockOpAMPExtension) Shutdown(_ context.Context) error { return nil }
+
+func (m *mockOpAMPExtension) Register(capability string, _ ...opampcustommessages.CustomCapabilityRegisterOption) (handler opampcustommessages.CustomCapabilityHandler, err error) {
+	m.capability = capability
+	return m, nil
+}
+
+func (m *mockOpAMPExtension) Message() <-chan *protobufs.CustomMessage {
+	return m.msgChan
+}
+
+func (m *mockOpAMPExtension) SendMessage(messageType string, message []byte) (messageSendingChannel chan struct{}, err error) {
+	m.gotMessageMux.Lock()
+	defer m.gotMessageMux.Unlock()
+
+	if m.gotMessage {
+		return
+	}
+	m.gotMessage = true
+
+	m.sentMessageType = messageType
+	m.sentMessage = message
+	return
+}
+
+func (m *mockOpAMPExtension) GotMessage() bool {
+	m.gotMessageMux.Lock()
+	defer m.gotMessageMux.Unlock()
+
+	return m.gotMessage
+}
+
+func (m *mockOpAMPExtension) Unregister() {}
+
+func TestProcessor_RegistersWithBindplaneExtension(t *testing.T) {
+	mp := metric.NewMeterProvider()
+	defer mp.Shutdown(context.Background())
+
+	processorID := component.MustNewIDWithName("throughputmeasurement", "bindplane_ext_fallback")
+	bindplaneID := component.MustNewID("bindplane")
+
+	tmp, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
+		Enabled:            true,
+		SamplingRatio:      1,
+		BindplaneExtension: bindplaneID,
+	}, processorID)
+	require.NoError(t, err)
+
+	reg := measurements.NewResettableThroughputMeasurementsRegistry(false)
+	mh := mockHost{
+		extMap: map[component.ID]component.Component{
+			bindplaneID: mockThroughputRegistry{reg},
+		},
+	}
+
+	require.NoError(t, tmp.start(context.Background(), mh))
+
+	// Registering the same processor ID again through the extension errors,
+	// proving the first registration landed in the extension's registry.
+	require.Error(t, reg.RegisterThroughputMeasurements(processorID.String(), tmp.measurements))
+
+	require.NoError(t, tmp.shutdown(context.Background()))
+}
+
+func TestProcessor_RegistersWithAgentRegistry(t *testing.T) {
+	mp := metric.NewMeterProvider()
+	defer mp.Shutdown(context.Background())
+
+	processorID := component.MustNewIDWithName("throughputmeasurement", "v1_fallback")
+
+	tmp, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
+		Enabled:       true,
+		SamplingRatio: 1,
+	}, processorID)
+	require.NoError(t, err)
+
+	// Neither opamp nor bindplane_extension set: registers with the package-level
+	// registry read by the v1 bindplane agent.
+	require.NoError(t, tmp.start(context.Background(), mockHost{}))
+	require.Error(t, measurements.BindplaneAgentThroughputMeasurementsRegistry.RegisterThroughputMeasurements(processorID.String(), tmp.measurements))
+
+	// A second processor with the same ID (e.g. after a config reload without a
+	// registry reset) must not fail startup.
+	tmp2, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
+		Enabled:       true,
+		SamplingRatio: 1,
+	}, processorID)
+	require.NoError(t, err)
+	require.NoError(t, tmp2.start(context.Background(), mockHost{}))
+
+	require.NoError(t, tmp.shutdown(context.Background()))
+	require.NoError(t, tmp2.shutdown(context.Background()))
+}
+
+type mockThroughputRegistry struct {
+	*measurements.ResettableThroughputMeasurementsRegistry
+}
+
+func (mockThroughputRegistry) Start(_ context.Context, _ component.Host) error { return nil }
+func (mockThroughputRegistry) Shutdown(_ context.Context) error                { return nil }
+
+func TestProcessor_BindplaneExtensionMissing_FallsBackToAgentRegistry(t *testing.T) {
+	mp := metric.NewMeterProvider()
+	defer mp.Shutdown(context.Background())
+
+	processorID := component.MustNewIDWithName("throughputmeasurement", "missing_ext_fallback")
+
+	tmp, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
+		Enabled:            true,
+		SamplingRatio:      1,
+		BindplaneExtension: component.MustNewID("bindplane"),
+	}, processorID)
+	require.NoError(t, err)
+
+	// Old Bindplane servers render bindplane_extension without instantiating the
+	// extension; startup must succeed and fall back to the v1 agent registry.
+	require.NoError(t, tmp.start(context.Background(), mockHost{}))
+	require.Error(t, measurements.BindplaneAgentThroughputMeasurementsRegistry.RegisterThroughputMeasurements(processorID.String(), tmp.measurements))
+
+	require.NoError(t, tmp.shutdown(context.Background()))
 }
