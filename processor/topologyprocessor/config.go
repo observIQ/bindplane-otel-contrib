@@ -22,14 +22,27 @@ import (
 	"go.opentelemetry.io/collector/component"
 )
 
+var errInvalidInterval = errors.New("interval must be positive when opamp is specified")
+
 // Config is the configuration for the processor
 type Config struct {
-	// Interval is the interval at which this processor sends topology messages to Bindplane
-	// Deprecated: This parameter is only used in topology processor v1.75.0 and earlier.
-	// Leave this in for backwards compatibility with Bindplane < v1.90.0
+	// Interval is the interval on which topology is reported over opamp.
+	// Only used when OpAMP is set.
 	Interval time.Duration `mapstructure:"interval"`
 
-	// Bindplane extension to use in order to report topology. Optional.
+	// OpAMP is the component ID of an opamp extension implementing
+	// opampcustommessages.CustomCapabilityRegistry. If set, the processor reports
+	// its topology state to Bindplane as custom messages on an interval.
+	// If unset, the processor falls back to registering its topology state with
+	// the extension named by BindplaneExtension, or with the package-level
+	// registry read by the bindplane agent when neither is set.
+	OpAMP component.ID `mapstructure:"opamp"`
+
+	// BindplaneExtension is the component ID of a bindplane extension to register
+	// topology state with.
+	// Deprecated: configure OpAMP instead. Kept only for backwards compatibility
+	// with Bindplane servers that render this field; ignored when OpAMP is set.
+	// Delete when all supported Bindplane servers render `opamp` (BPOP-5623).
 	BindplaneExtension *component.ID `mapstructure:"bindplane_extension"`
 
 	// Name of the Config where this processor is present
@@ -54,6 +67,11 @@ func (cfg Config) Validate() error {
 
 	if cfg.AccountID == "" {
 		return errors.New("`accountID` must be specified")
+	}
+
+	var emptyID component.ID
+	if cfg.OpAMP != emptyID && cfg.Interval <= 0 {
+		return errInvalidInterval
 	}
 
 	return nil

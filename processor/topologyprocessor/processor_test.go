@@ -16,9 +16,16 @@ package topologyprocessor
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/golang/snappy"
+	"github.com/jonboulle/clockwork"
+	"github.com/open-telemetry/opamp-go/protobufs"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest/plogtest"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest/pmetrictest"
@@ -239,4 +246,209 @@ func TestProcessor_Logs_TwoInstancesDifferentID(t *testing.T) {
 
 	_, err = tmp2.processLogs(context.Background(), logs)
 	require.NoError(t, err)
+}
+
+func TestProcessor_ReportsTopologyOverOpAMP(t *testing.T) {
+	processorID := component.MustNewIDWithName("topology", "1")
+	opampID := component.MustNewID("opamp")
+
+	tp, err := newTopologyProcessor(zap.NewNop(), &Config{
+		OrganizationID: "myOrgID",
+		AccountID:      "myAccountID",
+		Configuration:  "myConfigName",
+		OpAMP:          opampID,
+		Interval:       time.Minute,
+	}, processorID)
+	require.NoError(t, err)
+
+	clk := clockwork.NewFakeClock()
+	tp.clock = clk
+
+	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
+	mh := mockHost{
+		extMap: map[component.ID]component.Component{
+			opampID: mockOpamp,
+		},
+	}
+
+	require.NoError(t, tp.start(context.Background(), mh))
+	require.Equal(t, ReportTopologyCapability, mockOpamp.capability)
+
+	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
+	require.NoError(t, err)
+
+	ctx := client.NewContext(context.Background(), client.Info{
+		Metadata: client.NewMetadata(map[string][]string{
+			accountIDHeader:      {"myAccountID1"},
+			organizationIDHeader: {"myOrgID1"},
+			configurationHeader:  {"myConfigName1"},
+			resourceNameHeader:   {"myResourceName1"},
+		}),
+	})
+	_, err = tp.processLogs(ctx, logs)
+	require.NoError(t, err)
+
+	// Wait for the report loop's ticker to exist, then fire it.
+	clk.BlockUntil(1)
+	clk.Advance(time.Minute)
+
+	require.Eventually(t, func() bool {
+		return mockOpamp.GotMessage()
+	}, 5*time.Second, 10*time.Millisecond)
+
+	require.Equal(t, ReportTopologyType, mockOpamp.sentMessageType)
+
+	decoded, err := snappy.Decode(nil, mockOpamp.sentMessage)
+	require.NoError(t, err)
+
+	var infos []TopoInfo
+	require.NoError(t, json.Unmarshal(decoded, &infos))
+	require.Len(t, infos, 1)
+
+	require.Equal(t, GatewayInfo{
+		OrganizationID: "myOrgID",
+		AccountID:      "myAccountID",
+		Configuration:  "myConfigName",
+		GatewayID:      "1",
+	}, infos[0].GatewaySource)
+	require.Len(t, infos[0].GatewayDestinations, 1)
+	require.Equal(t, GatewayInfo{
+		OrganizationID: "myOrgID1",
+		AccountID:      "myAccountID1",
+		Configuration:  "myConfigName1",
+		GatewayID:      "myResourceName1",
+	}, infos[0].GatewayDestinations[0].Gateway)
+
+	require.NoError(t, tp.shutdown(context.Background()))
+}
+
+type mockOpAMPExtension struct {
+	msgChan chan *protobufs.CustomMessage
+
+	capability string
+
+	gotMessageMux   sync.Mutex
+	gotMessage      bool
+	sentMessageType string
+	sentMessage     []byte
+}
+
+func (m *mockOpAMPExtension) Start(_ context.Context, _ component.Host) error { return nil }
+
+func (m *mockOpAMPExtension) Shutdown(_ context.Context) error { return nil }
+
+func (m *mockOpAMPExtension) Register(capability string, _ ...opampcustommessages.CustomCapabilityRegisterOption) (handler opampcustommessages.CustomCapabilityHandler, err error) {
+	m.capability = capability
+	return m, nil
+}
+
+func (m *mockOpAMPExtension) Message() <-chan *protobufs.CustomMessage {
+	return m.msgChan
+}
+
+func (m *mockOpAMPExtension) SendMessage(messageType string, message []byte) (messageSendingChannel chan struct{}, err error) {
+	m.gotMessageMux.Lock()
+	defer m.gotMessageMux.Unlock()
+
+	if m.gotMessage {
+		return
+	}
+	m.gotMessage = true
+
+	m.sentMessageType = messageType
+	m.sentMessage = message
+	return
+}
+
+func (m *mockOpAMPExtension) GotMessage() bool {
+	m.gotMessageMux.Lock()
+	defer m.gotMessageMux.Unlock()
+
+	return m.gotMessage
+}
+
+func (m *mockOpAMPExtension) Unregister() {}
+
+func TestProcessor_RegistersWithBindplaneExtension(t *testing.T) {
+	processorID := component.MustNewIDWithName("topology", "bindplane_ext_fallback")
+	bindplaneID := component.MustNewID("bindplane")
+
+	tp, err := newTopologyProcessor(zap.NewNop(), &Config{
+		OrganizationID:     "myOrgID",
+		AccountID:          "myAccountID",
+		Configuration:      "myConfigName",
+		BindplaneExtension: &bindplaneID,
+	}, processorID)
+	require.NoError(t, err)
+
+	reg := NewResettableTopologyRegistry()
+	mh := mockHost{
+		extMap: map[component.ID]component.Component{
+			bindplaneID: mockTopologyRegistry{reg},
+		},
+	}
+
+	require.NoError(t, tp.start(context.Background(), mh))
+
+	// Registering the same processor ID again through the extension errors,
+	// proving the first registration landed in the extension's registry.
+	require.Error(t, reg.RegisterTopologyState(processorID.String(), tp.topology))
+
+	require.NoError(t, tp.shutdown(context.Background()))
+}
+
+func TestProcessor_RegistersWithAgentRegistry(t *testing.T) {
+	processorID := component.MustNewIDWithName("topology", "v1_fallback")
+
+	tp, err := newTopologyProcessor(zap.NewNop(), &Config{
+		OrganizationID: "myOrgID",
+		AccountID:      "myAccountID",
+		Configuration:  "myConfigName",
+	}, processorID)
+	require.NoError(t, err)
+
+	// Neither opamp nor bindplane_extension set: registers with the package-level
+	// registry read by the v1 bindplane agent.
+	require.NoError(t, tp.start(context.Background(), mockHost{}))
+	require.Error(t, BindplaneAgentTopologyRegistry.RegisterTopologyState(processorID.String(), tp.topology))
+
+	// A second processor with the same ID (e.g. after a config reload without a
+	// registry reset) must not fail startup.
+	tp2, err := newTopologyProcessor(zap.NewNop(), &Config{
+		OrganizationID: "myOrgID",
+		AccountID:      "myAccountID",
+		Configuration:  "myConfigName",
+	}, processorID)
+	require.NoError(t, err)
+	require.NoError(t, tp2.start(context.Background(), mockHost{}))
+
+	require.NoError(t, tp.shutdown(context.Background()))
+	require.NoError(t, tp2.shutdown(context.Background()))
+}
+
+type mockTopologyRegistry struct {
+	*ResettableTopologyRegistry
+}
+
+func (mockTopologyRegistry) Start(_ context.Context, _ component.Host) error { return nil }
+func (mockTopologyRegistry) Shutdown(_ context.Context) error                { return nil }
+
+func TestProcessor_BindplaneExtensionMissing_FallsBackToAgentRegistry(t *testing.T) {
+	processorID := component.MustNewIDWithName("topology", "missing_ext_fallback")
+	bindplaneID := component.MustNewID("bindplane")
+
+	tp, err := newTopologyProcessor(zap.NewNop(), &Config{
+		OrganizationID:     "myOrgID",
+		AccountID:          "myAccountID",
+		Configuration:      "myConfigName",
+		BindplaneExtension: &bindplaneID,
+	}, processorID)
+	require.NoError(t, err)
+
+	// Old Bindplane servers render bindplane_extension without instantiating the
+	// extension; startup must succeed and fall back to the v1 agent registry.
+	require.NoError(t, tp.start(context.Background(), mockHost{}))
+	require.Error(t, BindplaneAgentTopologyRegistry.RegisterTopologyState(processorID.String(), tp.topology))
+
+	require.NoError(t, tp.shutdown(context.Background()))
 }
