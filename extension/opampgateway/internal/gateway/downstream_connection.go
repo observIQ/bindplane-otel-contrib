@@ -41,6 +41,9 @@ type downstreamConnection struct {
 	telemetry *metadata.TelemetryBuilder
 	logger    *zap.Logger
 
+	// ctx and cancel are created at construction so cancel is never nil, even when close()
+	// races the start goroutine (PIPE-1237). ctx governs the reader and writer.
+	ctx    context.Context
 	cancel context.CancelFunc
 
 	// sentCustomCapabilities tracks whether the cached CustomCapabilities have been
@@ -50,7 +53,8 @@ type downstreamConnection struct {
 	sentCustomCapabilities atomic.Bool
 }
 
-func newDownstreamConnection(conn *websocket.Conn, telemetry *metadata.TelemetryBuilder, upstreamConnection *upstreamConnection, id string, logger *zap.Logger) *downstreamConnection {
+func newDownstreamConnection(ctx context.Context, conn *websocket.Conn, telemetry *metadata.TelemetryBuilder, upstreamConnection *upstreamConnection, id string, logger *zap.Logger) *downstreamConnection {
+	connCtx, cancel := context.WithCancel(ctx)
 	return &downstreamConnection{
 		conn:               conn,
 		upstreamConnection: upstreamConnection,
@@ -58,6 +62,8 @@ func newDownstreamConnection(conn *websocket.Conn, telemetry *metadata.Telemetry
 		telemetry:          telemetry,
 		logger:             logger.Named("downstream-connection").With(zap.String("id", id)),
 		writeChan:          make(chan *message),
+		ctx:                connCtx,
+		cancel:             cancel,
 
 		// the error channel is buffered to prevent blocking the reader goroutine if it
 		// encounters an error. it will return immediately after reporting the error and the
@@ -71,8 +77,10 @@ func newDownstreamConnection(conn *websocket.Conn, telemetry *metadata.Telemetry
 // start will start the reader and writer goroutines and wait for the context to be done
 // or an error to be sent on the error channel. if an error is sent on the error channel,
 // the connection will be stopped and the context will be cancelled.
-func (c *downstreamConnection) start(ctx context.Context, callbacks ConnectionCallbacks[*downstreamConnection]) {
-	ctx, c.cancel = context.WithCancel(ctx)
+func (c *downstreamConnection) start(callbacks ConnectionCallbacks[*downstreamConnection]) {
+	// ctx and cancel are initialized in newDownstreamConnection, so a concurrent close()
+	// never observes a nil cancel (PIPE-1237).
+	ctx := c.ctx
 	defer c.cancel()
 
 	// start the reader in a separate goroutine and cancel the context if it returns, likely
