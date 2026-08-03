@@ -60,6 +60,9 @@ func newBindplaneExtension(logger *zap.Logger, cfg *Config) *bindplaneExtension 
 }
 
 func (b *bindplaneExtension) Start(_ context.Context, host component.Host) error {
+	b.logger.Warn("The bindplane extension is deprecated and will be removed in a future release. " +
+		"Configure the throughputmeasurement and topology processors with the `opamp` parameter instead.")
+
 	var emptyComponentID component.ID
 
 	// Set up custom capabilities if enabled
