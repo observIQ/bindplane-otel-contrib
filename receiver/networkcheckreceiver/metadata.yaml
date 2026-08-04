@@ -1,0 +1,141 @@
+type: networkcheck
+
+status:
+  class: receiver
+  stability:
+    alpha: [metrics]
+
+resource_attributes:
+  target.endpoint:
+    type: string
+    description: The target endpoint (IP, hostname, or URL) being monitored.
+    enabled: true
+
+attributes:
+  dns.server:
+    type: string
+    description: The DNS server used to resolve the target hostname.
+  http.response.status_code:
+    type: int
+    description: The HTTP response status code.
+  ping.method:
+    type: string
+    description: The method used to probe the target (icmp or http).
+    enum:
+      - icmp
+      - http
+  traceroute.hop.address:
+    type: string
+    description: The IP address of the traceroute hop.
+  traceroute.hop.index:
+    type: int
+    description: The traceroute hop index (TTL value).
+
+metrics:
+  network.http.client_connection_duration:
+    enabled: true
+    description: Time spent establishing the TCP connection.
+    unit: ms
+    stability: alpha
+    gauge:
+      value_type: double
+    attributes: [dns.server]
+
+  network.http.dns_lookup_duration:
+    enabled: true
+    description: Time spent resolving the target hostname via DNS.
+    unit: ms
+    stability: alpha
+    gauge:
+      value_type: double
+    attributes: [dns.server]
+
+  network.http.duration:
+    enabled: true
+    description: Total HTTP request round-trip duration.
+    unit: ms
+    stability: alpha
+    gauge:
+      value_type: double
+    attributes: [http.response.status_code, dns.server]
+
+  network.http.request_duration:
+    enabled: true
+    description: Time spent writing the HTTP request.
+    unit: ms
+    stability: alpha
+    gauge:
+      value_type: double
+    attributes: [dns.server]
+
+  network.http.response_duration:
+    enabled: true
+    description: Time spent reading the HTTP response.
+    unit: ms
+    stability: alpha
+    gauge:
+      value_type: double
+    attributes: [dns.server]
+
+  network.http.status:
+    enabled: true
+    description: 1 if an HTTP response was received, 0 on connection error or timeout.
+    unit: "1"
+    stability: alpha
+    gauge:
+      value_type: int
+    attributes: [http.response.status_code, dns.server]
+
+  network.http.tls_handshake_duration:
+    enabled: true
+    description: Time spent completing the TLS handshake. Zero for non-TLS targets.
+    unit: ms
+    stability: alpha
+    gauge:
+      value_type: double
+    attributes: [dns.server]
+
+  network.ping.latency_avg:
+    enabled: true
+    description: Average round-trip latency across the ping packet count.
+    unit: ms
+    stability: alpha
+    gauge:
+      value_type: double
+    attributes: [ping.method, dns.server]
+
+  network.ping.latency_max:
+    enabled: true
+    description: Maximum round-trip latency across the ping packet count.
+    unit: ms
+    stability: alpha
+    gauge:
+      value_type: double
+    attributes: [ping.method, dns.server]
+
+  network.ping.latency_min:
+    enabled: true
+    description: Minimum round-trip latency across the ping packet count.
+    unit: ms
+    stability: alpha
+    gauge:
+      value_type: double
+    attributes: [ping.method, dns.server]
+
+  network.ping.packet_loss:
+    enabled: true
+    description: Fraction of packets lost during the ping (0.0 to 1.0).
+    unit: "1"
+    stability: alpha
+    gauge:
+      value_type: double
+    attributes: [ping.method, dns.server]
+
+  network.traceroute.hop.latency:
+    enabled: true
+    description: Round-trip latency to a single traceroute hop.
+    unit: ms
+    stability: alpha
+    gauge:
+      value_type: double
+    attributes: [traceroute.hop.index, traceroute.hop.address, dns.server]
