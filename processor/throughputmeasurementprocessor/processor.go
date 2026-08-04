@@ -44,11 +44,11 @@ type throughputMeasurementProcessor struct {
 	samplingCutOffRatio float64
 	processorID         component.ID
 	opampExtensionID    component.ID
-	// bindplaneExtensionID exists only for backwards compatibility with Bindplane
+	// bindplane exists only for backwards compatibility with Bindplane
 	// servers that don't render `opamp`; delete with BPOP-5622.
-	bindplaneExtensionID component.ID
-	interval             time.Duration
-	measureLogRawBytes   bool
+	bindplane          component.ID
+	interval           time.Duration
+	measureLogRawBytes bool
 
 	clock                   clockwork.Clock
 	customCapabilityHandler opampcustommessages.CustomCapabilityHandler
@@ -67,15 +67,15 @@ func newThroughputMeasurementProcessor(logger *zap.Logger, mp metric.MeterProvid
 	}
 
 	return &throughputMeasurementProcessor{
-		logger:               logger,
-		enabled:              cfg.Enabled,
-		measurements:         measurements,
-		samplingCutOffRatio:  cfg.SamplingRatio,
-		processorID:          processorID,
-		opampExtensionID:     cfg.OpAMP,
-		bindplaneExtensionID: cfg.BindplaneExtension,
-		interval:             cfg.Interval,
-		measureLogRawBytes:   cfg.MeasureLogRawBytes,
+		logger:              logger,
+		enabled:             cfg.Enabled,
+		measurements:        measurements,
+		samplingCutOffRatio: cfg.SamplingRatio,
+		processorID:         processorID,
+		opampExtensionID:    cfg.OpAMP,
+		bindplane:           cfg.BindplaneExtension,
+		interval:            cfg.Interval,
+		measureLogRawBytes:  cfg.MeasureLogRawBytes,
 
 		clock: clockwork.NewRealClock(),
 
@@ -95,54 +95,65 @@ func (tmp *throughputMeasurementProcessor) start(_ context.Context, host compone
 	var emptyID component.ID
 	switch {
 	case tmp.opampExtensionID != emptyID:
-		if tmp.bindplaneExtensionID != emptyID {
+		if tmp.bindplane != emptyID {
 			tmp.logger.Warn("Both opamp and bindplane_extension are set; using opamp. bindplane_extension is deprecated.")
 		}
-		return tmp.startOpAMPReporting(host)
+		return tmp.setupCustomCapabilities(host)
 
 	// Both fallback cases below exist only for backwards compatibility with
 	// Bindplane servers that don't render `opamp`; delete them (and make opamp
 	// reporting the only path) with BPOP-5622.
-	case tmp.bindplaneExtensionID != emptyID:
+	case tmp.bindplane != emptyID:
 		tmp.logger.Warn("bindplane_extension is deprecated; configure opamp instead.")
-		ext, ok := host.GetExtensions()[tmp.bindplaneExtensionID]
+		ext, ok := host.GetExtensions()[tmp.bindplane]
 		if !ok {
 			// Old Bindplane servers render bindplane_extension without instantiating
 			// the extension (v1 agents ignored the field entirely); treat this the
 			// same as the neither-set case below.
-			tmp.registerWithAgentRegistry()
+			tmp.registerWithV1AgentRegistry()
 			return nil
 		}
 
-		registry, ok := ext.(measurements.ThroughputMeasurementsRegistry)
-		if !ok {
-			return fmt.Errorf("extension %q is not an throughput message registry", tmp.bindplaneExtensionID)
-		}
-
-		if err := registry.RegisterThroughputMeasurements(tmp.processorID.String(), tmp.measurements); err != nil {
-			return fmt.Errorf("register throughput measurements: %w", err)
+		// v2/byoc agent, use the configured Bindplane extension for backwards compatibility.
+		if err := tmp.registerWithV2AgentRegistry(ext); err != nil {
+			return fmt.Errorf("register with bindplane extension: %q", err)
 		}
 
 	default:
 		// Neither opamp nor bindplane_extension is configured, meaning this is a
-		// v1 bindplane agent (or a standalone collector).
-		tmp.registerWithAgentRegistry()
+		// v1 bindplane agent or standalone collector.
+		tmp.registerWithV1AgentRegistry()
 	}
 
 	return nil
 }
 
-// registerWithAgentRegistry registers the measurements with the package-level
+// registerWithV1AgentRegistry registers the measurements with the package-level
 // registry that the v1 bindplane agent runtime reads. Never fatal: duplicate
 // registration (e.g. a config reload without a registry reset) only warns, and
 // outside a v1 agent the registration is simply inert.
-func (tmp *throughputMeasurementProcessor) registerWithAgentRegistry() {
+func (tmp *throughputMeasurementProcessor) registerWithV1AgentRegistry() {
 	if err := measurements.BindplaneAgentThroughputMeasurementsRegistry.RegisterThroughputMeasurements(tmp.processorID.String(), tmp.measurements); err != nil {
 		tmp.logger.Warn("Failed to register measurements with bindplane agent registry.", zap.Error(err))
 	}
 }
 
-func (tmp *throughputMeasurementProcessor) startOpAMPReporting(host component.Host) error {
+// registerWithV2AgentRegistry registers the measurements with the Bindplane extension. This follows the
+// existing pattern used when the Bindplane extension is configured.
+func (tmp *throughputMeasurementProcessor) registerWithV2AgentRegistry(bindplane component.Component) error {
+	registry, ok := bindplane.(measurements.ThroughputMeasurementsRegistry)
+	if !ok {
+		return fmt.Errorf("extension %q is not an throughput message registry", tmp.bindplane)
+	}
+
+	if err := registry.RegisterThroughputMeasurements(tmp.processorID.String(), tmp.measurements); err != nil {
+		return fmt.Errorf("register throughput measurements: %w", err)
+	}
+
+	return nil
+}
+
+func (tmp *throughputMeasurementProcessor) setupCustomCapabilities(host component.Host) error {
 	ext, ok := host.GetExtensions()[tmp.opampExtensionID]
 	if !ok {
 		return fmt.Errorf("opamp extension %q does not exist", tmp.opampExtensionID)
