@@ -1,0 +1,35 @@
+receivers:
+  networkstat:
+    collection_interval: 1m
+    targets:
+      - endpoint: "8.8.8.8"
+        method: icmp
+        ping_count: 3
+      - endpoint: "https://www.google.com"
+        method: http
+        http_method: HEAD
+    traceroute:
+      enabled: true
+      method: udp
+      max_hops: 30
+      on_failure: true
+      failure_threshold: 0.5
+      interval: 10
+      timeout: 3s
+
+  networkstat/batch:
+    collection_interval: 1m
+    batch_size: 1
+    targets:
+      - endpoint: "8.8.8.8"
+        method: icmp
+        ping_count: 5
+      - endpoint: "1.1.1.1"
+        method: icmp
+        ping_count: 5
+        dns_server: "8.8.8.8:53"
+      - endpoint: "https://example.com/health"
+        method: http
+        http_method: GET
+    traceroute:
+      enabled: false
