@@ -43,6 +43,7 @@ const (
 	namespaceAttribute             = `chronicle_namespace`
 	chronicleLogTypeAttribute      = `chronicle_log_type`
 	logRecordOriginalAttribute     = `log.record.original`
+	chronicleRBACAttribute         = `chronicle_rbac_enabled`
 	chronicleIngestionLabelsPrefix = `chronicle_ingestion_label`
 
 	// catchAllLogType is the log type that is used when the log type is not found in the log types map
@@ -54,6 +55,7 @@ var (
 	chronicleLogTypeField   = fmt.Sprintf(attrExprPattern, chronicleLogTypeAttribute)
 	chronicleNamespaceField = fmt.Sprintf(attrExprPattern, namespaceAttribute)
 	logRecordOriginalField  = fmt.Sprintf(attrExprPattern, logRecordOriginalAttribute)
+	chronicleRBACField      = fmt.Sprintf(attrExprPattern, chronicleRBACAttribute)
 )
 
 // Specific collector IDs for Chronicle used to identify bindplane agents.
@@ -191,7 +193,7 @@ func (m *protoMarshaler) processHTTPLogRecord(ctx context.Context, logRecord plo
 	if err != nil {
 		return "", "", "", nil, err
 	}
-	ingestionLabels := m.getHTTPIngestionLabels(logRecord)
+	ingestionLabels := m.getHTTPIngestionLabels(ctx, logRecord, scope, resource)
 	return rawLog, logType, namespace, ingestionLabels, nil
 }
 
@@ -287,12 +289,21 @@ func (m *protoMarshaler) aggregateIngestionLabels(logRecord plog.LogRecord) map[
 		var jsonMap map[string]string
 		if err := json.Unmarshal([]byte(value.AsString()), &jsonMap); err == nil {
 			maps.Copy(mergedLabels, jsonMap)
-		} else {
+		} else if cleanKey != "" {
 			mergedLabels[cleanKey] = value.AsString()
 		}
 		return true
 	})
 	return mergedLabels
+}
+
+func (m *protoMarshaler) getRBACEnabled(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) bool {
+	// check for attributes in attributes["chronicle_rbac_enabled"]
+	rbacAttr, err := m.getRawField(ctx, chronicleRBACField, logRecord, scope, resource)
+	if err == nil && rbacAttr != "" {
+		return strings.ToLower(rbacAttr) == "true"
+	}
+	return m.cfg.RbacEnabled
 }
 
 func (m *protoMarshaler) getGRPCIngestionLabels(logRecord plog.LogRecord) []*api.Label {
@@ -307,12 +318,14 @@ func (m *protoMarshaler) getGRPCIngestionLabels(logRecord plog.LogRecord) []*api
 	return labels
 }
 
-func (m *protoMarshaler) getHTTPIngestionLabels(logRecord plog.LogRecord) map[string]*api.Log_LogLabel {
+func (m *protoMarshaler) getHTTPIngestionLabels(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) map[string]*api.Log_LogLabel {
 	mergedLabels := m.aggregateIngestionLabels(logRecord)
+	rbacEnabled := m.getRBACEnabled(ctx, logRecord, scope, resource)
 	labels := make(map[string]*api.Log_LogLabel, len(mergedLabels))
 	for k, v := range mergedLabels {
 		labels[k] = &api.Log_LogLabel{
-			Value: v,
+			Value:       v,
+			RbacEnabled: rbacEnabled,
 		}
 	}
 	return labels

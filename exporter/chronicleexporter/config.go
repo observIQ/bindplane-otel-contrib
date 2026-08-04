@@ -78,6 +78,9 @@ type Config struct {
 	// IngestionLabels are the labels that will be attached to logs when sent to Chronicle.
 	IngestionLabels map[string]string `mapstructure:"ingestion_labels"`
 
+	// RbacEnabled is a flag that determines whether or not to enable RBAC for ingestion labels.
+	RbacEnabled bool `mapstructure:"rbac_enabled"`
+
 	// CollectAgentMetrics is a flag that determines whether or not to collect agent metrics.
 	CollectAgentMetrics bool `mapstructure:"collect_agent_metrics"`
 

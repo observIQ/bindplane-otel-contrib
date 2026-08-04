@@ -979,6 +979,77 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 			},
 		},
 		{
+			name: "RBAC labels support",
+			cfg: Config{
+				CustomerID:                uuid.New().String(),
+				LogType:                   "WINEVTLOG",
+				RawLogField:               "body",
+				OverrideLogType:           false,
+				Protocol:                  protocolHTTPS,
+				Project:                   "test-project",
+				Location:                  "us",
+				BatchRequestSizeLimitHTTP: 5242880,
+				IngestionLabels: map[string]string{
+					"config-label": "config-value",
+				},
+				RbacEnabled: true,
+			},
+			logRecords: func() plog.Logs {
+				return mockLogs(mockLogRecord("Test log message", map[string]any{
+					`chronicle_ingestion_label["attr-label"]`: "attr-value",
+				}))
+			},
+			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
+				require.Len(t, requests, 1)
+				logs := requests["WINEVTLOG"][0].GetInlineSource().Logs
+				require.Len(t, logs, 1)
+				labels := logs[0].Labels
+				require.Len(t, labels, 2)
+
+				require.Equal(t, "config-value", labels["config-label"].Value)
+				require.True(t, labels["config-label"].RbacEnabled)
+
+				require.Equal(t, "attr-value", labels["attr-label"].Value)
+				require.True(t, labels["attr-label"].RbacEnabled)
+			},
+		},
+		{
+			name: "RBAC labels support via attribute override",
+			cfg: Config{
+				CustomerID:                uuid.New().String(),
+				LogType:                   "WINEVTLOG",
+				RawLogField:               "body",
+				OverrideLogType:           false,
+				Protocol:                  protocolHTTPS,
+				Project:                   "test-project",
+				Location:                  "us",
+				BatchRequestSizeLimitHTTP: 5242880,
+				IngestionLabels: map[string]string{
+					"config-label": "config-value",
+				},
+				RbacEnabled: false,
+			},
+			logRecords: func() plog.Logs {
+				return mockLogs(mockLogRecord("Test log message", map[string]any{
+					"chronicle_rbac_enabled":                  "true",
+					`chronicle_ingestion_label["attr-label"]`: "attr-value",
+				}))
+			},
+			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
+				require.Len(t, requests, 1)
+				logs := requests["WINEVTLOG"][0].GetInlineSource().Logs
+				require.Len(t, logs, 1)
+				labels := logs[0].Labels
+				require.Len(t, labels, 2)
+
+				require.Equal(t, "config-value", labels["config-label"].Value)
+				require.True(t, labels["config-label"].RbacEnabled)
+
+				require.Equal(t, "attr-value", labels["attr-label"].Value)
+				require.True(t, labels["attr-label"].RbacEnabled)
+			},
+		},
+		{
 			name: "Multiple log records",
 			cfg: Config{
 				CustomerID:                uuid.New().String(),
