@@ -131,13 +131,11 @@ func TestProcessLogsConcurrentSameStructure(t *testing.T) {
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for range 16 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			_, err := p.processLogs(context.Background(), logsFromBodies(`{"a":1,"b":"x"}`))
 			require.NoError(t, err)
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

@@ -76,8 +76,12 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 					}
 					logType = newLogType.(string)
 				}
-				logRecord.Attributes().PutStr("fingerprint", strconv.FormatUint(fingerprint, 16))
-				logRecord.Attributes().PutStr("logType", logType.(string))
+				if fingerprint > 0 {
+					logRecord.Attributes().PutStr("fingerprint", strconv.FormatUint(fingerprint, 16))
+				}
+				if lt, ok := logType.(string); ok && lt != "" {
+					logRecord.Attributes().PutStr("logType", lt)
+				}
 			}
 		}
 	}
