@@ -30,7 +30,7 @@ Counters:
 | `sampling_ratio`        | float | `0.5`   | The ratio of data payloads that are sampled. Values between `0.0` and `1.0`. Values closer to `1.0` mean any individual payload is more likely to have its size measured.            |
 | `measure_log_raw_bytes` | bool  | `false` | When `true`, for logs, the processor will measure the raw bytes of the payload in addition to the protobuf size. This is more expensive but provides raw measurements if designated. |
 | `opamp`                 | string |        | Optional component ID of an opamp extension (e.g. `opamp`) implementing the custom message registry. When set, the processor reports its measurements to Bindplane as custom messages on the `com.bindplane.measurements.v1` capability. |
-| `interval`              | duration | `1m`  | How often measurements are reported over opamp. Only used when `opamp` is set. |
+| `interval`              | duration | `1m`  | How often measurements are reported over opamp. Only used when `opamp` is set. The first processor to start sets the shared reporter's interval. |
 | `bindplane_extension`   | string |        | Deprecated; configure `opamp` instead. Component ID of a bindplane extension to register measurements with. Ignored when `opamp` is set. |
 
 ### Startup behavior
@@ -39,10 +39,12 @@ Measurement of passing telemetry always works the same way; what the processor d
 measurements is decided once at startup, based on which reporting fields the Bindplane server
 rendered into the configuration:
 
-1. **`opamp` is set** (current Bindplane servers): the processor registers the
-   `com.bindplane.measurements.v1` custom capability with the referenced opamp extension and
-   starts a loop that sends its own measurements as custom messages every `interval`, skipping
-   intervals where no new data was measured. The extension must exist and support custom
+1. **`opamp` is set** (current Bindplane servers): the processor registers its measurements
+   with a reporter shared by every throughput processor in the collector. The first processor
+   to start creates the reporter, which registers the `com.bindplane.measurements.v1` custom
+   capability with the referenced opamp extension and sends one aggregated custom message for
+   all processors every `interval` — the same payload the bindplane extension produced. The
+   last processor to shut down stops the reporter. The extension must exist and support custom
    messages, otherwise the collector fails to start. Works with both the upstream
    `opampextension` and the `opamp_connection` extension in self-managed distributions. If
    `bindplane_extension` is also set, it is ignored with a warning.

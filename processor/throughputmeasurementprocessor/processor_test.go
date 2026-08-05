@@ -422,8 +422,7 @@ func TestProcessor_ReportsMeasurementsOverOpAMP(t *testing.T) {
 	}, processorID)
 	require.NoError(t, err)
 
-	clk := clockwork.NewFakeClock()
-	tmp.clock = clk
+	clk := installFakeReporterClock(t)
 
 	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
 	mh := mockHost{
@@ -470,12 +469,114 @@ func TestProcessor_ReportsMeasurementsOverOpAMP(t *testing.T) {
 	require.Contains(t, metricNames, "otelcol_processor_throughputmeasurement_log_data_size")
 
 	require.NoError(t, tmp.shutdown(context.Background()))
+
+	// The last processor to shut down tears the shared reporter down.
+	reporterMux.Lock()
+	require.Nil(t, reporter)
+	reporterMux.Unlock()
+}
+
+// Test that multiple processors report through a single shared reporter as one
+// aggregated message, like the bindplane extension does.
+func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
+	mp := metric.NewMeterProvider()
+	defer mp.Shutdown(context.Background())
+
+	opampID := component.MustNewID("opamp")
+	cfg := &Config{
+		Enabled:       true,
+		SamplingRatio: 1,
+		OpAMP:         opampID,
+		Interval:      time.Minute,
+	}
+
+	processorID1 := component.MustNewIDWithName("throughputmeasurement", "agg1")
+	processorID2 := component.MustNewIDWithName("throughputmeasurement", "agg2")
+
+	tmp1, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, cfg, processorID1)
+	require.NoError(t, err)
+	tmp2, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, cfg, processorID2)
+	require.NoError(t, err)
+
+	clk := installFakeReporterClock(t)
+
+	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
+	mh := mockHost{
+		extMap: map[component.ID]component.Component{
+			opampID: mockOpamp,
+		},
+	}
+
+	require.NoError(t, tmp1.start(context.Background(), mh))
+	require.NoError(t, tmp2.start(context.Background(), mh))
+
+	// Both processors share one reporter: the capability is registered once.
+	require.Equal(t, 1, mockOpamp.RegisterCount())
+
+	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
+	require.NoError(t, err)
+
+	_, err = tmp1.processLogs(context.Background(), logs)
+	require.NoError(t, err)
+	_, err = tmp2.processLogs(context.Background(), logs)
+	require.NoError(t, err)
+
+	clk.BlockUntil(1)
+	clk.Advance(time.Minute)
+
+	require.Eventually(t, func() bool {
+		return mockOpamp.GotMessage()
+	}, 5*time.Second, 10*time.Millisecond)
+
+	decoded, err := snappy.Decode(nil, mockOpamp.sentMessage)
+	require.NoError(t, err)
+
+	unmarshaler := pmetric.ProtoUnmarshaler{}
+	m, err := unmarshaler.UnmarshalMetrics(decoded)
+	require.NoError(t, err)
+
+	// One message contains datapoints from both processors.
+	seenProcessors := map[string]struct{}{}
+	sm := m.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics()
+	for i := 0; i < sm.Len(); i++ {
+		dps := sm.At(i).Sum().DataPoints()
+		for j := 0; j < dps.Len(); j++ {
+			processorAttr, ok := dps.At(j).Attributes().Get("processor")
+			require.True(t, ok, "processor attribute was not found")
+			seenProcessors[processorAttr.Str()] = struct{}{}
+		}
+	}
+	require.Contains(t, seenProcessors, processorID1.String())
+	require.Contains(t, seenProcessors, processorID2.String())
+
+	// The reporter survives until the last processor shuts down.
+	require.NoError(t, tmp1.shutdown(context.Background()))
+	reporterMux.Lock()
+	require.NotNil(t, reporter)
+	reporterMux.Unlock()
+
+	require.NoError(t, tmp2.shutdown(context.Background()))
+	reporterMux.Lock()
+	require.Nil(t, reporter)
+	reporterMux.Unlock()
+}
+
+// installFakeReporterClock swaps the shared reporter's clock for a fake one
+// for the duration of the test.
+func installFakeReporterClock(t *testing.T) *clockwork.FakeClock {
+	t.Helper()
+	clk := clockwork.NewFakeClock()
+	old := reporterClock
+	reporterClock = clk
+	t.Cleanup(func() { reporterClock = old })
+	return clk
 }
 
 type mockOpAMPExtension struct {
 	msgChan chan *protobufs.CustomMessage
 
-	capability string
+	capability    string
+	registerCount int
 
 	gotMessageMux   sync.Mutex
 	gotMessage      bool
@@ -488,8 +589,19 @@ func (m *mockOpAMPExtension) Start(_ context.Context, _ component.Host) error { 
 func (m *mockOpAMPExtension) Shutdown(_ context.Context) error { return nil }
 
 func (m *mockOpAMPExtension) Register(capability string, _ ...opampcustommessages.CustomCapabilityRegisterOption) (handler opampcustommessages.CustomCapabilityHandler, err error) {
+	m.gotMessageMux.Lock()
+	defer m.gotMessageMux.Unlock()
+
 	m.capability = capability
+	m.registerCount++
 	return m, nil
+}
+
+func (m *mockOpAMPExtension) RegisterCount() int {
+	m.gotMessageMux.Lock()
+	defer m.gotMessageMux.Unlock()
+
+	return m.registerCount
 }
 
 func (m *mockOpAMPExtension) Message() <-chan *protobufs.CustomMessage {
