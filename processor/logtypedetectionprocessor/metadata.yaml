@@ -14,7 +14,7 @@ telemetry:
       enabled: true
       description: "Number of log type detections run, one per newly seen log structure."
       stability: alpha
-      unit: "{detections}"
+      unit: "{detection}"
       sum:
         value_type: int
         monotonic: true
