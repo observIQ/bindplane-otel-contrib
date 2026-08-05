@@ -17,21 +17,27 @@ package logtypedetectionprocessor
 import (
 	"context"
 	"strconv"
+	"sync"
 
 	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/plog"
+	"golang.org/x/sync/singleflight"
 )
 
 type logTypeDetectionProcessor struct {
 	cfg      *Config
-	logTypes map[uint64]string
+	logTypes sync.Map
+	sf       singleflight.Group
 
 	telemetry *metadata.TelemetryBuilder
 }
 
 func newLogTypeDetectionProcessor(cfg *Config, telemetry *metadata.TelemetryBuilder) *logTypeDetectionProcessor {
-	return &logTypeDetectionProcessor{cfg: cfg, telemetry: telemetry}
+	return &logTypeDetectionProcessor{
+		cfg:       cfg,
+		telemetry: telemetry,
+	}
 }
 
 func (p *logTypeDetectionProcessor) start(_ context.Context, _ component.Host) error {
@@ -39,6 +45,7 @@ func (p *logTypeDetectionProcessor) start(_ context.Context, _ component.Host) e
 }
 
 func (p *logTypeDetectionProcessor) stop(_ context.Context) error {
+	p.telemetry.Shutdown()
 	return nil
 }
 
@@ -54,20 +61,30 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 				if fingerprint == 0 {
 					continue
 				}
-				logType, ok := p.logTypes[fingerprint]
+				logType, ok := p.logTypes.Load(fingerprint)
 				if !ok {
-					logType = p.logType(ctx, body)
-					p.logTypes[fingerprint] = logType
+					newLogType, err, _ := p.sf.Do(
+						strconv.FormatUint(fingerprint, 10),
+						func() (any, error) {
+							logType := p.logType(ctx, body)
+							p.logTypes.Store(fingerprint, logType)
+							return logType, nil
+						},
+					)
+					if err != nil {
+						return ld, err
+					}
+					logType = newLogType.(string)
 				}
 				logRecord.Attributes().PutStr("fingerprint", strconv.FormatUint(fingerprint, 16))
-				logRecord.Attributes().PutStr("logType", logType)
+				logRecord.Attributes().PutStr("logType", logType.(string))
 			}
 		}
 	}
 	return ld, nil
 }
 
-func (p *logTypeDetectionProcessor) logType(ctx context.Context, data string) string {
+func (p *logTypeDetectionProcessor) logType(ctx context.Context, _ string) string {
 	p.telemetry.LogTypeDetectionRuns.Add(ctx, 1)
 	return ""
 }

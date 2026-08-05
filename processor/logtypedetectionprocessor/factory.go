@@ -41,11 +41,11 @@ func createLogsProcessor(
 	nextConsumer consumer.Logs,
 ) (processor.Logs, error) {
 	oCfg := cfg.(*Config)
-	t, err := metadata.NewTelemetryBuilder(set.TelemetrySettings)
+	telemetry, err := metadata.NewTelemetryBuilder(set.TelemetrySettings)
 	if err != nil {
 		return nil, fmt.Errorf("create telemetry builder: %w", err)
 	}
-	p := newLogTypeDetectionProcessor(oCfg, t)
+	p := newLogTypeDetectionProcessor(oCfg, telemetry)
 
 	return processorhelper.NewLogs(
 		ctx,
@@ -55,5 +55,6 @@ func createLogsProcessor(
 		p.processLogs,
 		processorhelper.WithStart(p.start),
 		processorhelper.WithShutdown(p.stop),
+		processorhelper.WithCapabilities(consumer.Capabilities{MutatesData: true}),
 	)
 }
