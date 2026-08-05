@@ -26,9 +26,9 @@ import (
 )
 
 type logTypeDetectionProcessor struct {
-	cfg      *Config
-	logTypes sync.Map
-	sf       singleflight.Group
+	cfg            *Config
+	logTypes       sync.Map
+	detectionGroup singleflight.Group
 
 	telemetry *metadata.TelemetryBuilder
 }
@@ -63,7 +63,7 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 				}
 				logType, ok := p.logTypes.Load(fingerprint)
 				if !ok {
-					newLogType, err, _ := p.sf.Do(
+					newLogType, err, _ := p.detectionGroup.Do(
 						strconv.FormatUint(fingerprint, 10),
 						func() (any, error) {
 							logType := p.logType(ctx, body)
