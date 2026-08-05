@@ -23,7 +23,7 @@ import (
 )
 
 func TestFingerprintJSONLogsNoCollisions(t *testing.T) {
-	f, err := os.Open("testdata/jsonLogs.txt")
+	f, err := os.Open("testdata/jsonLogs.csv")
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, f.Close())

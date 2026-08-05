@@ -21,7 +21,7 @@ import (
 )
 
 func BenchmarkFingerprintJSONLogs(b *testing.B) {
-	f, err := os.Open("testdata/jsonLogs.txt")
+	f, err := os.Open("testdata/jsonLogs.csv")
 	if err != nil {
 		b.Fatal(err)
 	}

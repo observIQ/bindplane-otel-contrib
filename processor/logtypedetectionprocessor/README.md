@@ -20,7 +20,7 @@ processors:
 
 ## Benchmarks
 
-Fingerprinting the 500 JSON log records in `testdata/jsonLogs.txt`:
+Fingerprinting the 500 JSON log records in `testdata/jsonLogs.csv`:
 
 ```
 goos: darwin
