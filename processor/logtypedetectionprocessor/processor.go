@@ -18,16 +18,20 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
 type logTypeDetectionProcessor struct {
-	cfg *Config
+	cfg      *Config
+	logTypes map[uint64]string
+
+	telemetry *metadata.TelemetryBuilder
 }
 
-func newLogTypeDetectionProcessor(cfg *Config) *logTypeDetectionProcessor {
-	return &logTypeDetectionProcessor{cfg: cfg}
+func newLogTypeDetectionProcessor(cfg *Config, telemetry *metadata.TelemetryBuilder) *logTypeDetectionProcessor {
+	return &logTypeDetectionProcessor{cfg: cfg, telemetry: telemetry}
 }
 
 func (p *logTypeDetectionProcessor) start(_ context.Context, _ component.Host) error {
@@ -38,7 +42,7 @@ func (p *logTypeDetectionProcessor) stop(_ context.Context) error {
 	return nil
 }
 
-func (p *logTypeDetectionProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.Logs, error) {
+func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Logs) (plog.Logs, error) {
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		resourceLogs := ld.ResourceLogs().At(i)
 		for j := 0; j < resourceLogs.ScopeLogs().Len(); j++ {
@@ -50,9 +54,20 @@ func (p *logTypeDetectionProcessor) processLogs(_ context.Context, ld plog.Logs)
 				if fingerprint == 0 {
 					continue
 				}
+				logType, ok := p.logTypes[fingerprint]
+				if !ok {
+					logType = p.logType(ctx, body)
+					p.logTypes[fingerprint] = logType
+				}
 				logRecord.Attributes().PutStr("fingerprint", strconv.FormatUint(fingerprint, 16))
+				logRecord.Attributes().PutStr("logType", logType)
 			}
 		}
 	}
 	return ld, nil
+}
+
+func (p *logTypeDetectionProcessor) logType(ctx context.Context, data string) string {
+	p.telemetry.LogTypeDetectionRuns.Add(ctx, 1)
+	return ""
 }
