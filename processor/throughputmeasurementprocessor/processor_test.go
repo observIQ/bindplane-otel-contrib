@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/golang/snappy"
-	"github.com/jonboulle/clockwork"
 	"github.com/open-telemetry/opamp-go/protobufs"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden"
@@ -418,11 +417,9 @@ func TestProcessor_ReportsMeasurementsOverOpAMP(t *testing.T) {
 		Enabled:       true,
 		SamplingRatio: 1,
 		OpAMP:         opampID,
-		Interval:      time.Minute,
+		Interval:      100 * time.Millisecond,
 	}, processorID)
 	require.NoError(t, err)
-
-	clk := installFakeReporterClock(t)
 
 	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
 	mh := mockHost{
@@ -431,18 +428,15 @@ func TestProcessor_ReportsMeasurementsOverOpAMP(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, tmp.start(context.Background(), mh))
-	require.Equal(t, measurements.ReportMeasurementsV1Capability, mockOpamp.capability)
-
+	// Ingest before starting so the report loop's first tick has data to send.
 	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
 	require.NoError(t, err)
 
 	_, err = tmp.processLogs(context.Background(), logs)
 	require.NoError(t, err)
 
-	// Wait for the report loop's ticker to exist, then fire it.
-	clk.BlockUntil(1)
-	clk.Advance(time.Minute)
+	require.NoError(t, tmp.start(context.Background(), mh))
+	require.Equal(t, measurements.ReportMeasurementsV1Capability, mockOpamp.capability)
 
 	require.Eventually(t, func() bool {
 		return mockOpamp.GotMessage()
@@ -487,7 +481,7 @@ func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
 		Enabled:       true,
 		SamplingRatio: 1,
 		OpAMP:         opampID,
-		Interval:      time.Minute,
+		Interval:      100 * time.Millisecond,
 	}
 
 	processorID1 := component.MustNewIDWithName("throughputmeasurement", "agg1")
@@ -498,8 +492,6 @@ func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
 	tmp2, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, cfg, processorID2)
 	require.NoError(t, err)
 
-	clk := installFakeReporterClock(t)
-
 	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
 	mh := mockHost{
 		extMap: map[component.ID]component.Component{
@@ -507,12 +499,8 @@ func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, tmp1.start(context.Background(), mh))
-	require.NoError(t, tmp2.start(context.Background(), mh))
-
-	// Both processors share one reporter: the capability is registered once.
-	require.Equal(t, 1, mockOpamp.RegisterCount())
-
+	// Ingest before starting so the report loop's first tick has both
+	// processors' data to send.
 	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
 	require.NoError(t, err)
 
@@ -521,8 +509,11 @@ func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
 	_, err = tmp2.processLogs(context.Background(), logs)
 	require.NoError(t, err)
 
-	clk.BlockUntil(1)
-	clk.Advance(time.Minute)
+	require.NoError(t, tmp1.start(context.Background(), mh))
+	require.NoError(t, tmp2.start(context.Background(), mh))
+
+	// Both processors share one reporter: the capability is registered once.
+	require.Equal(t, 1, mockOpamp.RegisterCount())
 
 	require.Eventually(t, func() bool {
 		return mockOpamp.GotMessage()
@@ -559,17 +550,6 @@ func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
 	reporterMux.Lock()
 	require.Nil(t, reporter)
 	reporterMux.Unlock()
-}
-
-// installFakeReporterClock swaps the shared reporter's clock for a fake one
-// for the duration of the test.
-func installFakeReporterClock(t *testing.T) *clockwork.FakeClock {
-	t.Helper()
-	clk := clockwork.NewFakeClock()
-	old := reporterClock
-	reporterClock = clk
-	t.Cleanup(func() { reporterClock = old })
-	return clk
 }
 
 type mockOpAMPExtension struct {
