@@ -16,17 +16,11 @@ package throughputmeasurementprocessor
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/rand"
-	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/golang/snappy"
-	"github.com/jonboulle/clockwork"
-	"github.com/open-telemetry/opamp-go/client/types"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -50,14 +44,12 @@ type throughputMeasurementProcessor struct {
 	interval           time.Duration
 	measureLogRawBytes bool
 
-	clock                   clockwork.Clock
-	customCapabilityHandler opampcustommessages.CustomCapabilityHandler
-	lastReportedSequence    int64
+	// reportingViaOpAMP records that start registered with the shared opamp
+	// reporter, so shutdown knows to release it.
+	reportingViaOpAMP bool
 
-	started  *atomic.Bool
-	stopped  *atomic.Bool
-	doneChan chan struct{}
-	wg       *sync.WaitGroup
+	started *atomic.Bool
+	stopped *atomic.Bool
 }
 
 func newThroughputMeasurementProcessor(logger *zap.Logger, mp metric.MeterProvider, cfg *Config, processorID component.ID) (*throughputMeasurementProcessor, error) {
@@ -77,12 +69,8 @@ func newThroughputMeasurementProcessor(logger *zap.Logger, mp metric.MeterProvid
 		interval:            cfg.Interval,
 		measureLogRawBytes:  cfg.MeasureLogRawBytes,
 
-		clock: clockwork.NewRealClock(),
-
-		started:  &atomic.Bool{},
-		stopped:  &atomic.Bool{},
-		doneChan: make(chan struct{}),
-		wg:       &sync.WaitGroup{},
+		started: &atomic.Bool{},
+		stopped: &atomic.Bool{},
 	}, nil
 }
 
@@ -98,7 +86,10 @@ func (tmp *throughputMeasurementProcessor) start(_ context.Context, host compone
 		if tmp.bindplane != emptyID {
 			tmp.logger.Warn("Both opamp and bindplane_extension are set; using opamp. bindplane_extension is deprecated.")
 		}
-		return tmp.setupCustomCapabilities(host)
+		if err := registerWithOpAMPReporter(host, tmp); err != nil {
+			return err
+		}
+		tmp.reportingViaOpAMP = true
 
 	// Both fallback cases below exist only for backwards compatibility with
 	// Bindplane servers that don't render `opamp`; delete them (and make opamp
@@ -153,81 +144,6 @@ func (tmp *throughputMeasurementProcessor) registerWithV2AgentRegistry(bindplane
 	return nil
 }
 
-func (tmp *throughputMeasurementProcessor) setupCustomCapabilities(host component.Host) error {
-	ext, ok := host.GetExtensions()[tmp.opampExtensionID]
-	if !ok {
-		return fmt.Errorf("opamp extension %q does not exist", tmp.opampExtensionID)
-	}
-
-	registry, ok := ext.(opampcustommessages.CustomCapabilityRegistry)
-	if !ok {
-		return fmt.Errorf("extension %q is not an custom message registry", tmp.opampExtensionID)
-	}
-
-	var err error
-	tmp.customCapabilityHandler, err = registry.Register(measurements.ReportMeasurementsV1Capability)
-	if err != nil {
-		return fmt.Errorf("register custom capability: %w", err)
-	}
-
-	tmp.wg.Add(1)
-	go tmp.reportMeasurementsLoop()
-
-	return nil
-}
-
-func (tmp *throughputMeasurementProcessor) reportMeasurementsLoop() {
-	defer tmp.wg.Done()
-
-	t := tmp.clock.NewTicker(tmp.interval)
-	defer t.Stop()
-
-	for {
-		select {
-		case <-t.Chan():
-			if err := tmp.reportMeasurements(); err != nil {
-				tmp.logger.Error("Failed to report throughput measurements.", zap.Error(err))
-			}
-		case <-tmp.doneChan:
-			return
-		}
-	}
-}
-
-func (tmp *throughputMeasurementProcessor) reportMeasurements() error {
-	seq := tmp.measurements.SequenceNumber()
-	if seq == tmp.lastReportedSequence {
-		// No new measurements since the last report
-		return nil
-	}
-
-	m := pmetric.NewMetrics()
-	sm := m.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty()
-	measurements.OTLPThroughputMeasurements(tmp.measurements, false, nil).MoveAndAppendTo(sm.Metrics())
-
-	// Send metrics as snappy-encoded otlp proto
-	marshaller := pmetric.ProtoMarshaler{}
-	marshalled, err := marshaller.MarshalMetrics(m)
-	if err != nil {
-		return fmt.Errorf("marshal metrics: %w", err)
-	}
-
-	encoded := snappy.Encode(nil, marshalled)
-	for {
-		sendingChannel, err := tmp.customCapabilityHandler.SendMessage(measurements.ReportMeasurementsType, encoded)
-		switch {
-		case err == nil:
-			tmp.lastReportedSequence = seq
-			return nil
-		case errors.Is(err, types.ErrCustomMessagePending):
-			<-sendingChannel
-			continue
-		default:
-			return fmt.Errorf("send custom throughput message: %w", err)
-		}
-	}
-}
-
 func (tmp *throughputMeasurementProcessor) processTraces(ctx context.Context, td ptrace.Traces) (ptrace.Traces, error) {
 	if tmp.enabled {
 		//#nosec G404 -- randomly generated number is not used for security purposes. It's ok if it's weak
@@ -269,22 +185,8 @@ func (tmp *throughputMeasurementProcessor) shutdown(ctx context.Context) error {
 
 	unregisterProcessor(tmp.processorID)
 
-	close(tmp.doneChan)
-
-	waitgroupDone := make(chan struct{})
-	go func() {
-		tmp.wg.Wait()
-		close(waitgroupDone)
-	}()
-
-	select {
-	case <-waitgroupDone:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	if tmp.customCapabilityHandler != nil {
-		tmp.customCapabilityHandler.Unregister()
+	if tmp.reportingViaOpAMP {
+		return releaseOpAMPReporter(ctx)
 	}
 
 	return nil
