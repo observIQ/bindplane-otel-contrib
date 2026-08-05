@@ -24,7 +24,7 @@ import (
 
 var (
 	errInvalidSamplingRatio = errors.New("sampling_ratio must be between 0.0 and 1.0")
-	errInvalidInterval      = errors.New("interval must be positive when opamp is specified")
+	errInvalidInterval      = errors.New("interval must be positive or 0")
 )
 
 // Config is the configuration for the processor
@@ -44,6 +44,7 @@ type Config struct {
 	OpAMP component.ID `mapstructure:"opamp"`
 
 	// Interval is the interval on which measurements are reported over opamp.
+	// Measurements reporting is disabled if this duration is 0.
 	// Only used when OpAMP is set.
 	Interval time.Duration `mapstructure:"interval"`
 
@@ -73,8 +74,7 @@ func (cfg Config) Validate() error {
 		return errInvalidSamplingRatio
 	}
 
-	var emptyID component.ID
-	if cfg.OpAMP != emptyID && cfg.Interval <= 0 {
+	if cfg.Interval < 0 {
 		return errInvalidInterval
 	}
 

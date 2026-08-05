@@ -470,6 +470,50 @@ func TestProcessor_ReportsMeasurementsOverOpAMP(t *testing.T) {
 	reporterMux.Unlock()
 }
 
+// Test that a zero interval disables reporting, like the bindplane extension.
+func TestProcessor_OpAMPZeroIntervalDisablesReporting(t *testing.T) {
+	mp := metric.NewMeterProvider()
+	defer mp.Shutdown(context.Background())
+
+	processorID := component.MustNewIDWithName("throughputmeasurement", "disabled")
+	opampID := component.MustNewID("opamp")
+
+	tmp, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
+		Enabled:       true,
+		SamplingRatio: 1,
+		OpAMP:         opampID,
+		Interval:      0,
+	}, processorID)
+	require.NoError(t, err)
+
+	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
+	mh := mockHost{
+		extMap: map[component.ID]component.Component{
+			opampID: mockOpamp,
+		},
+	}
+
+	require.NoError(t, tmp.start(context.Background(), mh))
+
+	// No capability is registered and no reporter is created.
+	require.Equal(t, 0, mockOpamp.RegisterCount())
+	reporterMux.Lock()
+	require.Nil(t, reporter)
+	reporterMux.Unlock()
+
+	// The opamp extension must still exist, even with reporting disabled.
+	tmp2, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
+		Enabled:       true,
+		SamplingRatio: 1,
+		OpAMP:         opampID,
+		Interval:      0,
+	}, component.MustNewIDWithName("throughputmeasurement", "disabled2"))
+	require.NoError(t, err)
+	require.Error(t, tmp2.start(context.Background(), mockHost{}))
+
+	require.NoError(t, tmp.shutdown(context.Background()))
+}
+
 // Test that multiple processors report through a single shared reporter as one
 // aggregated message, like the bindplane extension does.
 func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
