@@ -7,3 +7,14 @@ status:
   distributions: []
   codeowners:
     active: [observIQ/ai]
+
+telemetry:
+  metrics:
+    log_type_detection_runs:
+      enabled: true
+      description: "Number of log type detections run, one per newly seen log structure."
+      stability: alpha
+      unit: "{detection}"
+      sum:
+        value_type: int
+        monotonic: true

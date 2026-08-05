@@ -16,6 +16,7 @@ package logtypedetectionprocessor
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadata"
 	"go.opentelemetry.io/collector/component"
@@ -40,7 +41,11 @@ func createLogsProcessor(
 	nextConsumer consumer.Logs,
 ) (processor.Logs, error) {
 	oCfg := cfg.(*Config)
-	p := newLogTypeDetectionProcessor(oCfg)
+	telemetry, err := metadata.NewTelemetryBuilder(set.TelemetrySettings)
+	if err != nil {
+		return nil, fmt.Errorf("create telemetry builder: %w", err)
+	}
+	p := newLogTypeDetectionProcessor(oCfg, telemetry)
 
 	return processorhelper.NewLogs(
 		ctx,
@@ -50,5 +55,6 @@ func createLogsProcessor(
 		p.processLogs,
 		processorhelper.WithStart(p.start),
 		processorhelper.WithShutdown(p.stop),
+		processorhelper.WithCapabilities(consumer.Capabilities{MutatesData: true}),
 	)
 }

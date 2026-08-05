@@ -17,17 +17,27 @@ package logtypedetectionprocessor
 import (
 	"context"
 	"strconv"
+	"sync"
 
+	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/plog"
+	"golang.org/x/sync/singleflight"
 )
 
 type logTypeDetectionProcessor struct {
-	cfg *Config
+	cfg            *Config
+	logTypes       sync.Map
+	detectionGroup singleflight.Group
+
+	telemetry *metadata.TelemetryBuilder
 }
 
-func newLogTypeDetectionProcessor(cfg *Config) *logTypeDetectionProcessor {
-	return &logTypeDetectionProcessor{cfg: cfg}
+func newLogTypeDetectionProcessor(cfg *Config, telemetry *metadata.TelemetryBuilder) *logTypeDetectionProcessor {
+	return &logTypeDetectionProcessor{
+		cfg:       cfg,
+		telemetry: telemetry,
+	}
 }
 
 func (p *logTypeDetectionProcessor) start(_ context.Context, _ component.Host) error {
@@ -35,10 +45,11 @@ func (p *logTypeDetectionProcessor) start(_ context.Context, _ component.Host) e
 }
 
 func (p *logTypeDetectionProcessor) stop(_ context.Context) error {
+	p.telemetry.Shutdown()
 	return nil
 }
 
-func (p *logTypeDetectionProcessor) processLogs(_ context.Context, ld plog.Logs) (plog.Logs, error) {
+func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Logs) (plog.Logs, error) {
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		resourceLogs := ld.ResourceLogs().At(i)
 		for j := 0; j < resourceLogs.ScopeLogs().Len(); j++ {
@@ -50,9 +61,34 @@ func (p *logTypeDetectionProcessor) processLogs(_ context.Context, ld plog.Logs)
 				if fingerprint == 0 {
 					continue
 				}
-				logRecord.Attributes().PutStr("fingerprint", strconv.FormatUint(fingerprint, 16))
+				logType, ok := p.logTypes.Load(fingerprint)
+				if !ok {
+					newLogType, err, _ := p.detectionGroup.Do(
+						strconv.FormatUint(fingerprint, 10),
+						func() (any, error) {
+							logType := p.logType(ctx, body)
+							p.logTypes.Store(fingerprint, logType)
+							return logType, nil
+						},
+					)
+					if err != nil {
+						return ld, err
+					}
+					logType = newLogType.(string)
+				}
+				if fingerprint > 0 {
+					logRecord.Attributes().PutStr("fingerprint", strconv.FormatUint(fingerprint, 16))
+				}
+				if lt, ok := logType.(string); ok && lt != "" {
+					logRecord.Attributes().PutStr("logType", lt)
+				}
 			}
 		}
 	}
 	return ld, nil
+}
+
+func (p *logTypeDetectionProcessor) logType(ctx context.Context, _ string) string {
+	p.telemetry.LogTypeDetectionRuns.Add(ctx, 1)
+	return ""
 }
