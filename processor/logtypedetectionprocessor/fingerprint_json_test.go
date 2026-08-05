@@ -42,6 +42,88 @@ func TestFingerprintJSONInvalid(t *testing.T) {
 	}
 }
 
+func TestFingerprintJSONStructure(t *testing.T) {
+	cases := []struct {
+		title        string
+		jsonA, jsonB string
+		shouldEqual  bool
+	}{
+		{
+			title:       "same structure",
+			jsonA:       `{"a":1,"b":"x","c":true}`,
+			jsonB:       `{"a":9999,"b":"totally different","c":false}`,
+			shouldEqual: true,
+		},
+		{
+			title:       "nested same structure",
+			jsonA:       `{"a":{"b":{"c":"one"}}}`,
+			jsonB:       `{"a":{"b":{"c":"two"}}}`,
+			shouldEqual: true,
+		},
+		{
+			title:       "different array values",
+			jsonA:       `{"a":[1,2,3]}`,
+			jsonB:       `{"a":[9]}`,
+			shouldEqual: true,
+		},
+		{
+			title:       "whitespace",
+			jsonA:       `{"a":1}`,
+			jsonB:       "{\n  \"a\" : 1\n}",
+			shouldEqual: true,
+		},
+		{
+			title:       "escaped characters",
+			jsonA:       `{"a":"plain"}`,
+			jsonB:       `{"a":"esc\"aped"}`,
+			shouldEqual: true,
+		},
+		{
+			title:       "different key",
+			jsonA:       `{"a":1}`,
+			jsonB:       `{"b":1}`,
+			shouldEqual: false,
+		},
+		{
+			title:       "extra key",
+			jsonA:       `{"a":1}`,
+			jsonB:       `{"a":1,"b":2}`,
+			shouldEqual: false,
+		},
+		{
+			title:       "nested object",
+			jsonA:       `{"a":{"b":1}}`,
+			jsonB:       `{"a":1}`,
+			shouldEqual: false,
+		},
+		{
+			title:       "different type",
+			jsonA:       `{"a":[1]}`,
+			jsonB:       `{"a":1}`,
+			shouldEqual: false,
+		},
+		{
+			title:       "different order",
+			jsonA:       `{"a":1,"b":2}`,
+			jsonB:       `{"b":2,"a":1}`,
+			shouldEqual: false,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.title, func(t *testing.T) {
+			fingerprintA := fingerprintJSON(c.jsonA)
+			fingerprintB := fingerprintJSON(c.jsonB)
+			require.NotZero(t, fingerprintA)
+			if c.shouldEqual {
+				require.Equal(t, fingerprintA, fingerprintB)
+			} else {
+				require.NotEqual(t, fingerprintA, fingerprintB)
+			}
+		})
+	}
+}
+
 func TestFingerprintValidJSON(t *testing.T) {
 	cases := []string{
 		"{}",

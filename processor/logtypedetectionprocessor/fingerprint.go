@@ -38,7 +38,7 @@ const (
 	fnvPrime       = 1099511628211
 )
 
-// foldFNVHashString mixes s into the running FNV-1a digest h.
+// foldFNVHashString mixes additionalData into the running FNV-1a digest, hash.
 // https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
 func foldFNVHashString(hash uint64, additionalData string) uint64 {
 	for i := range len(additionalData) {
