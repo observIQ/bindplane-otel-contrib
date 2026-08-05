@@ -116,7 +116,9 @@ func releaseOpAMPReporter(ctx context.Context) error {
 	return nil
 }
 
-func newOpAMPReporter(host component.Host, logger *zap.Logger, opampID component.ID, interval time.Duration) (*opampReporter, error) {
+// getCustomCapabilityRegistry resolves the opamp extension from the host as a
+// custom capability registry.
+func getCustomCapabilityRegistry(host component.Host, opampID component.ID) (opampcustommessages.CustomCapabilityRegistry, error) {
 	ext, ok := host.GetExtensions()[opampID]
 	if !ok {
 		return nil, fmt.Errorf("opamp extension %q does not exist", opampID)
@@ -125,6 +127,15 @@ func newOpAMPReporter(host component.Host, logger *zap.Logger, opampID component
 	capRegistry, ok := ext.(opampcustommessages.CustomCapabilityRegistry)
 	if !ok {
 		return nil, fmt.Errorf("extension %q is not an custom message registry", opampID)
+	}
+
+	return capRegistry, nil
+}
+
+func newOpAMPReporter(host component.Host, logger *zap.Logger, opampID component.ID, interval time.Duration) (*opampReporter, error) {
+	capRegistry, err := getCustomCapabilityRegistry(host, opampID)
+	if err != nil {
+		return nil, err
 	}
 
 	handler, err := capRegistry.Register(measurements.ReportMeasurementsV1Capability)

@@ -86,6 +86,13 @@ func (tmp *throughputMeasurementProcessor) start(_ context.Context, host compone
 		if tmp.bindplane != emptyID {
 			tmp.logger.Warn("Both opamp and bindplane_extension are set; using opamp. bindplane_extension is deprecated.")
 		}
+		// Measurements reporting is disabled if the interval is 0, matching the
+		// bindplane extension; the opamp extension must still exist and support
+		// custom messages.
+		if tmp.interval <= 0 {
+			_, err := getCustomCapabilityRegistry(host, tmp.opampExtensionID)
+			return err
+		}
 		if err := registerWithOpAMPReporter(host, tmp); err != nil {
 			return err
 		}
