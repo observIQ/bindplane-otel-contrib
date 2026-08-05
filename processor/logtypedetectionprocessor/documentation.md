@@ -12,4 +12,4 @@ Number of log type detections run, one per newly seen log structure.
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
-| {detections} | Sum | Int | true | Alpha |
+| {detection} | Sum | Int | true | Alpha |

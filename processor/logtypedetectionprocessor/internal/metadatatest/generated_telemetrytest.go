@@ -25,7 +25,7 @@ func AssertEqualLogTypeDetectionRuns(t *testing.T, tt *componenttest.Telemetry, 
 	want := metricdata.Metrics{
 		Name:        "otelcol_log_type_detection_runs",
 		Description: "Number of log type detections run, one per newly seen log structure. [Alpha]",
-		Unit:        "{detections}",
+		Unit:        "{detection}",
 		Data: metricdata.Sum[int64]{
 			Temporality: metricdata.CumulativeTemporality,
 			IsMonotonic: true,

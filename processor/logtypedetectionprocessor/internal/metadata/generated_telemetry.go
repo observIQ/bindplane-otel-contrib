@@ -61,7 +61,7 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...Teleme
 	builder.LogTypeDetectionRuns, err = builder.meter.Int64Counter(
 		"otelcol_log_type_detection_runs",
 		metric.WithDescription("Number of log type detections run, one per newly seen log structure. [Alpha]"),
-		metric.WithUnit("{detections}"),
+		metric.WithUnit("{detection}"),
 	)
 	errs = errors.Join(errs, err)
 	return &builder, errs
