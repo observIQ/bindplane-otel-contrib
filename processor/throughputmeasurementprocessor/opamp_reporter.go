@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/golang/snappy"
-	"github.com/jonboulle/clockwork"
 	"github.com/open-telemetry/opamp-go/client/types"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages"
 	"go.opentelemetry.io/collector/component"
@@ -43,11 +42,8 @@ type opampReporter struct {
 	refs     int
 
 	doneChan chan struct{}
-	wg       sync.WaitGroup
+	wg       *sync.WaitGroup
 }
-
-// reporterClock is swapped for a fake clock in tests.
-var reporterClock clockwork.Clock = clockwork.NewRealClock()
 
 // reporter is the single reporter shared by all throughput processors
 // configured with `opamp`. The first processor to start creates it; the last
@@ -103,16 +99,17 @@ func releaseOpAMPReporter(ctx context.Context) error {
 	reporter = nil
 
 	close(r.doneChan)
+
 	waitgroupDone := make(chan struct{})
 	go func() {
+		defer close(waitgroupDone)
 		r.wg.Wait()
-		close(waitgroupDone)
 	}()
 
 	select {
-	case <-waitgroupDone:
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-waitgroupDone: // OK
 	}
 
 	r.handler.Unregister()
@@ -141,6 +138,7 @@ func newOpAMPReporter(host component.Host, logger *zap.Logger, opampID component
 		registry: measurements.NewResettableThroughputMeasurementsRegistry(false),
 		handler:  handler,
 		doneChan: make(chan struct{}),
+		wg:       &sync.WaitGroup{},
 	}
 
 	r.wg.Add(1)
@@ -152,12 +150,12 @@ func newOpAMPReporter(host component.Host, logger *zap.Logger, opampID component
 func (r *opampReporter) reportLoop(interval time.Duration) {
 	defer r.wg.Done()
 
-	t := reporterClock.NewTicker(interval)
+	t := time.NewTicker(interval)
 	defer t.Stop()
 
 	for {
 		select {
-		case <-t.Chan():
+		case <-t.C:
 			if err := r.report(); err != nil {
 				r.logger.Error("Failed to report throughput measurements.", zap.Error(err))
 			}
