@@ -16,18 +16,11 @@ package topologyprocessor
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/golang/snappy"
-	"github.com/jonboulle/clockwork"
-	"github.com/open-telemetry/opamp-go/client/types"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages"
 	"go.opentelemetry.io/collector/client"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -53,13 +46,12 @@ type topologyProcessor struct {
 	bindplaneExtensionID *component.ID
 	interval             time.Duration
 
-	clock                   clockwork.Clock
-	customCapabilityHandler opampcustommessages.CustomCapabilityHandler
+	// reportingViaOpAMP records that start registered with the shared opamp
+	// reporter, so shutdown knows to release it.
+	reportingViaOpAMP bool
 
-	started  *atomic.Bool
-	stopped  *atomic.Bool
-	doneChan chan struct{}
-	wg       *sync.WaitGroup
+	started *atomic.Bool
+	stopped *atomic.Bool
 }
 
 // newTopologyProcessor creates a new topology processor
@@ -83,12 +75,8 @@ func newTopologyProcessor(logger *zap.Logger, cfg *Config, processorID component
 		bindplaneExtensionID: cfg.BindplaneExtension,
 		interval:             cfg.Interval,
 
-		clock: clockwork.NewRealClock(),
-
-		started:  &atomic.Bool{},
-		stopped:  &atomic.Bool{},
-		doneChan: make(chan struct{}),
-		wg:       &sync.WaitGroup{},
+		started: &atomic.Bool{},
+		stopped: &atomic.Bool{},
 	}, nil
 }
 
@@ -104,7 +92,10 @@ func (tp *topologyProcessor) start(_ context.Context, host component.Host) error
 		if tp.bindplaneExtensionID != nil {
 			tp.logger.Warn("Both opamp and bindplane_extension are set; using opamp. bindplane_extension is deprecated.")
 		}
-		return tp.startOpAMPReporting(host)
+		if err := registerWithOpAMPReporter(host, tp); err != nil {
+			return err
+		}
+		tp.reportingViaOpAMP = true
 
 	// Both fallback cases below exist only for backwards compatibility with
 	// Bindplane servers that don't render `opamp`; delete them (and make opamp
@@ -145,75 +136,6 @@ func (tp *topologyProcessor) start(_ context.Context, host component.Host) error
 func (tp *topologyProcessor) registerWithAgentRegistry() {
 	if err := BindplaneAgentTopologyRegistry.RegisterTopologyState(tp.processorID.String(), tp.topology); err != nil {
 		tp.logger.Warn("Failed to register topology state with bindplane agent registry.", zap.Error(err))
-	}
-}
-
-func (tp *topologyProcessor) startOpAMPReporting(host component.Host) error {
-	ext, ok := host.GetExtensions()[tp.opampExtensionID]
-	if !ok {
-		return fmt.Errorf("opamp extension %q does not exist", tp.opampExtensionID)
-	}
-
-	registry, ok := ext.(opampcustommessages.CustomCapabilityRegistry)
-	if !ok {
-		return fmt.Errorf("extension %q is not an custom message registry", tp.opampExtensionID)
-	}
-
-	var err error
-	tp.customCapabilityHandler, err = registry.Register(ReportTopologyCapability)
-	if err != nil {
-		return fmt.Errorf("register custom capability: %w", err)
-	}
-
-	tp.wg.Add(1)
-	go tp.reportTopologyLoop()
-
-	return nil
-}
-
-func (tp *topologyProcessor) reportTopologyLoop() {
-	defer tp.wg.Done()
-
-	t := tp.clock.NewTicker(tp.interval)
-	defer t.Stop()
-
-	for {
-		select {
-		case <-t.Chan():
-			if err := tp.reportTopology(); err != nil {
-				tp.logger.Error("Failed to report topology.", zap.Error(err))
-			}
-		case <-tp.doneChan:
-			return
-		}
-	}
-}
-
-func (tp *topologyProcessor) reportTopology() error {
-	info := getTopoInfoFromState(tp.topology)
-	if len(info.GatewayDestinations) == 0 {
-		// No routes have been detected, so there is no topology to report
-		return nil
-	}
-
-	// Send topology state snappy-encoded
-	marshalled, err := json.Marshal([]TopoInfo{info})
-	if err != nil {
-		return fmt.Errorf("marshal topology state: %w", err)
-	}
-
-	encoded := snappy.Encode(nil, marshalled)
-	for {
-		sendingChannel, err := tp.customCapabilityHandler.SendMessage(ReportTopologyType, encoded)
-		switch {
-		case err == nil:
-			return nil
-		case errors.Is(err, types.ErrCustomMessagePending):
-			<-sendingChannel
-			continue
-		default:
-			return fmt.Errorf("send custom topology message: %w", err)
-		}
 	}
 }
 
@@ -284,22 +206,8 @@ func (tp *topologyProcessor) shutdown(ctx context.Context) error {
 
 	unregisterProcessor(tp.processorID)
 
-	close(tp.doneChan)
-
-	waitgroupDone := make(chan struct{})
-	go func() {
-		tp.wg.Wait()
-		close(waitgroupDone)
-	}()
-
-	select {
-	case <-waitgroupDone:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	if tp.customCapabilityHandler != nil {
-		tp.customCapabilityHandler.Unregister()
+	if tp.reportingViaOpAMP {
+		return releaseOpAMPReporter(ctx)
 	}
 
 	return nil

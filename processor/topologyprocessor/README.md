@@ -22,7 +22,7 @@ This processor utilizes request headers to provide extended topology functionali
 | `organizationID`      | string   |         | `true`   | The Organization ID of the Bindplane configuration where this processor is running.                             |
 | `accountID`           | string   |         | `true`   | The Account ID of the Bindplane configuration where this processor is running.                                  |
 | `opamp`               | component ID | | `false`  | The component ID of an opamp extension implementing the custom message registry. When set, the processor reports its topology state to Bindplane. |
-| `interval`            | duration | `1m`    | `false`  | How often topology is reported over opamp. Only used when `opamp` is set.                                       |
+| `interval`            | duration | `1m`    | `false`  | How often topology is reported over opamp. Only used when `opamp` is set. The first processor to start sets the shared reporter's interval. |
 | `bindplane_extension` | component ID | | `false`  | Deprecated; configure `opamp` instead. The component ID of a bindplane extension to register topology state with. Ignored when `opamp` is set. |
 
 ### Startup behavior
@@ -31,10 +31,12 @@ Route collection always works the same way; what the processor does with the col
 topology is decided once at startup, based on which reporting fields the Bindplane server
 rendered into the configuration:
 
-1. **`opamp` is set** (current Bindplane servers): the processor registers the
-   `com.bindplane.topology` custom capability with the referenced opamp extension and starts a
-   loop that sends its own topology state as custom messages every `interval`, skipping
-   intervals where the route table is empty. The extension must exist and support custom
+1. **`opamp` is set** (current Bindplane servers): the processor registers its topology state
+   with a reporter shared by every topology processor in the collector. The first processor to
+   start creates the reporter, which registers the `com.bindplane.topology` custom capability
+   with the referenced opamp extension and sends one aggregated custom message for all
+   processors every `interval` — the same payload the bindplane extension produced. The last
+   processor to shut down stops the reporter. The extension must exist and support custom
    messages, otherwise the collector fails to start. Works with both the upstream
    `opampextension` and the `opamp_connection` extension in self-managed distributions. If
    `bindplane_extension` is also set, it is ignored with a warning.
