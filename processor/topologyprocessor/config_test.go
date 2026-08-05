@@ -34,12 +34,13 @@ func TestConfigValidate(t *testing.T) {
 		require.NoError(t, cfg.Validate())
 	})
 
-	t.Run("Invalid interval with opamp", func(t *testing.T) {
+	t.Run("Negative interval", func(t *testing.T) {
 		cfg := Config{
 			AccountID:      "myacct",
 			Configuration:  "myConfig",
 			OrganizationID: "myorg",
 			OpAMP:          component.MustNewID("opamp"),
+			Interval:       -time.Minute,
 		}
 		require.ErrorIs(t, cfg.Validate(), errInvalidInterval)
 	})

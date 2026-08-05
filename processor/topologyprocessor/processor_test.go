@@ -320,6 +320,49 @@ func TestProcessor_ReportsTopologyOverOpAMP(t *testing.T) {
 	reporterMux.Unlock()
 }
 
+// Test that a zero interval disables reporting, like the bindplane extension.
+func TestProcessor_OpAMPZeroIntervalDisablesReporting(t *testing.T) {
+	processorID := component.MustNewIDWithName("topology", "disabled")
+	opampID := component.MustNewID("opamp")
+
+	tp, err := newTopologyProcessor(zap.NewNop(), &Config{
+		OrganizationID: "myOrgID",
+		AccountID:      "myAccountID",
+		Configuration:  "myConfigName",
+		OpAMP:          opampID,
+		Interval:       0,
+	}, processorID)
+	require.NoError(t, err)
+
+	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
+	mh := mockHost{
+		extMap: map[component.ID]component.Component{
+			opampID: mockOpamp,
+		},
+	}
+
+	require.NoError(t, tp.start(context.Background(), mh))
+
+	// No capability is registered and no reporter is created.
+	require.Equal(t, 0, mockOpamp.RegisterCount())
+	reporterMux.Lock()
+	require.Nil(t, reporter)
+	reporterMux.Unlock()
+
+	// The opamp extension must still exist, even with reporting disabled.
+	tp2, err := newTopologyProcessor(zap.NewNop(), &Config{
+		OrganizationID: "myOrgID",
+		AccountID:      "myAccountID",
+		Configuration:  "myConfigName",
+		OpAMP:          opampID,
+		Interval:       0,
+	}, component.MustNewIDWithName("topology", "disabled2"))
+	require.NoError(t, err)
+	require.Error(t, tp2.start(context.Background(), mockHost{}))
+
+	require.NoError(t, tp.shutdown(context.Background()))
+}
+
 // Test that multiple processors report through a single shared reporter as one
 // aggregated message, like the bindplane extension does.
 func TestProcessor_AggregatesTopologyOverOpAMP(t *testing.T) {
