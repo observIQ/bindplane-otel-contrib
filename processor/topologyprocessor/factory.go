@@ -47,7 +47,9 @@ func NewFactory() processor.Factory {
 
 func createDefaultConfig() component.Config {
 	return &Config{
-		Interval: time.Minute,
+		Global: GlobalConfig{
+			Interval: time.Minute,
+		},
 	}
 }
 

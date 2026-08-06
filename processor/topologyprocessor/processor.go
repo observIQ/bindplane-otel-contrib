@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
-	"time"
 
 	"go.opentelemetry.io/collector/client"
 	"go.opentelemetry.io/collector/component"
@@ -37,18 +36,17 @@ const (
 )
 
 type topologyProcessor struct {
-	logger           *zap.Logger
-	topology         *TopoState
-	processorID      component.ID
-	opampExtensionID component.ID
+	logger      *zap.Logger
+	topology    *TopoState
+	processorID component.ID
+	global      GlobalConfig
 	// bindplaneExtensionID exists only for backwards compatibility with Bindplane
-	// servers that don't render `opamp`; delete with BPOP-5623.
+	// servers that don't render `global`; delete with BPOP-5623.
 	bindplaneExtensionID *component.ID
-	interval             time.Duration
 
-	// reportingViaOpAMP records that start registered with the shared opamp
-	// reporter, so shutdown knows to release it.
-	reportingViaOpAMP bool
+	// registeredWithReporter records that start registered with the shared
+	// opamp reporter, so shutdown knows to release it.
+	registeredWithReporter bool
 
 	started *atomic.Bool
 	stopped *atomic.Bool
@@ -71,9 +69,8 @@ func newTopologyProcessor(logger *zap.Logger, cfg *Config, processorID component
 		logger:               logger,
 		topology:             topology,
 		processorID:          processorID,
-		opampExtensionID:     cfg.OpAMP,
+		global:               cfg.Global,
 		bindplaneExtensionID: cfg.BindplaneExtension,
-		interval:             cfg.Interval,
 
 		started: &atomic.Bool{},
 		stopped: &atomic.Bool{},
@@ -86,29 +83,24 @@ func (tp *topologyProcessor) start(_ context.Context, host component.Host) error
 		return nil
 	}
 
+	// Every topology processor feeds the shared reporter; the processor
+	// carrying the `global` config block configures it below.
+	registerWithOpAMPReporter(tp)
+	tp.registeredWithReporter = true
+
 	var emptyID component.ID
 	switch {
-	case tp.opampExtensionID != emptyID:
+	case tp.global.OpAMP != emptyID:
 		if tp.bindplaneExtensionID != nil {
-			tp.logger.Warn("Both opamp and bindplane_extension are set; using opamp. bindplane_extension is deprecated.")
+			tp.logger.Warn("Both global.opamp and bindplane_extension are set; using global.opamp. bindplane_extension is deprecated.")
 		}
-		// Topology reporting is disabled if the interval is 0, matching the
-		// bindplane extension; the opamp extension must still exist and support
-		// custom messages.
-		if tp.interval <= 0 {
-			_, err := getCustomCapabilityRegistry(host, tp.opampExtensionID)
-			return err
-		}
-		if err := registerWithOpAMPReporter(host, tp); err != nil {
-			return err
-		}
-		tp.reportingViaOpAMP = true
+		return configureOpAMPReporter(host, tp.logger, tp.global)
 
 	// Both fallback cases below exist only for backwards compatibility with
-	// Bindplane servers that don't render `opamp`; delete them (and make opamp
+	// Bindplane servers that don't render `global`; delete them (and make opamp
 	// reporting the only path) with BPOP-5623.
 	case tp.bindplaneExtensionID != nil:
-		tp.logger.Warn("bindplane_extension is deprecated; configure opamp instead.")
+		tp.logger.Warn("bindplane_extension is deprecated; configure global.opamp instead.")
 		ext, ok := host.GetExtensions()[*tp.bindplaneExtensionID]
 		if !ok {
 			// Old Bindplane servers render bindplane_extension without instantiating
@@ -128,8 +120,8 @@ func (tp *topologyProcessor) start(_ context.Context, host component.Host) error
 		}
 
 	default:
-		// Neither opamp nor bindplane_extension is configured, meaning this is a
-		// v1 bindplane agent (or a standalone collector).
+		// Neither global.opamp nor bindplane_extension is configured, meaning
+		// this is a v1 bindplane agent (or a standalone collector).
 		tp.registerWithAgentRegistry()
 	}
 
@@ -213,7 +205,7 @@ func (tp *topologyProcessor) shutdown(ctx context.Context) error {
 
 	unregisterProcessor(tp.processorID)
 
-	if tp.reportingViaOpAMP {
+	if tp.registeredWithReporter {
 		return releaseOpAMPReporter(ctx)
 	}
 

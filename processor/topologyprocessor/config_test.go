@@ -28,8 +28,10 @@ func TestConfigValidate(t *testing.T) {
 			AccountID:      "myacct",
 			Configuration:  "myConfig",
 			OrganizationID: "myorg",
-			OpAMP:          component.MustNewID("opamp"),
-			Interval:       time.Minute,
+			Global: GlobalConfig{
+				OpAMP:    component.MustNewID("opamp"),
+				Interval: time.Minute,
+			},
 		}
 		require.NoError(t, cfg.Validate())
 	})
@@ -39,8 +41,10 @@ func TestConfigValidate(t *testing.T) {
 			AccountID:      "myacct",
 			Configuration:  "myConfig",
 			OrganizationID: "myorg",
-			OpAMP:          component.MustNewID("opamp"),
-			Interval:       -time.Minute,
+			Global: GlobalConfig{
+				OpAMP:    component.MustNewID("opamp"),
+				Interval: -time.Minute,
+			},
 		}
 		require.ErrorIs(t, cfg.Validate(), errInvalidInterval)
 	})
