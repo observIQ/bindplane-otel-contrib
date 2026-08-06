@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package networkcheckreceiver actively probes network targets and emits
+// ICMP ping, HTTP timing, and traceroute metrics.
 package networkcheckreceiver // import "github.com/observiq/bindplane-otel-contrib/receiver/networkcheckreceiver"
 
 import (
@@ -27,6 +29,7 @@ import (
 	"github.com/observiq/bindplane-otel-contrib/receiver/networkcheckreceiver/internal/metadata"
 )
 
+// Probe method constants used in TargetConfig.Method.
 const (
 	MethodICMP = "icmp"
 	MethodHTTP = "http"
