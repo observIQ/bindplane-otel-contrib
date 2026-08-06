@@ -33,6 +33,7 @@ import (
 const (
 	MethodICMP = "icmp"
 	MethodHTTP = "http"
+	MethodDNS  = "dns"
 )
 
 // Config is the top-level configuration for the networkstat receiver.
@@ -70,6 +71,12 @@ type TargetConfig struct {
 	// DNSServer overrides the DNS resolver for this target (e.g. "8.8.8.8:53").
 	// If empty the system resolver is used and its address is detected from /etc/resolv.conf.
 	DNSServer string `mapstructure:"dns_server"`
+
+	// DNSQuery is the hostname to resolve when method is "dns". Required for dns targets.
+	DNSQuery string `mapstructure:"dns_query"`
+
+	// DNSRecordType is the record type to query in dns mode: "A" (default), "AAAA", "CNAME", "MX", "TXT".
+	DNSRecordType string `mapstructure:"dns_record_type"`
 }
 
 // TracerouteConfig configures optional traceroute probes.
@@ -109,9 +116,17 @@ func (c *Config) Validate() error {
 			errs = multierr.Append(errs, fmt.Errorf("target[%d]: endpoint is required", i))
 		}
 		switch t.Method {
-		case "", MethodICMP, MethodHTTP:
+		case "", MethodICMP, MethodHTTP, MethodDNS:
 		default:
-			errs = multierr.Append(errs, fmt.Errorf("target[%d]: method %q is invalid; must be %q or %q", i, t.Method, MethodICMP, MethodHTTP))
+			errs = multierr.Append(errs, fmt.Errorf("target[%d]: method %q is invalid; must be %q, %q, or %q", i, t.Method, MethodICMP, MethodHTTP, MethodDNS))
+		}
+		if t.Method == MethodDNS && t.DNSQuery == "" {
+			errs = multierr.Append(errs, fmt.Errorf("target[%d]: dns_query is required when method is %q", i, MethodDNS))
+		}
+		switch strings.ToUpper(t.DNSRecordType) {
+		case "", "A", "AAAA", "CNAME", "MX", "TXT":
+		default:
+			errs = multierr.Append(errs, fmt.Errorf("target[%d]: dns_record_type %q is invalid; must be A, AAAA, CNAME, MX, or TXT", i, t.DNSRecordType))
 		}
 		if t.PingCount < 0 {
 			errs = multierr.Append(errs, fmt.Errorf("target[%d]: ping_count must be >= 0", i))
