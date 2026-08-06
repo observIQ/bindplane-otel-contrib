@@ -30,11 +30,11 @@ Counters:
 | `sampling_ratio`        | float | `0.5`   | The ratio of data payloads that are sampled. Values between `0.0` and `1.0`. Values closer to `1.0` mean any individual payload is more likely to have its size measured.            |
 | `measure_log_raw_bytes` | bool  | `false` | When `true`, for logs, the processor will measure the raw bytes of the payload in addition to the protobuf size. This is more expensive but provides raw measurements if designated. |
 | `extra_labels`          | map   |         | Extra key-value pairs added to this processor's measurements. Win over the global block's `extra_measurement_attributes` on conflicting keys. |
-| `global`                | block |         | Settings for the reporter shared by every throughput processor in the collector. Exactly one processor in a configuration should carry this block; see below. |
-| `global.opamp`          | string |        | Component ID of an opamp extension (e.g. `opamp`) implementing the custom message registry. When set, the shared reporter sends all throughput processors' measurements to Bindplane as custom messages on the `com.bindplane.measurements.v1` capability. |
-| `global.interval`       | duration | `1m`  | How often measurements are reported over opamp. Reporting is disabled if set to `0`. |
+| `opamp`                 | string |        | Component ID of an opamp extension (e.g. `opamp`) implementing the custom message registry. When set, the reporter shared by every throughput processor sends all measurements to Bindplane as custom messages on the `com.bindplane.measurements.v1` capability. Every processor should reference the same extension. |
+| `global`                | block |         | Settings for the shared reporter. Exactly one processor in a configuration should carry this block; the reporter uses the defaults below when no processor does. |
+| `global.interval`       | duration | `1m` (when no block) | How often measurements are reported over opamp. Reporting is disabled if set to `0`. |
 | `global.extra_measurement_attributes` | map | | Extra key-value pairs added to all reported datapoints. A processor's own `extra_labels` win on conflicting keys. |
-| `bindplane_extension`   | string |        | Deprecated; configure `global.opamp` instead. Component ID of a bindplane extension to register measurements with. Ignored when `global.opamp` is set. |
+| `bindplane_extension`   | string |        | Deprecated; configure `opamp` instead. Component ID of a bindplane extension to register measurements with. Ignored when `opamp` is set. |
 
 ### Startup behavior
 
@@ -43,25 +43,26 @@ processor registers its measurements with a reporter shared by every throughput 
 the collector; the first processor to start creates it, and the last one to shut down tears it
 down. What that reporter does is decided by the configuration the Bindplane server rendered:
 
-1. **One processor carries the `global` block with `opamp` set** (current Bindplane servers):
-   that processor configures the shared reporter, which registers the
+1. **`opamp` is set** (current Bindplane servers): the shared reporter registers the
    `com.bindplane.measurements.v1` custom capability with the referenced opamp extension and
-   sends one aggregated custom message for all throughput processors every `interval` — the
-   same payload the bindplane extension produced. If more than one processor carries a
-   `global` block, the last one to start wins and reconfigures the reporter. Reporting is
-   disabled if `interval` is `0`. The extension must exist and support custom messages,
-   otherwise the collector fails to start. Works with both the upstream `opampextension` and
-   the `opamp_connection` extension in self-managed distributions. If `bindplane_extension`
-   is also set on that processor, it is ignored with a warning.
-2. **No `global` block anywhere**: the shared reporter stays dormant and nothing is reported
-   over opamp. Each processor then falls back to the deprecated paths: if
-   `bindplane_extension` is set and the referenced extension exists, the processor registers
-   its measurements with it and the extension owns the reporting loop (an extension that
-   exists but is not a throughput registry fails startup; a rendered but uninstantiated
-   extension — older Bindplane servers do this — falls through to the next case). Otherwise
-   the processor registers with a package-level registry that the v1 bindplane agent runtime
-   reads and reports from — never fatal, and simply inert outside a v1 agent. Measurements
-   always remain available via the collector's internal telemetry.
+   sends one aggregated custom message for all throughput processors every interval — the
+   same payload the bindplane extension produced. The reporter's settings come from the
+   `global` block carried by one processor (defaults otherwise); if more than one processor
+   carries a `global` block, or processors reference different `opamp` extensions, the last
+   one to start wins and reconfigures the reporter. Reporting is disabled if the interval is
+   `0`. The extension must exist and support custom messages, otherwise the collector fails
+   to start. Works with both the upstream `opampextension` and the `opamp_connection`
+   extension in self-managed distributions. If `bindplane_extension` is also set, it is
+   ignored with a warning.
+2. **`opamp` is not set on a processor**: its measurements still feed the shared reporter,
+   and the processor falls back to the deprecated paths: if `bindplane_extension` is set and
+   the referenced extension exists, the processor registers its measurements with it and the
+   extension owns the reporting loop (an extension that exists but is not a throughput
+   registry fails startup; a rendered but uninstantiated extension — older Bindplane servers
+   do this — falls through to the next case). Otherwise the processor registers with a
+   package-level registry that the v1 bindplane agent runtime reads and reports from — never
+   fatal, and simply inert outside a v1 agent. Measurements always remain available via the
+   collector's internal telemetry.
 
 ### Example configuration
 
@@ -115,11 +116,12 @@ processors:
   throughputmeasurement/1:
     enabled: true
     sampling_ratio: 0.5
+    opamp: opamp
   throughputmeasurement/2:
     enabled: true
     sampling_ratio: 0.5
+    opamp: opamp
     global:
-      opamp: opamp
       interval: 1m
 
 exporters:
