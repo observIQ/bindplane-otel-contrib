@@ -416,10 +416,8 @@ func TestProcessor_ReportsMeasurementsOverOpAMP(t *testing.T) {
 	tmp, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
 		Enabled:       true,
 		SamplingRatio: 1,
-		Global: GlobalConfig{
-			OpAMP:    opampID,
-			Interval: 100 * time.Millisecond,
-		},
+		OpAMP:         opampID,
+		Global:        &GlobalConfig{Interval: 100 * time.Millisecond},
 	}, processorID)
 	require.NoError(t, err)
 
@@ -483,10 +481,8 @@ func TestProcessor_OpAMPZeroIntervalDisablesReporting(t *testing.T) {
 	tmp, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
 		Enabled:       true,
 		SamplingRatio: 1,
-		Global: GlobalConfig{
-			OpAMP:    opampID,
-			Interval: 0,
-		},
+		OpAMP:         opampID,
+		Global:        &GlobalConfig{Interval: 0},
 	}, processorID)
 	require.NoError(t, err)
 
@@ -510,10 +506,8 @@ func TestProcessor_OpAMPZeroIntervalDisablesReporting(t *testing.T) {
 	tmp2, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
 		Enabled:       true,
 		SamplingRatio: 1,
-		Global: GlobalConfig{
-			OpAMP:    opampID,
-			Interval: 0,
-		},
+		OpAMP:         opampID,
+		Global:        &GlobalConfig{Interval: 0},
 	}, component.MustNewIDWithName("throughputmeasurement", "disabled2"))
 	require.NoError(t, err)
 	require.Error(t, tmp2.start(context.Background(), mockHost{}))
@@ -533,20 +527,19 @@ func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
 	processorID1 := component.MustNewIDWithName("throughputmeasurement", "agg1")
 	processorID2 := component.MustNewIDWithName("throughputmeasurement", "agg2")
 
-	// Only the second processor carries the `global` block; the first one's
+	// Only the first processor carries the `global` block; the second one's
 	// measurements must still feed the shared reporter.
 	tmp1, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
 		Enabled:       true,
 		SamplingRatio: 1,
+		OpAMP:         opampID,
+		Global:        &GlobalConfig{Interval: 100 * time.Millisecond},
 	}, processorID1)
 	require.NoError(t, err)
 	tmp2, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
 		Enabled:       true,
 		SamplingRatio: 1,
-		Global: GlobalConfig{
-			OpAMP:    opampID,
-			Interval: 100 * time.Millisecond,
-		},
+		OpAMP:         opampID,
 	}, processorID2)
 	require.NoError(t, err)
 
@@ -623,8 +616,8 @@ func TestProcessor_GlobalExtraAttributesMerge(t *testing.T) {
 		Enabled:       true,
 		SamplingRatio: 1,
 		ExtraLabels:   map[string]string{"team": "a"},
-		Global: GlobalConfig{
-			OpAMP:    opampID,
+		OpAMP:         opampID,
+		Global: &GlobalConfig{
 			Interval: 100 * time.Millisecond,
 			ExtraMeasurementAttributes: map[string]string{
 				"team": "global",
@@ -690,8 +683,8 @@ func TestProcessor_GlobalLastOneWins(t *testing.T) {
 	tmp1, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
 		Enabled:       true,
 		SamplingRatio: 1,
-		Global: GlobalConfig{
-			OpAMP:                      opampID,
+		OpAMP:         opampID,
+		Global: &GlobalConfig{
 			Interval:                   100 * time.Millisecond,
 			ExtraMeasurementAttributes: map[string]string{"phase": "first"},
 		},
@@ -700,8 +693,8 @@ func TestProcessor_GlobalLastOneWins(t *testing.T) {
 	tmp2, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
 		Enabled:       true,
 		SamplingRatio: 1,
-		Global: GlobalConfig{
-			OpAMP:                      opampID,
+		OpAMP:         opampID,
+		Global: &GlobalConfig{
 			Interval:                   100 * time.Millisecond,
 			ExtraMeasurementAttributes: map[string]string{"phase": "second"},
 		},

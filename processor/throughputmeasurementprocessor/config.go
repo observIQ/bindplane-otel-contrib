@@ -27,20 +27,14 @@ var (
 	errInvalidInterval      = errors.New("interval must be positive or 0")
 )
 
-// GlobalConfig configures the reporter shared by every throughput processor in
-// the collector. Only one processor in a configuration should carry it; if
-// more than one does, the last one to start wins. If none does, the shared
-// reporter stays dormant and nothing is reported over opamp.
+// GlobalConfig carries the settings of the reporter shared by every
+// throughput processor in the collector. Only one processor in a
+// configuration should carry it; if more than one does, the last one to start
+// wins. If none does, the reporter uses its defaults (1m interval, no extra
+// attributes).
 type GlobalConfig struct {
-	// OpAMP is the component ID of an opamp extension implementing
-	// opampcustommessages.CustomCapabilityRegistry. If set, the shared reporter
-	// reports all throughput processors' measurements to Bindplane as custom
-	// messages on an interval.
-	OpAMP component.ID `mapstructure:"opamp"`
-
 	// Interval is the interval on which measurements are reported over opamp.
 	// Measurements reporting is disabled if this duration is 0.
-	// Only used when OpAMP is set.
 	Interval time.Duration `mapstructure:"interval"`
 
 	// ExtraMeasurementAttributes are a map of key-value pairs added to all
@@ -57,17 +51,23 @@ type Config struct {
 	// SamplingRatio is the ratio of payloads that are measured. Values between 0.0 and 1.0 are valid.
 	SamplingRatio float64 `mapstructure:"sampling_ratio"`
 
-	// Global configures the reporter shared by every throughput processor.
-	// If unset (no opamp component ID), this processor's measurements still feed
-	// the shared reporter, but this processor does not configure it.
-	Global GlobalConfig `mapstructure:"global"`
+	// OpAMP is the component ID of an opamp extension implementing
+	// opampcustommessages.CustomCapabilityRegistry. If set, the reporter shared
+	// by every throughput processor reports all measurements to Bindplane as
+	// custom messages on an interval. Every processor should reference the same
+	// extension; the last distinct value to start wins.
+	// If unset, the processor's measurements still feed the shared reporter.
+	OpAMP component.ID `mapstructure:"opamp"`
+
+	// Global carries the shared reporter's settings. Only one processor in a
+	// configuration should carry it; see GlobalConfig.
+	Global *GlobalConfig `mapstructure:"global"`
 
 	// BindplaneExtension is the component ID of a bindplane extension to register
 	// measurements with.
-	// Deprecated: configure Global.OpAMP instead. Kept only for backwards
-	// compatibility with Bindplane servers that render this field; ignored when
-	// Global.OpAMP is set.
-	// Delete when all supported Bindplane servers render `global` (BPOP-5622).
+	// Deprecated: configure OpAMP instead. Kept only for backwards compatibility
+	// with Bindplane servers that render this field; ignored when OpAMP is set.
+	// Delete when all supported Bindplane servers render `opamp` (BPOP-5622).
 	BindplaneExtension component.ID `mapstructure:"bindplane_extension"`
 
 	// Extra labels to add to measurements and associate with emitted metrics
@@ -89,7 +89,7 @@ func (cfg Config) Validate() error {
 		return errInvalidSamplingRatio
 	}
 
-	if cfg.Global.Interval < 0 {
+	if cfg.Global != nil && cfg.Global.Interval < 0 {
 		return errInvalidInterval
 	}
 
