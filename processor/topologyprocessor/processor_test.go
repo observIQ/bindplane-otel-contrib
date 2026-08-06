@@ -255,8 +255,10 @@ func TestProcessor_ReportsTopologyOverOpAMP(t *testing.T) {
 		OrganizationID: "myOrgID",
 		AccountID:      "myAccountID",
 		Configuration:  "myConfigName",
-		OpAMP:          opampID,
-		Interval:       100 * time.Millisecond,
+		Global: GlobalConfig{
+			OpAMP:    opampID,
+			Interval: 100 * time.Millisecond,
+		},
 	}, processorID)
 	require.NoError(t, err)
 
@@ -329,8 +331,10 @@ func TestProcessor_OpAMPZeroIntervalDisablesReporting(t *testing.T) {
 		OrganizationID: "myOrgID",
 		AccountID:      "myAccountID",
 		Configuration:  "myConfigName",
-		OpAMP:          opampID,
-		Interval:       0,
+		Global: GlobalConfig{
+			OpAMP:    opampID,
+			Interval: 0,
+		},
 	}, processorID)
 	require.NoError(t, err)
 
@@ -343,10 +347,11 @@ func TestProcessor_OpAMPZeroIntervalDisablesReporting(t *testing.T) {
 
 	require.NoError(t, tp.start(context.Background(), mh))
 
-	// No capability is registered and no reporter is created.
+	// No capability is registered and the reporter stays dormant.
 	require.Equal(t, 0, mockOpamp.RegisterCount())
 	reporterMux.Lock()
-	require.Nil(t, reporter)
+	require.NotNil(t, reporter)
+	require.Nil(t, reporter.handler)
 	reporterMux.Unlock()
 
 	// The opamp extension must still exist, even with reporting disabled.
@@ -354,13 +359,16 @@ func TestProcessor_OpAMPZeroIntervalDisablesReporting(t *testing.T) {
 		OrganizationID: "myOrgID",
 		AccountID:      "myAccountID",
 		Configuration:  "myConfigName",
-		OpAMP:          opampID,
-		Interval:       0,
+		Global: GlobalConfig{
+			OpAMP:    opampID,
+			Interval: 0,
+		},
 	}, component.MustNewIDWithName("topology", "disabled2"))
 	require.NoError(t, err)
 	require.Error(t, tp2.start(context.Background(), mockHost{}))
 
 	require.NoError(t, tp.shutdown(context.Background()))
+	require.NoError(t, tp2.shutdown(context.Background()))
 }
 
 // Test that multiple processors report through a single shared reporter as one
@@ -371,17 +379,23 @@ func TestProcessor_AggregatesTopologyOverOpAMP(t *testing.T) {
 	processorID1 := component.MustNewIDWithName("topology", "agg1")
 	processorID2 := component.MustNewIDWithName("topology", "agg2")
 
-	cfg := &Config{
+	// Only the second processor carries the `global` block; the first one's
+	// topology state must still feed the shared reporter.
+	tp1, err := newTopologyProcessor(zap.NewNop(), &Config{
 		OrganizationID: "myOrgID",
 		AccountID:      "myAccountID",
 		Configuration:  "myConfigName",
-		OpAMP:          opampID,
-		Interval:       100 * time.Millisecond,
-	}
-
-	tp1, err := newTopologyProcessor(zap.NewNop(), cfg, processorID1)
+	}, processorID1)
 	require.NoError(t, err)
-	tp2, err := newTopologyProcessor(zap.NewNop(), cfg, processorID2)
+	tp2, err := newTopologyProcessor(zap.NewNop(), &Config{
+		OrganizationID: "myOrgID",
+		AccountID:      "myAccountID",
+		Configuration:  "myConfigName",
+		Global: GlobalConfig{
+			OpAMP:    opampID,
+			Interval: 100 * time.Millisecond,
+		},
+	}, processorID2)
 	require.NoError(t, err)
 
 	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
@@ -445,6 +459,50 @@ func TestProcessor_AggregatesTopologyOverOpAMP(t *testing.T) {
 	reporterMux.Lock()
 	require.Nil(t, reporter)
 	reporterMux.Unlock()
+}
+
+// Test that when more than one processor carries a global block, the last one
+// to start reconfigures the reporter.
+func TestProcessor_GlobalLastOneWins(t *testing.T) {
+	opampID := component.MustNewID("opamp")
+
+	tp1, err := newTopologyProcessor(zap.NewNop(), &Config{
+		OrganizationID: "myOrgID",
+		AccountID:      "myAccountID",
+		Configuration:  "myConfigName",
+		Global: GlobalConfig{
+			OpAMP:    opampID,
+			Interval: 100 * time.Millisecond,
+		},
+	}, component.MustNewIDWithName("topology", "lastwins1"))
+	require.NoError(t, err)
+	tp2, err := newTopologyProcessor(zap.NewNop(), &Config{
+		OrganizationID: "myOrgID",
+		AccountID:      "myAccountID",
+		Configuration:  "myConfigName",
+		Global: GlobalConfig{
+			OpAMP:    opampID,
+			Interval: 100 * time.Millisecond,
+		},
+	}, component.MustNewIDWithName("topology", "lastwins2"))
+	require.NoError(t, err)
+
+	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
+	mh := mockHost{
+		extMap: map[component.ID]component.Component{
+			opampID: mockOpamp,
+		},
+	}
+
+	require.NoError(t, tp1.start(context.Background(), mh))
+	require.NoError(t, tp2.start(context.Background(), mh))
+
+	// The second global block reconfigured the reporter: the capability was
+	// registered twice (once per configuration).
+	require.Equal(t, 2, mockOpamp.RegisterCount())
+
+	require.NoError(t, tp1.shutdown(context.Background()))
+	require.NoError(t, tp2.shutdown(context.Background()))
 }
 
 type mockOpAMPExtension struct {

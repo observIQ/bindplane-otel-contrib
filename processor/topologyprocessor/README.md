@@ -21,36 +21,37 @@ This processor utilizes request headers to provide extended topology functionali
 | `configuration`       | string   |         | `true`   | The name of the Bindplane configuration where this processor is running.                                        |
 | `organizationID`      | string   |         | `true`   | The Organization ID of the Bindplane configuration where this processor is running.                             |
 | `accountID`           | string   |         | `true`   | The Account ID of the Bindplane configuration where this processor is running.                                  |
-| `opamp`               | component ID | | `false`  | The component ID of an opamp extension implementing the custom message registry. When set, the processor reports its topology state to Bindplane. |
-| `interval`            | duration | `1m`    | `false`  | How often topology is reported over opamp. Reporting is disabled if set to `0`. Only used when `opamp` is set. The first processor to start sets the shared reporter's interval. |
-| `bindplane_extension` | component ID | | `false`  | Deprecated; configure `opamp` instead. The component ID of a bindplane extension to register topology state with. Ignored when `opamp` is set. |
+| `global`              | block    |         | `false`  | Settings for the reporter shared by every topology processor in the collector. Exactly one processor in a configuration should carry this block; see below. |
+| `global.opamp`        | component ID | | `false`  | The component ID of an opamp extension implementing the custom message registry. When set, the shared reporter sends all topology processors' state to Bindplane on the `com.bindplane.topology` capability. |
+| `global.interval`     | duration | `1m`    | `false`  | How often topology is reported over opamp. Reporting is disabled if set to `0`. |
+| `bindplane_extension` | component ID | | `false`  | Deprecated; configure `global.opamp` instead. The component ID of a bindplane extension to register topology state with. Ignored when `global.opamp` is set. |
+| `interval`            | duration |         | `false`  | Deprecated and unused. Only used by topology processor v1.75.0 and earlier; kept so configurations rendered by old Bindplane servers still unmarshal. |
 
 ### Startup behavior
 
-Route collection always works the same way; what the processor does with the collected
-topology is decided once at startup, based on which reporting fields the Bindplane server
-rendered into the configuration:
+Route collection always works the same way. On startup, every topology processor registers its
+topology state with a reporter shared by every topology processor in the collector; the first
+processor to start creates it, and the last one to shut down tears it down. What that reporter
+does is decided by the configuration the Bindplane server rendered:
 
-1. **`opamp` is set** (current Bindplane servers): the processor registers its topology state
-   with a reporter shared by every topology processor in the collector. The first processor to
-   start creates the reporter, which registers the `com.bindplane.topology` custom capability
-   with the referenced opamp extension and sends one aggregated custom message for all
-   processors every `interval` — the same payload the bindplane extension produced. The last
-   processor to shut down stops the reporter. Reporting is disabled if `interval` is `0`.
-   The extension must exist and support custom
-   messages, otherwise the collector fails to start. Works with both the upstream
-   `opampextension` and the `opamp_connection` extension in self-managed distributions. If
-   `bindplane_extension` is also set, it is ignored with a warning.
-2. **Only `bindplane_extension` is set** (deprecated; older Bindplane servers): if the
-   referenced extension exists in the configuration, the processor registers its topology
-   state with it and the extension owns the reporting loop; an extension that exists but is
-   not a topology registry fails startup. If the extension is not in the configuration at
-   all — older Bindplane servers render this field without instantiating the extension — the
-   processor falls back to case 3.
-3. **Neither is set** (v1 bindplane agents, or standalone collectors): the processor registers
-   its topology state with a package-level registry that the v1 bindplane agent runtime reads
-   and reports from. This never fails startup — outside a v1 agent the registration is simply
-   inert and topology is not reported.
+1. **One processor carries the `global` block with `opamp` set** (current Bindplane servers):
+   that processor configures the shared reporter, which registers the `com.bindplane.topology`
+   custom capability with the referenced opamp extension and sends one aggregated custom
+   message for all topology processors every `interval` — the same payload the bindplane
+   extension produced. If more than one processor carries a `global` block, the last one to
+   start wins and reconfigures the reporter. Reporting is disabled if `interval` is `0`. The
+   extension must exist and support custom messages, otherwise the collector fails to start.
+   Works with both the upstream `opampextension` and the `opamp_connection` extension in
+   self-managed distributions. If `bindplane_extension` is also set on that processor, it is
+   ignored with a warning.
+2. **No `global` block anywhere**: the shared reporter stays dormant and nothing is reported
+   over opamp. Each processor then falls back to the deprecated paths: if
+   `bindplane_extension` is set and the referenced extension exists, the processor registers
+   its topology state with it and the extension owns the reporting loop (an extension that
+   exists but is not a topology registry fails startup; a rendered but uninstantiated
+   extension — older Bindplane servers do this — falls through to the next case). Otherwise
+   the processor registers with a package-level registry that the v1 bindplane agent runtime
+   reads and reports from — never fatal, and simply inert outside a v1 agent.
 
 ### Example configuration
 
@@ -70,7 +71,9 @@ processors:
     configuration: "myConfiguration"
     organizationID: "myOrganizationID"
     accountID: "myAccountID"
-    opamp: opamp
+    global:
+      opamp: opamp
+      interval: 1m
 
 exporters:
   googlecloud:

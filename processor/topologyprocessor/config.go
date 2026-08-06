@@ -24,26 +24,42 @@ import (
 
 var errInvalidInterval = errors.New("interval must be positive or 0")
 
-// Config is the configuration for the processor
-type Config struct {
+// GlobalConfig configures the reporter shared by every topology processor in
+// the collector. Only one processor in a configuration should carry it; if
+// more than one does, the last one to start wins. If none does, the shared
+// reporter stays dormant and nothing is reported over opamp.
+type GlobalConfig struct {
+	// OpAMP is the component ID of an opamp extension implementing
+	// opampcustommessages.CustomCapabilityRegistry. If set, the shared reporter
+	// reports all topology processors' state to Bindplane as custom messages on
+	// an interval.
+	OpAMP component.ID `mapstructure:"opamp"`
+
 	// Interval is the interval on which topology is reported over opamp.
 	// Topology reporting is disabled if this duration is 0.
 	// Only used when OpAMP is set.
 	Interval time.Duration `mapstructure:"interval"`
+}
 
-	// OpAMP is the component ID of an opamp extension implementing
-	// opampcustommessages.CustomCapabilityRegistry. If set, the processor reports
-	// its topology state to Bindplane as custom messages on an interval.
-	// If unset, the processor falls back to registering its topology state with
-	// the extension named by BindplaneExtension, or with the package-level
-	// registry read by the bindplane agent when neither is set.
-	OpAMP component.ID `mapstructure:"opamp"`
+// Config is the configuration for the processor
+type Config struct {
+	// Interval is unused.
+	// Deprecated: This parameter is only used in topology processor v1.75.0 and
+	// earlier. Old Bindplane servers render it, so it must remain for their
+	// configs to unmarshal. Delete with BPOP-5623.
+	Interval time.Duration `mapstructure:"interval"`
+
+	// Global configures the reporter shared by every topology processor.
+	// If unset (no opamp component ID), this processor's topology state still
+	// feeds the shared reporter, but this processor does not configure it.
+	Global GlobalConfig `mapstructure:"global"`
 
 	// BindplaneExtension is the component ID of a bindplane extension to register
 	// topology state with.
-	// Deprecated: configure OpAMP instead. Kept only for backwards compatibility
-	// with Bindplane servers that render this field; ignored when OpAMP is set.
-	// Delete when all supported Bindplane servers render `opamp` (BPOP-5623).
+	// Deprecated: configure Global.OpAMP instead. Kept only for backwards
+	// compatibility with Bindplane servers that render this field; ignored when
+	// Global.OpAMP is set.
+	// Delete when all supported Bindplane servers render `global` (BPOP-5623).
 	BindplaneExtension *component.ID `mapstructure:"bindplane_extension"`
 
 	// Name of the Config where this processor is present
@@ -70,7 +86,7 @@ func (cfg Config) Validate() error {
 		return errors.New("`accountID` must be specified")
 	}
 
-	if cfg.Interval < 0 {
+	if cfg.Global.Interval < 0 {
 		return errInvalidInterval
 	}
 

@@ -31,7 +31,9 @@ func TestNewFactory(t *testing.T) {
 	require.Equal(t, componentType, factory.Type())
 
 	expectedCfg := &Config{
-		Interval: time.Minute,
+		Global: GlobalConfig{
+			Interval: time.Minute,
+		},
 	}
 
 	cfg, ok := factory.CreateDefaultConfig().(*Config)
@@ -71,8 +73,10 @@ func TestCreateProcessorTwice_Logs(t *testing.T) {
 		Configuration:  "myConf",
 		AccountID:      "myAcct",
 		OrganizationID: "myOrg",
-		OpAMP:          opampExtensionID,
-		Interval:       time.Minute,
+		Global: GlobalConfig{
+			OpAMP:    opampExtensionID,
+			Interval: time.Minute,
+		},
 	}
 
 	l1, err := createLogsProcessor(context.Background(), set, cfg, consumertest.NewNop())
@@ -104,8 +108,10 @@ func TestCreateProcessorTwice_Metrics(t *testing.T) {
 		Configuration:  "myConf",
 		AccountID:      "myAcct",
 		OrganizationID: "myOrg",
-		OpAMP:          opampExtensionID,
-		Interval:       time.Minute,
+		Global: GlobalConfig{
+			OpAMP:    opampExtensionID,
+			Interval: time.Minute,
+		},
 	}
 
 	l1, err := createMetricsProcessor(context.Background(), set, cfg, consumertest.NewNop())
@@ -137,8 +143,10 @@ func TestCreateProcessorTwice_Traces(t *testing.T) {
 		Configuration:  "myConf",
 		AccountID:      "myAcct",
 		OrganizationID: "myOrg",
-		OpAMP:          opampExtensionID,
-		Interval:       time.Minute,
+		Global: GlobalConfig{
+			OpAMP:    opampExtensionID,
+			Interval: time.Minute,
+		},
 	}
 
 	l1, err := createTracesProcessor(context.Background(), set, cfg, consumertest.NewNop())
