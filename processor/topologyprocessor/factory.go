@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
@@ -46,11 +45,7 @@ func NewFactory() processor.Factory {
 }
 
 func createDefaultConfig() component.Config {
-	return &Config{
-		Global: GlobalConfig{
-			Interval: time.Minute,
-		},
-	}
+	return &Config{}
 }
 
 func createTracesProcessor(

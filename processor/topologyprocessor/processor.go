@@ -36,12 +36,13 @@ const (
 )
 
 type topologyProcessor struct {
-	logger      *zap.Logger
-	topology    *TopoState
-	processorID component.ID
-	global      GlobalConfig
+	logger           *zap.Logger
+	topology         *TopoState
+	processorID      component.ID
+	opampExtensionID component.ID
+	global           *GlobalConfig
 	// bindplaneExtensionID exists only for backwards compatibility with Bindplane
-	// servers that don't render `global`; delete with BPOP-5623.
+	// servers that don't render `opamp`; delete with BPOP-5623.
 	bindplaneExtensionID *component.ID
 
 	// registeredWithReporter records that start registered with the shared
@@ -69,6 +70,7 @@ func newTopologyProcessor(logger *zap.Logger, cfg *Config, processorID component
 		logger:               logger,
 		topology:             topology,
 		processorID:          processorID,
+		opampExtensionID:     cfg.OpAMP,
 		global:               cfg.Global,
 		bindplaneExtensionID: cfg.BindplaneExtension,
 
@@ -83,24 +85,32 @@ func (tp *topologyProcessor) start(_ context.Context, host component.Host) error
 		return nil
 	}
 
-	// Every topology processor feeds the shared reporter; the processor
-	// carrying the `global` config block configures it below.
+	// Every topology processor feeds the shared reporter.
 	registerWithOpAMPReporter(tp)
 	tp.registeredWithReporter = true
 
+	// The `global` block's settings apply to the shared reporter regardless of
+	// which processor carries it; applied before the extension is wired so a
+	// processor carrying both starts the loop with its own settings.
+	if tp.global != nil {
+		if err := applyGlobalSettings(*tp.global); err != nil {
+			return err
+		}
+	}
+
 	var emptyID component.ID
 	switch {
-	case tp.global.OpAMP != emptyID:
+	case tp.opampExtensionID != emptyID:
 		if tp.bindplaneExtensionID != nil {
-			tp.logger.Warn("Both global.opamp and bindplane_extension are set; using global.opamp. bindplane_extension is deprecated.")
+			tp.logger.Warn("Both opamp and bindplane_extension are set; using opamp. bindplane_extension is deprecated.")
 		}
-		return configureOpAMPReporter(host, tp.logger, tp.global)
+		return setOpAMPExtension(host, tp.logger, tp.opampExtensionID)
 
 	// Both fallback cases below exist only for backwards compatibility with
-	// Bindplane servers that don't render `global`; delete them (and make opamp
+	// Bindplane servers that don't render `opamp`; delete them (and make opamp
 	// reporting the only path) with BPOP-5623.
 	case tp.bindplaneExtensionID != nil:
-		tp.logger.Warn("bindplane_extension is deprecated; configure global.opamp instead.")
+		tp.logger.Warn("bindplane_extension is deprecated; configure opamp instead.")
 		ext, ok := host.GetExtensions()[*tp.bindplaneExtensionID]
 		if !ok {
 			// Old Bindplane servers render bindplane_extension without instantiating
@@ -120,8 +130,8 @@ func (tp *topologyProcessor) start(_ context.Context, host component.Host) error
 		}
 
 	default:
-		// Neither global.opamp nor bindplane_extension is configured, meaning
-		// this is a v1 bindplane agent (or a standalone collector).
+		// Neither opamp nor bindplane_extension is configured, meaning this is a
+		// v1 bindplane agent (or a standalone collector).
 		tp.registerWithAgentRegistry()
 	}
 

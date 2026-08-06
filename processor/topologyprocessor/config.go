@@ -24,20 +24,13 @@ import (
 
 var errInvalidInterval = errors.New("interval must be positive or 0")
 
-// GlobalConfig configures the reporter shared by every topology processor in
-// the collector. Only one processor in a configuration should carry it; if
-// more than one does, the last one to start wins. If none does, the shared
-// reporter stays dormant and nothing is reported over opamp.
+// GlobalConfig carries the settings of the reporter shared by every topology
+// processor in the collector. Only one processor in a configuration should
+// carry it; if more than one does, the last one to start wins. If none does,
+// the reporter uses its defaults (1m interval).
 type GlobalConfig struct {
-	// OpAMP is the component ID of an opamp extension implementing
-	// opampcustommessages.CustomCapabilityRegistry. If set, the shared reporter
-	// reports all topology processors' state to Bindplane as custom messages on
-	// an interval.
-	OpAMP component.ID `mapstructure:"opamp"`
-
 	// Interval is the interval on which topology is reported over opamp.
 	// Topology reporting is disabled if this duration is 0.
-	// Only used when OpAMP is set.
 	Interval time.Duration `mapstructure:"interval"`
 }
 
@@ -49,17 +42,23 @@ type Config struct {
 	// configs to unmarshal. Delete with BPOP-5623.
 	Interval time.Duration `mapstructure:"interval"`
 
-	// Global configures the reporter shared by every topology processor.
-	// If unset (no opamp component ID), this processor's topology state still
-	// feeds the shared reporter, but this processor does not configure it.
-	Global GlobalConfig `mapstructure:"global"`
+	// OpAMP is the component ID of an opamp extension implementing
+	// opampcustommessages.CustomCapabilityRegistry. If set, the reporter shared
+	// by every topology processor reports all topology state to Bindplane as
+	// custom messages on an interval. Every processor should reference the same
+	// extension; the last distinct value to start wins.
+	// If unset, the processor's topology state still feeds the shared reporter.
+	OpAMP component.ID `mapstructure:"opamp"`
+
+	// Global carries the shared reporter's settings. Only one processor in a
+	// configuration should carry it; see GlobalConfig.
+	Global *GlobalConfig `mapstructure:"global"`
 
 	// BindplaneExtension is the component ID of a bindplane extension to register
 	// topology state with.
-	// Deprecated: configure Global.OpAMP instead. Kept only for backwards
-	// compatibility with Bindplane servers that render this field; ignored when
-	// Global.OpAMP is set.
-	// Delete when all supported Bindplane servers render `global` (BPOP-5623).
+	// Deprecated: configure OpAMP instead. Kept only for backwards compatibility
+	// with Bindplane servers that render this field; ignored when OpAMP is set.
+	// Delete when all supported Bindplane servers render `opamp` (BPOP-5623).
 	BindplaneExtension *component.ID `mapstructure:"bindplane_extension"`
 
 	// Name of the Config where this processor is present
@@ -86,7 +85,7 @@ func (cfg Config) Validate() error {
 		return errors.New("`accountID` must be specified")
 	}
 
-	if cfg.Global.Interval < 0 {
+	if cfg.Global != nil && cfg.Global.Interval < 0 {
 		return errInvalidInterval
 	}
 
