@@ -9,6 +9,102 @@ import (
 	"go.opentelemetry.io/collector/filter"
 )
 
+// NetworkDNSLookupDurationMetricAttributeKey specifies the key of an attribute for the network.dns.lookup_duration metric.
+type NetworkDNSLookupDurationMetricAttributeKey string
+
+const (
+	NetworkDNSLookupDurationMetricAttributeKeyDNSQuery NetworkDNSLookupDurationMetricAttributeKey = "dns.query"
+)
+
+// NetworkDNSLookupDurationMetricConfig provides config for the network.dns.lookup_duration metric.
+type NetworkDNSLookupDurationMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                       `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []NetworkDNSLookupDurationMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *NetworkDNSLookupDurationMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *NetworkDNSLookupDurationMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case NetworkDNSLookupDurationMetricAttributeKeyDNSQuery:
+		default:
+			return fmt.Errorf("metric network.dns.lookup_duration doesn't have an attribute %v, valid attributes: [dns.query]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
+// NetworkDNSStatusMetricAttributeKey specifies the key of an attribute for the network.dns.status metric.
+type NetworkDNSStatusMetricAttributeKey string
+
+const (
+	NetworkDNSStatusMetricAttributeKeyDNSQuery NetworkDNSStatusMetricAttributeKey = "dns.query"
+)
+
+// NetworkDNSStatusMetricConfig provides config for the network.dns.status metric.
+type NetworkDNSStatusMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                               `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []NetworkDNSStatusMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *NetworkDNSStatusMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *NetworkDNSStatusMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case NetworkDNSStatusMetricAttributeKeyDNSQuery:
+		default:
+			return fmt.Errorf("metric network.dns.status doesn't have an attribute %v, valid attributes: [dns.query]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
 // NetworkHTTPClientConnectionDurationMetricAttributeKey specifies the key of an attribute for the network.http.client_connection_duration metric.
 type NetworkHTTPClientConnectionDurationMetricAttributeKey string
 
@@ -595,6 +691,8 @@ func (ms *NetworkTracerouteHopLatencyMetricConfig) Validate() error {
 
 // MetricsConfig provides config for networkcheck metrics.
 type MetricsConfig struct {
+	NetworkDNSLookupDuration            NetworkDNSLookupDurationMetricConfig            `mapstructure:"network.dns.lookup_duration"`
+	NetworkDNSStatus                    NetworkDNSStatusMetricConfig                    `mapstructure:"network.dns.status"`
 	NetworkHTTPClientConnectionDuration NetworkHTTPClientConnectionDurationMetricConfig `mapstructure:"network.http.client_connection_duration"`
 	NetworkHTTPDNSLookupDuration        NetworkHTTPDNSLookupDurationMetricConfig        `mapstructure:"network.http.dns_lookup_duration"`
 	NetworkHTTPDuration                 NetworkHTTPDurationMetricConfig                 `mapstructure:"network.http.duration"`
@@ -611,6 +709,16 @@ type MetricsConfig struct {
 
 func DefaultMetricsConfig() MetricsConfig {
 	return MetricsConfig{
+		NetworkDNSLookupDuration: NetworkDNSLookupDurationMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategyAvg,
+			EnabledAttributes:   []NetworkDNSLookupDurationMetricAttributeKey{NetworkDNSLookupDurationMetricAttributeKeyDNSQuery},
+		},
+		NetworkDNSStatus: NetworkDNSStatusMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategyAvg,
+			EnabledAttributes:   []NetworkDNSStatusMetricAttributeKey{NetworkDNSStatusMetricAttributeKeyDNSQuery},
+		},
 		NetworkHTTPClientConnectionDuration: NetworkHTTPClientConnectionDurationMetricConfig{
 			Enabled:             true,
 			AggregationStrategy: AggregationStrategyAvg,

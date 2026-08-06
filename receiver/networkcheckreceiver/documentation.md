@@ -12,6 +12,34 @@ metrics:
     enabled: false
 ```
 
+### network.dns.lookup_duration
+
+Time for the DNS server to respond to a query.
+
+| Unit | Metric Type | Value Type | Stability |
+| ---- | ----------- | ---------- | --------- |
+| ms | Gauge | Double | Alpha |
+
+#### Attributes
+
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| dns.query | The DNS hostname queried against the target DNS server. | Any Str | Recommended | - |
+
+### network.dns.status
+
+1 if the DNS server responded successfully, 0 on error or timeout.
+
+| Unit | Metric Type | Value Type | Stability |
+| ---- | ----------- | ---------- | --------- |
+| 1 | Gauge | Int | Alpha |
+
+#### Attributes
+
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| dns.query | The DNS hostname queried against the target DNS server. | Any Str | Recommended | - |
+
 ### network.http.client_connection_duration
 
 Time spent establishing the TCP connection.

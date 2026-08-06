@@ -1,28 +1,38 @@
-# Network Stat Receiver
+# Network Check Receiver
 
-Probes a configurable list of network targets and emits latency, packet loss, and traceroute metrics. Supports two probe modes per target:
+Probes a configurable list of network targets and emits latency, packet loss, and traceroute metrics. Supports three probe modes per target:
 
-- **ICMP** — raw ICMP ping (RTT min/avg/max, packet loss). Falls back to HTTP if the process lacks `CAP_NET_RAW` / root privileges.
+- **ICMP** — ICMP ping (RTT min/avg/max, packet loss). On macOS, datagram ICMP works without root; on Linux, raw ICMP requires `CAP_NET_RAW` or root; on Windows, raw ICMP requires administrator. Falls back to HTTP if no ICMP mode is available.
 - **HTTP** — full HTTP round-trip timing (DNS lookup, TCP connect, TLS handshake, request write, response read). Uses `confighttp.ClientConfig` so TLS and proxy settings work out of the box.
+- **DNS** — sends a DNS query to a specific server and measures response time. Use this to actively test a DNS server rather than rely on the system resolver.
 
 Optional traceroute probes can run on a fixed cycle interval, when packet loss exceeds a threshold, or both.
 
 ## Privileges
 
-| Feature | Requirement |
-|---------|-------------|
-| ICMP ping | Root or `CAP_NET_RAW` |
-| UDP traceroute (default) | None (most Linux kernels) |
-| ICMP traceroute | Root or `CAP_NET_RAW` |
-| HTTP ping | None |
+| Feature | Linux | macOS | Windows |
+|---------|-------|-------|---------|
+| ICMP ping | Root or `CAP_NET_RAW` | None (datagram mode) or root | Administrator (raw socket) |
+| UDP traceroute (default) | None (most kernels) | Root or `CAP_NET_RAW` | Not supported |
+| ICMP traceroute | Root or `CAP_NET_RAW` | Root or `CAP_NET_RAW` | Administrator |
+| HTTP ping | None | None | None |
+| DNS probe | None | None | None |
 
-When ICMP is unavailable the receiver logs a warning and automatically falls back to HTTP probing for affected targets.
+At startup the receiver automatically detects which ICMP mode is available:
+
+1. **Raw ICMP** (Linux root / macOS root / Windows admin): highest fidelity; used when the process has the required privilege.
+2. **Datagram ICMP** (macOS only, no root required): uses macOS's unprivileged ICMP socket support via pro-bing. RTT statistics are equivalent to raw mode.
+3. **HTTP fallback**: if neither ICMP mode succeeds, the receiver logs a warning and probes that target via HTTP instead.
+
+### Windows notes
+
+UDP traceroute relies on `ipv4.SetTTL` which is not reliably supported on Windows; configure `method: icmp` for traceroute on Windows (requires administrator). DNS server auto-detection from `/etc/resolv.conf` is not available on Windows — set `dns_server` explicitly per target or leave blank to use the system resolver.
 
 ## Configuration
 
 ```yaml
 receivers:
-  networkstat:
+  networkcheck:
     # How often to run a scrape cycle. Default 60s.
     collection_interval: 60s
 
@@ -44,9 +54,15 @@ receivers:
         tls:
           insecure_skip_verify: false
 
+      - endpoint: "8.8.8.8"        # DNS server to probe (IP or hostname; port 53 assumed if omitted)
+        method: dns
+        dns_query: "example.com"   # Hostname to resolve. Required.
+        dns_record_type: A         # Record type: A (default), AAAA, CNAME, MX, TXT.
+        timeout: 5s
+
     traceroute:
       enabled: false               # Disabled by default.
-      method: udp                  # "udp" (default, no root required) or "icmp" (requires root).
+      method: udp                  # "udp" (default, no root on Linux) or "icmp" (requires root/admin).
       max_hops: 30
       timeout: 3s                  # Per-hop timeout.
 
@@ -60,6 +76,15 @@ receivers:
 ```
 
 ## Metrics
+
+### DNS targets
+
+| Metric | Type | Unit | Description |
+|--------|------|------|-------------|
+| `network.dns.status` | Gauge | 1 | 1 = server responded successfully, 0 = error or timeout |
+| `network.dns.lookup_duration` | Gauge | ms | Time for the DNS server to respond to the query |
+
+Attributes: `dns.query` (the hostname that was resolved)
 
 ### ICMP targets
 

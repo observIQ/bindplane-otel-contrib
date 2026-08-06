@@ -47,6 +47,14 @@ var MapAttributePingMethod = map[string]AttributePingMethod{
 }
 
 var MetricsInfo = metricsInfo{
+	NetworkDNSLookupDuration: metricInfo{
+		Name:       "network.dns.lookup_duration",
+		Attributes: []string{"dns.query"},
+	},
+	NetworkDNSStatus: metricInfo{
+		Name:       "network.dns.status",
+		Attributes: []string{"dns.query"},
+	},
 	NetworkHTTPClientConnectionDuration: metricInfo{
 		Name:       "network.http.client_connection_duration",
 		Attributes: []string{"dns.server"},
@@ -98,6 +106,8 @@ var MetricsInfo = metricsInfo{
 }
 
 type metricsInfo struct {
+	NetworkDNSLookupDuration            metricInfo
+	NetworkDNSStatus                    metricInfo
 	NetworkHTTPClientConnectionDuration metricInfo
 	NetworkHTTPDNSLookupDuration        metricInfo
 	NetworkHTTPDuration                 metricInfo
@@ -115,6 +125,184 @@ type metricsInfo struct {
 type metricInfo struct {
 	Name       string
 	Attributes []string
+}
+
+type metricNetworkDNSLookupDuration struct {
+	data          pmetric.Metric                       // data buffer for generated metric.
+	config        NetworkDNSLookupDurationMetricConfig // metric config provided by user.
+	capacity      int                                  // max observed number of data points added to the metric.
+	aggDataPoints []float64                            // slice containing number of aggregated datapoints at each index
+}
+
+// init fills network.dns.lookup_duration metric with initial data.
+func (m *metricNetworkDNSLookupDuration) init() {
+	m.data.SetName("network.dns.lookup_duration")
+	m.data.SetDescription("Time for the DNS server to respond to a query.")
+	m.data.SetUnit("ms")
+	m.data.SetEmptyGauge()
+	m.data.Gauge().DataPoints().EnsureCapacity(m.capacity)
+	m.aggDataPoints = m.aggDataPoints[:0]
+}
+
+func (m *metricNetworkDNSLookupDuration) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val float64, dnsQueryAttributeValue string) {
+	if !m.config.Enabled {
+		return
+	}
+
+	dp := pmetric.NewNumberDataPoint()
+	dp.SetStartTimestamp(start)
+	dp.SetTimestamp(ts)
+	if slices.Contains(m.config.EnabledAttributes, NetworkDNSLookupDurationMetricAttributeKeyDNSQuery) {
+		dp.Attributes().PutStr("dns.query", dnsQueryAttributeValue)
+	}
+
+	var s string
+	dps := m.data.Gauge().DataPoints()
+	for i := 0; i < dps.Len(); i++ {
+		dpi := dps.At(i)
+		if dp.Attributes().Equal(dpi.Attributes()) && dp.StartTimestamp() == dpi.StartTimestamp() && dp.Timestamp() == dpi.Timestamp() {
+			switch s = m.config.AggregationStrategy; s {
+			case AggregationStrategySum, AggregationStrategyAvg:
+				dpi.SetDoubleValue(dpi.DoubleValue() + val)
+				m.aggDataPoints[i] += 1
+				return
+			case AggregationStrategyMin:
+				if dpi.DoubleValue() > val {
+					dpi.SetDoubleValue(val)
+				}
+				return
+			case AggregationStrategyMax:
+				if dpi.DoubleValue() < val {
+					dpi.SetDoubleValue(val)
+				}
+				return
+			}
+		}
+	}
+
+	dp.SetDoubleValue(val)
+	m.aggDataPoints = append(m.aggDataPoints, 1)
+	dp.MoveTo(dps.AppendEmpty())
+}
+
+// updateCapacity saves max length of data point slices that will be used for the slice capacity.
+func (m *metricNetworkDNSLookupDuration) updateCapacity() {
+	if m.data.Gauge().DataPoints().Len() > m.capacity {
+		m.capacity = m.data.Gauge().DataPoints().Len()
+	}
+}
+
+// emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
+func (m *metricNetworkDNSLookupDuration) emit(metrics pmetric.MetricSlice) {
+	if m.config.Enabled && m.data.Gauge().DataPoints().Len() > 0 {
+		if m.config.AggregationStrategy == AggregationStrategyAvg {
+			for i, aggCount := range m.aggDataPoints {
+				m.data.Gauge().DataPoints().At(i).SetDoubleValue(m.data.Gauge().DataPoints().At(i).DoubleValue() / aggCount)
+			}
+		}
+		m.updateCapacity()
+		m.data.MoveTo(metrics.AppendEmpty())
+		m.init()
+	}
+}
+
+func newMetricNetworkDNSLookupDuration(cfg NetworkDNSLookupDurationMetricConfig) metricNetworkDNSLookupDuration {
+	m := metricNetworkDNSLookupDuration{config: cfg}
+
+	if cfg.Enabled {
+		m.data = pmetric.NewMetric()
+		m.init()
+	}
+	return m
+}
+
+type metricNetworkDNSStatus struct {
+	data          pmetric.Metric               // data buffer for generated metric.
+	config        NetworkDNSStatusMetricConfig // metric config provided by user.
+	capacity      int                          // max observed number of data points added to the metric.
+	aggDataPoints []int64                      // slice containing number of aggregated datapoints at each index
+}
+
+// init fills network.dns.status metric with initial data.
+func (m *metricNetworkDNSStatus) init() {
+	m.data.SetName("network.dns.status")
+	m.data.SetDescription("1 if the DNS server responded successfully, 0 on error or timeout.")
+	m.data.SetUnit("1")
+	m.data.SetEmptyGauge()
+	m.data.Gauge().DataPoints().EnsureCapacity(m.capacity)
+	m.aggDataPoints = m.aggDataPoints[:0]
+}
+
+func (m *metricNetworkDNSStatus) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val int64, dnsQueryAttributeValue string) {
+	if !m.config.Enabled {
+		return
+	}
+
+	dp := pmetric.NewNumberDataPoint()
+	dp.SetStartTimestamp(start)
+	dp.SetTimestamp(ts)
+	if slices.Contains(m.config.EnabledAttributes, NetworkDNSStatusMetricAttributeKeyDNSQuery) {
+		dp.Attributes().PutStr("dns.query", dnsQueryAttributeValue)
+	}
+
+	var s string
+	dps := m.data.Gauge().DataPoints()
+	for i := 0; i < dps.Len(); i++ {
+		dpi := dps.At(i)
+		if dp.Attributes().Equal(dpi.Attributes()) && dp.StartTimestamp() == dpi.StartTimestamp() && dp.Timestamp() == dpi.Timestamp() {
+			switch s = m.config.AggregationStrategy; s {
+			case AggregationStrategySum, AggregationStrategyAvg:
+				dpi.SetIntValue(dpi.IntValue() + val)
+				m.aggDataPoints[i] += 1
+				return
+			case AggregationStrategyMin:
+				if dpi.IntValue() > val {
+					dpi.SetIntValue(val)
+				}
+				return
+			case AggregationStrategyMax:
+				if dpi.IntValue() < val {
+					dpi.SetIntValue(val)
+				}
+				return
+			}
+		}
+	}
+
+	dp.SetIntValue(val)
+	m.aggDataPoints = append(m.aggDataPoints, 1)
+	dp.MoveTo(dps.AppendEmpty())
+}
+
+// updateCapacity saves max length of data point slices that will be used for the slice capacity.
+func (m *metricNetworkDNSStatus) updateCapacity() {
+	if m.data.Gauge().DataPoints().Len() > m.capacity {
+		m.capacity = m.data.Gauge().DataPoints().Len()
+	}
+}
+
+// emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
+func (m *metricNetworkDNSStatus) emit(metrics pmetric.MetricSlice) {
+	if m.config.Enabled && m.data.Gauge().DataPoints().Len() > 0 {
+		if m.config.AggregationStrategy == AggregationStrategyAvg {
+			for i, aggCount := range m.aggDataPoints {
+				m.data.Gauge().DataPoints().At(i).SetIntValue(m.data.Gauge().DataPoints().At(i).IntValue() / aggCount)
+			}
+		}
+		m.updateCapacity()
+		m.data.MoveTo(metrics.AppendEmpty())
+		m.init()
+	}
+}
+
+func newMetricNetworkDNSStatus(cfg NetworkDNSStatusMetricConfig) metricNetworkDNSStatus {
+	m := metricNetworkDNSStatus{config: cfg}
+
+	if cfg.Enabled {
+		m.data = pmetric.NewMetric()
+		m.init()
+	}
+	return m
 }
 
 type metricNetworkHTTPClientConnectionDuration struct {
@@ -1219,6 +1407,8 @@ type MetricsBuilder struct {
 	buildInfo                                 component.BuildInfo  // contains version information.
 	resourceAttributeIncludeFilter            map[string]filter.Filter
 	resourceAttributeExcludeFilter            map[string]filter.Filter
+	metricNetworkDNSLookupDuration            metricNetworkDNSLookupDuration
+	metricNetworkDNSStatus                    metricNetworkDNSStatus
 	metricNetworkHTTPClientConnectionDuration metricNetworkHTTPClientConnectionDuration
 	metricNetworkHTTPDNSLookupDuration        metricNetworkHTTPDNSLookupDuration
 	metricNetworkHTTPDuration                 metricNetworkHTTPDuration
@@ -1252,10 +1442,12 @@ func WithStartTime(startTime pcommon.Timestamp) MetricBuilderOption {
 }
 func NewMetricsBuilder(mbc MetricsBuilderConfig, settings receiver.Settings, options ...MetricBuilderOption) *MetricsBuilder {
 	mb := &MetricsBuilder{
-		config:        mbc,
-		startTime:     pcommon.NewTimestampFromTime(time.Now()),
-		metricsBuffer: pmetric.NewMetrics(),
-		buildInfo:     settings.BuildInfo,
+		config:                         mbc,
+		startTime:                      pcommon.NewTimestampFromTime(time.Now()),
+		metricsBuffer:                  pmetric.NewMetrics(),
+		buildInfo:                      settings.BuildInfo,
+		metricNetworkDNSLookupDuration: newMetricNetworkDNSLookupDuration(mbc.Metrics.NetworkDNSLookupDuration),
+		metricNetworkDNSStatus:         newMetricNetworkDNSStatus(mbc.Metrics.NetworkDNSStatus),
 		metricNetworkHTTPClientConnectionDuration: newMetricNetworkHTTPClientConnectionDuration(mbc.Metrics.NetworkHTTPClientConnectionDuration),
 		metricNetworkHTTPDNSLookupDuration:        newMetricNetworkHTTPDNSLookupDuration(mbc.Metrics.NetworkHTTPDNSLookupDuration),
 		metricNetworkHTTPDuration:                 newMetricNetworkHTTPDuration(mbc.Metrics.NetworkHTTPDuration),
@@ -1346,6 +1538,8 @@ func (mb *MetricsBuilder) EmitForResource(options ...ResourceMetricsOption) {
 	ils.Scope().SetName(ScopeName)
 	ils.Scope().SetVersion(mb.buildInfo.Version)
 	ils.Metrics().EnsureCapacity(mb.metricsCapacity)
+	mb.metricNetworkDNSLookupDuration.emit(ils.Metrics())
+	mb.metricNetworkDNSStatus.emit(ils.Metrics())
 	mb.metricNetworkHTTPClientConnectionDuration.emit(ils.Metrics())
 	mb.metricNetworkHTTPDNSLookupDuration.emit(ils.Metrics())
 	mb.metricNetworkHTTPDuration.emit(ils.Metrics())
@@ -1387,6 +1581,16 @@ func (mb *MetricsBuilder) Emit(options ...ResourceMetricsOption) pmetric.Metrics
 	metrics := mb.metricsBuffer
 	mb.metricsBuffer = pmetric.NewMetrics()
 	return metrics
+}
+
+// RecordNetworkDNSLookupDurationDataPoint adds a data point to network.dns.lookup_duration metric.
+func (mb *MetricsBuilder) RecordNetworkDNSLookupDurationDataPoint(ts pcommon.Timestamp, val float64, dnsQueryAttributeValue string) {
+	mb.metricNetworkDNSLookupDuration.recordDataPoint(mb.startTime, ts, val, dnsQueryAttributeValue)
+}
+
+// RecordNetworkDNSStatusDataPoint adds a data point to network.dns.status metric.
+func (mb *MetricsBuilder) RecordNetworkDNSStatusDataPoint(ts pcommon.Timestamp, val int64, dnsQueryAttributeValue string) {
+	mb.metricNetworkDNSStatus.recordDataPoint(mb.startTime, ts, val, dnsQueryAttributeValue)
 }
 
 // RecordNetworkHTTPClientConnectionDurationDataPoint adds a data point to network.http.client_connection_duration metric.

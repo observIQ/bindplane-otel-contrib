@@ -1,6 +1,12 @@
 default:
 all_set:
   metrics:
+    network.dns.lookup_duration:
+      enabled: true
+      attributes: ["dns.query"]
+    network.dns.status:
+      enabled: true
+      attributes: ["dns.query"]
     network.http.client_connection_duration:
       enabled: true
       attributes: ["dns.server"]
@@ -42,6 +48,12 @@ all_set:
       enabled: true
 reaggregate_set:
   metrics:
+    network.dns.lookup_duration:
+      enabled: true
+      attributes: []
+    network.dns.status:
+      enabled: true
+      attributes: []
     network.http.client_connection_duration:
       enabled: true
       attributes: []
@@ -83,6 +95,12 @@ reaggregate_set:
       enabled: true
 none_set:
   metrics:
+    network.dns.lookup_duration:
+      enabled: false
+      attributes: ["dns.query"]
+    network.dns.status:
+      enabled: false
+      attributes: ["dns.query"]
     network.http.client_connection_duration:
       enabled: false
       attributes: ["dns.server"]

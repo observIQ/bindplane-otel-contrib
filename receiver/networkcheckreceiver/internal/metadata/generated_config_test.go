@@ -26,6 +26,16 @@ func TestMetricsBuilderConfig(t *testing.T) {
 			name: "all_set",
 			want: MetricsBuilderConfig{
 				Metrics: MetricsConfig{
+					NetworkDNSLookupDuration: NetworkDNSLookupDurationMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategyAvg,
+						EnabledAttributes:   []NetworkDNSLookupDurationMetricAttributeKey{NetworkDNSLookupDurationMetricAttributeKeyDNSQuery},
+					},
+					NetworkDNSStatus: NetworkDNSStatusMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategyAvg,
+						EnabledAttributes:   []NetworkDNSStatusMetricAttributeKey{NetworkDNSStatusMetricAttributeKeyDNSQuery},
+					},
 					NetworkHTTPClientConnectionDuration: NetworkHTTPClientConnectionDurationMetricConfig{
 						Enabled:             true,
 						AggregationStrategy: AggregationStrategyAvg,
@@ -96,6 +106,16 @@ func TestMetricsBuilderConfig(t *testing.T) {
 			name: "none_set",
 			want: MetricsBuilderConfig{
 				Metrics: MetricsConfig{
+					NetworkDNSLookupDuration: NetworkDNSLookupDurationMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategyAvg,
+						EnabledAttributes:   []NetworkDNSLookupDurationMetricAttributeKey{NetworkDNSLookupDurationMetricAttributeKeyDNSQuery},
+					},
+					NetworkDNSStatus: NetworkDNSStatusMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategyAvg,
+						EnabledAttributes:   []NetworkDNSStatusMetricAttributeKey{NetworkDNSStatusMetricAttributeKeyDNSQuery},
+					},
 					NetworkHTTPClientConnectionDuration: NetworkHTTPClientConnectionDurationMetricConfig{
 						Enabled:             false,
 						AggregationStrategy: AggregationStrategyAvg,
@@ -166,11 +186,35 @@ func TestMetricsBuilderConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := loadMetricsBuilderConfig(t, tt.name)
-			diff := cmp.Diff(tt.want, cfg, cmpopts.IgnoreUnexported(NetworkHTTPClientConnectionDurationMetricConfig{}, NetworkHTTPDNSLookupDurationMetricConfig{}, NetworkHTTPDurationMetricConfig{}, NetworkHTTPRequestDurationMetricConfig{}, NetworkHTTPResponseDurationMetricConfig{}, NetworkHTTPStatusMetricConfig{}, NetworkHTTPTLSHandshakeDurationMetricConfig{}, NetworkPingLatencyAvgMetricConfig{}, NetworkPingLatencyMaxMetricConfig{}, NetworkPingLatencyMinMetricConfig{}, NetworkPingPacketLossMetricConfig{}, NetworkTracerouteHopLatencyMetricConfig{}, ResourceAttributeConfig{}))
+			diff := cmp.Diff(tt.want, cfg, cmpopts.IgnoreUnexported(NetworkDNSLookupDurationMetricConfig{}, NetworkDNSStatusMetricConfig{}, NetworkHTTPClientConnectionDurationMetricConfig{}, NetworkHTTPDNSLookupDurationMetricConfig{}, NetworkHTTPDurationMetricConfig{}, NetworkHTTPRequestDurationMetricConfig{}, NetworkHTTPResponseDurationMetricConfig{}, NetworkHTTPStatusMetricConfig{}, NetworkHTTPTLSHandshakeDurationMetricConfig{}, NetworkPingLatencyAvgMetricConfig{}, NetworkPingLatencyMaxMetricConfig{}, NetworkPingLatencyMinMetricConfig{}, NetworkPingPacketLossMetricConfig{}, NetworkTracerouteHopLatencyMetricConfig{}, ResourceAttributeConfig{}))
 			require.Emptyf(t, diff, "Config mismatch (-expected +actual):\n%s", diff)
 		})
 	}
 }
+func TestNetworkDNSLookupDurationMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().NetworkDNSLookupDuration
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []NetworkDNSLookupDurationMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric network.dns.lookup_duration doesn't have an attribute invalid, valid attributes: [dns.query]")
+
+	cfg = DefaultMetricsConfig().NetworkDNSLookupDuration
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestNetworkDNSStatusMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().NetworkDNSStatus
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []NetworkDNSStatusMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric network.dns.status doesn't have an attribute invalid, valid attributes: [dns.query]")
+
+	cfg = DefaultMetricsConfig().NetworkDNSStatus
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
 func TestNetworkHTTPClientConnectionDurationMetricsConfig_Validate(t *testing.T) {
 	cfg := DefaultMetricsConfig().NetworkHTTPClientConnectionDuration
 	require.NoError(t, cfg.Validate())

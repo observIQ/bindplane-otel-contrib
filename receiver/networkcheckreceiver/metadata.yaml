@@ -4,6 +4,8 @@ status:
   class: receiver
   stability:
     alpha: [metrics]
+  codeowners:
+    active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]
 
 resource_attributes:
   target.endpoint:
@@ -12,6 +14,9 @@ resource_attributes:
     enabled: true
 
 attributes:
+  dns.query:
+    type: string
+    description: The DNS hostname queried against the target DNS server.
   dns.server:
     type: string
     description: The DNS server used to resolve the target hostname.
@@ -32,6 +37,24 @@ attributes:
     description: The traceroute hop index (TTL value).
 
 metrics:
+  network.dns.lookup_duration:
+    enabled: true
+    description: Time for the DNS server to respond to a query.
+    unit: ms
+    stability: alpha
+    gauge:
+      value_type: double
+    attributes: [dns.query]
+
+  network.dns.status:
+    enabled: true
+    description: 1 if the DNS server responded successfully, 0 on error or timeout.
+    unit: "1"
+    stability: alpha
+    gauge:
+      value_type: int
+    attributes: [dns.query]
+
   network.http.client_connection_duration:
     enabled: true
     description: Time spent establishing the TCP connection.

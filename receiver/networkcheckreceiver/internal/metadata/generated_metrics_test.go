@@ -67,6 +67,8 @@ func TestMetricsBuilder(t *testing.T) {
 			settings.Logger = zap.New(observedZapCore)
 			mb := NewMetricsBuilder(loadMetricsBuilderConfig(t, tt.name), settings, WithStartTime(start))
 			aggMap := make(map[string]string) // contains the aggregation strategies for each metric name
+			aggMap["network.dns.lookup_duration"] = mb.metricNetworkDNSLookupDuration.config.AggregationStrategy
+			aggMap["network.dns.status"] = mb.metricNetworkDNSStatus.config.AggregationStrategy
 			aggMap["network.http.client_connection_duration"] = mb.metricNetworkHTTPClientConnectionDuration.config.AggregationStrategy
 			aggMap["network.http.dns_lookup_duration"] = mb.metricNetworkHTTPDNSLookupDuration.config.AggregationStrategy
 			aggMap["network.http.duration"] = mb.metricNetworkHTTPDuration.config.AggregationStrategy
@@ -87,6 +89,18 @@ func TestMetricsBuilder(t *testing.T) {
 
 			defaultMetricsCount := 0
 			allMetricsCount := 0
+			defaultMetricsCount++
+			allMetricsCount++
+			mb.RecordNetworkDNSLookupDurationDataPoint(ts, 1, "dns.query-val")
+			if tt.name == "reaggregate_set" {
+				mb.RecordNetworkDNSLookupDurationDataPoint(ts, 3, "dns.query-val-2")
+			}
+			defaultMetricsCount++
+			allMetricsCount++
+			mb.RecordNetworkDNSStatusDataPoint(ts, 1, "dns.query-val")
+			if tt.name == "reaggregate_set" {
+				mb.RecordNetworkDNSStatusDataPoint(ts, 3, "dns.query-val-2")
+			}
 			defaultMetricsCount++
 			allMetricsCount++
 			mb.RecordNetworkHTTPClientConnectionDurationDataPoint(ts, 1, "dns.server-val")
@@ -165,6 +179,8 @@ func TestMetricsBuilder(t *testing.T) {
 			res := rb.Emit()
 			metrics := mb.Emit(WithResource(res))
 			if tt.name == "reaggregate_set" {
+				assert.Empty(t, mb.metricNetworkDNSLookupDuration.aggDataPoints)
+				assert.Empty(t, mb.metricNetworkDNSStatus.aggDataPoints)
 				assert.Empty(t, mb.metricNetworkHTTPClientConnectionDuration.aggDataPoints)
 				assert.Empty(t, mb.metricNetworkHTTPDNSLookupDuration.aggDataPoints)
 				assert.Empty(t, mb.metricNetworkHTTPDuration.aggDataPoints)
@@ -204,6 +220,86 @@ func TestMetricsBuilder(t *testing.T) {
 			validatedMetrics := make(map[string]bool)
 			for _, mi := range allMetricsList {
 				switch mi.Name() {
+				case "network.dns.lookup_duration":
+					if tt.name != "reaggregate_set" {
+						assert.False(t, validatedMetrics["network.dns.lookup_duration"], "Found a duplicate in the metrics slice: network.dns.lookup_duration")
+						validatedMetrics["network.dns.lookup_duration"] = true
+						assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+						assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+						assert.Equal(t, "Time for the DNS server to respond to a query.", mi.Description())
+						assert.Equal(t, "ms", mi.Unit())
+						dp := mi.Gauge().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeDouble, dp.ValueType())
+						assert.InDelta(t, float64(1), dp.DoubleValue(), 0.01)
+						dnsQueryAttrVal, ok := dp.Attributes().Get("dns.query")
+						assert.True(t, ok)
+						assert.Equal(t, "dns.query-val", dnsQueryAttrVal.Str())
+					} else {
+						assert.False(t, validatedMetrics["network.dns.lookup_duration"], "Found a duplicate in the metrics slice: network.dns.lookup_duration")
+						validatedMetrics["network.dns.lookup_duration"] = true
+						assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+						assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+						assert.Equal(t, "Time for the DNS server to respond to a query.", mi.Description())
+						assert.Equal(t, "ms", mi.Unit())
+						dp := mi.Gauge().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeDouble, dp.ValueType())
+						switch aggMap["network.dns.lookup_duration"] {
+						case "sum":
+							assert.InDelta(t, float64(4), dp.DoubleValue(), 0.01)
+						case "avg":
+							assert.InDelta(t, float64(2), dp.DoubleValue(), 0.01)
+						case "min":
+							assert.InDelta(t, float64(1), dp.DoubleValue(), 0.01)
+						case "max":
+							assert.InDelta(t, float64(3), dp.DoubleValue(), 0.01)
+						}
+						_, ok := dp.Attributes().Get("dns.query")
+						assert.False(t, ok)
+					}
+				case "network.dns.status":
+					if tt.name != "reaggregate_set" {
+						assert.False(t, validatedMetrics["network.dns.status"], "Found a duplicate in the metrics slice: network.dns.status")
+						validatedMetrics["network.dns.status"] = true
+						assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+						assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+						assert.Equal(t, "1 if the DNS server responded successfully, 0 on error or timeout.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						dp := mi.Gauge().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						assert.Equal(t, int64(1), dp.IntValue())
+						dnsQueryAttrVal, ok := dp.Attributes().Get("dns.query")
+						assert.True(t, ok)
+						assert.Equal(t, "dns.query-val", dnsQueryAttrVal.Str())
+					} else {
+						assert.False(t, validatedMetrics["network.dns.status"], "Found a duplicate in the metrics slice: network.dns.status")
+						validatedMetrics["network.dns.status"] = true
+						assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+						assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+						assert.Equal(t, "1 if the DNS server responded successfully, 0 on error or timeout.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						dp := mi.Gauge().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						switch aggMap["network.dns.status"] {
+						case "sum":
+							assert.Equal(t, int64(4), dp.IntValue())
+						case "avg":
+							assert.Equal(t, int64(2), dp.IntValue())
+						case "min":
+							assert.Equal(t, int64(1), dp.IntValue())
+						case "max":
+							assert.Equal(t, int64(3), dp.IntValue())
+						}
+						_, ok := dp.Attributes().Get("dns.query")
+						assert.False(t, ok)
+					}
 				case "network.http.client_connection_duration":
 					if tt.name != "reaggregate_set" {
 						assert.False(t, validatedMetrics["network.http.client_connection_duration"], "Found a duplicate in the metrics slice: network.http.client_connection_duration")
