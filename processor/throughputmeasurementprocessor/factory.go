@@ -50,9 +50,11 @@ func NewFactory() processor.Factory {
 
 func createDefaultConfig() component.Config {
 	return &Config{
-		Enabled:            true,
-		SamplingRatio:      0.5,
-		Interval:           time.Minute,
+		Enabled:       true,
+		SamplingRatio: 0.5,
+		Global: GlobalConfig{
+			Interval: time.Minute,
+		},
 		MeasureLogRawBytes: false,
 	}
 }

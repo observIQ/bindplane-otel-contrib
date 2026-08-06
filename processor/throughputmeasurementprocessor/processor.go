@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"math/rand"
 	"sync/atomic"
-	"time"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -37,16 +36,15 @@ type throughputMeasurementProcessor struct {
 	measurements        *measurements.ThroughputMeasurements
 	samplingCutOffRatio float64
 	processorID         component.ID
-	opampExtensionID    component.ID
+	global              GlobalConfig
 	// bindplane exists only for backwards compatibility with Bindplane
-	// servers that don't render `opamp`; delete with BPOP-5622.
+	// servers that don't render `global`; delete with BPOP-5622.
 	bindplane          component.ID
-	interval           time.Duration
 	measureLogRawBytes bool
 
-	// reportingViaOpAMP records that start registered with the shared opamp
-	// reporter, so shutdown knows to release it.
-	reportingViaOpAMP bool
+	// registeredWithReporter records that start registered with the shared
+	// opamp reporter, so shutdown knows to release it.
+	registeredWithReporter bool
 
 	started *atomic.Bool
 	stopped *atomic.Bool
@@ -64,9 +62,8 @@ func newThroughputMeasurementProcessor(logger *zap.Logger, mp metric.MeterProvid
 		measurements:        measurements,
 		samplingCutOffRatio: cfg.SamplingRatio,
 		processorID:         processorID,
-		opampExtensionID:    cfg.OpAMP,
+		global:              cfg.Global,
 		bindplane:           cfg.BindplaneExtension,
-		interval:            cfg.Interval,
 		measureLogRawBytes:  cfg.MeasureLogRawBytes,
 
 		started: &atomic.Bool{},
@@ -80,29 +77,24 @@ func (tmp *throughputMeasurementProcessor) start(_ context.Context, host compone
 		return nil
 	}
 
+	// Every throughput processor feeds the shared reporter; the processor
+	// carrying the `global` config block configures it below.
+	registerWithOpAMPReporter(tmp)
+	tmp.registeredWithReporter = true
+
 	var emptyID component.ID
 	switch {
-	case tmp.opampExtensionID != emptyID:
+	case tmp.global.OpAMP != emptyID:
 		if tmp.bindplane != emptyID {
-			tmp.logger.Warn("Both opamp and bindplane_extension are set; using opamp. bindplane_extension is deprecated.")
+			tmp.logger.Warn("Both global.opamp and bindplane_extension are set; using global.opamp. bindplane_extension is deprecated.")
 		}
-		// Measurements reporting is disabled if the interval is 0, matching the
-		// bindplane extension; the opamp extension must still exist and support
-		// custom messages.
-		if tmp.interval <= 0 {
-			_, err := getCustomCapabilityRegistry(host, tmp.opampExtensionID)
-			return err
-		}
-		if err := registerWithOpAMPReporter(host, tmp); err != nil {
-			return err
-		}
-		tmp.reportingViaOpAMP = true
+		return configureOpAMPReporter(host, tmp.logger, tmp.global)
 
 	// Both fallback cases below exist only for backwards compatibility with
-	// Bindplane servers that don't render `opamp`; delete them (and make opamp
+	// Bindplane servers that don't render `global`; delete them (and make opamp
 	// reporting the only path) with BPOP-5622.
 	case tmp.bindplane != emptyID:
-		tmp.logger.Warn("bindplane_extension is deprecated; configure opamp instead.")
+		tmp.logger.Warn("bindplane_extension is deprecated; configure global.opamp instead.")
 		ext, ok := host.GetExtensions()[tmp.bindplane]
 		if !ok {
 			// Old Bindplane servers render bindplane_extension without instantiating
@@ -118,8 +110,8 @@ func (tmp *throughputMeasurementProcessor) start(_ context.Context, host compone
 		}
 
 	default:
-		// Neither opamp nor bindplane_extension is configured, meaning this is a
-		// v1 bindplane agent or standalone collector.
+		// Neither global.opamp nor bindplane_extension is configured, meaning
+		// this is a v1 bindplane agent or standalone collector.
 		tmp.registerWithV1AgentRegistry()
 	}
 
@@ -192,7 +184,7 @@ func (tmp *throughputMeasurementProcessor) shutdown(ctx context.Context) error {
 
 	unregisterProcessor(tmp.processorID)
 
-	if tmp.reportingViaOpAMP {
+	if tmp.registeredWithReporter {
 		return releaseOpAMPReporter(ctx)
 	}
 

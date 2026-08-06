@@ -33,7 +33,9 @@ func TestNewFactory(t *testing.T) {
 	expectedCfg := &Config{
 		Enabled:       true,
 		SamplingRatio: 0.5,
-		Interval:      time.Minute,
+		Global: GlobalConfig{
+			Interval: time.Minute,
+		},
 	}
 
 	cfg, ok := factory.CreateDefaultConfig().(*Config)
@@ -52,8 +54,10 @@ func TestCreateProcessorTwice_Logs(t *testing.T) {
 	cfg := &Config{
 		Enabled:       true,
 		SamplingRatio: 1,
-		OpAMP:         opampExtensionID,
-		Interval:      time.Minute,
+		Global: GlobalConfig{
+			OpAMP:    opampExtensionID,
+			Interval: time.Minute,
+		},
 	}
 
 	l1, err := createLogsProcessor(context.Background(), set, cfg, consumertest.NewNop())
@@ -84,8 +88,10 @@ func TestCreateProcessorTwice_Metrics(t *testing.T) {
 	cfg := &Config{
 		Enabled:       true,
 		SamplingRatio: 1,
-		OpAMP:         opampExtensionID,
-		Interval:      time.Minute,
+		Global: GlobalConfig{
+			OpAMP:    opampExtensionID,
+			Interval: time.Minute,
+		},
 	}
 
 	l1, err := createMetricsProcessor(context.Background(), set, cfg, consumertest.NewNop())
@@ -116,8 +122,10 @@ func TestCreateProcessorTwice_Traces(t *testing.T) {
 	cfg := &Config{
 		Enabled:       true,
 		SamplingRatio: 1,
-		OpAMP:         opampExtensionID,
-		Interval:      time.Minute,
+		Global: GlobalConfig{
+			OpAMP:    opampExtensionID,
+			Interval: time.Minute,
+		},
 	}
 
 	l1, err := createTracesProcessor(context.Background(), set, cfg, consumertest.NewNop())
