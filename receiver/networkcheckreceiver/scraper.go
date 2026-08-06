@@ -98,6 +98,8 @@ func (s *networkStatScraper) start(_ context.Context, _ component.Host) error {
 		switch method {
 		case MethodICMP:
 			p = newICMPPinger(tc, icmpPrivileged)
+		case MethodDNS:
+			p = newDNSPinger(tc)
 		default:
 			fallbackTC := tc
 			if !strings.HasPrefix(fallbackTC.Endpoint, "http://") && !strings.HasPrefix(fallbackTC.Endpoint, "https://") {
@@ -191,6 +193,13 @@ func (s *networkStatScraper) activeBatch() []*targetState {
 func (s *networkStatScraper) recordMetrics(now pcommon.Timestamp, ts *targetState, r PingResult) {
 	dns := ts.dnsServer
 	switch r.Method {
+	case MethodDNS:
+		status := int64(0)
+		if r.QuerySuccess {
+			status = 1
+		}
+		s.mb.RecordNetworkDNSStatusDataPoint(now, status, r.QueryName)
+		s.mb.RecordNetworkDNSLookupDurationDataPoint(now, float64(r.QueryDuration.Milliseconds()), r.QueryName)
 	case MethodICMP:
 		m := metadata.AttributePingMethodIcmp
 		s.mb.RecordNetworkPingLatencyMinDataPoint(now, float64(r.MinRTT.Milliseconds()), m, dns)
