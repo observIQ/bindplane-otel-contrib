@@ -115,16 +115,16 @@ func (t *tracerouter) traceUDP(ctx context.Context, dest string) ([]HopResult, e
 		}
 		ipConn := ipv4.NewConn(udpConn)
 		if err := ipConn.SetTTL(ttl); err != nil {
-			udpConn.Close()
+			_ = udpConn.Close()
 			return hops, fmt.Errorf("setting TTL %d: %w", ttl, err)
 		}
 
 		sent := time.Now()
 		if _, err := udpConn.Write([]byte("ping")); err != nil {
-			udpConn.Close()
+			_ = udpConn.Close()
 			return hops, fmt.Errorf("sending UDP probe: %w", err)
 		}
-		udpConn.Close()
+		_ = udpConn.Close()
 
 		// Wait for ICMP time-exceeded.
 		hopTimeout := t.cfg.Timeout

@@ -88,7 +88,7 @@ func newICMPPinger(target TargetConfig, privileged bool) *icmpPinger {
 func checkICMPMode() (available bool, privileged bool) {
 	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
 	if err == nil {
-		conn.Close()
+		_ = conn.Close()
 		return true, true
 	}
 	// Raw ICMP unavailable — try datagram (unprivileged) mode via pro-bing.
@@ -231,12 +231,12 @@ func newHTTPPinger(target TargetConfig, dnsServer string) (*httpPinger, error) {
 
 func (p *httpPinger) ping(ctx context.Context) (PingResult, error) {
 	var (
-		dnsStart, dnsDone         time.Time
-		connectDone               time.Time
-		tlsStart, tlsDone         time.Time
-		wroteRequest              time.Time
-		gotFirstResponseByte      time.Time
-		requestStart              time.Time
+		dnsStart, dnsDone    time.Time
+		connectDone          time.Time
+		tlsStart, tlsDone    time.Time
+		wroteRequest         time.Time
+		gotFirstResponseByte time.Time
+		requestStart         time.Time
 	)
 
 	trace := &httptrace.ClientTrace{
@@ -263,7 +263,7 @@ func (p *httpPinger) ping(ctx context.Context) (PingResult, error) {
 		statusCode = resp.StatusCode
 		// Drain and close body so the connection can be reused.
 		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 
 	if err != nil {

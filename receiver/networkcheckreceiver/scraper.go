@@ -61,7 +61,7 @@ func newNetworkStatScraper(settings receiver.Settings, cfg *Config) *networkStat
 	}
 }
 
-func (s *networkStatScraper) start(ctx context.Context, _ component.Host) error {
+func (s *networkStatScraper) start(_ context.Context, _ component.Host) error {
 	s.mb = metadata.NewMetricsBuilder(s.cfg.MetricsBuilderConfig, s.settings)
 	s.rb = metadata.NewResourceBuilder(s.cfg.MetricsBuilderConfig.ResourceAttributes)
 	s.systemDNS = detectSystemDNS()
