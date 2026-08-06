@@ -416,8 +416,10 @@ func TestProcessor_ReportsMeasurementsOverOpAMP(t *testing.T) {
 	tmp, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
 		Enabled:       true,
 		SamplingRatio: 1,
-		OpAMP:         opampID,
-		Interval:      100 * time.Millisecond,
+		Global: GlobalConfig{
+			OpAMP:    opampID,
+			Interval: 100 * time.Millisecond,
+		},
 	}, processorID)
 	require.NoError(t, err)
 
@@ -481,8 +483,10 @@ func TestProcessor_OpAMPZeroIntervalDisablesReporting(t *testing.T) {
 	tmp, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
 		Enabled:       true,
 		SamplingRatio: 1,
-		OpAMP:         opampID,
-		Interval:      0,
+		Global: GlobalConfig{
+			OpAMP:    opampID,
+			Interval: 0,
+		},
 	}, processorID)
 	require.NoError(t, err)
 
@@ -495,23 +499,27 @@ func TestProcessor_OpAMPZeroIntervalDisablesReporting(t *testing.T) {
 
 	require.NoError(t, tmp.start(context.Background(), mh))
 
-	// No capability is registered and no reporter is created.
+	// No capability is registered and the reporter stays dormant.
 	require.Equal(t, 0, mockOpamp.RegisterCount())
 	reporterMux.Lock()
-	require.Nil(t, reporter)
+	require.NotNil(t, reporter)
+	require.Nil(t, reporter.handler)
 	reporterMux.Unlock()
 
 	// The opamp extension must still exist, even with reporting disabled.
 	tmp2, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
 		Enabled:       true,
 		SamplingRatio: 1,
-		OpAMP:         opampID,
-		Interval:      0,
+		Global: GlobalConfig{
+			OpAMP:    opampID,
+			Interval: 0,
+		},
 	}, component.MustNewIDWithName("throughputmeasurement", "disabled2"))
 	require.NoError(t, err)
 	require.Error(t, tmp2.start(context.Background(), mockHost{}))
 
 	require.NoError(t, tmp.shutdown(context.Background()))
+	require.NoError(t, tmp2.shutdown(context.Background()))
 }
 
 // Test that multiple processors report through a single shared reporter as one
@@ -521,19 +529,25 @@ func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
 	defer mp.Shutdown(context.Background())
 
 	opampID := component.MustNewID("opamp")
-	cfg := &Config{
-		Enabled:       true,
-		SamplingRatio: 1,
-		OpAMP:         opampID,
-		Interval:      100 * time.Millisecond,
-	}
 
 	processorID1 := component.MustNewIDWithName("throughputmeasurement", "agg1")
 	processorID2 := component.MustNewIDWithName("throughputmeasurement", "agg2")
 
-	tmp1, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, cfg, processorID1)
+	// Only the second processor carries the `global` block; the first one's
+	// measurements must still feed the shared reporter.
+	tmp1, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
+		Enabled:       true,
+		SamplingRatio: 1,
+	}, processorID1)
 	require.NoError(t, err)
-	tmp2, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, cfg, processorID2)
+	tmp2, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
+		Enabled:       true,
+		SamplingRatio: 1,
+		Global: GlobalConfig{
+			OpAMP:    opampID,
+			Interval: 100 * time.Millisecond,
+		},
+	}, processorID2)
 	require.NoError(t, err)
 
 	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
@@ -594,6 +608,146 @@ func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
 	reporterMux.Lock()
 	require.Nil(t, reporter)
 	reporterMux.Unlock()
+}
+
+// Test that the global block's extra attributes are stamped on reported
+// datapoints, with a processor's own extra_labels winning on conflicts.
+func TestProcessor_GlobalExtraAttributesMerge(t *testing.T) {
+	mp := metric.NewMeterProvider()
+	defer mp.Shutdown(context.Background())
+
+	processorID := component.MustNewIDWithName("throughputmeasurement", "merge")
+	opampID := component.MustNewID("opamp")
+
+	tmp, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
+		Enabled:       true,
+		SamplingRatio: 1,
+		ExtraLabels:   map[string]string{"team": "a"},
+		Global: GlobalConfig{
+			OpAMP:    opampID,
+			Interval: 100 * time.Millisecond,
+			ExtraMeasurementAttributes: map[string]string{
+				"team": "global",
+				"env":  "prod",
+			},
+		},
+	}, processorID)
+	require.NoError(t, err)
+
+	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
+	mh := mockHost{
+		extMap: map[component.ID]component.Component{
+			opampID: mockOpamp,
+		},
+	}
+
+	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
+	require.NoError(t, err)
+
+	_, err = tmp.processLogs(context.Background(), logs)
+	require.NoError(t, err)
+
+	require.NoError(t, tmp.start(context.Background(), mh))
+
+	require.Eventually(t, func() bool {
+		return mockOpamp.GotMessage()
+	}, 5*time.Second, 10*time.Millisecond)
+
+	decoded, err := snappy.Decode(nil, mockOpamp.sentMessage)
+	require.NoError(t, err)
+
+	unmarshaler := pmetric.ProtoUnmarshaler{}
+	m, err := unmarshaler.UnmarshalMetrics(decoded)
+	require.NoError(t, err)
+
+	sm := m.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics()
+	require.Greater(t, sm.Len(), 0)
+	for i := 0; i < sm.Len(); i++ {
+		attrs := sm.At(i).Sum().DataPoints().At(0).Attributes()
+
+		// The processor's own extra_labels win the conflicting key.
+		team, ok := attrs.Get("team")
+		require.True(t, ok)
+		require.Equal(t, "a", team.Str())
+
+		// Non-conflicting global attributes are stamped on.
+		env, ok := attrs.Get("env")
+		require.True(t, ok)
+		require.Equal(t, "prod", env.Str())
+	}
+
+	require.NoError(t, tmp.shutdown(context.Background()))
+}
+
+// Test that when more than one processor carries a global block, the last one
+// to start reconfigures the reporter.
+func TestProcessor_GlobalLastOneWins(t *testing.T) {
+	mp := metric.NewMeterProvider()
+	defer mp.Shutdown(context.Background())
+
+	opampID := component.MustNewID("opamp")
+
+	tmp1, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
+		Enabled:       true,
+		SamplingRatio: 1,
+		Global: GlobalConfig{
+			OpAMP:                      opampID,
+			Interval:                   100 * time.Millisecond,
+			ExtraMeasurementAttributes: map[string]string{"phase": "first"},
+		},
+	}, component.MustNewIDWithName("throughputmeasurement", "lastwins1"))
+	require.NoError(t, err)
+	tmp2, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
+		Enabled:       true,
+		SamplingRatio: 1,
+		Global: GlobalConfig{
+			OpAMP:                      opampID,
+			Interval:                   100 * time.Millisecond,
+			ExtraMeasurementAttributes: map[string]string{"phase": "second"},
+		},
+	}, component.MustNewIDWithName("throughputmeasurement", "lastwins2"))
+	require.NoError(t, err)
+
+	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
+	mh := mockHost{
+		extMap: map[component.ID]component.Component{
+			opampID: mockOpamp,
+		},
+	}
+
+	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
+	require.NoError(t, err)
+
+	_, err = tmp1.processLogs(context.Background(), logs)
+	require.NoError(t, err)
+
+	require.NoError(t, tmp1.start(context.Background(), mh))
+	require.NoError(t, tmp2.start(context.Background(), mh))
+
+	// The second global block reconfigured the reporter: the capability was
+	// registered twice (once per configuration).
+	require.Equal(t, 2, mockOpamp.RegisterCount())
+
+	require.Eventually(t, func() bool {
+		return mockOpamp.GotMessage()
+	}, 5*time.Second, 10*time.Millisecond)
+
+	decoded, err := snappy.Decode(nil, mockOpamp.sentMessage)
+	require.NoError(t, err)
+
+	unmarshaler := pmetric.ProtoUnmarshaler{}
+	m, err := unmarshaler.UnmarshalMetrics(decoded)
+	require.NoError(t, err)
+
+	// The message reflects the last configuration's extra attributes.
+	sm := m.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics()
+	require.Greater(t, sm.Len(), 0)
+	phase, ok := sm.At(0).Sum().DataPoints().At(0).Attributes().Get("phase")
+	require.True(t, ok)
+	require.Equal(t, "second", phase.Str())
+
+	require.NoError(t, tmp1.shutdown(context.Background()))
+	require.NoError(t, tmp2.shutdown(context.Background()))
 }
 
 type mockOpAMPExtension struct {
