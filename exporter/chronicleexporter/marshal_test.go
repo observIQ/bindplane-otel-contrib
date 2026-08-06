@@ -1787,6 +1787,52 @@ var getRawFieldCases = []getRawFieldCase{
 		expect:   "test",
 	},
 	{
+		name:  "Attribute chronicle_rbac_enabled string",
+		field: chronicleRBACField,
+		logRecord: func() plog.LogRecord {
+			lr := plog.NewLogRecord()
+			lr.Attributes().PutStr("chronicle_rbac_enabled", "TRUE")
+			return lr
+		}(),
+		scope:    plog.NewScopeLogs(),
+		resource: plog.NewResourceLogs(),
+		expect:   "TRUE",
+	},
+	{
+		name:  "Attribute chronicle_rbac_enabled bool",
+		field: chronicleRBACField,
+		logRecord: func() plog.LogRecord {
+			lr := plog.NewLogRecord()
+			lr.Attributes().PutBool("chronicle_rbac_enabled", true)
+			return lr
+		}(),
+		scope:    plog.NewScopeLogs(),
+		resource: plog.NewResourceLogs(),
+		expect:   "true",
+	},
+	{
+		name:  "Attribute chronicle_rbac_enabled missing",
+		field: chronicleRBACField,
+		logRecord: func() plog.LogRecord {
+			return plog.NewLogRecord()
+		}(),
+		scope:    plog.NewScopeLogs(),
+		resource: plog.NewResourceLogs(),
+		expect:   "",
+	},
+	{
+		name:  "Attribute chronicle_rbac_enabled unsupported type",
+		field: chronicleRBACField,
+		logRecord: func() plog.LogRecord {
+			lr := plog.NewLogRecord()
+			lr.Attributes().PutInt("chronicle_rbac_enabled", 1)
+			return lr
+		}(),
+		scope:        plog.NewScopeLogs(),
+		resource:     plog.NewResourceLogs(),
+		expectErrStr: "unsupported chronicle rbac enabled type: int64",
+	},
+	{
 		name:  "Attribute log.record.original string",
 		field: logRecordOriginalField,
 		logRecord: func() plog.LogRecord {
@@ -1876,6 +1922,74 @@ func Test_getRawField(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, tc.expect, rawField)
+		})
+	}
+}
+
+func Test_getRBACEnabled(t *testing.T) {
+	testCases := []struct {
+		name         string
+		cfgEnabled   bool
+		attributes   func(lr plog.LogRecord)
+		expect       bool
+		expectErrStr string
+	}{
+		{
+			name:       "falls back to config when attribute is missing",
+			cfgEnabled: true,
+			attributes: func(plog.LogRecord) {},
+			expect:     true,
+		},
+		{
+			name:       "string attribute overrides config",
+			cfgEnabled: false,
+			attributes: func(lr plog.LogRecord) {
+				lr.Attributes().PutStr("chronicle_rbac_enabled", "True")
+			},
+			expect: true,
+		},
+		{
+			name:       "bool attribute overrides config",
+			cfgEnabled: true,
+			attributes: func(lr plog.LogRecord) {
+				lr.Attributes().PutBool("chronicle_rbac_enabled", false)
+			},
+			expect: false,
+		},
+		{
+			name:       "invalid string attribute returns error",
+			cfgEnabled: false,
+			attributes: func(lr plog.LogRecord) {
+				lr.Attributes().PutStr("chronicle_rbac_enabled", "yes-please")
+			},
+			expectErrStr: `parse chronicle rbac enabled value "yes-please"`,
+		},
+		{
+			name:       "unsupported attribute type returns error",
+			cfgEnabled: false,
+			attributes: func(lr plog.LogRecord) {
+				lr.Attributes().PutInt("chronicle_rbac_enabled", 1)
+			},
+			expectErrStr: "unsupported chronicle rbac enabled type: int64",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &protoMarshaler{cfg: Config{RbacEnabled: tc.cfgEnabled}}
+			m.teleSettings.Logger = zap.NewNop()
+
+			lr := plog.NewLogRecord()
+			tc.attributes(lr)
+
+			rbacEnabled, err := m.getRBACEnabled(context.Background(), lr, plog.NewScopeLogs(), plog.NewResourceLogs())
+			if tc.expectErrStr != "" {
+				require.ErrorContains(t, err, tc.expectErrStr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.expect, rbacEnabled)
 		})
 	}
 }
