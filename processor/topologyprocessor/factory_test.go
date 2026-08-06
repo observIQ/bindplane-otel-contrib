@@ -17,7 +17,6 @@ package topologyprocessor
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/open-telemetry/opamp-go/protobufs"
 	"github.com/stretchr/testify/require"
@@ -30,11 +29,7 @@ func TestNewFactory(t *testing.T) {
 	factory := NewFactory()
 	require.Equal(t, componentType, factory.Type())
 
-	expectedCfg := &Config{
-		Global: GlobalConfig{
-			Interval: time.Minute,
-		},
-	}
+	expectedCfg := &Config{}
 
 	cfg, ok := factory.CreateDefaultConfig().(*Config)
 	require.True(t, ok)
@@ -73,10 +68,7 @@ func TestCreateProcessorTwice_Logs(t *testing.T) {
 		Configuration:  "myConf",
 		AccountID:      "myAcct",
 		OrganizationID: "myOrg",
-		Global: GlobalConfig{
-			OpAMP:    opampExtensionID,
-			Interval: time.Minute,
-		},
+		OpAMP:          opampExtensionID,
 	}
 
 	l1, err := createLogsProcessor(context.Background(), set, cfg, consumertest.NewNop())
@@ -108,10 +100,7 @@ func TestCreateProcessorTwice_Metrics(t *testing.T) {
 		Configuration:  "myConf",
 		AccountID:      "myAcct",
 		OrganizationID: "myOrg",
-		Global: GlobalConfig{
-			OpAMP:    opampExtensionID,
-			Interval: time.Minute,
-		},
+		OpAMP:          opampExtensionID,
 	}
 
 	l1, err := createMetricsProcessor(context.Background(), set, cfg, consumertest.NewNop())
@@ -143,10 +132,7 @@ func TestCreateProcessorTwice_Traces(t *testing.T) {
 		Configuration:  "myConf",
 		AccountID:      "myAcct",
 		OrganizationID: "myOrg",
-		Global: GlobalConfig{
-			OpAMP:    opampExtensionID,
-			Interval: time.Minute,
-		},
+		OpAMP:          opampExtensionID,
 	}
 
 	l1, err := createTracesProcessor(context.Background(), set, cfg, consumertest.NewNop())
