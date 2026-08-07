@@ -31,10 +31,9 @@ import (
 
 // opampReporter aggregates topology state from every topology processor in the
 // collector into a single opamp custom message per interval, matching the
-// payload the bindplane extension produces. Every processor feeds it; it
-// reports once a processor with `opamp` set points it at the extension. Its
-// settings come from the `global` config block carried by one processor
-// (defaults otherwise).
+// payload the bindplane extension produces. Only `opamp`-configured
+// processors feed it. Its settings come from the `global` config block
+// carried by one processor (defaults otherwise).
 type opampReporter struct {
 	registry *ResettableTopologyRegistry
 	refs     int
@@ -48,8 +47,9 @@ type opampReporter struct {
 	wg          *sync.WaitGroup
 }
 
-// reporter is the single reporter shared by all topology processors. The first
-// processor to start creates it; the last one to shut down tears it down.
+// reporter is the single reporter shared by all `opamp`-configured topology
+// processors. The first of them to start creates it; the last one to shut
+// down tears it down.
 var (
 	reporterMux sync.Mutex
 	reporter    *opampReporter
@@ -57,7 +57,7 @@ var (
 
 // registerWithOpAMPReporter registers the processor's topology state with the
 // shared reporter, creating it (dormant, with default settings) if it doesn't
-// exist yet. Every topology processor feeds the reporter.
+// exist yet. Only processors with `opamp` set feed the reporter.
 func registerWithOpAMPReporter(tp *topologyProcessor) {
 	reporterMux.Lock()
 	defer reporterMux.Unlock()
