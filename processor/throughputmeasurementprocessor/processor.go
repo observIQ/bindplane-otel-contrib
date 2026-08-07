@@ -79,25 +79,29 @@ func (tmp *throughputMeasurementProcessor) start(_ context.Context, host compone
 		return nil
 	}
 
-	// Every throughput processor feeds the shared reporter.
-	registerWithOpAMPReporter(tmp)
-	tmp.registeredWithReporter = true
-
-	// The `global` block's settings apply to the shared reporter regardless of
-	// which processor carries it; applied before the extension is wired so a
-	// processor carrying both starts the loop with its own settings.
-	if tmp.global != nil {
-		if err := applyGlobalSettings(*tmp.global); err != nil {
-			return err
-		}
+	var emptyID component.ID
+	if tmp.global != nil && tmp.opampExtensionID == emptyID {
+		tmp.logger.Warn("global is set but opamp is not; ignoring global settings.")
 	}
 
-	var emptyID component.ID
 	switch {
 	case tmp.opampExtensionID != emptyID:
 		if tmp.bindplane != emptyID {
 			tmp.logger.Warn("Both opamp and bindplane_extension are set; using opamp. bindplane_extension is deprecated.")
 		}
+
+		registerWithOpAMPReporter(tmp)
+		tmp.registeredWithReporter = true
+
+		// The `global` block's settings apply to the shared reporter regardless
+		// of which processor carries it; applied before the extension is wired
+		// so a processor carrying both starts the loop with its own settings.
+		if tmp.global != nil {
+			if err := applyGlobalSettings(*tmp.global); err != nil {
+				return err
+			}
+		}
+
 		return setOpAMPExtension(host, tmp.logger, tmp.opampExtensionID)
 
 	// Both fallback cases below exist only for backwards compatibility with
