@@ -33,7 +33,7 @@ func TestCreateDefaultConfig(t *testing.T) {
 
 	expectedUserAgent := fmt.Sprintf("%s/%s", defaultUserAgent, collectorVersion)
 
-	require.Equal(t, expectedUserAgent, googleCfg.GMPConfig.UserAgent)
+	require.Equal(t, expectedUserAgent, googleCfg.GMPConfig.GMPConfig.UserAgent)
 	require.Nil(t, googleCfg.Validate())
 }
 
@@ -85,12 +85,12 @@ func TestSetClientOptionsWithCredentials(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Nil(t, tc.config.GMPConfig.MetricConfig.ClientConfig.GetClientOptions)
+			require.Nil(t, tc.config.GMPConfig.GMPConfig.MetricConfig.ClientConfig.GetClientOptions)
 
 			tc.config.setClientOptions()
-			require.NotNil(t, tc.config.GMPConfig.MetricConfig.ClientConfig.GetClientOptions)
+			require.NotNil(t, tc.config.GMPConfig.GMPConfig.MetricConfig.ClientConfig.GetClientOptions)
 
-			opts := tc.config.GMPConfig.MetricConfig.ClientConfig.GetClientOptions()
+			opts := tc.config.GMPConfig.GMPConfig.MetricConfig.ClientConfig.GetClientOptions()
 			require.Equal(t, tc.opts, opts)
 		})
 	}
@@ -156,7 +156,7 @@ func TestSetProject(t *testing.T) {
 				require.Contains(t, err.Error(), tc.expectedErr)
 			}
 
-			require.Equal(t, tc.expectedProject, tc.config.GMPConfig.ProjectID)
+			require.Equal(t, tc.expectedProject, tc.config.GMPConfig.GMPConfig.ProjectID)
 		})
 	}
 }

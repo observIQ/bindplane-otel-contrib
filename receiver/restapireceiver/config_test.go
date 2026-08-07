@@ -26,7 +26,6 @@ import (
 	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/confmap/confmaptest"
-	"go.opentelemetry.io/collector/confmap/xconfmap"
 
 	"github.com/observiq/bindplane-otel-contrib/receiver/restapireceiver/internal/metadata"
 )
@@ -1339,7 +1338,7 @@ func TestConfig_Validate(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := xconfmap.Validate(tc.config)
+			err := confmap.Validate(tc.config)
 			if tc.expectedErr != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.expectedErr)
@@ -1383,7 +1382,7 @@ func TestLoadConfigFromYAML(t *testing.T) {
 
 	// Validate the config
 	restapiCfg := cfg.(*Config)
-	err = xconfmap.Validate(restapiCfg)
+	err = confmap.Validate(restapiCfg)
 	require.NoError(t, err)
 
 	// Verify the config values were parsed correctly

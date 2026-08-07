@@ -12,7 +12,6 @@ require (
 	go.opentelemetry.io/collector/config/confighttp v0.158.0
 	go.opentelemetry.io/collector/config/configopaque v1.64.0
 	go.opentelemetry.io/collector/confmap v1.64.0
-	go.opentelemetry.io/collector/confmap/xconfmap v0.158.0
 	go.opentelemetry.io/collector/consumer v1.64.0
 	go.opentelemetry.io/collector/consumer/consumertest v0.158.0
 	go.opentelemetry.io/collector/extension/xextension v0.158.0
