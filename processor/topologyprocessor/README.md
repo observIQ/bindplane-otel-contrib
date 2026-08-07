@@ -21,9 +21,9 @@ This processor utilizes request headers to provide extended topology functionali
 | `configuration`       | string   |         | `true`   | The name of the Bindplane configuration where this processor is running.                                        |
 | `organizationID`      | string   |         | `true`   | The Organization ID of the Bindplane configuration where this processor is running.                             |
 | `accountID`           | string   |         | `true`   | The Account ID of the Bindplane configuration where this processor is running.                                  |
-| `opamp`               | component ID | | `false`  | The component ID of an opamp extension implementing the custom message registry. When set, the reporter shared by every topology processor sends all topology state to Bindplane on the `com.bindplane.topology` capability. Every processor should reference the same extension. |
-| `global`              | block    |         | `false`  | Settings for the shared reporter. Exactly one processor in a configuration should carry this block; the reporter uses the defaults below when no processor does. |
-| `global.interval`     | duration | `1m` (when no block) | `false` | How often topology is reported over opamp. Reporting is disabled if set to `0`. |
+| `opamp`               | component ID | | `false`  | The component ID of an opamp extension implementing the custom message registry. When set, the processor's topology state feeds the reporter shared by every opamp-configured topology processor, which sends it to Bindplane on the `com.bindplane.topology` capability. Every processor should reference the same extension. |
+| `global`              | block    |         | `false`  | Settings for the shared reporter. Exactly one processor in a configuration should carry this block — it sets up the reporter. If no processor carries it, nothing is reported over opamp. |
+| `global.interval`     | duration |         | `false`  | How often topology is reported over opamp. Reporting is disabled if `0` or unset. |
 | `bindplane_extension` | component ID | | `false`  | Deprecated; configure `opamp` instead. The component ID of a bindplane extension to register topology state with. Ignored when `opamp` is set. |
 | `interval`            | duration |         | `false`  | Deprecated and unused. Only used by topology processor v1.75.0 and earlier; kept so configurations rendered by old Bindplane servers still unmarshal. |
 
@@ -34,17 +34,17 @@ reporting path, decided by the configuration the Bindplane server rendered:
 
 1. **`opamp` is set** (current Bindplane servers): the processor registers its topology state
    with a reporter shared by every `opamp`-configured topology processor in the collector —
-   the first of them to start creates it, the last to shut down tears it down. The reporter
-   registers the `com.bindplane.topology` custom capability with the referenced opamp
-   extension and sends one aggregated custom message for those processors every interval —
-   the same payload the bindplane extension produced. The reporter's settings come from the
-   `global` block carried by one processor (defaults otherwise); if more than one processor
-   carries a `global` block, or processors reference different `opamp` extensions, the last
-   one to start wins and reconfigures the reporter. Reporting is disabled if the interval is
-   `0`. The extension must exist and support custom messages, otherwise the collector fails
-   to start. Works with both the upstream `opampextension` and the `opamp_connection`
-   extension in self-managed distributions. If `bindplane_extension` is also set, it is
-   ignored with a warning.
+   the first of them to start creates it, the last to shut down tears it down. The processor
+   carrying the `global` block sets the reporter up: it registers the `com.bindplane.topology`
+   custom capability with its `opamp` extension and starts a loop sending one aggregated
+   custom message for those processors every `global.interval` — the same payload the
+   bindplane extension produced. If more than one processor carries a `global` block, the
+   last one to start wins and reconfigures the reporter; if none does, nothing is reported
+   over opamp. Reporting is disabled if the interval is `0` or unset. The extension must
+   exist and support custom messages on every `opamp`-configured processor, otherwise the
+   collector fails to start. Works with both the upstream `opampextension` and the
+   `opamp_connection` extension in self-managed distributions. If `bindplane_extension` is
+   also set, it is ignored with a warning.
 2. **Only `bindplane_extension` is set** (deprecated; older Bindplane servers): if the
    referenced extension exists in the configuration, the processor registers its topology
    state with it and the extension owns the reporting loop; an extension that exists but is

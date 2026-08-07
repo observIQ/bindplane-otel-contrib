@@ -99,16 +99,17 @@ func (tp *topologyProcessor) start(_ context.Context, host component.Host) error
 		registerWithOpAMPReporter(tp)
 		tp.registeredWithReporter = true
 
-		// The `global` block's settings apply to the shared reporter regardless
-		// of which processor carries it; applied before the extension is wired
-		// so a processor carrying both starts the loop with its own settings.
+		// Only the processor carrying the `global` block sets up the reporter;
+		// if no processor carries one, topology state feeds the reporter but
+		// nothing is reported.
 		if tp.global != nil {
-			if err := applyGlobalSettings(*tp.global); err != nil {
-				return err
-			}
+			return configureOpAMPReporter(host, tp.logger, tp.opampExtensionID, *tp.global)
 		}
 
-		return setOpAMPExtension(host, tp.logger, tp.opampExtensionID)
+		// The extension reference must still resolve, even on processors that
+		// don't set up the reporter.
+		_, err := getCustomCapabilityRegistry(host, tp.opampExtensionID)
+		return err
 
 	// Both fallback cases below exist only for backwards compatibility with
 	// Bindplane servers that don't render `opamp`; delete them (and make opamp
