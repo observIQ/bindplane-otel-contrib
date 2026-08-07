@@ -32,14 +32,13 @@ import (
 // opampReporter aggregates topology state from every topology processor in the
 // collector into a single opamp custom message per interval, matching the
 // payload the bindplane extension produces. Only `opamp`-configured
-// processors feed it. Its settings come from the `global` config block
-// carried by one processor (defaults otherwise).
+// processors feed it. It is set up by the processor carrying the `global`
+// config block; without one it stays dormant and nothing is reported.
 type opampReporter struct {
 	registry *ResettableTopologyRegistry
 	refs     int
 
 	logger      *zap.Logger
-	opampID     component.ID
 	capRegistry opampcustommessages.CustomCapabilityRegistry
 	handler     opampcustommessages.CustomCapabilityHandler
 	interval    time.Duration
@@ -56,8 +55,8 @@ var (
 )
 
 // registerWithOpAMPReporter registers the processor's topology state with the
-// shared reporter, creating it (dormant, with default settings) if it doesn't
-// exist yet. Only processors with `opamp` set feed the reporter.
+// shared reporter, creating it (dormant) if it doesn't exist yet. Only
+// processors with `opamp` set feed the reporter.
 func registerWithOpAMPReporter(tp *topologyProcessor) {
 	reporterMux.Lock()
 	defer reporterMux.Unlock()
@@ -65,7 +64,6 @@ func registerWithOpAMPReporter(tp *topologyProcessor) {
 	if reporter == nil {
 		reporter = &opampReporter{
 			registry: NewResettableTopologyRegistry(),
-			interval: time.Minute,
 		}
 	}
 
@@ -77,11 +75,12 @@ func registerWithOpAMPReporter(tp *topologyProcessor) {
 	}
 }
 
-// setOpAMPExtension points the shared reporter at the opamp extension and
-// starts reporting. Called by every processor with `opamp` set: a repeat of
-// the extension already in use is a no-op, a different one wins (last one to
-// start). Must be called after registerWithOpAMPReporter.
-func setOpAMPExtension(host component.Host, logger *zap.Logger, opampID component.ID) error {
+// configureOpAMPReporter sets up the shared reporter: it registers the custom
+// capability with the opamp extension and starts the report loop. Only the
+// processor carrying the `global` config block calls it; if more than one
+// does, the last one to start wins and the previous setup is torn down. Must
+// be called after registerWithOpAMPReporter.
+func configureOpAMPReporter(host component.Host, logger *zap.Logger, opampID component.ID, global GlobalConfig) error {
 	capRegistry, err := getCustomCapabilityRegistry(host, opampID)
 	if err != nil {
 		return err
@@ -90,26 +89,9 @@ func setOpAMPExtension(host component.Host, logger *zap.Logger, opampID componen
 	reporterMux.Lock()
 	defer reporterMux.Unlock()
 
-	if reporter.capRegistry != nil && reporter.opampID == opampID {
-		return nil
-	}
-
 	reporter.stopLocked()
 	reporter.logger = logger
-	reporter.opampID = opampID
 	reporter.capRegistry = capRegistry
-	return reporter.startLocked()
-}
-
-// applyGlobalSettings applies the `global` config block to the shared
-// reporter, restarting the report loop if it is running. If more than one
-// processor carries a `global` block, the last one to start wins. Must be
-// called after registerWithOpAMPReporter.
-func applyGlobalSettings(global GlobalConfig) error {
-	reporterMux.Lock()
-	defer reporterMux.Unlock()
-
-	reporter.stopLocked()
 	reporter.interval = global.Interval
 	return reporter.startLocked()
 }
