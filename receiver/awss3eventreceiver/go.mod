@@ -4,11 +4,11 @@ go 1.26.4
 
 require (
 	github.com/aws/aws-lambda-go v1.54.0
-	github.com/aws/aws-sdk-go-v2 v1.43.0
+	github.com/aws/aws-sdk-go-v2 v1.43.3
 	github.com/aws/aws-sdk-go-v2/config v1.32.31
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.106.0
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.46.0
-	github.com/aws/smithy-go v1.27.5
+	github.com/aws/smithy-go v1.27.6
 	github.com/google/go-cmp v0.7.0
 	github.com/linkedin/goavro/v2 v2.15.0
 	github.com/observiq/bindplane-otel-contrib/internal/aws v1.12.0
