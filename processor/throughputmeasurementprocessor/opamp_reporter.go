@@ -40,13 +40,13 @@ type opampReporter struct {
 	registry *measurements.ResettableThroughputMeasurementsRegistry
 	refs     int
 
-	logger          *zap.Logger
-	capRegistry     opampcustommessages.CustomCapabilityRegistry
-	handler         opampcustommessages.CustomCapabilityHandler
-	interval        time.Duration
-	extraAttributes map[string]string
-	doneChan        chan struct{}
-	wg              *sync.WaitGroup
+	logger      *zap.Logger
+	capRegistry opampcustommessages.CustomCapabilityRegistry
+	handler     opampcustommessages.CustomCapabilityHandler
+	interval    time.Duration
+	extraLabels map[string]string
+	doneChan    chan struct{}
+	wg          *sync.WaitGroup
 }
 
 // reporter is the single reporter shared by all `opamp`-configured throughput
@@ -96,7 +96,7 @@ func configureOpAMPReporter(host component.Host, logger *zap.Logger, opampID com
 	reporter.logger = logger
 	reporter.capRegistry = capRegistry
 	reporter.interval = global.Interval
-	reporter.extraAttributes = global.ExtraMeasurementAttributes
+	reporter.extraLabels = global.ExtraLabels
 	return reporter.startLocked()
 }
 
@@ -215,7 +215,7 @@ func (r *opampReporter) reportLoop(interval time.Duration) {
 
 func (r *opampReporter) report() error {
 	m := r.registry.OTLPMeasurements(nil)
-	r.applyExtraAttributes(m)
+	r.applyExtraLabels(m)
 
 	// Send metrics as snappy-encoded otlp proto
 	marshaller := pmetric.ProtoMarshaler{}
@@ -239,11 +239,11 @@ func (r *opampReporter) report() error {
 	}
 }
 
-// applyExtraAttributes stamps the global extra measurement attributes on every
+// applyExtraLabels stamps the global extra measurement attributes on every
 // datapoint. Attributes already present — including a processor's own
 // extra_labels — win on conflicting keys.
-func (r *opampReporter) applyExtraAttributes(m pmetric.Metrics) {
-	if len(r.extraAttributes) == 0 {
+func (r *opampReporter) applyExtraLabels(m pmetric.Metrics) {
+	if len(r.extraLabels) == 0 {
 		return
 	}
 
@@ -256,7 +256,7 @@ func (r *opampReporter) applyExtraAttributes(m pmetric.Metrics) {
 				dps := ms.At(k).Sum().DataPoints()
 				for l := 0; l < dps.Len(); l++ {
 					attrs := dps.At(l).Attributes()
-					for key, value := range r.extraAttributes {
+					for key, value := range r.extraLabels {
 						if _, ok := attrs.Get(key); !ok {
 							attrs.PutStr(key, value)
 						}

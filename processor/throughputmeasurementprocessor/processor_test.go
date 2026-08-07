@@ -635,7 +635,7 @@ func TestProcessor_GlobalExtraAttributesMerge(t *testing.T) {
 		OpAMP:         opampID,
 		Global: &GlobalConfig{
 			Interval: 100 * time.Millisecond,
-			ExtraMeasurementAttributes: map[string]string{
+			ExtraLabels: map[string]string{
 				"team": "global",
 				"env":  "prod",
 			},
@@ -701,8 +701,8 @@ func TestProcessor_GlobalLastOneWins(t *testing.T) {
 		SamplingRatio: 1,
 		OpAMP:         opampID,
 		Global: &GlobalConfig{
-			Interval:                   100 * time.Millisecond,
-			ExtraMeasurementAttributes: map[string]string{"phase": "first"},
+			Interval:    100 * time.Millisecond,
+			ExtraLabels: map[string]string{"phase": "first"},
 		},
 	}, component.MustNewIDWithName("throughputmeasurement", "lastwins1"))
 	require.NoError(t, err)
@@ -711,8 +711,8 @@ func TestProcessor_GlobalLastOneWins(t *testing.T) {
 		SamplingRatio: 1,
 		OpAMP:         opampID,
 		Global: &GlobalConfig{
-			Interval:                   100 * time.Millisecond,
-			ExtraMeasurementAttributes: map[string]string{"phase": "second"},
+			Interval:    100 * time.Millisecond,
+			ExtraLabels: map[string]string{"phase": "second"},
 		},
 	}, component.MustNewIDWithName("throughputmeasurement", "lastwins2"))
 	require.NoError(t, err)
