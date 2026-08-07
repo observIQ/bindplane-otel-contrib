@@ -252,11 +252,13 @@ func TestProcessor_ReportsTopologyOverOpAMP(t *testing.T) {
 	opampID := component.MustNewID("opamp")
 
 	tp, err := newTopologyProcessor(zap.NewNop(), &Config{
-		OrganizationID: "myOrgID",
-		AccountID:      "myAccountID",
-		Configuration:  "myConfigName",
-		OpAMP:          opampID,
-		Global:         &GlobalConfig{Interval: 100 * time.Millisecond},
+		OpAMP: opampID,
+		Global: &GlobalConfig{
+			Interval:       100 * time.Millisecond,
+			Configuration:  "myConfigName",
+			OrganizationID: "myOrgID",
+			AccountID:      "myAccountID",
+		},
 	}, processorID)
 	require.NoError(t, err)
 
@@ -326,11 +328,13 @@ func TestProcessor_OpAMPZeroIntervalDisablesReporting(t *testing.T) {
 	opampID := component.MustNewID("opamp")
 
 	tp, err := newTopologyProcessor(zap.NewNop(), &Config{
-		OrganizationID: "myOrgID",
-		AccountID:      "myAccountID",
-		Configuration:  "myConfigName",
-		OpAMP:          opampID,
-		Global:         &GlobalConfig{Interval: 0},
+		OpAMP: opampID,
+		Global: &GlobalConfig{
+			Interval:       0,
+			Configuration:  "myConfigName",
+			OrganizationID: "myOrgID",
+			AccountID:      "myAccountID",
+		},
 	}, processorID)
 	require.NoError(t, err)
 
@@ -352,11 +356,13 @@ func TestProcessor_OpAMPZeroIntervalDisablesReporting(t *testing.T) {
 
 	// The opamp extension must still exist, even with reporting disabled.
 	tp2, err := newTopologyProcessor(zap.NewNop(), &Config{
-		OrganizationID: "myOrgID",
-		AccountID:      "myAccountID",
-		Configuration:  "myConfigName",
-		OpAMP:          opampID,
-		Global:         &GlobalConfig{Interval: 0},
+		OpAMP: opampID,
+		Global: &GlobalConfig{
+			Interval:       0,
+			Configuration:  "myConfigName",
+			OrganizationID: "myOrgID",
+			AccountID:      "myAccountID",
+		},
 	}, component.MustNewIDWithName("topology", "disabled2"))
 	require.NoError(t, err)
 	require.Error(t, tp2.start(context.Background(), mockHost{}))
@@ -376,18 +382,17 @@ func TestProcessor_AggregatesTopologyOverOpAMP(t *testing.T) {
 	// Only the first processor carries the `global` block; the second one's
 	// topology state must still feed the shared reporter.
 	tp1, err := newTopologyProcessor(zap.NewNop(), &Config{
-		OrganizationID: "myOrgID",
-		AccountID:      "myAccountID",
-		Configuration:  "myConfigName",
-		OpAMP:          opampID,
-		Global:         &GlobalConfig{Interval: 100 * time.Millisecond},
+		OpAMP: opampID,
+		Global: &GlobalConfig{
+			Interval:       100 * time.Millisecond,
+			Configuration:  "myConfigName",
+			OrganizationID: "myOrgID",
+			AccountID:      "myAccountID",
+		},
 	}, processorID1)
 	require.NoError(t, err)
 	tp2, err := newTopologyProcessor(zap.NewNop(), &Config{
-		OrganizationID: "myOrgID",
-		AccountID:      "myAccountID",
-		Configuration:  "myConfigName",
-		OpAMP:          opampID,
+		OpAMP: opampID,
 	}, processorID2)
 	require.NoError(t, err)
 
@@ -451,6 +456,12 @@ func TestProcessor_AggregatesTopologyOverOpAMP(t *testing.T) {
 	for _, info := range infos {
 		seenSources[info.GatewaySource.GatewayID] = struct{}{}
 		require.Len(t, info.GatewayDestinations, 1)
+
+		// The gateway identity comes from the `global` block, stamped on every
+		// source at report time.
+		require.Equal(t, "myConfigName", info.GatewaySource.Configuration)
+		require.Equal(t, "myOrgID", info.GatewaySource.OrganizationID)
+		require.Equal(t, "myAccountID", info.GatewaySource.AccountID)
 	}
 	require.Contains(t, seenSources, "agg1")
 	require.Contains(t, seenSources, "agg2")
@@ -480,7 +491,12 @@ func TestProcessor_GlobalLastOneWins(t *testing.T) {
 		AccountID:      "myAccountID",
 		Configuration:  "myConfigName",
 		OpAMP:          opampID,
-		Global:         &GlobalConfig{Interval: 100 * time.Millisecond},
+		Global: &GlobalConfig{
+			Interval:       100 * time.Millisecond,
+			Configuration:  "myConfigName",
+			OrganizationID: "myOrgID",
+			AccountID:      "myAccountID",
+		},
 	}, component.MustNewIDWithName("topology", "lastwins1"))
 	require.NoError(t, err)
 	tp2, err := newTopologyProcessor(zap.NewNop(), &Config{
@@ -488,7 +504,12 @@ func TestProcessor_GlobalLastOneWins(t *testing.T) {
 		AccountID:      "myAccountID",
 		Configuration:  "myConfigName",
 		OpAMP:          opampID,
-		Global:         &GlobalConfig{Interval: 100 * time.Millisecond},
+		Global: &GlobalConfig{
+			Interval:       100 * time.Millisecond,
+			Configuration:  "myConfigName",
+			OrganizationID: "myOrgID",
+			AccountID:      "myAccountID",
+		},
 	}, component.MustNewIDWithName("topology", "lastwins2"))
 	require.NoError(t, err)
 

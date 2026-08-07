@@ -18,12 +18,15 @@ This processor utilizes request headers to provide extended topology functionali
 ## Configuration
 | Field                 | Type     | Default | Required | Description                                                                                                     |
 |-----------------------|----------|---------|----------|-----------------------------------------------------------------------------------------------------------------|
-| `configuration`       | string   |         | `true`   | The name of the Bindplane configuration where this processor is running.                                        |
-| `organizationID`      | string   |         | `true`   | The Organization ID of the Bindplane configuration where this processor is running.                             |
-| `accountID`           | string   |         | `true`   | The Account ID of the Bindplane configuration where this processor is running.                                  |
 | `opamp`               | component ID | | `false`  | The component ID of an opamp extension implementing the custom message registry. When set, the processor's topology state feeds the reporter shared by every opamp-configured topology processor, which sends it to Bindplane on the `com.bindplane.topology` capability. Every processor should reference the same extension. |
 | `global`              | block    |         | `false`  | Settings for the shared reporter. Exactly one processor in a configuration should carry this block — it sets up the reporter. If no processor carries it, nothing is reported over opamp. |
 | `global.interval`     | duration |         | `false`  | How often topology is reported over opamp. Reporting is disabled if `0` or unset. |
+| `global.configuration` | string  |         | with `global` | The name of the Bindplane configuration this collector is running. Stamped on every reported gateway source. |
+| `global.organizationID` | string |         | with `global` | The Organization ID of the Bindplane organization this collector is running in. Stamped on every reported gateway source. |
+| `global.accountID`    | string   |         | with `global` | The Account ID of the Bindplane account this collector is running in. Stamped on every reported gateway source. |
+| `configuration`       | string   |         | when `opamp` unset | Deprecated; set in `global` instead. Only used by the deprecated `bindplane_extension`/v1 paths, which old Bindplane servers render. |
+| `organizationID`      | string   |         | when `opamp` unset | Deprecated; set in `global` instead. Only used by the deprecated `bindplane_extension`/v1 paths, which old Bindplane servers render. |
+| `accountID`           | string   |         | when `opamp` unset | Deprecated; set in `global` instead. Only used by the deprecated `bindplane_extension`/v1 paths, which old Bindplane servers render. |
 | `bindplane_extension` | component ID | | `false`  | Deprecated; configure `opamp` instead. The component ID of a bindplane extension to register topology state with. Ignored when `opamp` is set. |
 | `interval`            | duration |         | `false`  | Deprecated and unused. Only used by topology processor v1.75.0 and earlier; kept so configurations rendered by old Bindplane servers still unmarshal. |
 
@@ -38,7 +41,9 @@ reporting path, decided by the configuration the Bindplane server rendered:
    carrying the `global` block sets the reporter up: it registers the `com.bindplane.topology`
    custom capability with its `opamp` extension and starts a loop sending one aggregated
    custom message for those processors every `global.interval` — the same payload the
-   bindplane extension produced. If more than one processor carries a `global` block, the
+   bindplane extension produced. The gateway identity (`global.configuration`,
+   `global.organizationID`, `global.accountID`) is stamped on every reported source, with
+   each processor's own gateway ID preserved. If more than one processor carries a `global` block, the
    last one to start wins and reconfigures the reporter; if none does, nothing is reported
    over opamp. Reporting is disabled if the interval is `0` or unset. The extension must
    exist and support custom messages on every `opamp`-configured processor, otherwise the
@@ -75,12 +80,12 @@ extensions:
 
 processors:
   topology:
-    configuration: "myConfiguration"
-    organizationID: "myOrganizationID"
-    accountID: "myAccountID"
     opamp: opamp
     global:
       interval: 1m
+      configuration: "myConfiguration"
+      organizationID: "myOrganizationID"
+      accountID: "myAccountID"
 
 exporters:
   googlecloud:

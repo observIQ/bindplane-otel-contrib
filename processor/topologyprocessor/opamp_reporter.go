@@ -38,12 +38,15 @@ type opampReporter struct {
 	registry *ResettableTopologyRegistry
 	refs     int
 
-	logger      *zap.Logger
-	capRegistry opampcustommessages.CustomCapabilityRegistry
-	handler     opampcustommessages.CustomCapabilityHandler
-	interval    time.Duration
-	doneChan    chan struct{}
-	wg          *sync.WaitGroup
+	logger         *zap.Logger
+	capRegistry    opampcustommessages.CustomCapabilityRegistry
+	handler        opampcustommessages.CustomCapabilityHandler
+	interval       time.Duration
+	configuration  string
+	organizationID string
+	accountID      string
+	doneChan       chan struct{}
+	wg             *sync.WaitGroup
 }
 
 // reporter is the single reporter shared by all `opamp`-configured topology
@@ -93,6 +96,9 @@ func configureOpAMPReporter(host component.Host, logger *zap.Logger, opampID com
 	reporter.logger = logger
 	reporter.capRegistry = capRegistry
 	reporter.interval = global.Interval
+	reporter.configuration = global.Configuration
+	reporter.organizationID = global.OrganizationID
+	reporter.accountID = global.AccountID
 	return reporter.startLocked()
 }
 
@@ -211,6 +217,14 @@ func (r *opampReporter) reportLoop(interval time.Duration) {
 
 func (r *opampReporter) report() error {
 	ts := r.registry.TopologyInfos()
+
+	// Stamp the gateway identity from the `global` config block on every
+	// source; the per-processor GatewayID is preserved.
+	for i := range ts {
+		ts[i].GatewaySource.Configuration = r.configuration
+		ts[i].GatewaySource.OrganizationID = r.organizationID
+		ts[i].GatewaySource.AccountID = r.accountID
+	}
 
 	// Send topology state snappy-encoded
 	marshalled, err := json.Marshal(ts)

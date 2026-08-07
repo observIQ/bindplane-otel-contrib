@@ -33,6 +33,18 @@ type GlobalConfig struct {
 	// Interval is the interval on which topology is reported over opamp.
 	// Topology reporting is disabled if this duration is 0 or unset.
 	Interval time.Duration `mapstructure:"interval"`
+
+	// Configuration is the name of the Bindplane configuration this collector
+	// is running. Stamped on every reported gateway source.
+	Configuration string `mapstructure:"configuration"`
+
+	// OrganizationID is the ID of the Bindplane organization this collector is
+	// running in. Stamped on every reported gateway source.
+	OrganizationID string `mapstructure:"organizationID"`
+
+	// AccountID is the ID of the Bindplane account this collector is running
+	// in. Stamped on every reported gateway source.
+	AccountID string `mapstructure:"accountID"`
 }
 
 // Config is the configuration for the processor
@@ -62,32 +74,60 @@ type Config struct {
 	// Delete when all supported Bindplane servers render `opamp` (BPOP-5623).
 	BindplaneExtension *component.ID `mapstructure:"bindplane_extension"`
 
-	// Name of the Config where this processor is present
+	// Name of the Config where this processor is present.
+	// Deprecated: set in Global instead. Only used by the deprecated
+	// bindplane_extension/v1 paths, which old Bindplane servers render.
+	// Delete with BPOP-5623.
 	Configuration string `mapstructure:"configuration"`
 
-	// OrganizationID of the Org where this processor is present
+	// OrganizationID of the Org where this processor is present.
+	// Deprecated: set in Global instead. Only used by the deprecated
+	// bindplane_extension/v1 paths, which old Bindplane servers render.
+	// Delete with BPOP-5623.
 	OrganizationID string `mapstructure:"organizationID"`
 
-	// AccountID of the Account where this processor is present
+	// AccountID of the Account where this processor is present.
+	// Deprecated: set in Global instead. Only used by the deprecated
+	// bindplane_extension/v1 paths, which old Bindplane servers render.
+	// Delete with BPOP-5623.
 	AccountID string `mapstructure:"accountID"`
 }
 
 // Validate validates the processor configuration
 func (cfg Config) Validate() error {
-	if cfg.Configuration == "" {
-		return errors.New("`configuration` must be specified")
+	// The deprecated paths (no opamp) source the gateway identity from the
+	// top-level fields, as old Bindplane servers render them.
+	var emptyID component.ID
+	if cfg.OpAMP == emptyID {
+		if cfg.Configuration == "" {
+			return errors.New("`configuration` must be specified")
+		}
+
+		if cfg.OrganizationID == "" {
+			return errors.New("`organizationID` must be specified")
+		}
+
+		if cfg.AccountID == "" {
+			return errors.New("`accountID` must be specified")
+		}
 	}
 
-	if cfg.OrganizationID == "" {
-		return errors.New("`organizationID` must be specified")
-	}
+	if cfg.Global != nil {
+		if cfg.Global.Configuration == "" {
+			return errors.New("`global.configuration` must be specified")
+		}
 
-	if cfg.AccountID == "" {
-		return errors.New("`accountID` must be specified")
-	}
+		if cfg.Global.OrganizationID == "" {
+			return errors.New("`global.organizationID` must be specified")
+		}
 
-	if cfg.Global != nil && cfg.Global.Interval < 0 {
-		return errInvalidInterval
+		if cfg.Global.AccountID == "" {
+			return errors.New("`global.accountID` must be specified")
+		}
+
+		if cfg.Global.Interval < 0 {
+			return errInvalidInterval
+		}
 	}
 
 	return nil
