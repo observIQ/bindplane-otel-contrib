@@ -3,10 +3,10 @@ module github.com/observiq/bindplane-otel-contrib/receiver/azureblobrehydrationr
 go 1.26.4
 
 require (
-	github.com/observiq/bindplane-otel-contrib/internal/azureblob v1.11.0
-	github.com/observiq/bindplane-otel-contrib/internal/blobconsume v1.11.0
-	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.11.0
-	github.com/observiq/bindplane-otel-contrib/internal/testutils v1.11.0
+	github.com/observiq/bindplane-otel-contrib/internal/azureblob v1.12.0
+	github.com/observiq/bindplane-otel-contrib/internal/blobconsume v1.12.0
+	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.12.0
+	github.com/observiq/bindplane-otel-contrib/internal/testutils v1.12.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.64.0
 	go.opentelemetry.io/collector/component/componenttest v0.158.0
