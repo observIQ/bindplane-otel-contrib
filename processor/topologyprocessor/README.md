@@ -29,30 +29,36 @@ This processor utilizes request headers to provide extended topology functionali
 
 ### Startup behavior
 
-Route collection always works the same way. On startup, every topology processor registers its
-topology state with a reporter shared by every topology processor in the collector; the first
-processor to start creates it, and the last one to shut down tears it down. What that reporter
-does is decided by the configuration the Bindplane server rendered:
+Route collection always works the same way; on startup each processor takes exactly one
+reporting path, decided by the configuration the Bindplane server rendered:
 
-1. **`opamp` is set** (current Bindplane servers): the shared reporter registers the
-   `com.bindplane.topology` custom capability with the referenced opamp extension and sends
-   one aggregated custom message for all topology processors every interval — the same
-   payload the bindplane extension produced. The reporter's settings come from the `global`
-   block carried by one processor (defaults otherwise); if more than one processor carries a
-   `global` block, or processors reference different `opamp` extensions, the last one to
-   start wins and reconfigures the reporter. Reporting is disabled if the interval is `0`.
-   The extension must exist and support custom messages, otherwise the collector fails to
-   start. Works with both the upstream `opampextension` and the `opamp_connection` extension
-   in self-managed distributions. If `bindplane_extension` is also set, it is ignored with a
-   warning.
-2. **`opamp` is not set on a processor**: its topology state still feeds the shared reporter,
-   and the processor falls back to the deprecated paths: if `bindplane_extension` is set and
-   the referenced extension exists, the processor registers its topology state with it and
-   the extension owns the reporting loop (an extension that exists but is not a topology
-   registry fails startup; a rendered but uninstantiated extension — older Bindplane servers
-   do this — falls through to the next case). Otherwise the processor registers with a
-   package-level registry that the v1 bindplane agent runtime reads and reports from — never
-   fatal, and simply inert outside a v1 agent.
+1. **`opamp` is set** (current Bindplane servers): the processor registers its topology state
+   with a reporter shared by every `opamp`-configured topology processor in the collector —
+   the first of them to start creates it, the last to shut down tears it down. The reporter
+   registers the `com.bindplane.topology` custom capability with the referenced opamp
+   extension and sends one aggregated custom message for those processors every interval —
+   the same payload the bindplane extension produced. The reporter's settings come from the
+   `global` block carried by one processor (defaults otherwise); if more than one processor
+   carries a `global` block, or processors reference different `opamp` extensions, the last
+   one to start wins and reconfigures the reporter. Reporting is disabled if the interval is
+   `0`. The extension must exist and support custom messages, otherwise the collector fails
+   to start. Works with both the upstream `opampextension` and the `opamp_connection`
+   extension in self-managed distributions. If `bindplane_extension` is also set, it is
+   ignored with a warning.
+2. **Only `bindplane_extension` is set** (deprecated; older Bindplane servers): if the
+   referenced extension exists in the configuration, the processor registers its topology
+   state with it and the extension owns the reporting loop; an extension that exists but is
+   not a topology registry fails startup. If the extension is not in the configuration at
+   all — older Bindplane servers render this field without instantiating the extension — the
+   processor falls back to case 3.
+3. **Neither is set** (v1 bindplane agents, or standalone collectors): the processor registers
+   its topology state with a package-level registry that the v1 bindplane agent runtime reads
+   and reports from. This never fails startup — outside a v1 agent the registration is simply
+   inert and topology is not reported.
+
+A processor on path 2 or 3 does not feed the shared reporter: only `opamp`-configured
+processors appear in the aggregated opamp message. A `global` block on a processor without
+`opamp` is ignored with a warning.
 
 ### Example configuration
 

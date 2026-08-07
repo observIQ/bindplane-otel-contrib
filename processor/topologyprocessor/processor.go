@@ -85,25 +85,29 @@ func (tp *topologyProcessor) start(_ context.Context, host component.Host) error
 		return nil
 	}
 
-	// Every topology processor feeds the shared reporter.
-	registerWithOpAMPReporter(tp)
-	tp.registeredWithReporter = true
-
-	// The `global` block's settings apply to the shared reporter regardless of
-	// which processor carries it; applied before the extension is wired so a
-	// processor carrying both starts the loop with its own settings.
-	if tp.global != nil {
-		if err := applyGlobalSettings(*tp.global); err != nil {
-			return err
-		}
+	var emptyID component.ID
+	if tp.global != nil && tp.opampExtensionID == emptyID {
+		tp.logger.Warn("global is set but opamp is not; ignoring global settings.")
 	}
 
-	var emptyID component.ID
 	switch {
 	case tp.opampExtensionID != emptyID:
 		if tp.bindplaneExtensionID != nil {
 			tp.logger.Warn("Both opamp and bindplane_extension are set; using opamp. bindplane_extension is deprecated.")
 		}
+
+		registerWithOpAMPReporter(tp)
+		tp.registeredWithReporter = true
+
+		// The `global` block's settings apply to the shared reporter regardless
+		// of which processor carries it; applied before the extension is wired
+		// so a processor carrying both starts the loop with its own settings.
+		if tp.global != nil {
+			if err := applyGlobalSettings(*tp.global); err != nil {
+				return err
+			}
+		}
+
 		return setOpAMPExtension(host, tp.logger, tp.opampExtensionID)
 
 	// Both fallback cases below exist only for backwards compatibility with

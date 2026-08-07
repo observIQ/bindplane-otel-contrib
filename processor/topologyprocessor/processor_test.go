@@ -391,6 +391,15 @@ func TestProcessor_AggregatesTopologyOverOpAMP(t *testing.T) {
 	}, processorID2)
 	require.NoError(t, err)
 
+	// A processor without `opamp` does not feed the reporter and must not
+	// appear in the aggregated message.
+	tp3, err := newTopologyProcessor(zap.NewNop(), &Config{
+		OrganizationID: "myOrgID",
+		AccountID:      "myAccountID",
+		Configuration:  "myConfigName",
+	}, component.MustNewIDWithName("topology", "agg3"))
+	require.NoError(t, err)
+
 	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
 	mh := mockHost{
 		extMap: map[component.ID]component.Component{
@@ -415,11 +424,15 @@ func TestProcessor_AggregatesTopologyOverOpAMP(t *testing.T) {
 	require.NoError(t, err)
 	_, err = tp2.processLogs(ctx, logs)
 	require.NoError(t, err)
+	_, err = tp3.processLogs(ctx, logs)
+	require.NoError(t, err)
 
 	require.NoError(t, tp1.start(context.Background(), mh))
 	require.NoError(t, tp2.start(context.Background(), mh))
+	require.NoError(t, tp3.start(context.Background(), mh))
 
-	// Both processors share one reporter: the capability is registered once.
+	// Both opamp-configured processors share one reporter: the capability is
+	// registered once.
 	require.Equal(t, 1, mockOpamp.RegisterCount())
 
 	require.Eventually(t, func() bool {
@@ -441,8 +454,11 @@ func TestProcessor_AggregatesTopologyOverOpAMP(t *testing.T) {
 	}
 	require.Contains(t, seenSources, "agg1")
 	require.Contains(t, seenSources, "agg2")
+	require.NotContains(t, seenSources, "agg3")
 
-	// The reporter survives until the last processor shuts down.
+	// The reporter survives until the last opamp-configured processor shuts
+	// down.
+	require.NoError(t, tp3.shutdown(context.Background()))
 	require.NoError(t, tp1.shutdown(context.Background()))
 	reporterMux.Lock()
 	require.NotNil(t, reporter)
