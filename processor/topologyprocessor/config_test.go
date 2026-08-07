@@ -24,29 +24,49 @@ import (
 
 func TestConfigValidate(t *testing.T) {
 	t.Run("Valid config", func(t *testing.T) {
-		bindplaneExtensionID := component.MustNewID("bindplane")
 		cfg := Config{
-			AccountID:          "myacct",
-			Configuration:      "myConfig",
-			OrganizationID:     "myorg",
-			BindplaneExtension: &bindplaneExtensionID,
+			OpAMP: component.MustNewID("opamp"),
+			Global: &GlobalConfig{
+				Interval:       time.Minute,
+				Configuration:  "myConfig",
+				OrganizationID: "myorg",
+				AccountID:      "myacct",
+			},
 		}
 		require.NoError(t, cfg.Validate())
 	})
 
-	t.Run("Valid config with interval", func(t *testing.T) {
-		bindplaneExtensionID := component.MustNewID("bindplane")
+	t.Run("Negative interval", func(t *testing.T) {
 		cfg := Config{
-			AccountID:          "myacct",
-			Configuration:      "myConfig",
-			OrganizationID:     "myorg",
-			BindplaneExtension: &bindplaneExtensionID,
-			Interval:           time.Minute,
+			OpAMP: component.MustNewID("opamp"),
+			Global: &GlobalConfig{
+				Interval:       -time.Minute,
+				Configuration:  "myConfig",
+				OrganizationID: "myorg",
+				AccountID:      "myacct",
+			},
+		}
+		require.ErrorIs(t, cfg.Validate(), errInvalidInterval)
+	})
+
+	t.Run("Global missing identity", func(t *testing.T) {
+		cfg := Config{
+			OpAMP: component.MustNewID("opamp"),
+			Global: &GlobalConfig{
+				Interval: time.Minute,
+			},
+		}
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("OpAMP without top-level identity", func(t *testing.T) {
+		cfg := Config{
+			OpAMP: component.MustNewID("opamp"),
 		}
 		require.NoError(t, cfg.Validate())
 	})
 
-	t.Run("Valid config no BindplaneExtension", func(t *testing.T) {
+	t.Run("Valid config no OpAMP", func(t *testing.T) {
 		cfg := Config{
 			AccountID:      "myacct",
 			Configuration:  "myConfig",

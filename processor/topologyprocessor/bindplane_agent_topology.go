@@ -14,5 +14,7 @@
 
 package topologyprocessor
 
-// BindplaneAgentTopologyRegistry is the registry singleton used by bindplane agent to track topology state
+// BindplaneAgentTopologyRegistry is the registry singleton used by bindplane agent to track topology state.
+// It exists only for backwards compatibility with the v1 bindplane agent, which reads
+// this global; delete this file with BPOP-5623.
 var BindplaneAgentTopologyRegistry = NewResettableTopologyRegistry()
