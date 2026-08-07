@@ -6,7 +6,7 @@ status:
     active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]
   class: extension
   stability:
-    beta: [extension]
+    deprecated: [extension]
 
 tests:
   config:

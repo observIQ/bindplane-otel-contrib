@@ -95,7 +95,7 @@ pkg/                Public utility packages
 |---|---|
 | [awss3eventextension](extension/awss3eventextension) | Downloads newly created S3 objects to a specified directory by reading from an SQS queue |
 | [badgerextension](extension/badgerextension) | Provides persistent storage using BadgerDB |
-| [bindplaneextension](extension/bindplaneextension) | Stores Bindplane-specific information for custom collector distributions |
+| [bindplaneextension](extension/bindplaneextension) | Deprecated. Stores Bindplane-specific information for custom collector distributions |
 | [opampgateway](extension/opampgateway) | Relays OpAMP messages between downstream agents and an upstream OpAMP server *(alpha)* |
 | [pebbleextension](extension/pebbleextension) | Provides persistent storage using Pebble |
 
