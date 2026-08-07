@@ -49,6 +49,7 @@ The exporter can be configured using the following fields:
 | `namespace`                     | string            |                                        | `false`  | User-configured environment namespace to identify the data domain the logs originated from.                                                                                              |
 | `compression`                   | string            | `none`                                 | `false`  | The compression type to use when sending logs. Valid values are `none` and `gzip`.                                                                                                       |
 | `ingestion_labels`              | map[string]string |                                        | `false`  | Key-value pairs of labels to be applied to the logs when sent to Chronicle.                                                                                                              |
+| `rbac_enabled`                  | bool              | `false`                                | `false`  | Whether or not to enable Data RBAC for all ingestion labels. Only applies to `https` protocol.                                                                                           |
 | `collect_agent_metrics`         | bool              | `true`                                 | `false`  | Enables collecting metrics about the agent's process and log ingestion metrics.                                                                                                          |
 | `metrics_interval`              | duration          | `5m`                                   | `false`  | The interval at which agent metrics are collected and sent. Only applies when `collect_agent_metrics` is `true`.                                                                         |
 | `batch_request_size_limit_grpc` | int               | `4000000`                              | `false`  | The maximum size, in bytes, allowed for a gRPC batch creation request.                                                                                                                   |
@@ -74,6 +75,29 @@ If the `attributes["chronicle_log_type"]` field is present in the log, its value
 If the `attributes["chronicle_namespace"]` field is present in the log, its value will be used in the payload instead of the `namespace` in the config.
 
 Any labels defined by key value pairs in a nested map at `attributes["chronicle_ingestion_label"]` are merged with the `ingestion_labels` in the config. When the same label key is set in both places, the value from the attribute takes precedence over that from the config.
+
+### Data RBAC
+
+Google SecOps can restrict access to ingested data based on its ingestion labels. Labels are only eligible for Data RBAC when they are marked as such at ingestion time.
+
+This only applies to the `https` protocol. The `gRPC` protocol targets the legacy Backstory Ingestion API, which treats all ingestion labels as RBAC eligible and has no equivalent field.
+
+Set `rbac_enabled: true` to mark every ingestion label sent by the exporter as eligible for Data RBAC. It defaults to `false`, which preserves the previous behavior.
+
+If the `attributes["chronicle_rbac_enabled"]` field is present in the log, its value is used instead of the `rbac_enabled` value in the config. The attribute may be a bool, or a string accepted by [`strconv.ParseBool`](https://pkg.go.dev/strconv#ParseBool) (for example `true`, `TRUE`, `1`, `false`, `0`). The value applies to all of that log record's ingestion labels; individual labels cannot be marked separately.
+
+If the attribute is present but cannot be read as a bool, the exporter logs a warning and falls back to the `rbac_enabled` config value. The log record is still sent.
+
+```yaml
+chronicle:
+  protocol: https
+  location: us
+  project: my-project
+  customer_id: "00000000-0000-0000-0000-000000000000"
+  ingestion_labels:
+    environment: production
+  rbac_enabled: true
+```
 
 ## Credentials
 
