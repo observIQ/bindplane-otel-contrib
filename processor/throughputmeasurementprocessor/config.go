@@ -37,10 +37,10 @@ type GlobalConfig struct {
 	// Measurements reporting is disabled if this duration is 0 or unset.
 	Interval time.Duration `mapstructure:"interval"`
 
-	// ExtraMeasurementAttributes are a map of key-value pairs added to all
+	// ExtraLabels are a map of key-value pairs added to all
 	// reported measurements. A processor's own `extra_labels` win on conflicting
 	// keys.
-	ExtraMeasurementAttributes map[string]string `mapstructure:"extra_measurement_attributes"`
+	ExtraLabels map[string]string `mapstructure:"extra_labels"`
 }
 
 // Config is the configuration for the processor
