@@ -30,6 +30,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/otel/metric/noop"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/exp/rand"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -992,7 +993,7 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				IngestionLabels: map[string]string{
 					"config-label": "config-value",
 				},
-				RbacEnabled: true,
+				RBACEnabled: true,
 			},
 			logRecords: func() plog.Logs {
 				return mockLogs(mockLogRecord("Test log message", map[string]any{
@@ -1027,7 +1028,7 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				IngestionLabels: map[string]string{
 					"config-label": "config-value",
 				},
-				RbacEnabled: false,
+				RBACEnabled: false,
 			},
 			logRecords: func() plog.Logs {
 				return mockLogs(mockLogRecord("Test log message", map[string]any{
@@ -1047,6 +1048,39 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 
 				require.Equal(t, "attr-value", labels["attr-label"].Value)
 				require.True(t, labels["attr-label"].RbacEnabled)
+			},
+		},
+		{
+			name: "RBAC labels support via invalid attribute keeps the log record",
+			cfg: Config{
+				CustomerID:                uuid.New().String(),
+				LogType:                   "WINEVTLOG",
+				RawLogField:               "body",
+				OverrideLogType:           false,
+				Protocol:                  protocolHTTPS,
+				Project:                   "test-project",
+				Location:                  "us",
+				BatchRequestSizeLimitHTTP: 5242880,
+				IngestionLabels: map[string]string{
+					"config-label": "config-value",
+				},
+				RBACEnabled: true,
+			},
+			logRecords: func() plog.Logs {
+				return mockLogs(mockLogRecord("Test log message", map[string]any{
+					"chronicle_rbac_enabled": "not-a-bool",
+				}))
+			},
+			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
+				require.Len(t, requests, 1)
+				logs := requests["WINEVTLOG"][0].GetInlineSource().Logs
+				require.Len(t, logs, 1, "an unparsable rbac attribute must not drop the log record")
+				require.Equal(t, "Test log message", string(logs[0].Data))
+
+				labels := logs[0].Labels
+				require.Len(t, labels, 1)
+				require.Equal(t, "config-value", labels["config-label"].Value)
+				require.True(t, labels["config-label"].RbacEnabled, "expected fallback to the configured rbac_enabled value")
 			},
 		},
 		{
@@ -1830,7 +1864,7 @@ var getRawFieldCases = []getRawFieldCase{
 		}(),
 		scope:        plog.NewScopeLogs(),
 		resource:     plog.NewResourceLogs(),
-		expectErrStr: "unsupported chronicle rbac enabled type: int64",
+		expectErrStr: "unsupported chronicle rbac enabled type: Int",
 	},
 	{
 		name:  "Attribute log.record.original string",
@@ -1928,11 +1962,11 @@ func Test_getRawField(t *testing.T) {
 
 func Test_getRBACEnabled(t *testing.T) {
 	testCases := []struct {
-		name         string
-		cfgEnabled   bool
-		attributes   func(lr plog.LogRecord)
-		expect       bool
-		expectErrStr string
+		name       string
+		cfgEnabled bool
+		attributes func(lr plog.LogRecord)
+		expect     bool
+		expectWarn string
 	}{
 		{
 			name:       "falls back to config when attribute is missing",
@@ -1957,41 +1991,74 @@ func Test_getRBACEnabled(t *testing.T) {
 			expect: false,
 		},
 		{
-			name:       "invalid string attribute returns error",
-			cfgEnabled: false,
+			name:       "unparsable string attribute falls back to config",
+			cfgEnabled: true,
 			attributes: func(lr plog.LogRecord) {
 				lr.Attributes().PutStr("chronicle_rbac_enabled", "yes-please")
 			},
-			expectErrStr: `parse chronicle rbac enabled value "yes-please"`,
+			expect:     true,
+			expectWarn: "Failed to parse chronicle rbac enabled attribute",
 		},
 		{
-			name:       "unsupported attribute type returns error",
+			name:       "unsupported attribute type falls back to config",
 			cfgEnabled: false,
 			attributes: func(lr plog.LogRecord) {
 				lr.Attributes().PutInt("chronicle_rbac_enabled", 1)
 			},
-			expectErrStr: "unsupported chronicle rbac enabled type: int64",
+			expect:     false,
+			expectWarn: "Failed to read chronicle rbac enabled attribute",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &protoMarshaler{cfg: Config{RbacEnabled: tc.cfgEnabled}}
-			m.teleSettings.Logger = zap.NewNop()
+			core, logs := observer.New(zap.WarnLevel)
+			logger := zap.New(core)
+
+			m := &protoMarshaler{cfg: Config{RBACEnabled: tc.cfgEnabled}, logger: logger}
+			m.teleSettings.Logger = logger
 
 			lr := plog.NewLogRecord()
 			tc.attributes(lr)
 
-			rbacEnabled, err := m.getRBACEnabled(context.Background(), lr, plog.NewScopeLogs(), plog.NewResourceLogs())
-			if tc.expectErrStr != "" {
-				require.ErrorContains(t, err, tc.expectErrStr)
+			require.Equal(t, tc.expect, m.getRBACEnabled(context.Background(), lr, plog.NewScopeLogs(), plog.NewResourceLogs()))
+
+			if tc.expectWarn == "" {
+				require.Zero(t, logs.Len(), "expected no warnings to be logged")
 				return
 			}
-
-			require.NoError(t, err)
-			require.Equal(t, tc.expect, rbacEnabled)
+			require.Equal(t, 1, logs.Len())
+			require.Contains(t, logs.All()[0].Message, tc.expectWarn)
 		})
 	}
+}
+
+func Test_getHTTPIngestionLabels(t *testing.T) {
+	t.Run("returns no labels when none are configured or present", func(t *testing.T) {
+		m := &protoMarshaler{cfg: Config{RBACEnabled: true}, logger: zap.NewNop()}
+		m.teleSettings.Logger = zap.NewNop()
+
+		labels := m.getHTTPIngestionLabels(context.Background(), plog.NewLogRecord(), plog.NewScopeLogs(), plog.NewResourceLogs())
+		require.Empty(t, labels)
+	})
+
+	t.Run("applies rbac enabled to every label", func(t *testing.T) {
+		m := &protoMarshaler{
+			cfg:    Config{RBACEnabled: true, IngestionLabels: map[string]string{"config-label": "config-value"}},
+			logger: zap.NewNop(),
+		}
+		m.teleSettings.Logger = zap.NewNop()
+
+		lr := plog.NewLogRecord()
+		lr.Attributes().PutStr(`chronicle_ingestion_label["attr-label"]`, "attr-value")
+
+		labels := m.getHTTPIngestionLabels(context.Background(), lr, plog.NewScopeLogs(), plog.NewResourceLogs())
+		require.Len(t, labels, 2)
+		require.Equal(t, "config-value", labels["config-label"].Value)
+		require.True(t, labels["config-label"].RbacEnabled)
+		require.Equal(t, "attr-value", labels["attr-label"].Value)
+		require.True(t, labels["attr-label"].RbacEnabled)
+	})
 }
 
 func Benchmark_getRawField(b *testing.B) {

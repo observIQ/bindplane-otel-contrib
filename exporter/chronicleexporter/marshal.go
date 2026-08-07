@@ -194,10 +194,7 @@ func (m *protoMarshaler) processHTTPLogRecord(ctx context.Context, logRecord plo
 	if err != nil {
 		return "", "", "", nil, err
 	}
-	ingestionLabels, err := m.getHTTPIngestionLabels(ctx, logRecord, scope, resource)
-	if err != nil {
-		return "", "", "", nil, err
-	}
+	ingestionLabels := m.getHTTPIngestionLabels(ctx, logRecord, scope, resource)
 	return rawLog, logType, namespace, ingestionLabels, nil
 }
 
@@ -301,20 +298,29 @@ func (m *protoMarshaler) aggregateIngestionLabels(logRecord plog.LogRecord) map[
 	return mergedLabels
 }
 
-func (m *protoMarshaler) getRBACEnabled(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (bool, error) {
+func (m *protoMarshaler) getRBACEnabled(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) bool {
 	// check for attributes in attributes["chronicle_rbac_enabled"]
 	rbacAttr, err := m.getRawField(ctx, chronicleRBACField, logRecord, scope, resource)
 	if err != nil {
-		return false, fmt.Errorf("get chronicle rbac enabled: %w", err)
+		m.logger.Warn("Failed to read chronicle rbac enabled attribute, falling back to configured value",
+			zap.String("attribute", chronicleRBACAttribute),
+			zap.Bool("rbacEnabled", m.cfg.RBACEnabled),
+			zap.Error(err))
+		return m.cfg.RBACEnabled
 	}
 	if rbacAttr == "" {
-		return m.cfg.RbacEnabled, nil
+		return m.cfg.RBACEnabled
 	}
 	rbacEnabled, err := strconv.ParseBool(rbacAttr)
 	if err != nil {
-		return false, fmt.Errorf("parse chronicle rbac enabled value %q: %w", rbacAttr, err)
+		m.logger.Warn("Failed to parse chronicle rbac enabled attribute, falling back to configured value",
+			zap.String("attribute", chronicleRBACAttribute),
+			zap.String("value", rbacAttr),
+			zap.Bool("rbacEnabled", m.cfg.RBACEnabled),
+			zap.Error(err))
+		return m.cfg.RBACEnabled
 	}
-	return rbacEnabled, nil
+	return rbacEnabled
 }
 
 func (m *protoMarshaler) getGRPCIngestionLabels(logRecord plog.LogRecord) []*api.Label {
@@ -329,20 +335,21 @@ func (m *protoMarshaler) getGRPCIngestionLabels(logRecord plog.LogRecord) []*api
 	return labels
 }
 
-func (m *protoMarshaler) getHTTPIngestionLabels(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (map[string]*api.Log_LogLabel, error) {
+func (m *protoMarshaler) getHTTPIngestionLabels(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) map[string]*api.Log_LogLabel {
 	mergedLabels := m.aggregateIngestionLabels(logRecord)
-	rbacEnabled, err := m.getRBACEnabled(ctx, logRecord, scope, resource)
-	if err != nil {
-		return nil, err
-	}
 	labels := make(map[string]*api.Log_LogLabel, len(mergedLabels))
+	if len(mergedLabels) == 0 {
+		return labels
+	}
+
+	rbacEnabled := m.getRBACEnabled(ctx, logRecord, scope, resource)
 	for k, v := range mergedLabels {
 		labels[k] = &api.Log_LogLabel{
 			Value:       v,
 			RbacEnabled: rbacEnabled,
 		}
 	}
-	return labels, nil
+	return labels
 }
 
 // getRawField is a helper function to get the raw value of a field from a log record
@@ -384,15 +391,14 @@ func (m *protoMarshaler) getRawField(ctx context.Context, field string, logRecor
 		}
 		return "", nil
 	case chronicleRBACField:
-		attributes := logRecord.Attributes().AsRaw()
-		if rbacEnabled, ok := attributes[chronicleRBACAttribute]; ok {
-			switch rbacEnabled := rbacEnabled.(type) {
-			case string:
-				return rbacEnabled, nil
-			case bool:
-				return strconv.FormatBool(rbacEnabled), nil
+		if rbacEnabled, ok := logRecord.Attributes().Get(chronicleRBACAttribute); ok {
+			switch rbacEnabled.Type() {
+			case pcommon.ValueTypeStr:
+				return rbacEnabled.Str(), nil
+			case pcommon.ValueTypeBool:
+				return strconv.FormatBool(rbacEnabled.Bool()), nil
 			default:
-				return "", fmt.Errorf("unsupported chronicle rbac enabled type: %T", rbacEnabled)
+				return "", fmt.Errorf("unsupported chronicle rbac enabled type: %s", rbacEnabled.Type())
 			}
 		}
 		return "", nil
