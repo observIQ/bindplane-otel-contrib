@@ -109,8 +109,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
+      # The collector build fetches Go modules; a transient proxy blip here was
+      # the original PIPE-1058 failure (build-collector/windows). retry.sh only
+      # retries on a transient-network signature, so a real build failure still
+      # fails immediately. retry.sh lives in the contrib checkout (path: contrib).
       - name: Build Collector with Contrib Modules
-        run: make -C contrib ${{ matrix.target }} COLLECTOR_PATH=../collector
+        run: bash contrib/.github/scripts/retry.sh make -C contrib ${{ matrix.target }} COLLECTOR_PATH=../collector
 
   build-summary:
     if: always()
