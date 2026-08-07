@@ -543,6 +543,15 @@ func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
 	}, processorID2)
 	require.NoError(t, err)
 
+	// A processor without `opamp` does not feed the reporter and must not
+	// appear in the aggregated message.
+	processorID3 := component.MustNewIDWithName("throughputmeasurement", "agg3")
+	tmp3, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
+		Enabled:       true,
+		SamplingRatio: 1,
+	}, processorID3)
+	require.NoError(t, err)
+
 	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
 	mh := mockHost{
 		extMap: map[component.ID]component.Component{
@@ -559,11 +568,15 @@ func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
 	require.NoError(t, err)
 	_, err = tmp2.processLogs(context.Background(), logs)
 	require.NoError(t, err)
+	_, err = tmp3.processLogs(context.Background(), logs)
+	require.NoError(t, err)
 
 	require.NoError(t, tmp1.start(context.Background(), mh))
 	require.NoError(t, tmp2.start(context.Background(), mh))
+	require.NoError(t, tmp3.start(context.Background(), mh))
 
-	// Both processors share one reporter: the capability is registered once.
+	// Both opamp-configured processors share one reporter: the capability is
+	// registered once.
 	require.Equal(t, 1, mockOpamp.RegisterCount())
 
 	require.Eventually(t, func() bool {
@@ -590,8 +603,11 @@ func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
 	}
 	require.Contains(t, seenProcessors, processorID1.String())
 	require.Contains(t, seenProcessors, processorID2.String())
+	require.NotContains(t, seenProcessors, processorID3.String())
 
-	// The reporter survives until the last processor shuts down.
+	// The reporter survives until the last opamp-configured processor shuts
+	// down.
+	require.NoError(t, tmp3.shutdown(context.Background()))
 	require.NoError(t, tmp1.shutdown(context.Background()))
 	reporterMux.Lock()
 	require.NotNil(t, reporter)

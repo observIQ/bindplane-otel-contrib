@@ -31,10 +31,9 @@ import (
 	"github.com/observiq/bindplane-otel-contrib/pkg/measurements"
 )
 
-// opampReporter aggregates measurements from every throughput processor in the
-// collector into a single opamp custom message per interval, matching the
-// payload the bindplane extension produces. Every processor feeds it; it
-// reports once a processor with `opamp` set points it at the extension. Its
+// opampReporter aggregates measurements from every `opamp`-configured
+// throughput processor in the collector into a single opamp custom message
+// per interval, matching the payload the bindplane extension produces. Its
 // settings come from the `global` config block carried by one processor
 // (defaults otherwise).
 type opampReporter struct {
@@ -51,9 +50,9 @@ type opampReporter struct {
 	wg              *sync.WaitGroup
 }
 
-// reporter is the single reporter shared by all throughput processors. The
-// first processor to start creates it; the last one to shut down tears it
-// down.
+// reporter is the single reporter shared by all `opamp`-configured throughput
+// processors. The first of them to start creates it; the last one to shut
+// down tears it down.
 var (
 	reporterMux sync.Mutex
 	reporter    *opampReporter
@@ -61,7 +60,7 @@ var (
 
 // registerWithOpAMPReporter registers the processor's measurements with the
 // shared reporter, creating it (dormant, with default settings) if it doesn't
-// exist yet. Every throughput processor feeds the reporter.
+// exist yet. Only processors with `opamp` set feed the reporter.
 func registerWithOpAMPReporter(tmp *throughputMeasurementProcessor) {
 	reporterMux.Lock()
 	defer reporterMux.Unlock()
