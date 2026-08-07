@@ -28,13 +28,13 @@ var (
 )
 
 // GlobalConfig carries the settings of the reporter shared by every
-// throughput processor in the collector. Only one processor in a
-// configuration should carry it; if more than one does, the last one to start
-// wins. If none does, the reporter uses its defaults (1m interval, no extra
-// attributes).
+// `opamp`-configured throughput processor in the collector. Exactly one
+// processor in a configuration should carry it — that processor sets up the
+// reporter. If more than one does, the last one to start wins; if none does,
+// nothing is reported over opamp.
 type GlobalConfig struct {
 	// Interval is the interval on which measurements are reported over opamp.
-	// Measurements reporting is disabled if this duration is 0.
+	// Measurements reporting is disabled if this duration is 0 or unset.
 	Interval time.Duration `mapstructure:"interval"`
 
 	// ExtraMeasurementAttributes are a map of key-value pairs added to all
@@ -52,15 +52,15 @@ type Config struct {
 	SamplingRatio float64 `mapstructure:"sampling_ratio"`
 
 	// OpAMP is the component ID of an opamp extension implementing
-	// opampcustommessages.CustomCapabilityRegistry. If set, the reporter shared
-	// by every throughput processor reports all measurements to Bindplane as
-	// custom messages on an interval. Every processor should reference the same
-	// extension; the last distinct value to start wins.
-	// If unset, the processor's measurements still feed the shared reporter.
+	// opampcustommessages.CustomCapabilityRegistry. If set, the processor's
+	// measurements feed the reporter shared by every opamp-configured
+	// throughput processor, which reports them to Bindplane as custom messages
+	// on an interval. Every processor should reference the same extension.
 	OpAMP component.ID `mapstructure:"opamp"`
 
-	// Global carries the shared reporter's settings. Only one processor in a
-	// configuration should carry it; see GlobalConfig.
+	// Global carries the shared reporter's settings; the processor carrying it
+	// sets up the reporter. Exactly one processor in a configuration should
+	// carry it; see GlobalConfig.
 	Global *GlobalConfig `mapstructure:"global"`
 
 	// BindplaneExtension is the component ID of a bindplane extension to register
