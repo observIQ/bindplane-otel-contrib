@@ -34,10 +34,10 @@ func TestCreateDefaultConfig(t *testing.T) {
 
 	expectedUserAgent := fmt.Sprintf("%s/%s", defaultUserAgent, collectorVersion)
 
-	require.Equal(t, defaultMetricPrefix, googleCfg.GCPConfig.MetricConfig.Prefix)
-	require.Equal(t, expectedUserAgent, googleCfg.GCPConfig.UserAgent)
-	require.Len(t, googleCfg.GCPConfig.MetricConfig.ResourceFilters, 1)
-	require.Equal(t, googleCfg.GCPConfig.MetricConfig.ResourceFilters[0].Prefix, "")
+	require.Equal(t, defaultMetricPrefix, googleCfg.GCPConfig.Config.MetricConfig.Prefix)
+	require.Equal(t, expectedUserAgent, googleCfg.GCPConfig.Config.UserAgent)
+	require.Len(t, googleCfg.GCPConfig.Config.MetricConfig.ResourceFilters, 1)
+	require.Equal(t, googleCfg.GCPConfig.Config.MetricConfig.ResourceFilters[0].Prefix, "")
 	require.Nil(t, googleCfg.Validate())
 }
 
@@ -89,16 +89,16 @@ func TestSetClientOptionsWithCredentials(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Nil(t, tc.config.GCPConfig.MetricConfig.ClientConfig.GetClientOptions)
-			require.Nil(t, tc.config.GCPConfig.LogConfig.ClientConfig.GetClientOptions)
-			require.Nil(t, tc.config.GCPConfig.TraceConfig.ClientConfig.GetClientOptions)
+			require.Nil(t, tc.config.GCPConfig.Config.MetricConfig.ClientConfig.GetClientOptions)
+			require.Nil(t, tc.config.GCPConfig.Config.LogConfig.ClientConfig.GetClientOptions)
+			require.Nil(t, tc.config.GCPConfig.Config.TraceConfig.ClientConfig.GetClientOptions)
 
 			tc.config.setClientOptions()
-			require.NotNil(t, tc.config.GCPConfig.MetricConfig.ClientConfig.GetClientOptions)
-			require.NotNil(t, tc.config.GCPConfig.LogConfig.ClientConfig.GetClientOptions)
-			require.NotNil(t, tc.config.GCPConfig.TraceConfig.ClientConfig.GetClientOptions)
+			require.NotNil(t, tc.config.GCPConfig.Config.MetricConfig.ClientConfig.GetClientOptions)
+			require.NotNil(t, tc.config.GCPConfig.Config.LogConfig.ClientConfig.GetClientOptions)
+			require.NotNil(t, tc.config.GCPConfig.Config.TraceConfig.ClientConfig.GetClientOptions)
 
-			opts := tc.config.GCPConfig.MetricConfig.ClientConfig.GetClientOptions()
+			opts := tc.config.GCPConfig.Config.MetricConfig.ClientConfig.GetClientOptions()
 			require.Equal(t, tc.opts, opts)
 		})
 	}
@@ -164,7 +164,7 @@ func TestSetProject(t *testing.T) {
 				require.Contains(t, err.Error(), tc.expectedErr)
 			}
 
-			require.Equal(t, tc.expectedProject, tc.config.GCPConfig.ProjectID)
+			require.Equal(t, tc.expectedProject, tc.config.GCPConfig.Config.ProjectID)
 		})
 	}
 }

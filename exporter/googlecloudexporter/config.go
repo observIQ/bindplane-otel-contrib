@@ -54,9 +54,9 @@ func (c *Config) Validate() error {
 
 // setClientOptions sets the client options used by the GCP config
 func (c *Config) setClientOptions() {
-	c.GCPConfig.LogConfig.ClientConfig.GetClientOptions = c.getClientOptions
-	c.GCPConfig.MetricConfig.ClientConfig.GetClientOptions = c.getClientOptions
-	c.GCPConfig.TraceConfig.ClientConfig.GetClientOptions = c.getClientOptions
+	c.GCPConfig.Config.LogConfig.ClientConfig.GetClientOptions = c.getClientOptions
+	c.GCPConfig.Config.MetricConfig.ClientConfig.GetClientOptions = c.getClientOptions
+	c.GCPConfig.Config.TraceConfig.ClientConfig.GetClientOptions = c.getClientOptions
 }
 
 // getClientOptions returns the client options used by the exporter
@@ -105,7 +105,7 @@ func (c *Config) updateProjectFromJSON(jsonBytes []byte) error {
 		return errors.New("project id is not a string")
 	}
 
-	c.GCPConfig.ProjectID = strValue
+	c.GCPConfig.Config.ProjectID = strValue
 	return nil
 }
 
@@ -132,13 +132,13 @@ func createDefaultConfig() component.Config {
 func createDefaultGCPConfig(collectorVersion string) *gcp.Config {
 	factory := gcp.NewFactory()
 	config := factory.CreateDefaultConfig().(*gcp.Config)
-	config.UserAgent = fmt.Sprintf("%s/%s", defaultUserAgent, collectorVersion)
-	config.MetricConfig.Prefix = defaultMetricPrefix
-	config.LogConfig.DefaultLogName, _ = os.Hostname()
+	config.Config.UserAgent = fmt.Sprintf("%s/%s", defaultUserAgent, collectorVersion)
+	config.Config.MetricConfig.Prefix = defaultMetricPrefix
+	config.Config.LogConfig.DefaultLogName, _ = os.Hostname()
 
 	// Overwrites the default resource filter to match all resource attributes
 	defaultResourceFilter := collector.ResourceFilter{Prefix: ""}
-	config.MetricConfig.ResourceFilters = []collector.ResourceFilter{defaultResourceFilter}
+	config.Config.MetricConfig.ResourceFilters = []collector.ResourceFilter{defaultResourceFilter}
 	return config
 }
 

@@ -45,7 +45,7 @@ func (c *Config) Validate() error {
 
 // setClientOptions sets the client options used by the GCP config
 func (c *Config) setClientOptions() {
-	c.GMPConfig.MetricConfig.ClientConfig.GetClientOptions = c.getClientOptions
+	c.GMPConfig.GMPConfig.MetricConfig.ClientConfig.GetClientOptions = c.getClientOptions
 }
 
 // getClientOptions returns the client options used by the exporter
@@ -64,7 +64,7 @@ func (c *Config) getClientOptions() []option.ClientOption {
 
 // setProject sets the project id from credentials if not already set
 func (c *Config) setProject() error {
-	if c.GMPConfig.ProjectID != "" {
+	if c.GMPConfig.GMPConfig.ProjectID != "" {
 		return nil
 	}
 
@@ -94,7 +94,7 @@ func (c *Config) updateProjectFromJSON(jsonBytes []byte) error {
 		return errors.New("project id is not a string")
 	}
 
-	c.GMPConfig.ProjectID = strValue
+	c.GMPConfig.GMPConfig.ProjectID = strValue
 	return nil
 }
 
@@ -119,7 +119,7 @@ func createDefaultConfig() component.Config {
 func createDefaultGCPConfig(collectorVersion string) *gmp.Config {
 	factory := gmp.NewFactory()
 	config := factory.CreateDefaultConfig().(*gmp.Config)
-	config.UserAgent = fmt.Sprintf("%s/%s", defaultUserAgent, collectorVersion)
+	config.GMPConfig.UserAgent = fmt.Sprintf("%s/%s", defaultUserAgent, collectorVersion)
 
 	return config
 }
