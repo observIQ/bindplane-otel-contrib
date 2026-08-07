@@ -93,16 +93,17 @@ func (tmp *throughputMeasurementProcessor) start(_ context.Context, host compone
 		registerWithOpAMPReporter(tmp)
 		tmp.registeredWithReporter = true
 
-		// The `global` block's settings apply to the shared reporter regardless
-		// of which processor carries it; applied before the extension is wired
-		// so a processor carrying both starts the loop with its own settings.
+		// Only the processor carrying the `global` block sets up the reporter;
+		// if no processor carries one, measurements feed the reporter but
+		// nothing is reported.
 		if tmp.global != nil {
-			if err := applyGlobalSettings(*tmp.global); err != nil {
-				return err
-			}
+			return configureOpAMPReporter(host, tmp.logger, tmp.opampExtensionID, *tmp.global)
 		}
 
-		return setOpAMPExtension(host, tmp.logger, tmp.opampExtensionID)
+		// The extension reference must still resolve, even on processors that
+		// don't set up the reporter.
+		_, err := getCustomCapabilityRegistry(host, tmp.opampExtensionID)
+		return err
 
 	// Both fallback cases below exist only for backwards compatibility with
 	// Bindplane servers that don't render `opamp`; delete them (and make opamp
