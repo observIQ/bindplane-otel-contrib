@@ -14,9 +14,6 @@
 
 package logtypedetectionprocessor
 
-// maxDepth bounds object nesting so the bracket stack stays on the stack.
-const maxDepth = 64
-
 var space, structural [256]bool
 
 func init() {
@@ -37,7 +34,7 @@ func fingerprintJSON(data string) uint64 {
 
 	// Keeps track of brackets to ensure we
 	// have valid JSON
-	var open [maxDepth]byte
+	var open [maxLogDepth]byte
 	depth := 0
 
 	for i := 0; i < len(data); {
@@ -54,10 +51,10 @@ func fingerprintJSON(data string) uint64 {
 				return 0
 			}
 			i = end
-			hash = foldFNVHashString(hash, `<arr>`)
+			hash = foldFNVHashString(hash, arrayPlaceholder)
 			curTokens++
 		case c == '{' || c == '[':
-			if depth == maxDepth {
+			if depth == maxLogDepth {
 				return 0
 			}
 			open[depth] = c
@@ -91,7 +88,7 @@ func fingerprintJSON(data string) uint64 {
 			if j < len(data) && data[j] == ':' {
 				hash = foldFNVHashString(hash, data[i:end])
 			} else {
-				hash = foldFNVHashString(hash, `"<str>"`)
+				hash = foldFNVHashString(hash, textPlaceholder)
 			}
 			curTokens++
 			i = end
@@ -101,7 +98,7 @@ func fingerprintJSON(data string) uint64 {
 			for i < len(data) && !space[data[i]] && !structural[data[i]] && data[i] != '"' {
 				i++
 			}
-			hash = foldFNVHashString(hash, `<val>`)
+			hash = foldFNVHashString(hash, valuePlaceholder)
 			curTokens++
 		}
 	}
