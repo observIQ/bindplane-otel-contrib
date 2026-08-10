@@ -99,6 +99,27 @@ receivers:
 
 ## Metrics
 
+### Failed probes
+
+A probe that fails emits only its outcome metric and no timings:
+
+| Failure | Emitted | Suppressed |
+|---------|---------|------------|
+| DNS query failed or timed out | `network.dns.status` = 0 | `network.dns.lookup_duration` |
+| HTTP request failed or timed out | `network.http.status` = 0 | all six `network.http.*` durations |
+| ICMP lost every packet | `network.ping.packet_loss` = 1.0 | `network.ping.latency_min`/`avg`/`max` |
+| Traceroute hop did not answer | nothing for that hop | `network.traceroute.hop.latency` |
+
+The timing metrics are suppressed because a failed probe has no duration to
+report. The only figure available is how long the receiver waited before giving
+up, and the per-phase timers never fire at all, so publishing them would write
+the configured timeout into the latency series as though it were a measurement
+and report 0 ms for phases that never ran.
+
+Alert on the status metrics, not on durations. A failure produces a gap in the
+timing series rather than a fabricated value, so averages and percentiles over
+those series stay meaningful.
+
 ### DNS targets
 
 | Metric | Type | Unit | Description |

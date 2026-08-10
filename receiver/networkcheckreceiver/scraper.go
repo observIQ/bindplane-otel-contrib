@@ -197,6 +197,12 @@ func (s *networkStatScraper) activeBatch() []*targetState {
 
 // recordMetrics writes data points for one completed probe cycle.
 func (s *networkStatScraper) recordMetrics(now pcommon.Timestamp, ts *targetState, r PingResult) {
+	// A probe that failed has no timings to report: the only duration available
+	// is how long we waited before giving up, and the per-phase timers never
+	// fired at all. Publishing those would put the configured timeout into the
+	// latency series as though it were a measurement, and report 0ms for phases
+	// that never ran. Only the status metric is emitted on failure, which
+	// already expresses the outcome; the timing series shows a gap instead.
 	dns := ts.dnsServer
 	switch r.Method {
 	case MethodDNS:
@@ -205,13 +211,21 @@ func (s *networkStatScraper) recordMetrics(now pcommon.Timestamp, ts *targetStat
 			status = 1
 		}
 		s.mb.RecordNetworkDNSStatusDataPoint(now, status, r.QueryName)
+		if !r.QuerySuccess {
+			return
+		}
 		s.mb.RecordNetworkDNSLookupDurationDataPoint(now, float64(r.QueryDuration.Milliseconds()), r.QueryName)
 	case MethodICMP:
 		m := metadata.AttributePingMethodIcmp
+		s.mb.RecordNetworkPingPacketLossDataPoint(now, r.PacketLoss, m, dns)
+		if r.PacketLoss >= 1.0 {
+			// Nothing came back, so min/avg/max are zero values rather than
+			// round-trip times. Packet loss of 1.0 is the failure signal.
+			return
+		}
 		s.mb.RecordNetworkPingLatencyMinDataPoint(now, float64(r.MinRTT.Milliseconds()), m, dns)
 		s.mb.RecordNetworkPingLatencyAvgDataPoint(now, float64(r.AvgRTT.Milliseconds()), m, dns)
 		s.mb.RecordNetworkPingLatencyMaxDataPoint(now, float64(r.MaxRTT.Milliseconds()), m, dns)
-		s.mb.RecordNetworkPingPacketLossDataPoint(now, r.PacketLoss, m, dns)
 	case MethodHTTP:
 		code := int64(r.StatusCode)
 		up := int64(0)
@@ -219,6 +233,9 @@ func (s *networkStatScraper) recordMetrics(now pcommon.Timestamp, ts *targetStat
 			up = 1
 		}
 		s.mb.RecordNetworkHTTPStatusDataPoint(now, up, code, dns)
+		if up == 0 {
+			return
+		}
 		s.mb.RecordNetworkHTTPDurationDataPoint(now, float64(r.TotalDuration.Milliseconds()), code, dns)
 		s.mb.RecordNetworkHTTPDNSLookupDurationDataPoint(now, float64(r.DNSLookup.Milliseconds()), dns)
 		s.mb.RecordNetworkHTTPClientConnectionDurationDataPoint(now, float64(r.TCPConnect.Milliseconds()), dns)
