@@ -67,3 +67,8 @@ func foldFNVHashByte(hash uint64, b byte) uint64 {
 	hash = (hash ^ uint64(b)) * fnvPrime
 	return hash
 }
+
+func foldFNVHashUint(hash uint64, i uint64) uint64 {
+	hash = (hash ^ i) * fnvPrime
+	return hash
+}

@@ -143,5 +143,5 @@ func TestProcessLogsConcurrentSameStructure(t *testing.T) {
 	got, err := tel.GetMetric("otelcol_log_type_detection_runs")
 	require.NoError(t, err)
 	runs := got.Data.(metricdata.Sum[int64]).DataPoints[0].Value
-	require.LessOrEqual(t, runs, int64(2), "singleflight should collapse concurrent detections")
+	require.Equal(t, int64(1), runs, "each fingerprint should only be detected once")
 }

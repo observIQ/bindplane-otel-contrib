@@ -66,6 +66,10 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 					newLogType, err, _ := p.detectionGroup.Do(
 						strconv.FormatUint(fingerprint, 10),
 						func() (any, error) {
+							// An earlier flight may have finished since we missed the cache.
+							if cached, ok := p.logTypes.Load(fingerprint); ok {
+								return cached, nil
+							}
 							logType := p.logType(ctx, body)
 							p.logTypes.Store(fingerprint, logType)
 							return logType, nil
