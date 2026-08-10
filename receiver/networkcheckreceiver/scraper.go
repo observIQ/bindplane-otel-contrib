@@ -15,10 +15,8 @@
 package networkcheckreceiver // import "github.com/observiq/bindplane-otel-contrib/receiver/networkcheckreceiver"
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -245,21 +243,5 @@ func (s *networkStatScraper) recordMetrics(now pcommon.Timestamp, ts *targetStat
 	}
 }
 
-// detectSystemDNS reads the first nameserver entry from /etc/resolv.conf.
-func detectSystemDNS() string {
-	f, err := os.Open("/etc/resolv.conf")
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "nameserver") {
-			if parts := strings.Fields(line); len(parts) >= 2 {
-				return parts[1]
-			}
-		}
-	}
-	return ""
-}
+// detectSystemDNS is implemented per platform: see systemdns_other.go and
+// systemdns_windows.go.
