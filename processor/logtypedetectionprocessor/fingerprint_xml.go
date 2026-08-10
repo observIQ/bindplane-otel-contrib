@@ -25,9 +25,10 @@ func init() {
 }
 
 // fingerprintXML creates a hash based off the structure of the log by walking
-// the XML tree. We keep element and attribute names but discard text content
-// and attribute values, replacing them with placeholders.
+// the XML tree. We keep element and attribute names but discard text content and
+// attribute values, and skip a sibling repeating the tag we just saw.
 func fingerprintXML(data string) uint64 {
+	var lastElem uint64
 	hash := uint64(fnvOffsetBasis)
 	elems := 0
 
@@ -39,11 +40,8 @@ func fingerprintXML(data string) uint64 {
 		// Character data between tags.
 		if data[i] != '<' {
 			end, text := endOfText(data, i)
-			if text {
-				if depth == 0 {
-					return 0
-				}
-				hash = foldFNVHashString(hash, textPlaceholder)
+			if text && depth == 0 {
+				return 0
 			}
 			i = end
 			continue
@@ -59,11 +57,8 @@ func fingerprintXML(data string) uint64 {
 		// Comment, CDATA section or doctype.
 		case '!':
 			var cdata bool
-			if i, cdata = skipMarkup(data, i); cdata {
-				if depth == 0 {
-					return 0
-				}
-				hash = foldFNVHashString(hash, textPlaceholder)
+			if i, cdata = skipMarkup(data, i); cdata && depth == 0 {
+				return 0
 			}
 		// Closing tag, the name must match the element we opened.
 		case '/':
@@ -72,19 +67,21 @@ func fingerprintXML(data string) uint64 {
 				return 0
 			}
 			depth--
-			hash = foldFNVHashString(hash, `</`)
 			i = endOfTag(data, end)
 		default:
 			name, end := elementName(data, i+1)
 			if name == "" {
 				return 0
 			}
-			hash = foldFNVHashByte(hash, '<')
-			hash = foldFNVHashString(hash, name)
 			elems++
 
+			var elem uint64
 			var selfClosing bool
-			hash, i, selfClosing = hashAttributes(hash, data, end)
+			elem, i, selfClosing = hashElement(data, end, name)
+			if elem != lastElem {
+				hash = foldFNVHashUint(hash, elem)
+				lastElem = elem
+			}
 			if !selfClosing {
 				if depth == maxLogDepth {
 					return 0
@@ -102,6 +99,9 @@ func fingerprintXML(data string) uint64 {
 
 	if depth != 0 || elems == 0 {
 		return 0
+	}
+	if hash == 0 {
+		return fnvOffsetBasis
 	}
 
 	return hash
@@ -142,42 +142,43 @@ func elementName(data string, start int) (string, int) {
 	return data[start:i], i
 }
 
-// hashAttributes folds every attribute name, and a placeholder for its value,
-// into hash. It returns the index just past the tag and whether the tag was
-// self closing, or a negative index if the tag is malformed.
-func hashAttributes(hash uint64, data string, start int) (uint64, int, bool) {
+// hashElement hashes the element name together with every attribute name on it. It
+// returns the index just past the tag and whether the tag was self closing, or a
+// negative index if the tag is malformed.
+func hashElement(data string, start int, name string) (uint64, int, bool) {
+	elem := foldFNVHashString(fnvOffsetBasis, name)
+
 	for i := start; ; {
 		for i < len(data) && space[data[i]] {
 			i++
 		}
 		if i >= len(data) {
-			return hash, -1, false
+			return elem, -1, false
 		}
 
 		switch data[i] {
 		case '>':
-			return hash, i + 1, false
+			return elem, i + 1, false
 		case '/':
 			if i+1 >= len(data) || data[i+1] != '>' {
-				return hash, -1, false
+				return elem, -1, false
 			}
-			return foldFNVHashString(hash, `/>`), i + 2, true
+			return elem, i + 2, true
 		}
 
-		name, end := elementName(data, i)
-		if name == "" {
-			return hash, -1, false
+		attr, end := elementName(data, i)
+		if attr == "" {
+			return elem, -1, false
 		}
-		hash = foldFNVHashString(hash, name)
+		elem = foldFNVHashString(elem, attr)
 
 		for end < len(data) && space[data[end]] {
 			end++
 		}
 		if end < len(data) && data[end] == '=' {
 			if end = endOfAttrValue(data, end+1); end < 0 {
-				return hash, -1, false
+				return elem, -1, false
 			}
-			hash = foldFNVHashString(hash, valuePlaceholder)
 		}
 		i = end
 	}
