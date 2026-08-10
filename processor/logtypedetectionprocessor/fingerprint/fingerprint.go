@@ -33,8 +33,8 @@ func init() {
 	}
 }
 
-// FingerprintLog creates a hash based off the structure of the log.
-func FingerprintLog(data string) uint64 {
+// HashLog creates a hash based off the structure of the log.
+func HashLog(data string) uint64 {
 	data = strings.TrimSpace(data)
 	if len(data) < 2 {
 		return 0

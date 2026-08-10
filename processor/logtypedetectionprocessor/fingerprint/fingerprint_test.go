@@ -36,7 +36,7 @@ func TestFingerprintJSONLogsNoCollisions(t *testing.T) {
 	seen := map[uint64]string{}
 	for _, r := range records[1:] {
 		logType, body := r[0], r[1]
-		fp := FingerprintLog(body)
+		fp := HashLog(body)
 		require.NotZero(t, fp, "no fingerprint for %s: %s", logType, body)
 
 		if prev, ok := seen[fp]; ok {
