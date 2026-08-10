@@ -25,11 +25,27 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
+// unansweredHopAddress is the address reported for a hop that did not answer
+// within the probe timeout.
+const unansweredHopAddress = "*"
+
+// maxConsecutiveTimeouts bounds how many unanswered hops in a row we tolerate
+// before abandoning the trace. Without this a path that never answers (a
+// firewall silently dropping probes, for example) walks the full max_hops
+// range at the per-hop timeout, which on the defaults is 30 * 3s = 90s inside
+// a single scrape.
+const maxConsecutiveTimeouts = 5
+
 // HopResult is the latency measurement for a single traceroute hop.
 type HopResult struct {
 	Index   int
 	Address string
 	RTT     time.Duration
+
+	// TimedOut is true when the hop did not answer within the timeout. RTT is
+	// meaningless for such a hop (it only reflects how long we waited), so
+	// callers must not report it as a latency.
+	TimedOut bool
 }
 
 // tracerouter performs traceroute probes for a single host.
@@ -74,6 +90,15 @@ func (t *tracerouter) trace(ctx context.Context) ([]HopResult, error) {
 	}
 	dest := addrs[0]
 
+	// Some platforms cannot map a path with raw sockets and need a native API
+	// instead. Windows is the case that matters today: it does not deliver
+	// unsolicited inbound ICMP time-exceeded messages to a raw socket, so both
+	// the UDP and ICMP methods below time out on every hop there regardless of
+	// privileges. traceNative reports handled=false everywhere else.
+	if hops, handled, nativeErr := t.traceNative(ctx, dest); handled {
+		return hops, nativeErr
+	}
+
 	switch method {
 	case "icmp":
 		return t.traceICMP(ctx, dest)
@@ -102,6 +127,7 @@ func (t *tracerouter) traceUDP(ctx context.Context, dest string) ([]HopResult, e
 	if maxHops <= 0 {
 		maxHops = 30
 	}
+	consecutiveTimeouts := 0
 
 	for ttl := 1; ttl <= maxHops; ttl++ {
 		if ctx.Err() != nil {
@@ -139,23 +165,33 @@ func (t *tracerouter) traceUDP(ctx context.Context, dest string) ([]HopResult, e
 		_, from, err := icmpConn.ReadFrom(buf)
 		rtt := time.Since(sent)
 
-		hopAddr := "*"
-		if err == nil && from != nil {
-			hopAddr = from.String()
+		if err != nil || from == nil {
+			hops = append(hops, HopResult{
+				Index:    ttl,
+				Address:  unansweredHopAddress,
+				TimedOut: true,
+			})
+			consecutiveTimeouts++
+			if consecutiveTimeouts >= maxConsecutiveTimeouts {
+				break
+			}
+			continue
 		}
+		consecutiveTimeouts = 0
 
 		hops = append(hops, HopResult{
 			Index:   ttl,
-			Address: hopAddr,
+			Address: from.String(),
 			RTT:     rtt,
 		})
 
 		// Stop when we reach the destination.
-		if err == nil && from != nil {
-			fromHost, _, _ := net.SplitHostPort(from.String())
-			if fromHost == dest || from.String() == dest {
-				break
-			}
+		fromHost, _, splitErr := net.SplitHostPort(from.String())
+		if splitErr != nil {
+			fromHost = from.String()
+		}
+		if fromHost == dest {
+			break
 		}
 	}
 
@@ -185,6 +221,7 @@ func (t *tracerouter) traceICMP(ctx context.Context, dest string) ([]HopResult, 
 	if hopTimeout == 0 {
 		hopTimeout = 3 * time.Second
 	}
+	consecutiveTimeouts := 0
 
 	for ttl := 1; ttl <= maxHops; ttl++ {
 		if ctx.Err() != nil {
@@ -201,7 +238,15 @@ func (t *tracerouter) traceICMP(ctx context.Context, dest string) ([]HopResult, 
 			return hops, fmt.Errorf("marshaling ICMP echo: %w", err)
 		}
 
-		if err := ipv4.NewPacketConn(conn).SetTTL(ttl); err != nil {
+		// Use the connection's own IPv4 accessor rather than
+		// ipv4.NewPacketConn: that constructor type-asserts to net.Conn
+		// without a comma-ok, and *icmp.PacketConn implements net.PacketConn
+		// but not net.Conn, so passing one panics.
+		p4 := conn.IPv4PacketConn()
+		if p4 == nil {
+			return hops, fmt.Errorf("ICMP traceroute requires an IPv4 connection")
+		}
+		if err := p4.SetTTL(ttl); err != nil {
 			return hops, fmt.Errorf("setting ICMP TTL %d: %w", ttl, err)
 		}
 
@@ -218,18 +263,27 @@ func (t *tracerouter) traceICMP(ctx context.Context, dest string) ([]HopResult, 
 		_, from, err := conn.ReadFrom(rb)
 		rtt := time.Since(sent)
 
-		hopAddr := "*"
-		if err == nil && from != nil {
-			hopAddr = from.String()
+		if err != nil || from == nil {
+			hops = append(hops, HopResult{
+				Index:    ttl,
+				Address:  unansweredHopAddress,
+				TimedOut: true,
+			})
+			consecutiveTimeouts++
+			if consecutiveTimeouts >= maxConsecutiveTimeouts {
+				break
+			}
+			continue
 		}
+		consecutiveTimeouts = 0
 
 		hops = append(hops, HopResult{
 			Index:   ttl,
-			Address: hopAddr,
+			Address: from.String(),
 			RTT:     rtt,
 		})
 
-		if err == nil && from != nil && from.String() == destAddr.String() {
+		if from.String() == destAddr.String() {
 			break
 		}
 	}

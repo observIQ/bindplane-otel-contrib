@@ -13,10 +13,15 @@ Optional traceroute probes can run on a fixed cycle interval, when packet loss e
 | Feature | Linux | macOS | Windows |
 |---------|-------|-------|---------|
 | ICMP ping | Root or `CAP_NET_RAW` | None (datagram mode) or root | Administrator (raw socket) |
-| UDP traceroute (default) | None (most kernels) | Root or `CAP_NET_RAW` | Not supported |
-| ICMP traceroute | Root or `CAP_NET_RAW` | Root or `CAP_NET_RAW` | Administrator |
+| UDP traceroute (default) | None (most kernels) | Root or `CAP_NET_RAW` | None (see Windows notes) |
+| ICMP traceroute | Root or `CAP_NET_RAW` | Root or `CAP_NET_RAW` | None (see Windows notes) |
 | HTTP ping | None | None | None |
 | DNS probe | None | None | None |
+
+When the collector runs as a Windows service it runs as `LocalSystem`, which
+already holds the privilege ICMP ping needs. Running the collector by hand from
+an unelevated shell does not: ICMP probes fail with a `setsockopt` access error
+and those targets fall back to HTTP.
 
 At startup the receiver automatically detects which ICMP mode is available:
 
@@ -26,7 +31,24 @@ At startup the receiver automatically detects which ICMP mode is available:
 
 ### Windows notes
 
-UDP traceroute relies on `ipv4.SetTTL` which is not reliably supported on Windows; configure `method: icmp` for traceroute on Windows (requires administrator). DNS server auto-detection from `/etc/resolv.conf` is not available on Windows — set `dns_server` explicitly per target or leave blank to use the system resolver.
+Traceroute on Windows ignores the `method` setting and always uses the IP Helper
+API (`IcmpSendEcho`), the same mechanism as the built-in `tracert.exe`. Neither
+portable method works there: Windows does not deliver unsolicited inbound ICMP
+time-exceeded messages to a raw socket, so both the UDP and ICMP methods time out
+on every hop even with Administrator rights. The native path needs no elevation,
+so `traceroute.enabled: true` works out of the box and `method` can be left at
+its default.
+
+DNS server auto-detection from `/etc/resolv.conf` is not available on Windows —
+set `dns_server` explicitly per target or leave blank to use the system resolver.
+
+### Unanswered hops
+
+A hop that does not reply within `traceroute.timeout` is recorded as unanswered
+and emits **no** `network.traceroute.hop.latency` data point, since the only
+duration available for it is the timeout itself. A path that stops answering is
+abandoned after five consecutive unanswered hops rather than probing all the way
+to `max_hops`, which bounds how long a single traceroute can occupy a scrape.
 
 ## Configuration
 
