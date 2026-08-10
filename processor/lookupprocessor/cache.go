@@ -42,10 +42,15 @@ type LookupCache struct {
 	source  LookupSource
 	storage storage.Client
 	mem     map[string]cacheEntry
-	memMu   sync.Mutex
-	ttl     time.Duration
-	enabled bool
-	logger  *zap.Logger
+	memMu   sync.RWMutex
+	// maxEntries bounds mem. Reads never mutate the map, so reclamation happens
+	// on insert: when an insert pushes the map over maxEntries, expired entries
+	// are evicted first, then arbitrary ones. Applies only to the in-memory
+	// backend; a storage extension manages its own retention.
+	maxEntries int
+	ttl        time.Duration
+	enabled    bool
+	logger     *zap.Logger
 	// clock backs TTL expiry checks; real in production, a fake clock in tests so
 	// expiry can be exercised without sleeping.
 	clock clockwork.Clock
@@ -54,11 +59,13 @@ type LookupCache struct {
 // NewLookupCache wraps source with TTL caching. When enabled is false, the
 // returned cache is a pass-through. signal is used to namespace the storage
 // extension client per pipeline signal kind (logs/metrics/traces) so closing
-// one processor instance's client does not affect another.
+// one processor instance's client does not affect another. maxEntries bounds
+// the in-memory backend; values < 1 fall back to defaultCacheMaxEntries.
 func NewLookupCache(
 	ctx context.Context,
 	source LookupSource,
 	ttl time.Duration,
+	maxEntries int,
 	enabled bool,
 	storageID *component.ID,
 	host component.Host,
@@ -66,12 +73,16 @@ func NewLookupCache(
 	signal string,
 	logger *zap.Logger,
 ) (*LookupCache, error) {
+	if maxEntries < 1 {
+		maxEntries = defaultCacheMaxEntries
+	}
 	cache := &LookupCache{
-		source:  source,
-		ttl:     ttl,
-		enabled: enabled,
-		logger:  logger,
-		clock:   clockwork.NewRealClock(),
+		source:     source,
+		ttl:        ttl,
+		maxEntries: maxEntries,
+		enabled:    enabled,
+		logger:     logger,
+		clock:      clockwork.NewRealClock(),
 	}
 
 	if !enabled {
@@ -168,15 +179,18 @@ func (c *LookupCache) get(ctx context.Context, key string) (map[string]string, b
 		return entry.Data, true, nil
 	}
 
-	c.memMu.Lock()
-	defer c.memMu.Unlock()
+	// Reads take only the shared lock and never mutate the map, so concurrent
+	// hits do not serialize. An expired entry is reported as a miss and left in
+	// place; it is reclaimed when overwritten by the refreshed value or when an
+	// insert pushes the map over maxEntries.
+	c.memMu.RLock()
 	entry, ok := c.mem[cacheKey]
+	c.memMu.RUnlock()
 	if !ok {
 		return nil, false, nil
 	}
 	if c.clock.Now().After(entry.ExpiresAt) {
 		c.logger.Debug("cache entry expired", zap.String("key", key))
-		delete(c.mem, cacheKey)
 		return nil, false, nil
 	}
 	return entry.Data, true, nil
@@ -199,8 +213,38 @@ func (c *LookupCache) set(ctx context.Context, key string, data map[string]strin
 
 	c.memMu.Lock()
 	c.mem[cacheKey] = entry
+	if len(c.mem) > c.maxEntries {
+		c.evictLocked(cacheKey)
+	}
 	c.memMu.Unlock()
 	return nil
+}
+
+// evictLocked reclaims in-memory entries after an insert exceeds maxEntries.
+// Expired entries are swept first; if the map is still over 90% of the cap,
+// arbitrary entries are evicted down to that mark. Evicting in a batch keeps
+// the O(n) sweep rare instead of running on every insert once the cap is hit.
+// Map-order eviction is deliberate: an LRU would need a write on every read,
+// which is what the shared read lock exists to avoid. keep is the key that was
+// just inserted and is never evicted. Callers must hold memMu.
+func (c *LookupCache) evictLocked(keep string) {
+	now := c.clock.Now()
+	for k, e := range c.mem {
+		if now.After(e.ExpiresAt) {
+			delete(c.mem, k)
+		}
+	}
+
+	target := c.maxEntries * 9 / 10
+	for k := range c.mem {
+		if len(c.mem) <= target {
+			break
+		}
+		if k == keep {
+			continue
+		}
+		delete(c.mem, k)
+	}
 }
 
 func getStorageClient(ctx context.Context, host component.Host, storageID component.ID, componentID component.ID, signal string) (storage.Client, error) {

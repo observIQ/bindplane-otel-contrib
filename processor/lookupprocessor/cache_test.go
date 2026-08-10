@@ -17,6 +17,7 @@ package lookupprocessor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -57,7 +58,7 @@ func newComponentID(t *testing.T, name string) component.ID {
 
 func TestLookupCache_Disabled_Passthrough(t *testing.T) {
 	fs := &fakeSource{data: map[string]map[string]string{"k": {"a": "1"}}}
-	c, err := NewLookupCache(context.Background(), fs, time.Minute, false, nil, nil, newComponentID(t, "disabled"), "logs", zap.NewNop())
+	c, err := NewLookupCache(context.Background(), fs, time.Minute, 0, false, nil, nil, newComponentID(t, "disabled"), "logs", zap.NewNop())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 
@@ -73,7 +74,7 @@ func TestLookupCache_Disabled_Passthrough(t *testing.T) {
 
 func TestLookupCache_InMemory_HitMissExpiry(t *testing.T) {
 	fs := &fakeSource{data: map[string]map[string]string{"k": {"a": "1"}}}
-	c, err := NewLookupCache(context.Background(), fs, 500*time.Millisecond, true, nil, nil, newComponentID(t, "mem"), "logs", zap.NewNop())
+	c, err := NewLookupCache(context.Background(), fs, 500*time.Millisecond, 0, true, nil, nil, newComponentID(t, "mem"), "logs", zap.NewNop())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 	fclock := clockwork.NewFakeClock()
@@ -96,9 +97,9 @@ func TestLookupCache_InMemory_HitMissExpiry(t *testing.T) {
 	require.Equal(t, 2, fs.calls)
 }
 
-func TestLookupCache_InMemory_ExpiredEntryDeleted(t *testing.T) {
+func TestLookupCache_InMemory_ExpiredEntryMissesWithoutMutation(t *testing.T) {
 	fs := &fakeSource{data: map[string]map[string]string{"k": {"a": "1"}}}
-	c, err := NewLookupCache(context.Background(), fs, 50*time.Millisecond, true, nil, nil, newComponentID(t, "evict"), "logs", zap.NewNop())
+	c, err := NewLookupCache(context.Background(), fs, 50*time.Millisecond, 0, true, nil, nil, newComponentID(t, "evict"), "logs", zap.NewNop())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 	fclock := clockwork.NewFakeClock()
@@ -110,13 +111,161 @@ func TestLookupCache_InMemory_ExpiredEntryDeleted(t *testing.T) {
 
 	fclock.Advance(60 * time.Millisecond)
 
-	// Lookup a different key after expiry; the expired entry for "k" must be
-	// evicted as a side effect of the get() path even though we are not
-	// reading "k" again — verify by calling get("k") directly.
+	// An expired entry is a miss, but the read path must not mutate the map;
+	// reclamation happens on insert overflow instead.
 	_, found, err := c.get(context.Background(), "k")
 	require.NoError(t, err)
 	require.False(t, found)
-	require.Empty(t, c.mem, "expired entries must be deleted from the in-memory map")
+	require.Len(t, c.mem, 1, "reads must not delete expired entries")
+
+	// A full Lookup re-fetches from the source and refreshes the entry in place.
+	_, err = c.Lookup(context.Background(), "k")
+	require.NoError(t, err)
+	require.Equal(t, 2, fs.calls)
+	require.Len(t, c.mem, 1)
+	_, found, err = c.get(context.Background(), "k")
+	require.NoError(t, err)
+	require.True(t, found, "refreshed entry must be a hit again")
+}
+
+// keyedSource returns synthetic data for any key, so unique keys always
+// populate the cache.
+type keyedSource struct{}
+
+func (keyedSource) Lookup(_ context.Context, key string) (map[string]string, error) {
+	return map[string]string{"v": key}, nil
+}
+func (keyedSource) Load() error  { return nil }
+func (keyedSource) Close() error { return nil }
+
+func TestLookupCache_InMemory_BoundedAtMaxEntries(t *testing.T) {
+	c, err := NewLookupCache(context.Background(), keyedSource{}, time.Minute, 100, true, nil, nil, newComponentID(t, "bounded"), "logs", zap.NewNop())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	for i := 0; i < 500; i++ {
+		_, err := c.Lookup(context.Background(), fmt.Sprintf("key-%d", i))
+		require.NoError(t, err)
+	}
+
+	require.LessOrEqual(t, len(c.mem), 100, "in-memory cache must never exceed maxEntries")
+
+	// The most recent insert must survive its own overflow eviction.
+	_, found, err := c.get(context.Background(), "key-499")
+	require.NoError(t, err)
+	require.True(t, found)
+}
+
+func TestLookupCache_InMemory_EvictsExpiredBeforeLive(t *testing.T) {
+	c, err := NewLookupCache(context.Background(), keyedSource{}, time.Minute, 10, true, nil, nil, newComponentID(t, "expired-first"), "logs", zap.NewNop())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	fclock := clockwork.NewFakeClock()
+	c.clock = fclock
+
+	for i := 0; i < 5; i++ {
+		_, err := c.Lookup(context.Background(), fmt.Sprintf("old-%d", i))
+		require.NoError(t, err)
+	}
+
+	fclock.Advance(2 * time.Minute)
+
+	// Six live inserts push the map to 11 entries; the overflow sweep must
+	// reclaim the five expired entries and keep every live one.
+	for i := 0; i < 6; i++ {
+		_, err := c.Lookup(context.Background(), fmt.Sprintf("new-%d", i))
+		require.NoError(t, err)
+	}
+
+	require.Len(t, c.mem, 6, "expired entries must be reclaimed before live ones")
+	for i := 0; i < 6; i++ {
+		_, found, err := c.get(context.Background(), fmt.Sprintf("new-%d", i))
+		require.NoError(t, err)
+		require.True(t, found, "live entries must survive when expired ones can be evicted instead")
+	}
+}
+
+func TestLookupCache_InMemory_EvictsArbitraryWhenNoneExpired(t *testing.T) {
+	c, err := NewLookupCache(context.Background(), keyedSource{}, time.Hour, 10, true, nil, nil, newComponentID(t, "arbitrary"), "logs", zap.NewNop())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	for i := 0; i < 11; i++ {
+		_, err := c.Lookup(context.Background(), fmt.Sprintf("key-%d", i))
+		require.NoError(t, err)
+	}
+
+	// Overflow with nothing expired evicts arbitrary entries down to 90% of the
+	// cap, never the key that was just inserted.
+	require.Len(t, c.mem, 9)
+	_, found, err := c.get(context.Background(), "key-10")
+	require.NoError(t, err)
+	require.True(t, found)
+}
+
+func TestLookupCache_InMemory_MaxEntriesOne(t *testing.T) {
+	c, err := NewLookupCache(context.Background(), keyedSource{}, time.Hour, 1, true, nil, nil, newComponentID(t, "one"), "logs", zap.NewNop())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	for i := 0; i < 3; i++ {
+		_, err := c.Lookup(context.Background(), fmt.Sprintf("key-%d", i))
+		require.NoError(t, err)
+	}
+
+	// The smallest cap still holds exactly the most recent entry.
+	require.Len(t, c.mem, 1)
+	_, found, err := c.get(context.Background(), "key-2")
+	require.NoError(t, err)
+	require.True(t, found)
+}
+
+func TestLookupCache_InMemory_ConcurrentLookups(t *testing.T) {
+	c, err := NewLookupCache(context.Background(), keyedSource{}, time.Minute, 64, true, nil, nil, newComponentID(t, "concurrent"), "logs", zap.NewNop())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < 2000; i++ {
+				// Overlapping key space mixes hits, misses, and evictions.
+				_, err := c.Lookup(context.Background(), fmt.Sprintf("key-%d", (g*500+i)%256))
+				require.NoError(t, err)
+			}
+		}(g)
+	}
+	wg.Wait()
+
+	require.LessOrEqual(t, len(c.mem), 64)
+}
+
+// BenchmarkLookupCache_ParallelHits exercises concurrent reads of cached
+// entries; run with -cpu 1,4,8 to observe read-path scaling.
+func BenchmarkLookupCache_ParallelHits(b *testing.B) {
+	typ, err := component.NewType("lookup")
+	require.NoError(b, err)
+	c, err := NewLookupCache(context.Background(), keyedSource{}, time.Hour, 0, true, nil, nil, component.NewIDWithName(typ, "bench"), "logs", zap.NewNop())
+	require.NoError(b, err)
+	defer func() { _ = c.Close() }()
+
+	const nkeys = 1024
+	keys := make([]string, nkeys)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("key-%d", i)
+		_, _ = c.Lookup(context.Background(), keys[i])
+	}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			_, _ = c.Lookup(context.Background(), keys[i%nkeys])
+			i++
+		}
+	})
 }
 
 func TestLookupCache_StorageExtension_ExpiredEntryDeleted(t *testing.T) {
@@ -128,7 +277,7 @@ func TestLookupCache_StorageExtension_ExpiredEntryDeleted(t *testing.T) {
 	host := newFakeHost(storageID, ext)
 
 	fs := &fakeSource{data: map[string]map[string]string{"k": {"a": "1"}}}
-	c, err := NewLookupCache(context.Background(), fs, 50*time.Millisecond, true, &storageID, host, newComponentID(t, "evict-stor"), "logs", zap.NewNop())
+	c, err := NewLookupCache(context.Background(), fs, 50*time.Millisecond, 0, true, &storageID, host, newComponentID(t, "evict-stor"), "logs", zap.NewNop())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 	fclock := clockwork.NewFakeClock()
@@ -151,7 +300,7 @@ func TestLookupCache_StorageExtension_ExpiredEntryDeleted(t *testing.T) {
 
 func TestLookupCache_SourceErrorNotCached(t *testing.T) {
 	fs := &fakeSource{data: map[string]map[string]string{}}
-	c, err := NewLookupCache(context.Background(), fs, time.Minute, true, nil, nil, newComponentID(t, "err"), "logs", zap.NewNop())
+	c, err := NewLookupCache(context.Background(), fs, time.Minute, 0, true, nil, nil, newComponentID(t, "err"), "logs", zap.NewNop())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 
@@ -271,13 +420,13 @@ func TestLookupCache_StorageExtension_HitMissExpiryAndNaming(t *testing.T) {
 	// Two cache instances using the same component ID but different signal
 	// names; each must get its own storage client.
 	fs := &fakeSource{data: map[string]map[string]string{"k": {"a": "1"}}}
-	logsCache, err := NewLookupCache(context.Background(), fs, 200*time.Millisecond, true, &storageID, host, cid, "logs", zap.NewNop())
+	logsCache, err := NewLookupCache(context.Background(), fs, 200*time.Millisecond, 0, true, &storageID, host, cid, "logs", zap.NewNop())
 	require.NoError(t, err)
 	fclock := clockwork.NewFakeClock()
 	logsCache.clock = fclock
 
 	fs2 := &fakeSource{data: map[string]map[string]string{"k": {"a": "1"}}}
-	tracesCache, err := NewLookupCache(context.Background(), fs2, 200*time.Millisecond, true, &storageID, host, cid, "traces", zap.NewNop())
+	tracesCache, err := NewLookupCache(context.Background(), fs2, 200*time.Millisecond, 0, true, &storageID, host, cid, "traces", zap.NewNop())
 	require.NoError(t, err)
 
 	require.Equal(t, []string{"logs", "traces"}, ext.names, "GetClient must be called with the signal-specific name for each instance")
@@ -310,13 +459,13 @@ func TestLookupCache_StorageExtension_NotFound(t *testing.T) {
 	missing := component.NewIDWithName(storageType, "missing")
 	host := newFakeHost(component.NewID(storageType), newFakeStorageExtension())
 
-	_, err = NewLookupCache(context.Background(), &fakeSource{}, time.Minute, true, &missing, host, newComponentID(t, "x"), "logs", zap.NewNop())
+	_, err = NewLookupCache(context.Background(), &fakeSource{}, time.Minute, 0, true, &missing, host, newComponentID(t, "x"), "logs", zap.NewNop())
 	require.Error(t, err)
 }
 
 func TestLookupCache_LoadAndClose(t *testing.T) {
 	fs := &fakeSource{loadErr: errors.New("load fail")}
-	c, err := NewLookupCache(context.Background(), fs, time.Minute, true, nil, nil, newComponentID(t, "load"), "logs", zap.NewNop())
+	c, err := NewLookupCache(context.Background(), fs, time.Minute, 0, true, nil, nil, newComponentID(t, "load"), "logs", zap.NewNop())
 	require.NoError(t, err)
 
 	require.Error(t, c.Load())

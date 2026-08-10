@@ -28,6 +28,7 @@ func TestDefaultConfig(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
 	require.True(t, cfg.CacheEnabled)
 	require.Equal(t, 5*time.Minute, cfg.CacheTTL)
+	require.Equal(t, defaultCacheMaxEntries, cfg.CacheMaxEntries)
 }
 
 func TestNewFactory(t *testing.T) {

@@ -30,6 +30,12 @@ import (
 
 const defaultCacheTTL = 5 * time.Minute
 
+// defaultCacheMaxEntries bounds the in-memory cache backend. The value is
+// deliberately high: it exists to stop unbounded growth from high-cardinality
+// keys, not to constrain ordinary working sets, so workloads that fit in
+// memory today keep their hit rates.
+const defaultCacheMaxEntries = 100_000
+
 // signal identifies the pipeline kind a processor instance is wired into. It
 // namespaces the storage extension client so concurrent processor instances
 // for the same component ID across signals do not share or close each other's
@@ -92,10 +98,16 @@ func (p *lookupProcessor) start(ctx context.Context, host component.Host) error 
 		ttl = p.cfg.CacheTTL
 	}
 
+	maxEntries := defaultCacheMaxEntries
+	if p.cfg.CacheMaxEntries > 0 {
+		maxEntries = p.cfg.CacheMaxEntries
+	}
+
 	cached, err := NewLookupCache(
 		ctx,
 		source,
 		ttl,
+		maxEntries,
 		p.cfg.CacheEnabled,
 		p.cfg.StorageID,
 		host,
