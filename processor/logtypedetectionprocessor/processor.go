@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/fingerprint"
 	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -57,7 +58,7 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 			for k := 0; k < scopeLogs.LogRecords().Len(); k++ {
 				logRecord := scopeLogs.LogRecords().At(k)
 				body := logRecord.Body().AsString()
-				fingerprint := fingerprintLog(body)
+				fingerprint := fingerprint.FingerprintLog(body)
 				if fingerprint <= 0 {
 					continue
 				}

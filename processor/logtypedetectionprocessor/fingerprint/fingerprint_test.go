@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package logtypedetectionprocessor
+package fingerprint
 
 import (
 	"encoding/csv"
@@ -36,7 +36,7 @@ func TestFingerprintJSONLogsNoCollisions(t *testing.T) {
 	seen := map[uint64]string{}
 	for _, r := range records[1:] {
 		logType, body := r[0], r[1]
-		fp := fingerprintLog(body)
+		fp := FingerprintLog(body)
 		require.NotZero(t, fp, "no fingerprint for %s: %s", logType, body)
 
 		if prev, ok := seen[fp]; ok {

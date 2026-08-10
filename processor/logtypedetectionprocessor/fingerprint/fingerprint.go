@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package logtypedetectionprocessor
+package fingerprint
 
 import "strings"
 
@@ -33,8 +33,8 @@ func init() {
 	}
 }
 
-// fingerprintLog creates a hash based off the structure of the log.
-func fingerprintLog(data string) uint64 {
+// FingerprintLog creates a hash based off the structure of the log.
+func FingerprintLog(data string) uint64 {
 	data = strings.TrimSpace(data)
 	if len(data) < 2 {
 		return 0
