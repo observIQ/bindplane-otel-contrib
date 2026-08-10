@@ -18,15 +18,16 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"sync"
+	"sync/atomic"
 
-	"github.com/observiq/bindplane-otel-contrib/pkg/measurements"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
+
+	"github.com/observiq/bindplane-otel-contrib/pkg/measurements"
 )
 
 type throughputMeasurementProcessor struct {
@@ -35,9 +36,19 @@ type throughputMeasurementProcessor struct {
 	measurements        *measurements.ThroughputMeasurements
 	samplingCutOffRatio float64
 	processorID         component.ID
-	bindplane           component.ID
-	startOnce           sync.Once
-	measureLogRawBytes  bool
+	opampExtensionID    component.ID
+	global              *GlobalConfig
+	// bindplane exists only for backwards compatibility with Bindplane
+	// servers that don't render `opamp`; delete with BPOP-5622.
+	bindplane          component.ID
+	measureLogRawBytes bool
+
+	// registeredWithReporter records that start registered with the shared
+	// opamp reporter, so shutdown knows to release it.
+	registeredWithReporter bool
+
+	started *atomic.Bool
+	stopped *atomic.Bool
 }
 
 func newThroughputMeasurementProcessor(logger *zap.Logger, mp metric.MeterProvider, cfg *Config, processorID component.ID) (*throughputMeasurementProcessor, error) {
@@ -52,31 +63,99 @@ func newThroughputMeasurementProcessor(logger *zap.Logger, mp metric.MeterProvid
 		measurements:        measurements,
 		samplingCutOffRatio: cfg.SamplingRatio,
 		processorID:         processorID,
+		opampExtensionID:    cfg.OpAMP,
+		global:              cfg.Global,
 		bindplane:           cfg.BindplaneExtension,
-		startOnce:           sync.Once{},
 		measureLogRawBytes:  cfg.MeasureLogRawBytes,
+
+		started: &atomic.Bool{},
+		stopped: &atomic.Bool{},
 	}, nil
 }
 
 func (tmp *throughputMeasurementProcessor) start(_ context.Context, host component.Host) error {
-	var err error
-	tmp.startOnce.Do(func() {
-		registry, getRegErr := GetThroughputRegistry(host, tmp.bindplane)
-		if getRegErr != nil {
-			err = fmt.Errorf("get throughput registry: %w", getRegErr)
-			return
+	if tmp.started.Swap(true) {
+		// Start logic should only be run once
+		return nil
+	}
+
+	var emptyID component.ID
+	if tmp.global != nil && tmp.opampExtensionID == emptyID {
+		tmp.logger.Warn("global is set but opamp is not; ignoring global settings.")
+	}
+
+	switch {
+	case tmp.opampExtensionID != emptyID:
+		if tmp.bindplane != emptyID {
+			tmp.logger.Warn("Both opamp and bindplane_extension are set; using opamp. bindplane_extension is deprecated.")
 		}
 
-		if registry != nil {
-			registerErr := registry.RegisterThroughputMeasurements(tmp.processorID.String(), tmp.measurements)
-			if registerErr != nil {
-				err = fmt.Errorf("register throughput measurements: %w", registerErr)
-				return
-			}
-		}
-	})
+		registerWithOpAMPReporter(tmp)
+		tmp.registeredWithReporter = true
 
-	return err
+		// Only the processor carrying the `global` block sets up the reporter;
+		// if no processor carries one, measurements feed the reporter but
+		// nothing is reported.
+		if tmp.global != nil {
+			return configureOpAMPReporter(host, tmp.logger, tmp.opampExtensionID, *tmp.global)
+		}
+
+		// The extension reference must still resolve, even on processors that
+		// don't set up the reporter.
+		_, err := getCustomCapabilityRegistry(host, tmp.opampExtensionID)
+		return err
+
+	// Both fallback cases below exist only for backwards compatibility with
+	// Bindplane servers that don't render `opamp`; delete them (and make opamp
+	// reporting the only path) with BPOP-5622.
+	case tmp.bindplane != emptyID:
+		tmp.logger.Warn("bindplane_extension is deprecated; configure opamp instead.")
+		ext, ok := host.GetExtensions()[tmp.bindplane]
+		if !ok {
+			// Old Bindplane servers render bindplane_extension without instantiating
+			// the extension (v1 agents ignored the field entirely); treat this the
+			// same as the neither-set case below.
+			tmp.registerWithV1AgentRegistry()
+			return nil
+		}
+
+		// v2/byoc agent, use the configured Bindplane extension for backwards compatibility.
+		if err := tmp.registerWithV2AgentRegistry(ext); err != nil {
+			return fmt.Errorf("register with bindplane extension: %q", err)
+		}
+
+	default:
+		// Neither opamp nor bindplane_extension is configured, meaning this is a
+		// v1 bindplane agent or standalone collector.
+		tmp.registerWithV1AgentRegistry()
+	}
+
+	return nil
+}
+
+// registerWithV1AgentRegistry registers the measurements with the package-level
+// registry that the v1 bindplane agent runtime reads. Never fatal: duplicate
+// registration (e.g. a config reload without a registry reset) only warns, and
+// outside a v1 agent the registration is simply inert.
+func (tmp *throughputMeasurementProcessor) registerWithV1AgentRegistry() {
+	if err := measurements.BindplaneAgentThroughputMeasurementsRegistry.RegisterThroughputMeasurements(tmp.processorID.String(), tmp.measurements); err != nil {
+		tmp.logger.Warn("Failed to register measurements with bindplane agent registry.", zap.Error(err))
+	}
+}
+
+// registerWithV2AgentRegistry registers the measurements with the Bindplane extension. This follows the
+// existing pattern used when the Bindplane extension is configured.
+func (tmp *throughputMeasurementProcessor) registerWithV2AgentRegistry(bindplane component.Component) error {
+	registry, ok := bindplane.(measurements.ThroughputMeasurementsRegistry)
+	if !ok {
+		return fmt.Errorf("extension %q is not an throughput message registry", tmp.bindplane)
+	}
+
+	if err := registry.RegisterThroughputMeasurements(tmp.processorID.String(), tmp.measurements); err != nil {
+		return fmt.Errorf("register throughput measurements: %w", err)
+	}
+
+	return nil
 }
 
 func (tmp *throughputMeasurementProcessor) processTraces(ctx context.Context, td ptrace.Traces) (ptrace.Traces, error) {
@@ -112,7 +191,17 @@ func (tmp *throughputMeasurementProcessor) processMetrics(ctx context.Context, m
 	return md, nil
 }
 
-func (tmp *throughputMeasurementProcessor) shutdown(_ context.Context) error {
+func (tmp *throughputMeasurementProcessor) shutdown(ctx context.Context) error {
+	if tmp.stopped.Swap(true) {
+		// Stop logic should only be run once
+		return nil
+	}
+
 	unregisterProcessor(tmp.processorID)
+
+	if tmp.registeredWithReporter {
+		return releaseOpAMPReporter(ctx)
+	}
+
 	return nil
 }
