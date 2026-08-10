@@ -16,11 +16,11 @@ package logtypedetectionprocessor
 
 import "strings"
 
-var nameEnd [256]bool
+var xmlEndingChars [256]bool
 
 func init() {
 	for _, c := range []byte(" \t\n\r/>=") {
-		nameEnd[c] = true
+		xmlEndingChars[c] = true
 	}
 }
 
@@ -113,7 +113,7 @@ func endOfText(data string, start int) (int, bool) {
 	text := false
 	i := start
 	for ; i < len(data) && data[i] != '<'; i++ {
-		text = text || !space[data[i]]
+		text = text || !spaceChars[data[i]]
 	}
 
 	return i, text
@@ -135,7 +135,7 @@ func skipMarkup(data string, start int) (int, bool) {
 // elementName returns the name starting at start and the index just past it.
 func elementName(data string, start int) (string, int) {
 	i := start
-	for i < len(data) && !nameEnd[data[i]] {
+	for i < len(data) && !xmlEndingChars[data[i]] {
 		i++
 	}
 
@@ -149,7 +149,7 @@ func hashElement(data string, start int, name string) (uint64, int, bool) {
 	elem := foldFNVHashString(fnvOffsetBasis, name)
 
 	for i := start; ; {
-		for i < len(data) && space[data[i]] {
+		for i < len(data) && spaceChars[data[i]] {
 			i++
 		}
 		if i >= len(data) {
@@ -172,7 +172,7 @@ func hashElement(data string, start int, name string) (uint64, int, bool) {
 		}
 		elem = foldFNVHashString(elem, attr)
 
-		for end < len(data) && space[data[end]] {
+		for end < len(data) && spaceChars[data[end]] {
 			end++
 		}
 		if end < len(data) && data[end] == '=' {
@@ -200,7 +200,7 @@ func endOfTag(data string, start int) int {
 // starting at start, or -1 if the value is unquoted or unterminated.
 func endOfAttrValue(data string, start int) int {
 	i := start
-	for i < len(data) && space[data[i]] {
+	for i < len(data) && spaceChars[data[i]] {
 		i++
 	}
 	if i >= len(data) || (data[i] != '"' && data[i] != '\'') {

@@ -19,11 +19,19 @@ import "strings"
 // maxLogDepth bounds object nesting when fingerprinting logs.
 const maxLogDepth = 64
 
+var spaceChars [256]bool
+
 const (
 	textPlaceholder  = `<txt>`
 	valuePlaceholder = `<val>`
 	arrayPlaceholder = `<arr>`
 )
+
+func init() {
+	for _, c := range []byte(" \t\n\r") {
+		spaceChars[c] = true
+	}
+}
 
 // fingerprintLog creates a hash based off the structure of the log.
 func fingerprintLog(data string) uint64 {

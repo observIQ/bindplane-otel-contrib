@@ -14,14 +14,11 @@
 
 package logtypedetectionprocessor
 
-var space, structural [256]bool
+var jsonStructuralChars [256]bool
 
 func init() {
-	for _, c := range []byte(" \t\n\r") {
-		space[c] = true
-	}
 	for _, c := range []byte("{}[],:") {
-		structural[c] = true
+		jsonStructuralChars[c] = true
 	}
 }
 
@@ -41,7 +38,7 @@ func fingerprintJSON(data string) uint64 {
 		c := data[i]
 		switch {
 		// Skip whitespace
-		case space[c]:
+		case spaceChars[c]:
 			i++
 		// Starting an array inside the json
 		// curTokens >0 means we are not at the root of the json
@@ -70,7 +67,7 @@ func fingerprintJSON(data string) uint64 {
 			depth--
 			hash = foldFNVHashByte(hash, c)
 			i++
-		case structural[c]:
+		case jsonStructuralChars[c]:
 			hash = foldFNVHashByte(hash, c)
 			curTokens++
 			i++
@@ -82,7 +79,7 @@ func fingerprintJSON(data string) uint64 {
 			}
 			// Jump to the end of the string
 			j := end
-			for j < len(data) && space[data[j]] {
+			for j < len(data) && spaceChars[data[j]] {
 				j++
 			}
 			if j < len(data) && data[j] == ':' {
@@ -95,7 +92,7 @@ func fingerprintJSON(data string) uint64 {
 		// This is some arbitrary value, boolean, number, etc.
 		default:
 			// Consume all the characters that aren't whitespace, structural characters, or quotes.
-			for i < len(data) && !space[data[i]] && !structural[data[i]] && data[i] != '"' {
+			for i < len(data) && !spaceChars[data[i]] && !jsonStructuralChars[data[i]] && data[i] != '"' {
 				i++
 			}
 			hash = foldFNVHashString(hash, valuePlaceholder)
