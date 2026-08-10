@@ -39,8 +39,9 @@ on every hop even with Administrator rights. The native path needs no elevation,
 so `traceroute.enabled: true` works out of the box and `method` can be left at
 its default.
 
-DNS server auto-detection from `/etc/resolv.conf` is not available on Windows —
-set `dns_server` explicitly per target or leave blank to use the system resolver.
+The system resolver is detected via `GetAdaptersAddresses`, the same source
+`ipconfig` and `Get-DnsClientServerAddress` read, so the `dns.server` attribute
+is populated on Windows without configuring `dns_server`.
 
 ### Unanswered hops
 
@@ -67,7 +68,9 @@ receivers:
       - endpoint: "8.8.8.8"        # ICMP target: IP or hostname
         method: icmp               # "icmp" (default) or "http"
         ping_count: 3              # ICMP packets per probe. Default 3.
-        dns_server: ""             # Override DNS resolver, e.g. "8.8.8.8:53". Blank = system resolver.
+        dns_server: ""             # Override DNS resolver, e.g. "8.8.8.8:53".
+                                   # Blank = system resolver, auto-detected and
+                                   # reported in the dns.server attribute.
 
       - endpoint: "https://example.com/health"  # HTTP target: full URL
         method: http
