@@ -619,8 +619,9 @@ func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
 	reporterMux.Unlock()
 }
 
-// Test that the global block's extra attributes are stamped on reported
-// datapoints, with a processor's own extra_labels winning on conflicts.
+// Test that the global block's extra labels are stamped on reported
+// datapoints, with the global value winning on conflicts — the same behavior
+// as the bindplane extension's extra_measurements_attributes.
 func TestProcessor_GlobalExtraAttributesMerge(t *testing.T) {
 	mp := metric.NewMeterProvider()
 	defer mp.Shutdown(context.Background())
@@ -674,10 +675,11 @@ func TestProcessor_GlobalExtraAttributesMerge(t *testing.T) {
 	for i := 0; i < sm.Len(); i++ {
 		attrs := sm.At(i).Sum().DataPoints().At(0).Attributes()
 
-		// The processor's own extra_labels win the conflicting key.
+		// The global extra_labels win the conflicting key, matching the
+		// bindplane extension's behavior.
 		team, ok := attrs.Get("team")
 		require.True(t, ok)
-		require.Equal(t, "a", team.Str())
+		require.Equal(t, "global", team.Str())
 
 		// Non-conflicting global attributes are stamped on.
 		env, ok := attrs.Get("env")

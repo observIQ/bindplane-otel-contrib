@@ -29,11 +29,11 @@ Counters:
 | `enabled`               | bool  | `true`  | When `true` signals that measurements are being taken of data passing through this processor. If false this processor acts as a no-op.                                               |
 | `sampling_ratio`        | float | `0.5`   | The ratio of data payloads that are sampled. Values between `0.0` and `1.0`. Values closer to `1.0` mean any individual payload is more likely to have its size measured.            |
 | `measure_log_raw_bytes` | bool  | `false` | When `true`, for logs, the processor will measure the raw bytes of the payload in addition to the protobuf size. This is more expensive but provides raw measurements if designated. |
-| `extra_labels`          | map   |         | Extra key-value pairs added to this processor's measurements. Win over the global block's `extra_labels` on conflicting keys. |
+| `extra_labels`          | map   |         | Extra key-value pairs added to this processor's measurements. The global block's `extra_labels` win on conflicting keys in reported measurements. |
 | `opamp`                 | string |        | Component ID of an opamp extension (e.g. `opamp`) implementing the custom message registry. When set, the processor's measurements feed the reporter shared by every opamp-configured throughput processor, which sends them to Bindplane as custom messages on the `com.bindplane.measurements.v1` capability. Every processor should reference the same extension. |
 | `global`                | block |         | Settings for the shared reporter. Exactly one processor in a configuration should carry this block — it sets up the reporter. If no processor carries it, nothing is reported over opamp. |
 | `global.interval`       | duration |       | How often measurements are reported over opamp. Reporting is disabled if `0` or unset. |
-| `global.extra_labels` | map | | Extra key-value pairs added to all reported datapoints. A processor's own `extra_labels` win on conflicting keys. |
+| `global.extra_labels` | map | | Extra key-value pairs added to all reported datapoints, overriding a processor's own `extra_labels` on conflicting keys. |
 | `bindplane_extension`   | string |        | Deprecated; configure `opamp` instead. Component ID of a bindplane extension to register measurements with. Ignored when `opamp` is set. |
 
 ### Startup behavior

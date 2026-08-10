@@ -214,8 +214,7 @@ func (r *opampReporter) reportLoop(interval time.Duration) {
 }
 
 func (r *opampReporter) report() error {
-	m := r.registry.OTLPMeasurements(nil)
-	r.applyExtraLabels(m)
+	m := r.registry.OTLPMeasurements(r.extraLabels)
 
 	// Send metrics as snappy-encoded otlp proto
 	marshaller := pmetric.ProtoMarshaler{}
@@ -235,34 +234,6 @@ func (r *opampReporter) report() error {
 			continue
 		default:
 			return fmt.Errorf("send custom throughput message: %w", err)
-		}
-	}
-}
-
-// applyExtraLabels stamps the global extra measurement attributes on every
-// datapoint. Attributes already present — including a processor's own
-// extra_labels — win on conflicting keys.
-func (r *opampReporter) applyExtraLabels(m pmetric.Metrics) {
-	if len(r.extraLabels) == 0 {
-		return
-	}
-
-	rms := m.ResourceMetrics()
-	for i := 0; i < rms.Len(); i++ {
-		sms := rms.At(i).ScopeMetrics()
-		for j := 0; j < sms.Len(); j++ {
-			ms := sms.At(j).Metrics()
-			for k := 0; k < ms.Len(); k++ {
-				dps := ms.At(k).Sum().DataPoints()
-				for l := 0; l < dps.Len(); l++ {
-					attrs := dps.At(l).Attributes()
-					for key, value := range r.extraLabels {
-						if _, ok := attrs.Get(key); !ok {
-							attrs.PutStr(key, value)
-						}
-					}
-				}
-			}
 		}
 	}
 }
