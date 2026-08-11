@@ -93,21 +93,12 @@ func (p *lookupProcessor) start(ctx context.Context, host component.Host) error 
 		return fmt.Errorf("failed to create lookup source: %w", err)
 	}
 
-	ttl := defaultCacheTTL
-	if p.cfg.CacheTTL > 0 {
-		ttl = p.cfg.CacheTTL
-	}
-
-	maxEntries := defaultCacheMaxEntries
-	if p.cfg.CacheMaxEntries > 0 {
-		maxEntries = p.cfg.CacheMaxEntries
-	}
-
+	// Non-positive cache settings fall back to defaults inside NewLookupCache.
 	cached, err := NewLookupCache(
 		ctx,
 		source,
-		ttl,
-		maxEntries,
+		p.cfg.CacheTTL,
+		p.cfg.CacheMaxEntries,
 		p.cfg.CacheEnabled,
 		p.cfg.StorageID,
 		host,

@@ -220,11 +220,23 @@ func TestLookupCache_InMemory_MaxEntriesOne(t *testing.T) {
 	require.True(t, found)
 }
 
+func TestNewLookupCache_DefaultsForNonPositiveArgs(t *testing.T) {
+	c, err := NewLookupCache(context.Background(), keyedSource{}, 0, 0, true, nil, nil, newComponentID(t, "defaults"), "logs", zap.NewNop())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	require.Equal(t, defaultCacheTTL, c.ttl)
+	require.Equal(t, defaultCacheMaxEntries, c.maxEntries)
+}
+
 func TestLookupCache_InMemory_ConcurrentLookups(t *testing.T) {
 	c, err := NewLookupCache(context.Background(), keyedSource{}, time.Minute, 64, true, nil, nil, newComponentID(t, "concurrent"), "logs", zap.NewNop())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 
+	// One error slot per goroutine, checked after Wait: require must not run
+	// off the test goroutine.
+	errs := make([]error, 8)
 	var wg sync.WaitGroup
 	for g := 0; g < 8; g++ {
 		wg.Add(1)
@@ -232,12 +244,16 @@ func TestLookupCache_InMemory_ConcurrentLookups(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < 2000; i++ {
 				// Overlapping key space mixes hits, misses, and evictions.
-				_, err := c.Lookup(context.Background(), fmt.Sprintf("key-%d", (g*500+i)%256))
-				require.NoError(t, err)
+				if _, err := c.Lookup(context.Background(), fmt.Sprintf("key-%d", (g*500+i)%256)); err != nil && errs[g] == nil {
+					errs[g] = err
+				}
 			}
 		}(g)
 	}
 	wg.Wait()
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
 
 	require.LessOrEqual(t, len(c.mem), 64)
 }

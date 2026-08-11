@@ -59,8 +59,9 @@ type LookupCache struct {
 // NewLookupCache wraps source with TTL caching. When enabled is false, the
 // returned cache is a pass-through. signal is used to namespace the storage
 // extension client per pipeline signal kind (logs/metrics/traces) so closing
-// one processor instance's client does not affect another. maxEntries bounds
-// the in-memory backend; values < 1 fall back to defaultCacheMaxEntries.
+// one processor instance's client does not affect another. Defaulting lives
+// here alone: a non-positive ttl or maxEntries falls back to defaultCacheTTL
+// or defaultCacheMaxEntries, so the cache is correct regardless of caller.
 func NewLookupCache(
 	ctx context.Context,
 	source LookupSource,
@@ -73,6 +74,9 @@ func NewLookupCache(
 	signal string,
 	logger *zap.Logger,
 ) (*LookupCache, error) {
+	if ttl <= 0 {
+		ttl = defaultCacheTTL
+	}
 	if maxEntries < 1 {
 		maxEntries = defaultCacheMaxEntries
 	}
