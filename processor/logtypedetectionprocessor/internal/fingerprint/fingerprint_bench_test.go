@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package logtypedetectionprocessor
+package fingerprint
 
 import (
 	"encoding/csv"
@@ -54,7 +54,7 @@ func benchmarkFingerprintCorpus(b *testing.B, path string) {
 	n := 0
 	for b.Loop() {
 		for i := range bodies {
-			if fingerprintLog(bodies[i]) == 0 {
+			if HashLog(bodies[i]) == 0 {
 				b.Fatal("no fingerprint")
 			}
 		}

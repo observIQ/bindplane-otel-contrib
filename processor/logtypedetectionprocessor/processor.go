@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/fingerprint"
 	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -57,21 +58,21 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 			for k := 0; k < scopeLogs.LogRecords().Len(); k++ {
 				logRecord := scopeLogs.LogRecords().At(k)
 				body := logRecord.Body().AsString()
-				fingerprint := fingerprintLog(body)
-				if fingerprint <= 0 {
+				logFingerprint := fingerprint.HashLog(body)
+				if logFingerprint <= 0 {
 					continue
 				}
-				logType, ok := p.logTypes.Load(fingerprint)
+				logType, ok := p.logTypes.Load(logFingerprint)
 				if !ok {
 					newLogType, err, _ := p.detectionGroup.Do(
-						strconv.FormatUint(fingerprint, 10),
+						strconv.FormatUint(logFingerprint, 10),
 						func() (any, error) {
 							// An earlier flight may have finished since we missed the cache.
-							if cached, ok := p.logTypes.Load(fingerprint); ok {
+							if cached, ok := p.logTypes.Load(logFingerprint); ok {
 								return cached, nil
 							}
 							logType := p.logType(ctx, body)
-							p.logTypes.Store(fingerprint, logType)
+							p.logTypes.Store(logFingerprint, logType)
 							return logType, nil
 						},
 					)
@@ -80,7 +81,7 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 					}
 					logType = newLogType.(string)
 				}
-				logRecord.Attributes().PutStr("fingerprint", strconv.FormatUint(fingerprint, 16))
+				logRecord.Attributes().PutStr("fingerprint", strconv.FormatUint(logFingerprint, 16))
 				if lt, ok := logType.(string); ok && lt != "" {
 					logRecord.Attributes().PutStr("logType", lt)
 				}
