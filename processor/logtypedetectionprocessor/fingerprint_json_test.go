@@ -34,7 +34,7 @@ func TestFingerprintJSONInvalid(t *testing.T) {
 		`[{"a":1}`,
 		`{"a":1]`,
 		`{a:1]`,
-		strings.Repeat(`{"a":`, maxDepth+1) + "1" + strings.Repeat("}", maxDepth+1),
+		strings.Repeat(`{"a":`, maxLogDepth+1) + "1" + strings.Repeat("}", maxLogDepth+1),
 	}
 
 	for _, c := range cases {

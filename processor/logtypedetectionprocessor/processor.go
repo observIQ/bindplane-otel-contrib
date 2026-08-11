@@ -58,7 +58,7 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 				logRecord := scopeLogs.LogRecords().At(k)
 				body := logRecord.Body().AsString()
 				fingerprint := fingerprintLog(body)
-				if fingerprint == 0 {
+				if fingerprint <= 0 {
 					continue
 				}
 				logType, ok := p.logTypes.Load(fingerprint)
@@ -66,6 +66,10 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 					newLogType, err, _ := p.detectionGroup.Do(
 						strconv.FormatUint(fingerprint, 10),
 						func() (any, error) {
+							// An earlier flight may have finished since we missed the cache.
+							if cached, ok := p.logTypes.Load(fingerprint); ok {
+								return cached, nil
+							}
 							logType := p.logType(ctx, body)
 							p.logTypes.Store(fingerprint, logType)
 							return logType, nil
@@ -76,9 +80,7 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 					}
 					logType = newLogType.(string)
 				}
-				if fingerprint > 0 {
-					logRecord.Attributes().PutStr("fingerprint", strconv.FormatUint(fingerprint, 16))
-				}
+				logRecord.Attributes().PutStr("fingerprint", strconv.FormatUint(fingerprint, 16))
 				if lt, ok := logType.(string); ok && lt != "" {
 					logRecord.Attributes().PutStr("logType", lt)
 				}

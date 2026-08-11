@@ -3,6 +3,9 @@ module github.com/observiq/bindplane-otel-contrib/processor/topologyprocessor
 go 1.26.4
 
 require (
+	github.com/golang/snappy v1.0.0
+	github.com/open-telemetry/opamp-go v0.23.0
+	github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages v0.158.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden v0.158.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/client v1.64.0
@@ -25,6 +28,7 @@ require (
 	go.opentelemetry.io/collector/internal/componentalias v0.158.0 // indirect
 	go.opentelemetry.io/collector/pdata/xpdata v0.158.0 // indirect
 	go.opentelemetry.io/collector/processor/xprocessor v0.158.0 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )
 
 require (
