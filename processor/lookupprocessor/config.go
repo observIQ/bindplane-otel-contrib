@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/confmap"
 )
 
 const (
@@ -65,6 +66,45 @@ type Config struct {
 	CSV   string       `mapstructure:"csv"`
 	Redis *RedisConfig `mapstructure:"redis"`
 	API   *APIConfig   `mapstructure:"api"`
+
+	// cacheKeysSet records which cache keys the configuration actually contained.
+	// createDefaultConfig fills all three, so a plain value check cannot tell a
+	// user's choice from a default, and warning on the default would fire for
+	// every existing CSV user.
+	cacheKeysSet map[string]bool
+}
+
+// cacheKeys are the settings that only apply to a source the cache fronts.
+// storage belongs here because it names the extension the cache persists
+// through, so a source that bypasses the cache never reads it.
+var cacheKeys = []string{"cache_enabled", "cache_ttl", "cache_max_entries", "storage"}
+
+// Unmarshal records which cache keys were present before applying the config.
+func (cfg *Config) Unmarshal(conf *confmap.Conf) error {
+	if err := conf.Unmarshal(cfg); err != nil {
+		return err
+	}
+
+	cfg.cacheKeysSet = make(map[string]bool, len(cacheKeys))
+	for _, key := range cacheKeys {
+		if conf.IsSet(key) {
+			cfg.cacheKeysSet[key] = true
+		}
+	}
+
+	return nil
+}
+
+// setCacheKeys returns the cache keys this configuration explicitly set, in a
+// stable order suitable for a log message.
+func (cfg Config) setCacheKeys() []string {
+	var set []string
+	for _, key := range cacheKeys {
+		if cfg.cacheKeysSet[key] {
+			set = append(set, key)
+		}
+	}
+	return set
 }
 
 // APIConfig is the configuration for API-based lookups.

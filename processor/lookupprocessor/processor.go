@@ -17,6 +17,7 @@ package lookupprocessor
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -104,25 +105,40 @@ func (p *lookupProcessor) start(ctx context.Context, host component.Host) error 
 		return fmt.Errorf("failed to create lookup source: %w", err)
 	}
 
-	// Non-positive cache settings fall back to defaults inside NewLookupCache.
-	cached, err := NewLookupCache(
-		ctx,
-		source,
-		p.cfg.CacheTTL,
-		p.cfg.CacheMaxEntries,
-		p.cfg.CacheEnabled,
-		p.cfg.StorageID,
-		host,
-		p.componentID,
-		p.signal,
-		p.logger,
-	)
-	if err != nil {
-		_ = source.Close()
-		return fmt.Errorf("failed to create lookup cache: %w", err)
+	// A CSV index is already resident in memory, so fronting it with a cache cannot
+	// reduce work: it only adds a lock per lookup and a second copy of the data.
+	// Bypass structurally rather than by rejecting the config, because
+	// createDefaultConfig enables the cache, so rejecting it would fail every
+	// existing CSV configuration at startup.
+	if p.cfg.CSV != "" {
+		if keys := p.cfg.setCacheKeys(); len(keys) > 0 {
+			p.logger.Warn(
+				"cache settings do not apply to a csv source and are ignored; "+
+					"setting them with 'csv' becomes a configuration error in a future release",
+				zap.String("keys", strings.Join(keys, ", ")),
+			)
+		}
+		p.source = source
+	} else {
+		// Non-positive cache settings fall back to defaults inside NewLookupCache.
+		cached, err := NewLookupCache(
+			ctx,
+			source,
+			p.cfg.CacheTTL,
+			p.cfg.CacheMaxEntries,
+			p.cfg.CacheEnabled,
+			p.cfg.StorageID,
+			host,
+			p.componentID,
+			p.signal,
+			p.logger,
+		)
+		if err != nil {
+			_ = source.Close()
+			return fmt.Errorf("failed to create lookup cache: %w", err)
+		}
+		p.source = cached
 	}
-
-	p.source = cached
 
 	backgroundCtx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
