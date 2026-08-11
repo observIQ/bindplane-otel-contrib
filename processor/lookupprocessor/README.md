@@ -41,6 +41,7 @@ source and adding the resulting fields to the configured `context`.
 | context        | string          | ` `     | Telemetry context to read/write. One of `attributes`, `body`, `resource.attributes`. |
 | field          | string          | ` `     | Field in `context` whose value is used as the lookup key. |
 | source_type    | string          | ` `     | Optional. One of `csv`, `redis`, `api`. When unset, the source is inferred from the source block. |
+| reload_interval | duration       | `60s`   | How often the source is re-checked for changes. An unchanged CSV is skipped without re-reading it. A negative value is rejected. |
 | cache_enabled  | bool            | `true`  | Enable TTL caching of lookup results. |
 | cache_ttl      | duration        | `5m`    | Cache entry lifetime. |
 | cache_max_entries | int          | `100000` | Maximum entries held by the in-memory cache. On overflow, expired entries are evicted first, then arbitrary entries. Ignored when `storage` is set. |
@@ -52,7 +53,7 @@ source and adding the resulting fields to the configured `context`.
 ### CSV source
 | Field | Type   | Default | Description |
 | ---   | ---    | ---     | --- |
-| csv   | string | ` `     | Filesystem path to a CSV file. The first row is the header. Reloaded every minute. |
+| csv   | string | ` `     | Filesystem path to a CSV file. The first row is the header. Re-checked on the `reload_interval` cadence (default one minute), and re-read only when it has changed. |
 
 The top-level `field` setting doubles as the CSV column name used to look up
 rows. The remaining columns of the matching row are added to the configured
