@@ -42,6 +42,7 @@ var (
 	errSourceTypeMismatch = errors.New("source_type does not match the configured source block")
 	errMissingRedisAddr   = errors.New("redis address is required")
 	errMissingAPIURL      = errors.New("api url is required")
+	errNegativeCacheMax   = errors.New("cache_max_entries must not be negative")
 )
 
 // Config is the configuration for the processor.
@@ -50,9 +51,10 @@ type Config struct {
 	Field      string `mapstructure:"field"`
 	SourceType string `mapstructure:"source_type"`
 
-	CacheEnabled bool          `mapstructure:"cache_enabled"`
-	CacheTTL     time.Duration `mapstructure:"cache_ttl"`
-	StorageID    *component.ID `mapstructure:"storage"`
+	CacheEnabled    bool          `mapstructure:"cache_enabled"`
+	CacheTTL        time.Duration `mapstructure:"cache_ttl"`
+	CacheMaxEntries int           `mapstructure:"cache_max_entries"`
+	StorageID       *component.ID `mapstructure:"storage"`
 
 	CSV   string       `mapstructure:"csv"`
 	Redis *RedisConfig `mapstructure:"redis"`
@@ -143,6 +145,10 @@ func (cfg Config) Validate() error {
 		default:
 			return errInvalidSourceType
 		}
+	}
+
+	if cfg.CacheMaxEntries < 0 {
+		return errNegativeCacheMax
 	}
 
 	if cfg.Redis != nil && cfg.Redis.Address == "" {

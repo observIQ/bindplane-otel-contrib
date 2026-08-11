@@ -20,12 +20,18 @@ source and adding the resulting fields to the configured `context`.
    (e.g. `file_storage`, `redis_storage`) for persistence across restarts, or
    a per-instance in-memory map when no `storage` is configured.
 
-   Eviction is lazy: there is no background sweeper. An expired entry is
-   recognized and removed only on the next read of the same key. A key that
-   is never looked up again remains in the cache until the process restarts
-   (in-memory backend) or until the storage extension reclaims it (persistent
-   backend). For high-cardinality keys that rarely repeat, prefer a storage
-   extension with bounded retention or disable the cache.
+   The in-memory backend is bounded by `cache_max_entries`. Reads never
+   mutate the cache; an expired entry is simply reported as a miss, so
+   concurrent lookups do not serialize. Reclamation happens on insert: when
+   an insert pushes the cache over `cache_max_entries`, expired entries are
+   evicted first, then arbitrary entries until the cache is back under the
+   limit.
+
+   The storage backend has no such bound; an expired entry is removed only
+   on the next read of the same key, and a key that is never looked up again
+   remains until the storage extension reclaims it. For high-cardinality
+   keys that rarely repeat, prefer a storage extension with bounded
+   retention or disable the cache.
 
 ## Configuration
 
@@ -37,6 +43,7 @@ source and adding the resulting fields to the configured `context`.
 | source_type    | string          | ` `     | Optional. One of `csv`, `redis`, `api`. When unset, the source is inferred from the source block. |
 | cache_enabled  | bool            | `true`  | Enable TTL caching of lookup results. |
 | cache_ttl      | duration        | `5m`    | Cache entry lifetime. |
+| cache_max_entries | int          | `100000` | Maximum entries held by the in-memory cache. On overflow, expired entries are evicted first, then arbitrary entries. Ignored when `storage` is set. |
 | storage        | component.ID    | `nil`   | Storage extension to back the cache (e.g. `file_storage`). When unset, the cache is in-memory and discarded on restart. |
 | csv            | string          | ` `     | Path to CSV file. See [CSV source](#csv-source). |
 | redis          | object          | `nil`   | Redis source config. See [Redis source](#redis-source). |

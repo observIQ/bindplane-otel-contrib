@@ -77,6 +77,25 @@ func TestValidate(t *testing.T) {
 			err: errSourceTypeMismatch,
 		},
 		{
+			name: "negative cache_max_entries",
+			cfg: Config{
+				Context:         "body",
+				Field:           "ip",
+				CSV:             "csv",
+				CacheMaxEntries: -1,
+			},
+			err: errNegativeCacheMax,
+		},
+		{
+			name: "valid cache_max_entries",
+			cfg: Config{
+				Context:         "body",
+				Field:           "ip",
+				CSV:             "csv",
+				CacheMaxEntries: 500,
+			},
+		},
+		{
 			name: "redis missing address",
 			cfg: Config{
 				Context: "body",

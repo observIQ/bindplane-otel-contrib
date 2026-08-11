@@ -47,8 +47,9 @@ func NewFactory() processor.Factory {
 
 func createDefaultConfig() component.Config {
 	return &Config{
-		CacheEnabled: true,
-		CacheTTL:     5 * time.Minute,
+		CacheEnabled:    true,
+		CacheTTL:        5 * time.Minute,
+		CacheMaxEntries: defaultCacheMaxEntries,
 	}
 }
 
