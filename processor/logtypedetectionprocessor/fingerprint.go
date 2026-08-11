@@ -16,6 +16,23 @@ package logtypedetectionprocessor
 
 import "strings"
 
+// maxLogDepth bounds object nesting when fingerprinting logs.
+const maxLogDepth = 64
+
+var spaceChars [256]bool
+
+const (
+	textPlaceholder  = `<txt>`
+	valuePlaceholder = `<val>`
+	arrayPlaceholder = `<arr>`
+)
+
+func init() {
+	for _, c := range []byte(" \t\n\r") {
+		spaceChars[c] = true
+	}
+}
+
 // fingerprintLog creates a hash based off the structure of the log.
 func fingerprintLog(data string) uint64 {
 	data = strings.TrimSpace(data)
@@ -26,6 +43,12 @@ func fingerprintLog(data string) uint64 {
 	first, last := data[0], data[len(data)-1]
 	if (first == '{' && last == '}') || (first == '[' && last == ']') {
 		if res := fingerprintJSON(data); res != 0 {
+			return res
+		}
+	}
+
+	if first == '<' && last == '>' {
+		if res := fingerprintXML(data); res != 0 {
 			return res
 		}
 	}
@@ -50,5 +73,10 @@ func foldFNVHashString(hash uint64, additionalData string) uint64 {
 
 func foldFNVHashByte(hash uint64, b byte) uint64 {
 	hash = (hash ^ uint64(b)) * fnvPrime
+	return hash
+}
+
+func foldFNVHashUint(hash uint64, i uint64) uint64 {
+	hash = (hash ^ i) * fnvPrime
 	return hash
 }

@@ -21,7 +21,15 @@ import (
 )
 
 func BenchmarkFingerprintJSONLogs(b *testing.B) {
-	f, err := os.Open("testdata/jsonLogs.csv")
+	benchmarkFingerprintCorpus(b, "testdata/jsonLogs.csv")
+}
+
+func BenchmarkFingerprintXMLLogs(b *testing.B) {
+	benchmarkFingerprintCorpus(b, "testdata/xmlLogs.csv")
+}
+
+func benchmarkFingerprintCorpus(b *testing.B, path string) {
+	f, err := os.Open(path)
 	if err != nil {
 		b.Fatal(err)
 	}
