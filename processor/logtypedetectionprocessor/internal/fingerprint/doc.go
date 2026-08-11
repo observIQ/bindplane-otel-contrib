@@ -12,5 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package fingerprint provides a fingerprinting algorithms for log types.
-package fingerprint // import "github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/fingerprint"
+// Package fingerprint provides fingerprinting algorithms for log types.
+package fingerprint // import "github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/fingerprint"
