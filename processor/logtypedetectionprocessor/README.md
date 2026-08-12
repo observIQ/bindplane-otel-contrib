@@ -20,17 +20,19 @@ processors:
 
 ## Benchmarks
 
-Fingerprinting the 500 JSON log records in `testdata/jsonLogs.csv` and the 200 XML
-log records in `testdata/xmlLogs.csv`:
+Fingerprinting the 500 JSON log records in `internal/fingerprint/testdata/jsonLogs.csv`,
+the 200 XML log records in `internal/fingerprint/testdata/xmlLogs.csv`, and the 200 CLF
+log records in `internal/fingerprint/testdata/clfLogs.csv`:
 
 ```
 goos: darwin
 goarch: arm64
 cpu: Apple M4 Pro
-BenchmarkFingerprintJSONLogs-14   362728 ns/op   1009.77 MB/s  725.5 ns/record   0 B/op   0 allocs/op
-BenchmarkFingerprintXMLLogs-14    126963 ns/op   1530.10 MB/s  634.8 ns/record   0 B/op   0 allocs/op
+BenchmarkFingerprintJSONLogs-14   388444 ns/op    942.92 MB/s  776.9 ns/record   0 B/op   0 allocs/op
+BenchmarkFingerprintXMLLogs-14    133741 ns/op   1452.55 MB/s  668.7 ns/record   0 B/op   0 allocs/op
+BenchmarkFingerprintCLFLogs-14     29976 ns/op    947.28 MB/s  149.9 ns/record   0 B/op   0 allocs/op
 ```
 
 ```sh
-go test -run XXX -bench BenchmarkFingerprint -benchmem .
+go test -run XXX -bench BenchmarkFingerprint -benchmem ./internal/fingerprint
 ```
