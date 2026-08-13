@@ -44,6 +44,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/observiq/bindplane-otel-contrib/internal/blobstream"
 	"github.com/observiq/bindplane-otel-contrib/internal/storageclient"
 	"github.com/observiq/bindplane-otel-contrib/receiver/gcspubsubeventreceiver/internal/metadata"
 	"github.com/observiq/bindplane-otel-contrib/receiver/gcspubsubeventreceiver/internal/worker"
@@ -403,4 +404,43 @@ func TestProcessMessage_ResumesFromCheckpointAfterCancellation(t *testing.T) {
 		"the two runs together should cover the object exactly once")
 	require.Eventually(t, func() bool { return second.pubsub.acks() == 1 }, 5*time.Second, 10*time.Millisecond,
 		"a fully read object should be acked")
+}
+
+// TestProcessMessage_BodyOptionsReachTheLogRecords asserts the receiver config is plumbed
+// all the way through to the emitted records, rather than only being accepted.
+func TestProcessMessage_BodyOptionsReachTheLogRecords(t *testing.T) {
+	body, lines := objectLines(0, 50)
+
+	ps := newFakePubSub(t, finalizeAttrs())
+	set := componenttest.NewNopTelemetrySettings()
+	tb, err := metadata.NewTelemetryBuilder(set)
+	require.NoError(t, err)
+
+	params := receivertest.NewNopSettings(metadata.Type)
+	obsrecv, err := receiverhelper.NewObsReport(receiverhelper.ObsReportSettings{
+		ReceiverID:             params.ID,
+		Transport:              "pubsub",
+		ReceiverCreateSettings: params,
+	})
+	require.NoError(t, err)
+
+	sink := new(consumertest.LogsSink)
+	w := worker.New(set, sink, fakeGCS(t, body, "", false), obsrecv, 4096, 1000,
+		worker.WithTelemetryBuilder(tb),
+		worker.WithSubscriberClient(ps.client),
+		worker.WithBodyOptions(blobstream.BodyOptions{IncludeLogRecordOriginal: true}),
+	)
+	w.SetOffsetStorage(newMemStorage())
+
+	msg := &worker.PullMessage{
+		AckID:      ps.ackID,
+		MessageID:  ps.messageID,
+		Attributes: ps.srv.Message(ps.messageID).Attributes,
+	}
+	require.True(t, w.ProcessMessage(context.Background(), msg, ps.subscription, func() {}))
+
+	lr := sink.AllLogs()[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+	original, ok := lr.Attributes().Get("log.record.original")
+	require.True(t, ok, "include_log_record_original should reach the emitted records")
+	require.Equal(t, lines[0], original.Str())
 }

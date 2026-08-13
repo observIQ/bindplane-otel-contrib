@@ -32,7 +32,7 @@ func TestLineParser_TruncatedObjectIsNotRetryable(t *testing.T) {
 	t.Parallel()
 
 	reader := &errAfterPrefix{prefix: []byte("first\nsecond\n"), err: io.ErrUnexpectedEOF}
-	parser := NewLineParser(NewBufferedReader(reader, testMaxLogSize))
+	parser := NewLineParser(NewBufferedReader(reader, testMaxLogSize), BodyOptions{})
 
 	logs, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)

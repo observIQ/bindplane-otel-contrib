@@ -41,15 +41,17 @@ const (
 type jsonParser struct {
 	reader  BufferedReader
 	decoder *json.Decoder
+	opts    BodyOptions
 }
 
 var _ LogParser = (*jsonParser)(nil)
 
 // NewJSONParser creates a new JSON parser.
-func NewJSONParser(reader BufferedReader) LogParser {
+func NewJSONParser(reader BufferedReader, opts BodyOptions) LogParser {
 	return &jsonParser{
 		reader:  reader,
 		decoder: json.NewDecoder(reader),
+		opts:    opts,
 	}
 }
 
@@ -227,7 +229,9 @@ func (p *jsonParser) yieldArray(startOffset int64) iter.Seq2[any, error] {
 	return func(yield func(any, error) bool) {
 		// Iterate through the array
 		for p.decoder.More() {
-			var record map[string]any
+			// RawMessage keeps each element's exact bytes for log.record.original.
+			// AppendLogBody decodes the body from the same bytes.
+			var record json.RawMessage
 			currentOffset := p.decoder.InputOffset()
 
 			if err := p.decoder.Decode(&record); err != nil {
@@ -274,9 +278,31 @@ func (p *jsonParser) yieldArray(startOffset int64) iter.Seq2[any, error] {
 	}
 }
 
-// AppendLogBody appends the log record to the log record body using FromRaw.
+// AppendLogBody appends the log record to the log record body using FromRaw, decoding
+// the element's original bytes. In raw mode the original text becomes the body instead.
 func (p *jsonParser) AppendLogBody(_ context.Context, lr plog.LogRecord, record any) error {
-	return lr.Body().FromRaw(record)
+	raw, ok := record.(json.RawMessage)
+	if !ok {
+		return fmt.Errorf("expected json record, got %T", record)
+	}
+
+	original := string(raw)
+	if p.opts.Raw {
+		lr.Body().SetStr(original)
+		p.opts.setOriginal(lr, original)
+		return nil
+	}
+
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return fmt.Errorf("decode record body: %w", err)
+	}
+	// Dropped, not returned. The Unmarshal above rejects bad input, so this only sees
+	// types FromRaw handles. It documents no error cases, so that rests on its current
+	// behaviour: https://pkg.go.dev/go.opentelemetry.io/collector/pdata/pcommon#Value.FromRaw
+	_ = lr.Body().FromRaw(decoded)
+	p.opts.setOriginal(lr, original)
+	return nil
 }
 
 // isJSONStructureError reports that the bytes themselves are malformed, rather than the

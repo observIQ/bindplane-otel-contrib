@@ -72,7 +72,7 @@ func TestLineParser_TerminatesOnPersistentReadError(t *testing.T) {
 
 	readErr := errors.New("connection reset by peer")
 	reader := &errAfterReader{prefix: []byte("first\nsecond\n"), err: readErr}
-	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096))
+	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096), blobstream.BodyOptions{})
 
 	logs, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestLineParser_TerminatesOnCancelledContext(t *testing.T) {
 	t.Parallel()
 
 	reader := &errAfterReader{prefix: []byte("first\n"), err: context.Canceled}
-	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096))
+	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096), blobstream.BodyOptions{})
 
 	logs, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestLineParser_TerminatesOnExceededDeadline(t *testing.T) {
 	t.Parallel()
 
 	reader := &errAfterReader{prefix: []byte("first\n"), err: context.DeadlineExceeded}
-	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096))
+	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096), blobstream.BodyOptions{})
 
 	logs, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
@@ -124,7 +124,7 @@ func TestLineParser_TerminatesOnWrappedEOF(t *testing.T) {
 	t.Parallel()
 
 	reader := &errAfterReader{prefix: []byte("first\nsecond\n"), err: fmt.Errorf("decompress: %w", io.EOF)}
-	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096))
+	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096), blobstream.BodyOptions{})
 
 	logs, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
@@ -143,7 +143,7 @@ func TestLineParser_DropsRecordTruncatedByAReadError(t *testing.T) {
 
 	readErr := errors.New("connection reset by peer")
 	reader := &errAfterReader{prefix: []byte("complete\ntrunca"), err: readErr}
-	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096))
+	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096), blobstream.BodyOptions{})
 
 	logs, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestLineParser_KeepsFinalLineWithoutTrailingNewline(t *testing.T) {
 	t.Parallel()
 
 	reader := &errAfterReader{prefix: []byte("complete\nfinal"), err: io.EOF}
-	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096))
+	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096), blobstream.BodyOptions{})
 
 	logs, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
@@ -181,7 +181,7 @@ func TestLineParser_KeepsFinalLineOnWrappedEOF(t *testing.T) {
 	t.Parallel()
 
 	reader := &errAfterReader{prefix: []byte("complete\nfinal"), err: fmt.Errorf("decompress: %w", io.EOF)}
-	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096))
+	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096), blobstream.BodyOptions{})
 
 	logs, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
@@ -198,7 +198,7 @@ func TestLineParser_TrimsCRLF(t *testing.T) {
 	t.Parallel()
 
 	reader := &errAfterReader{prefix: []byte("first\r\nsecond\r\n"), err: io.EOF}
-	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096))
+	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096), blobstream.BodyOptions{})
 
 	logs, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
@@ -217,7 +217,7 @@ func TestLineParser_SplitsOversizedLine(t *testing.T) {
 	for _, ending := range []string{"\n", "\r\n"} {
 		body := strings.Repeat("x", bufSize*3-1) + ending
 		reader := &errAfterReader{prefix: []byte(body), err: io.EOF}
-		parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, bufSize))
+		parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, bufSize), blobstream.BodyOptions{})
 
 		logs, err := parser.Parse(context.Background(), 0)
 		require.NoError(t, err)
@@ -240,7 +240,7 @@ func TestLineParser_OffsetStopsAtTheLastDeliveredRecord(t *testing.T) {
 	t.Parallel()
 
 	reader := &errAfterReader{prefix: []byte("first\ntrunca"), err: errors.New("connection reset by peer")}
-	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096))
+	parser := blobstream.NewLineParser(blobstream.NewBufferedReader(reader, 4096), blobstream.BodyOptions{})
 
 	logs, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)

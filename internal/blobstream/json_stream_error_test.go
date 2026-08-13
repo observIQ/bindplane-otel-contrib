@@ -81,7 +81,7 @@ func TestJSONParser_MarksABrokenStream(t *testing.T) {
 
 	body := &errAfterPrefix{prefix: []byte(prefix.String()), err: readErr}
 
-	records, err := drainJSON(t, NewJSONParser(NewBufferedReader(body, testMaxLogSize)))
+	records, err := drainJSON(t, NewJSONParser(NewBufferedReader(body, testMaxLogSize), BodyOptions{}))
 
 	require.Len(t, records, delivered, "records read before the break are still delivered")
 	require.ErrorIs(t, err, readErr)
@@ -96,7 +96,7 @@ func TestJSONParser_DoesNotMarkMalformedBytes(t *testing.T) {
 
 	body := io.NopCloser(strings.NewReader(`[{"host":"a"},{"host":,}]`))
 
-	records, err := drainJSON(t, NewJSONParser(NewBufferedReader(body, testMaxLogSize)))
+	records, err := drainJSON(t, NewJSONParser(NewBufferedReader(body, testMaxLogSize), BodyOptions{}))
 
 	require.Len(t, records, 1)
 	require.Error(t, err)

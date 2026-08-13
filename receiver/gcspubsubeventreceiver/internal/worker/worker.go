@@ -74,6 +74,7 @@ type Worker struct {
 	obsrecv          *receiverhelper.ObsReport
 	subClient        *subscriber.SubscriberClient
 	maxExtension     time.Duration
+	bodyOptions      blobstream.BodyOptions
 }
 
 // Option is a functional option for configuring the Worker
@@ -103,6 +104,13 @@ func WithTelemetryBuilder(tb *metadata.TelemetryBuilder) Option {
 		if tb != nil {
 			w.metrics = tb
 		}
+	}
+}
+
+// WithBodyOptions sets how parsed records become log record bodies.
+func WithBodyOptions(opts blobstream.BodyOptions) Option {
+	return func(w *Worker) {
+		w.bodyOptions = opts
 	}
 }
 
@@ -345,6 +353,9 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		MaxLogSize:      w.maxLogSize,
 		Logger:          recordLogger,
 		TryDecoding:     tryJSON,
+
+		Raw:                      w.bodyOptions.Raw,
+		IncludeLogRecordOriginal: w.bodyOptions.IncludeLogRecordOriginal,
 	}
 
 	// Create the offset storage key for this object

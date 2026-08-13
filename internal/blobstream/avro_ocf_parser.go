@@ -16,6 +16,7 @@ package blobstream
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -39,6 +40,7 @@ type avroOcfParser struct {
 	reader  BufferedReader
 	logger  *zap.Logger
 	counter int64
+	opts    BodyOptions
 }
 
 var _ LogParser = (*avroOcfParser)(nil)
@@ -46,11 +48,12 @@ var _ LogParser = (*avroOcfParser)(nil)
 // NewAvroOcfParser creates a new Avro OCF parser. Before attempting to parse the stream,
 // call StartsWithAvroOcfMagic to check if the stream starts with the Avro OCF magic
 // string.
-func NewAvroOcfParser(reader BufferedReader, logger *zap.Logger) LogParser {
+func NewAvroOcfParser(reader BufferedReader, logger *zap.Logger, opts BodyOptions) LogParser {
 	return &avroOcfParser{
 		reader:  reader,
 		logger:  logger,
 		counter: 0,
+		opts:    opts,
 	}
 }
 
@@ -149,6 +152,29 @@ func (p *avroOcfParser) Offset() int64 {
 }
 
 // AppendLogBody appends the avro record to the log record.
+//
+// Avro OCF is binary and has no original text. For log.record.original the parser
+// encodes the decoded record as JSON. It skips the attribute if that fails.
 func (p *avroOcfParser) AppendLogBody(_ context.Context, lr plog.LogRecord, record any) error {
-	return lr.Body().FromRaw(record)
+	if p.opts.Raw {
+		encoded, err := json.Marshal(record)
+		if err != nil {
+			return fmt.Errorf("encode avro record as text: %w", err)
+		}
+		lr.Body().SetStr(string(encoded))
+		p.opts.setOriginal(lr, string(encoded))
+		return nil
+	}
+
+	if err := lr.Body().FromRaw(record); err != nil {
+		return err
+	}
+	if p.opts.IncludeLogRecordOriginal {
+		if encoded, err := json.Marshal(record); err == nil {
+			p.opts.setOriginal(lr, string(encoded))
+		} else {
+			p.logger.Warn("could not encode avro record for log.record.original", zap.Error(err))
+		}
+	}
+	return nil
 }

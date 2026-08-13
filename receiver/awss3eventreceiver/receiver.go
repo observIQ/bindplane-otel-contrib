@@ -34,6 +34,7 @@ import (
 
 	"github.com/observiq/bindplane-otel-contrib/internal/aws/backoff"
 	"github.com/observiq/bindplane-otel-contrib/internal/aws/client"
+	"github.com/observiq/bindplane-otel-contrib/internal/blobstream"
 	"github.com/observiq/bindplane-otel-contrib/internal/storageclient"
 	"github.com/observiq/bindplane-otel-contrib/receiver/awss3eventreceiver/internal/metadata"
 	"github.com/observiq/bindplane-otel-contrib/receiver/awss3eventreceiver/internal/worker"
@@ -120,6 +121,10 @@ func newLogsReceiver(params receiver.Settings, cfg *Config, next consumer.Logs, 
 			New: func() any {
 				opts := []worker.Option{
 					worker.WithTelemetryBuilder(tb),
+					worker.WithBodyOptions(blobstream.BodyOptions{
+						Raw:                      cfg.Raw,
+						IncludeLogRecordOriginal: cfg.IncludeLogRecordOriginal,
+					}),
 				}
 				if bucketNameFilter != nil {
 					opts = append(opts, worker.WithBucketNameFilter(bucketNameFilter))

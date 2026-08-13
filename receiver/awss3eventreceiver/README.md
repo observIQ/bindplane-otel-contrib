@@ -101,6 +101,8 @@ This approach ensures that:
 | max_visibility_window            | duration | 1h         | `false`  | Maximum total time a message can remain invisible before becoming visible to other consumers. Must be less than SQS's 12-hour limit |
 | max_log_size                     | int      | 1048576    | `false`  | The maximum size of a log record in bytes. Logs exceeding this size will be split |
 | max_logs_emitted                 | int      | 1000       | `false`  | The maximum number of log records to emit in a single batch. A higher number will result in fewer batches, but more memory |
+| raw                              | bool     | `false`    | `false`  | Emit each record's original text as the body instead of a parsed structure. Content detection still runs, so unsupported binary content is routed to the dead-letter queue. Avro OCF holds no original text, so it emits the JSON encoding of each record. |
+| include_log_record_original      | bool     | `false`    | `false`  | Additionally record each log record's original text on the `log.record.original` attribute, leaving the body as-is. |
 | notification_type                | enum     | s3         | `false`  | The Notification Type that the receiver expects.  Valid values are `s3` or `sns` |
 
 ## AWS Setup
