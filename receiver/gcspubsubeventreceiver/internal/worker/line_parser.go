@@ -16,6 +16,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -51,12 +52,22 @@ func (p *lineParser) Parse(_ context.Context, startOffset int64) (logs iter.Seq2
 		for {
 			lineBytes, _, err := p.reader.ReadLine()
 			if err != nil {
-				if err == io.EOF {
+				// A decompressing reader can wrap the sentinel.
+				if errors.Is(err, io.EOF) {
 					return
 				}
-				if !yield(nil, err) {
+				// An object that stops mid-record is truncated rather than
+				// unreachable. A decompressor reports a live connection failure
+				// as that failure, so this only fires on missing bytes.
+				if errors.Is(err, io.ErrUnexpectedEOF) {
+					yield(nil, ErrTruncatedObject{Err: err})
 					return
 				}
+				// A read error is terminal. Every later ReadLine returns the same
+				// error, so continuing spins forever. It is marked so the caller
+				// fails the object instead of acking a partial read.
+				yield(nil, ErrStreamRead{Err: err})
+				return
 			}
 
 			// only yield non-empty lines

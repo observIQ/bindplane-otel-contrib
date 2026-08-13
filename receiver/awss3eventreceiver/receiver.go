@@ -49,7 +49,7 @@ type logsReceiver struct {
 	startOnce sync.Once
 	stopOnce  sync.Once
 
-	pollCancel context.CancelFunc
+	cancel     context.CancelFunc
 	pollDone   chan struct{}
 	workerPool sync.Pool
 	workerWg   sync.WaitGroup
@@ -156,16 +156,20 @@ func (r *logsReceiver) Start(_ context.Context, host component.Host) error {
 		// Create message channel
 		r.msgChan = make(chan workerMessage, r.cfg.Workers*2)
 
+		// A single cancellable context governs the workers and the poller, so Shutdown
+		// can interrupt an in-flight ProcessMessage (a stalled read or a downstream
+		// consume) rather than blocking on workerWg.Wait until it returns on its own.
+		runCtx, cancel := context.WithCancel(ctx)
+		r.cancel = cancel
+
 		// Start fixed number of workers
 		for i := 0; i < r.cfg.Workers; i++ {
 			r.workerWg.Add(1)
-			go r.runWorker(ctx)
+			go r.runWorker(runCtx)
 		}
 
-		pollCtx, pollCancel := context.WithCancel(ctx)
-		r.pollCancel = pollCancel
 		r.pollDone = make(chan struct{})
-		go r.poll(pollCtx, func() {
+		go r.poll(runCtx, func() {
 			close(r.pollDone)
 		})
 	})
@@ -203,8 +207,8 @@ func (r *logsReceiver) runWorker(ctx context.Context) {
 
 func (r *logsReceiver) Shutdown(ctx context.Context) error {
 	r.stopOnce.Do(func() {
-		if r.pollCancel != nil {
-			r.pollCancel()
+		if r.cancel != nil {
+			r.cancel()
 		}
 		if r.pollDone != nil {
 			<-r.pollDone
