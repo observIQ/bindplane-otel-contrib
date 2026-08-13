@@ -55,6 +55,7 @@ This approach ensures that:
 | max_log_size                     | int      | 1048576    | `false`  | The maximum size of a log record in bytes. Logs exceeding this size will be split |
 | max_logs_emitted                 | int      | 1000       | `false`  | The maximum number of log records to emit in a single batch. A higher number will result in fewer batches, but more memory |
 | notification_type                | enum     | s3         | `false`  | The Notification Type that the receiver expects.  Valid values are `s3` or `sns` |
+| error_backoff                    | object   | disabled   | `false`  | Exponential backoff retried in-process when a downstream consumer returns a non-permanent error, so a struggling downstream is retried with backoff instead of being hit by immediate redelivery. Standard collector fields: `enabled` (default `false`), `initial_interval`, `randomization_factor`, `multiplier`, `max_interval`, `max_elapsed_time`. When disabled, a failed message is left for the `visibility_timeout` to redeliver |
 
 ## AWS Setup
 

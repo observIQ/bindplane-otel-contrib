@@ -6,6 +6,7 @@ require (
 	cloud.google.com/go/pubsub v1.51.0
 	cloud.google.com/go/storage v1.64.0
 	github.com/bodgit/sevenzip v1.6.5
+	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/gabriel-vasile/mimetype v1.4.15
 	github.com/google/go-cmp v0.7.0
 	github.com/jonboulle/clockwork v0.5.0
@@ -19,8 +20,10 @@ require (
 	github.com/ulikunitz/xz v0.5.16
 	go.opentelemetry.io/collector/component v1.64.0
 	go.opentelemetry.io/collector/component/componenttest v0.158.0
+	go.opentelemetry.io/collector/config/configretry v1.64.0
 	go.opentelemetry.io/collector/confmap v1.64.0
 	go.opentelemetry.io/collector/consumer v1.64.0
+	go.opentelemetry.io/collector/consumer/consumererror v0.158.0
 	go.opentelemetry.io/collector/consumer/consumertest v0.158.0
 	go.opentelemetry.io/collector/pdata v1.64.0
 	go.opentelemetry.io/collector/pipeline v1.64.0
@@ -51,6 +54,7 @@ require (
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/bodgit/plumbing v1.3.0 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
+	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -84,7 +88,6 @@ require (
 	github.com/stangelandcl/ppmd v0.1.1 // indirect
 	go.einride.tech/aip v0.83.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/collector/consumer/consumererror v0.158.0 // indirect
 	go.opentelemetry.io/collector/consumer/xconsumer v0.158.0 // indirect
 	go.opentelemetry.io/collector/extension v1.64.0 // indirect
 	go.opentelemetry.io/collector/extension/xextension v0.158.0 // indirect

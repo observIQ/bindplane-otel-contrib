@@ -33,6 +33,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/aws/smithy-go"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/config/configretry"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -76,6 +77,11 @@ func parseS3Event(messageBody string) (*events.S3Event, error) {
 
 // isDLQConditionError checks if an error should trigger DLQ behavior and returns the specific error type
 func isDLQConditionError(err error) error {
+	// Cancellation is never a DLQ condition. The check is explicit because the
+	// classifiers below match on the error text.
+	if err == nil || isCancellation(err) {
+		return nil
+	}
 	if isAccessDeniedError(err) {
 		return &DLQError{Type: "iam_permission_denied", Err: err}
 	}
@@ -152,6 +158,7 @@ type Worker struct {
 	notificationType            string
 	parseFunc                   parseFunc
 	obsrecv                     *receiverhelper.ObsReport
+	errorBackOff                configretry.BackOffConfig
 }
 
 // Option is a functional option for configuring the Worker
@@ -177,6 +184,13 @@ func WithTelemetryBuilder(tb *metadata.TelemetryBuilder) Option {
 		if tb != nil {
 			w.metrics = tb
 		}
+	}
+}
+
+// WithErrorBackOff sets the retry backoff applied when a downstream consume fails.
+func WithErrorBackOff(cfg configretry.BackOffConfig) Option {
+	return func(w *Worker) {
+		w.errorBackOff = cfg
 	}
 }
 
@@ -406,8 +420,18 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 		return fmt.Errorf("parse logs: %w", err)
 	}
 
+	// parseErr records a cancellation that stopped the read. The records already read
+	// are delivered below. The error is returned, so the message nacks.
+	var parseErr error
+
 	for log, err := range logs {
 		if err != nil {
+			// Cancellation is checked first. A cancelled read is also a broken
+			// stream, and shutdown has its own wind-down path.
+			if isCancellation(err) {
+				parseErr = err
+				break
+			}
 			// A broken stream is fatal for the whole object. Acking here would drop
 			// every record after the break with no way to recover them, so fail and
 			// let the message redeliver and resume from the saved offset.
@@ -430,22 +454,15 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 		}
 
 		if ld.LogRecordCount() >= w.maxLogsEmitted {
-			obsCtx := w.obsrecv.StartLogsOp(ctx)
-			if err := w.nextConsumer.ConsumeLogs(ctx, ld); err != nil {
-				w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), err)
-				recordLogger.Error("consume logs", zap.Error(err), zap.Int("batches_consumed_count", batchesConsumedCount))
-				return fmt.Errorf("consume logs: %w", err)
+			if err := w.flush(ctx, ld, batchesConsumedCount, recordLogger); err != nil {
+				return err
 			}
-			w.metrics.S3eventBatchSize.Record(ctx, int64(ld.LogRecordCount()))
-			w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), nil)
 
 			batchesConsumedCount++
 			recordLogger.Debug("Reached max logs for single batch, starting new batch", zap.Int("batches_consumed_count", batchesConsumedCount))
 
 			// Save the offset to storage
-			if err := w.offsetStorage.SaveStorageData(ctx, offsetStorageKey, NewOffset(parser.Offset())); err != nil {
-				recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int64("offset", parser.Offset()))
-			}
+			w.checkpoint(ctx, offsetStorageKey, parser.Offset(), recordLogger)
 
 			ld = plog.NewLogs()
 			rls = ld.ResourceLogs().AppendEmpty()
@@ -455,34 +472,71 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 		}
 	}
 
-	if ld.LogRecordCount() == 0 {
-		return nil
-	}
-	w.metrics.S3eventBatchSize.Record(ctx, int64(ld.LogRecordCount()))
+	if ld.LogRecordCount() > 0 {
+		if err := w.flush(ctx, ld, batchesConsumedCount, recordLogger); err != nil {
+			return err
+		}
+		if parseErr == nil {
+			recordLogger.Debug("processed S3 object", zap.Int("batches_consumed_count", batchesConsumedCount+1))
+		}
 
-	obsCtx := w.obsrecv.StartLogsOp(ctx)
-	if err := w.nextConsumer.ConsumeLogs(ctx, ld); err != nil {
-		w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), err)
-		recordLogger.Error("consume logs", zap.Error(err), zap.Int("batches_consumed_count", batchesConsumedCount))
-		return fmt.Errorf("consume logs: %w", err)
+		// Save the offset to storage
+		w.checkpoint(ctx, offsetStorageKey, parser.Offset(), recordLogger)
 	}
-	w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), nil)
-	recordLogger.Debug("processed S3 object", zap.Int("batches_consumed_count", batchesConsumedCount+1))
 
-	// Save the offset to storage
-	if err := w.offsetStorage.SaveStorageData(ctx, offsetStorageKey, NewOffset(parser.Offset())); err != nil {
-		recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int64("offset", parser.Offset()))
+	if parseErr != nil {
+		// The read stopped partway. Everything read is delivered and checkpointed
+		// above, so redelivery resumes at the first unread record.
+		return fmt.Errorf("read object: %w", parseErr)
 	}
 
 	return nil
 }
 
+// flush sends a batch to the next consumer on a drain context. Records already read
+// are delivered during wind-down.
+//
+// The line parser drops a truncated record, so a batch always ends on a record
+// boundary and the checkpoint stays accurate. Reading stops at the next failed refill.
+func (w *Worker) flush(ctx context.Context, ld plog.Logs, batchesConsumedCount int, recordLogger *zap.Logger) error {
+	flushCtx, cancel := drainContext(ctx)
+	defer cancel()
+
+	obsCtx := w.obsrecv.StartLogsOp(flushCtx)
+	err := consumeWithRetry(flushCtx, w.errorBackOff, recordLogger, func() error {
+		return w.nextConsumer.ConsumeLogs(flushCtx, ld)
+	})
+	w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), err)
+	if err != nil {
+		recordLogger.Error("consume logs", zap.Error(err), zap.Int("batches_consumed_count", batchesConsumedCount))
+		return fmt.Errorf("consume logs: %w", err)
+	}
+	w.metrics.S3eventBatchSize.Record(flushCtx, int64(ld.LogRecordCount()))
+	return nil
+}
+
+// checkpoint saves the parse position on a drain context. A late cancellation then
+// cannot lose the offset.
+func (w *Worker) checkpoint(ctx context.Context, offsetStorageKey string, offset int64, recordLogger *zap.Logger) {
+	saveCtx, cancel := drainContext(ctx)
+	defer cancel()
+
+	if err := w.offsetStorage.SaveStorageData(saveCtx, offsetStorageKey, NewOffset(offset)); err != nil {
+		recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int64("offset", offset))
+	}
+}
+
 func (w *Worker) deleteMessage(ctx context.Context, msg types.Message, queueURL string, keys []string, recordLogger *zap.Logger) {
+	// Ack on a detached context. A cancellation must not leave a consumed object in
+	// the queue.
+	deleteCtx, cancel := cleanupContext(ctx)
+	defer cancel()
+
 	deleteParams := &sqs.DeleteMessageInput{
 		QueueUrl:      aws.String(queueURL),
 		ReceiptHandle: msg.ReceiptHandle,
 	}
-	_, err := w.client.SQS().DeleteMessage(ctx, deleteParams)
+	_, err := w.client.SQS().DeleteMessage(deleteCtx, deleteParams)
 	if err != nil {
 		recordLogger.Error("delete message", zap.Error(err))
 		return
@@ -492,7 +546,7 @@ func (w *Worker) deleteMessage(ctx context.Context, msg types.Message, queueURL 
 	// Delete the offsets for the keys that were processed
 	for _, key := range keys {
 		offsetStorageKey := fmt.Sprintf("%s_%s", OffsetStorageKey, key)
-		if err := w.offsetStorage.DeleteStorageData(ctx, offsetStorageKey); err != nil {
+		if err := w.offsetStorage.DeleteStorageData(deleteCtx, offsetStorageKey); err != nil {
 			recordLogger.Error("Failed to delete offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey))
 		}
 	}
@@ -654,6 +708,19 @@ func (w *Worker) handleDLQCondition(ctx context.Context, msg types.Message, queu
 
 // handleProcessingError handles errors from processing records, determining if they should trigger DLQ behavior
 func (w *Worker) handleProcessingError(ctx context.Context, msg types.Message, queueURL string, err error, logger *zap.Logger) {
+	// Only a genuine shutdown/config-push counts as a cancellation: our own context is
+	// cancelled, or the error is context.Canceled. A bare DeadlineExceeded with a live
+	// context is a downstream timeout (backpressure), not a shutdown, so it must fall
+	// through to the retry path below rather than nacking for immediate redelivery.
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		// A config push or a shutdown cancelled the context. Nack the message, so it
+		// redelivers at once and resumes from the checkpoint. This is not a failure.
+		logger.Info("processing cancelled, nacking message for redelivery", zap.Error(err))
+		if nackErr := w.resetVisibilityTimeout(ctx, msg, queueURL, logger); nackErr != nil {
+			logger.Error("failed to nack message after cancellation", zap.Error(nackErr))
+		}
+		return
+	}
 	if dlqErr := isDLQConditionError(err); dlqErr != nil {
 		w.handleDLQCondition(ctx, msg, queueURL, dlqErr, logger)
 		return
@@ -664,12 +731,17 @@ func (w *Worker) handleProcessingError(ctx context.Context, msg types.Message, q
 
 // resetVisibilityTimeout resets the message visibility timeout to 0, making it immediately available for DLQ processing
 func (w *Worker) resetVisibilityTimeout(ctx context.Context, msg types.Message, queueURL string, logger *zap.Logger) error {
+	// Nack on a detached context. The message then redelivers without waiting for the
+	// full visibility timeout.
+	nackCtx, cancel := cleanupContext(ctx)
+	defer cancel()
+
 	changeParams := &sqs.ChangeMessageVisibilityInput{
 		QueueUrl:          aws.String(queueURL),
 		ReceiptHandle:     msg.ReceiptHandle,
 		VisibilityTimeout: 0, // Reset to 0 to make message immediately available
 	}
 	logger.Debug("resetting message visibility timeout for DLQ processing")
-	_, err := w.client.SQS().ChangeMessageVisibility(ctx, changeParams)
+	_, err := w.client.SQS().ChangeMessageVisibility(nackCtx, changeParams)
 	return err
 }

@@ -106,6 +106,7 @@ Content that is not text, Avro, or JSON (for example an image or a PDF) is not p
 | `storage` | component.ID | | `false` | The ID of a storage extension to use for tracking per-object byte offsets, enabling resumption of interrupted object reads |
 | `bucket_name_filter` | string | | `false` | A Go regular expression to filter GCS events by bucket name. Only events from matching buckets are processed |
 | `object_key_filter` | string | | `false` | A Go regular expression to filter GCS events by object name. Only objects with matching names are processed |
+| `error_backoff` | object | disabled | `false` | Exponential backoff retried in-process when a downstream consumer returns a non-permanent error, so a struggling downstream is retried with backoff instead of being hit by immediate redelivery. Standard collector fields: `enabled` (default `false`), `initial_interval`, `randomization_factor`, `multiplier`, `max_interval`, `max_elapsed_time`. When disabled, a failed message is left for the ack deadline to lapse and redeliver |
 
 ## GCP Setup
 

@@ -24,6 +24,7 @@ import (
 	"github.com/observiq/bindplane-otel-contrib/internal/aws/client"
 	"github.com/observiq/bindplane-otel-contrib/receiver/awss3eventreceiver/internal/constants"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/config/configretry"
 )
 
 // Config defines the configuration for the AWS S3 Event receiver.
@@ -87,6 +88,12 @@ type Config struct {
 	// Valid values: "s3" (direct S3 events), "sns" (S3 events wrapped in SNS notifications).
 	// Default is "s3".
 	NotificationType string `mapstructure:"notification_type"`
+
+	// ErrorBackOff is the exponential backoff applied when a downstream consumer returns a
+	// (non-permanent) error, so a struggling downstream is retried with backoff rather than
+	// hammered by immediate redelivery. Disabled by default; when disabled the message is
+	// left for the SQS visibility timeout to redeliver, as before.
+	ErrorBackOff configretry.BackOffConfig `mapstructure:"error_backoff"`
 }
 
 // Validate checks if all required fields are present and valid.
@@ -143,6 +150,10 @@ func (c *Config) Validate() error {
 
 	if c.MaxLogSize <= 0 {
 		return errors.New("'max_log_size' must be greater than 0")
+	}
+
+	if err := c.ErrorBackOff.Validate(); err != nil {
+		return fmt.Errorf("'error_backoff' is invalid: %w", err)
 	}
 
 	if _, err := client.ParseRegionFromSQSURL(c.SQSQueueURL); err != nil {

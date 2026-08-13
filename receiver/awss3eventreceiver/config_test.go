@@ -44,6 +44,10 @@ func TestLoadConfig(t *testing.T) {
 	cm, err := confmaptest.LoadConf(filepath.Join("testdata", "test_config.yaml"))
 	require.NoError(t, err)
 
+	// The default (disabled) error backoff is present on every loaded config unless the
+	// file overrides it; the testdata does not, so expect the factory default.
+	defaultBackOff := awss3eventreceiver.NewFactory().CreateDefaultConfig().(*awss3eventreceiver.Config).ErrorBackOff
+
 	tests := []struct {
 		id          component.ID
 		expected    component.Config
@@ -68,6 +72,7 @@ func TestLoadConfig(t *testing.T) {
 				MaxLogSize:                  4096,
 				MaxLogsEmitted:              1000,
 				NotificationType:            "s3",
+				ErrorBackOff:                defaultBackOff,
 			},
 			expectError: false,
 		},
@@ -85,6 +90,7 @@ func TestLoadConfig(t *testing.T) {
 				MaxLogSize:                  4096,
 				MaxLogsEmitted:              1000,
 				NotificationType:            "sns",
+				ErrorBackOff:                defaultBackOff,
 			},
 			expectError: false,
 		},

@@ -169,6 +169,7 @@ func (r *logsReceiver) Start(_ context.Context, host component.Host) error {
 			worker.WithObjectKeyFilter(r.objectKeyFilter),
 			worker.WithSubscriberClient(r.subClient),
 			worker.WithMaxExtension(r.cfg.MaxExtension),
+			worker.WithErrorBackOff(r.cfg.ErrorBackOff),
 		)
 		w.SetOffsetStorage(r.offsetStorage)
 		return w
