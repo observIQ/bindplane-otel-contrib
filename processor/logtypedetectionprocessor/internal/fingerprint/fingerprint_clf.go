@@ -17,7 +17,7 @@ package fingerprint
 var clfDelimChars [256]bool
 
 func init() {
-	for _, c := range []byte(" /?&=:.,;-") {
+	for _, c := range []byte(" /?:.,;-") {
 		clfDelimChars[c] = true
 	}
 }
@@ -92,10 +92,14 @@ func fingerprintCLF(data string) uint64 {
 
 // foldNormalizedRequest mixes the request line into hash. It replaces every
 // segment containing a digit with a placeholder so paths with IDs get the
-// same fingerprint.
+// same fingerprint, and drops query strings.
 func foldNormalizedRequest(hash uint64, request string) uint64 {
 	for i := 0; i < len(request); {
 		c := request[i]
+		if c == '?' {
+			i = endOfToken(request, i)
+			continue
+		}
 		if clfDelimChars[c] {
 			hash = foldFNVHashByte(hash, c)
 			i++

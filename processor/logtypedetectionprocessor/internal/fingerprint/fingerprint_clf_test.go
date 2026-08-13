@@ -98,7 +98,19 @@ func TestFingerprintCLFRequest(t *testing.T) {
 			title:       "different query key",
 			logA:        `192.168.14.77 - - [04/Aug/2026:09:12:41 +0000] "GET /search?q=pans HTTP/1.1" 200 10`,
 			logB:        `192.168.14.77 - - [04/Aug/2026:09:12:41 +0000] "GET /search?user=pans HTTP/1.1" 200 10`,
-			shouldEqual: false,
+			shouldEqual: true,
+		},
+		{
+			title:       "query vs no query",
+			logA:        `192.168.14.77 - - [04/Aug/2026:09:12:41 +0000] "GET /search?q=pans HTTP/1.1" 200 10`,
+			logB:        `192.168.14.77 - - [04/Aug/2026:09:12:41 +0000] "GET /search HTTP/1.1" 200 10`,
+			shouldEqual: true,
+		},
+		{
+			title:       "different api version",
+			logA:        `192.168.14.77 - - [04/Aug/2026:09:12:41 +0000] "GET /v1/orders HTTP/1.1" 200 10`,
+			logB:        `192.168.14.77 - - [04/Aug/2026:09:12:41 +0000] "GET /v2/orders HTTP/1.1" 200 10`,
+			shouldEqual: true,
 		},
 		{
 			title:       "different request path",
