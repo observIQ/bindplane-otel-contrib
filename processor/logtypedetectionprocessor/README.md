@@ -31,11 +31,11 @@ Fingerprinting the following:
 goos: darwin
 goarch: arm64
 cpu: Apple M4 Pro
-BenchmarkFingerprintJSONLogs-14    381608 ns/op    959.82 MB/s  763.2 ns/record   0 B/op   0 allocs/op
-BenchmarkFingerprintXMLLogs-14     124363 ns/op   1562.09 MB/s  621.8 ns/record   0 B/op   0 allocs/op
-BenchmarkFingerprintCLFLogs-14      29934 ns/op    948.61 MB/s  149.7 ns/record   0 B/op   0 allocs/op
-BenchmarkFingerprintSyslogLogs-14   56601 ns/op    746.47 MB/s  283.0 ns/record   0 B/op   0 allocs/op
-BenchmarkFingerprintGenericLogs-14  22239 ns/op    684.79 MB/s  111.2 ns/record   0 B/op   0 allocs/op
+BenchmarkFingerprintJSONLogs-14    382226 ns/op    958.26 MB/s  764.5 ns/record   0 B/op   0 allocs/op
+BenchmarkFingerprintXMLLogs-14     126420 ns/op   1536.67 MB/s  632.1 ns/record   0 B/op   0 allocs/op
+BenchmarkFingerprintCLFLogs-14      30039 ns/op    945.32 MB/s  150.2 ns/record   0 B/op   0 allocs/op
+BenchmarkFingerprintSyslogLogs-14   56155 ns/op    752.40 MB/s  280.8 ns/record   0 B/op   0 allocs/op
+BenchmarkFingerprintGenericLogs-14  21762 ns/op    699.80 MB/s  108.8 ns/record   0 B/op   0 allocs/op
 ```
 
 ```sh
