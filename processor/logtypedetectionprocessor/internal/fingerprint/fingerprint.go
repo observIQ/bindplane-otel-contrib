@@ -72,7 +72,7 @@ func fingerprint(data string, skipRecursiveTypes bool) uint64 {
 		}
 	}
 
-	return 0
+	return fingerprintGeneric(data)
 }
 
 const (
