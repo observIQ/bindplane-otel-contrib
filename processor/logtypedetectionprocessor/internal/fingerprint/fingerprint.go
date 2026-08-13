@@ -47,9 +47,16 @@ func HashLog(data string) uint64 {
 		}
 	}
 
-	if first == '<' && last == '>' {
-		if res := fingerprintXML(data); res != 0 {
-			return res
+	if first == '<' {
+		if data[1] >= '0' && data[1] <= '9' {
+			if res := fingerprintSyslog(data); res != 0 {
+				return res
+			}
+		}
+		if last == '>' {
+			if res := fingerprintXML(data); res != 0 {
+				return res
+			}
 		}
 	}
 

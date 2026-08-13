@@ -20,9 +20,11 @@ processors:
 
 ## Benchmarks
 
-Fingerprinting the 500 JSON log records in `internal/fingerprint/testdata/jsonLogs.csv`,
-the 200 XML log records in `internal/fingerprint/testdata/xmlLogs.csv`, and the 200 CLF
-log records in `internal/fingerprint/testdata/clfLogs.csv`:
+Fingerprinting the following:
+- 500 JSON log records in `internal/fingerprint/testdata/jsonLogs.csv`
+- 200 XML log records in `internal/fingerprint/testdata/xmlLogs.csv`
+- 200 CLF log records in `internal/fingerprint/testdata/clfLogs.csv`
+- 200 syslog records in `testdata/sysLogs.csv`
 
 ```
 goos: darwin
@@ -31,6 +33,7 @@ cpu: Apple M4 Pro
 BenchmarkFingerprintJSONLogs-14   388444 ns/op    942.92 MB/s  776.9 ns/record   0 B/op   0 allocs/op
 BenchmarkFingerprintXMLLogs-14    133741 ns/op   1452.55 MB/s  668.7 ns/record   0 B/op   0 allocs/op
 BenchmarkFingerprintCLFLogs-14     29594 ns/op    959.51 MB/s  148.0 ns/record   0 B/op   0 allocs/op
+BenchmarkFingerprintSyslogLogs-14    56756 ns/op    744.44 MB/s  283.8 ns/record   0 B/op   0 allocs/op
 ```
 
 ```sh

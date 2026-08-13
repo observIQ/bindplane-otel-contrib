@@ -34,6 +34,10 @@ func TestFingerprintXMLLogsNoCollisions(t *testing.T) {
 	testFingerprintCorpusNoCollisions(t, "testdata/xmlLogs.csv")
 }
 
+func TestFingerprintSyslogLogsNoCollisions(t *testing.T) {
+	testFingerprintCorpusNoCollisions(t, "testdata/sysLogs.csv")
+}
+
 func testFingerprintCorpusNoCollisions(t *testing.T, path string) {
 	f, err := os.Open(path)
 	require.NoError(t, err)
