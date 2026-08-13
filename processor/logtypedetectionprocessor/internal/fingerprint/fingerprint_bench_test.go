@@ -62,7 +62,7 @@ func benchmarkFingerprintCorpus(b *testing.B, path string) {
 	n := 0
 	for b.Loop() {
 		for i := range bodies {
-			if HashLog(bodies[i]) == 0 {
+			if HashLog(bodies[i], false) == 0 {
 				b.Fatal("no fingerprint")
 			}
 		}

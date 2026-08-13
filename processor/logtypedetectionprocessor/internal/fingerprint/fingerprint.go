@@ -34,7 +34,7 @@ func init() {
 }
 
 // HashLog creates a hash based off the structure of the log.
-func HashLog(data string) uint64 {
+func HashLog(data string, skipRecursiveTypes bool) uint64 {
 	data = strings.TrimSpace(data)
 	if len(data) < 2 {
 		return 0
@@ -48,7 +48,7 @@ func HashLog(data string) uint64 {
 	}
 
 	if first == '<' {
-		if data[1] >= '0' && data[1] <= '9' {
+		if !skipRecursiveTypes && (data[1] >= '0' && data[1] <= '9') {
 			if res := fingerprintSyslog(data); res != 0 {
 				return res
 			}
@@ -92,4 +92,30 @@ func foldFNVHashByte(hash uint64, b byte) uint64 {
 func foldFNVHashUint(hash uint64, i uint64) uint64 {
 	hash = (hash ^ i) * fnvPrime
 	return hash
+}
+
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
+}
+
+// endOfToken returns the index just past the whitespace-delimited token
+// starting at start.
+func endOfToken(data string, start int) int {
+	i := start
+	for i < len(data) && !spaceChars[data[i]] {
+		i++
+	}
+
+	return i
+}
+
+// skipSpaces returns the index of the first non-whitespace character at or
+// after start.
+func skipSpaces(data string, start int) int {
+	i := start
+	for i < len(data) && spaceChars[data[i]] {
+		i++
+	}
+
+	return i
 }

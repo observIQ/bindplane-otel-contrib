@@ -37,9 +37,9 @@ func TestFingerprintSyslogInvalid(t *testing.T) {
 		"<38>1 2026-03-14T08:22:41Z host",
 		"<38>1 2026-03-14T08:22:41Z host app",
 		"<38>1 2026-03-14T08:22:41Z host app 123",
+		"<38>1 2026-03-14T08:22:41Z host app 123 ID47",
+		"<38>1 2026-03-14T08:22:41Z host app 123 ID47 -",
 		`<38>1 2026-03-14T08:22:41Z host app 123 ID47 [x foo="unterminated`,
-		`<38>1 2026-03-14T08:22:41Z host app 123 ID47 [x foo=bar] message`,
-		`<38>1 2026-03-14T08:22:41Z host app 123 ID47 [x foo] message`,
 		"<38>2 2026-03-14T08:22:41Z host app 123 ID47 - message",
 	}
 
@@ -58,7 +58,6 @@ func TestFingerprintValidSyslog(t *testing.T) {
 		`<38>1 2026-03-14T08:22:41.114Z host sshd 24817 - [origin ip="203.0.113.44"] Failed password`,
 		`<38>1 - host app - - [meta seq="1"][origin ip="10.0.0.1"] two elements`,
 		"<84>1 2026-03-15T03:14:38.229Z esg-01.example.com barracuda - - info CEF:0|Barracuda|ESG - missing structured data field",
-		"<38>1 2026-03-14T08:22:41Z host app - - -",
 	}
 
 	for _, c := range cases {
@@ -73,33 +72,9 @@ func TestFingerprintSyslogStructure(t *testing.T) {
 		equal      bool
 	}{
 		{
-			title: "3164 different timestamp",
-			logA:  "<38>Aug  4 09:14:22 host sshd[24417]: Connection closed by 10.4.19.7 port 51422",
-			logB:  "<38>Dec 21 23:59:01 host sshd[24417]: Connection closed by 10.4.19.7 port 51422",
-			equal: true,
-		},
-		{
-			title: "3164 different hostname",
+			title: "3164 same tag different header and message",
 			logA:  "<38>Aug  4 09:14:22 web-prod-03 sshd[24417]: Connection closed by 10.4.19.7 port 51422",
-			logB:  "<38>Aug  4 09:14:22 bastion sshd[24417]: Connection closed by 10.4.19.7 port 51422",
-			equal: true,
-		},
-		{
-			title: "different priority",
-			logA:  "<38>Aug  4 09:14:22 host sshd[24417]: Connection closed by 10.4.19.7 port 51422",
-			logB:  "<30>Aug  4 09:14:22 host sshd[24417]: Connection closed by 10.4.19.7 port 51422",
-			equal: true,
-		},
-		{
-			title: "3164 different pid and values",
-			logA:  "<38>Aug  4 09:14:22 host sshd[24417]: Connection closed by 10.4.19.7 port 51422",
-			logB:  "<38>Aug  4 09:14:22 host sshd[8]: Connection closed by 192.168.0.1 port 22",
-			equal: true,
-		},
-		{
-			title: "3164 different hashed session id",
-			logA:  "<22>Aug  4 09:57:40 imap-01 dovecot[2288]: Login: session=<9Xz2Kq1bT4mYaZ8P>",
-			logB:  "<22>Aug  4 09:57:40 imap-01 dovecot[2288]: Login: session=<xM2kQd7dAaBmgZEU>",
+			logB:  "<30>Dec 21 23:59:01 bastion sshd[8]: Accepted publickey for deploy",
 			equal: true,
 		},
 		{
@@ -109,58 +84,64 @@ func TestFingerprintSyslogStructure(t *testing.T) {
 			equal: false,
 		},
 		{
-			title: "3164 different message words",
+			title: "3164 tag with and without pid",
 			logA:  "<38>Aug  4 09:14:22 host sshd[24417]: Connection closed",
-			logB:  "<38>Aug  4 09:14:22 host sshd[24417]: Connection opened",
-			equal: false,
+			logB:  "<38>Aug  4 09:14:22 host sshd: Connection closed",
+			equal: true,
 		},
 		{
-			title: "5424 different timestamp hostname and procid",
+			title: "5424 same app different header and message",
 			logA:  "<38>1 2026-03-14T08:22:41.114Z bastion-01 sshd 24817 - - Failed password",
-			logB:  "<38>1 2026-12-01T23:59:59.000Z vpn-gw-02 sshd 8843 - - Failed password",
+			logB:  "<38>1 2026-12-01T23:59:59.000Z vpn-gw-02 sshd 8843 - - Accepted publickey",
 			equal: true,
 		},
 		{
-			title: "5424 different structured data values",
-			logA:  `<38>1 2026-03-14T08:22:41.114Z host sshd 24817 - [origin ip="203.0.113.44"] Failed password`,
-			logB:  `<38>1 2026-03-14T08:22:41.114Z host sshd 24817 - [origin ip="198.51.100.7"] Failed password`,
-			equal: true,
-		},
-		{
-			title: "5424 different structured data param name",
-			logA:  `<38>1 2026-03-14T08:22:41.114Z host sshd 24817 - [origin ip="203.0.113.44"] Failed password`,
-			logB:  `<38>1 2026-03-14T08:22:41.114Z host sshd 24817 - [origin host="203.0.113.44"] Failed password`,
-			equal: false,
-		},
-		{
-			title: "5424 different structured data id",
-			logA:  `<38>1 2026-03-14T08:22:41.114Z host sshd 24817 - [origin ip="203.0.113.44"] Failed password`,
-			logB:  `<38>1 2026-03-14T08:22:41.114Z host sshd 24817 - [meta ip="203.0.113.44"] Failed password`,
-			equal: false,
-		},
-		{
-			title: "5424 different app name",
+			title: "5424 different app",
 			logA:  "<38>1 2026-03-14T08:22:41.114Z host sshd 24817 - - Failed password",
 			logB:  "<38>1 2026-03-14T08:22:41.114Z host sudo 24817 - - Failed password",
 			equal: false,
 		},
 		{
-			title: "5424 different msgid",
-			logA:  "<84>1 2026-03-15T18:31:09.284Z host SentinelOne - Threat - Threat detected",
-			logB:  "<84>1 2026-03-15T18:31:09.284Z host SentinelOne - Scan - Threat detected",
+			title: "5424 different structured data",
+			logA:  `<38>1 2026-03-14T08:22:41.114Z host sshd 24817 - [origin ip="203.0.113.44"] Failed password`,
+			logB:  `<38>1 2026-03-14T08:22:41.114Z host sshd 24817 - [meta seq="9921"] Failed password`,
+			equal: true,
+		},
+		{
+			title: "3164 tag vs 5424 app",
+			logA:  "<38>Aug  4 09:14:22 host sshd[24417]: Failed password",
+			logB:  "<38>1 2026-03-14T08:22:41.114Z host sshd 24817 - - Failed password",
+			equal: true,
+		},
+		{
+			title: "json body same keys different values",
+			logA:  `<30>Aug  4 10:41:05 k8s-master-01 etcd[1102]: {"level":"info","msg":"compact tree index"}`,
+			logB:  `<30>Aug  4 10:41:05 k8s-master-01 etcd[1102]: {"level":"warn","msg":"different message"}`,
+			equal: true,
+		},
+		{
+			title: "json body different keys",
+			logA:  `<30>Aug  4 10:41:05 k8s-master-01 etcd[1102]: {"level":"info","msg":"compact tree index"}`,
+			logB:  `<30>Aug  4 10:41:05 k8s-master-01 etcd[1102]: {"level":"info","error":"request timed out"}`,
 			equal: false,
 		},
 		{
-			title: "5424 structured data vs nil",
-			logA:  `<38>1 2026-03-14T08:22:41.114Z host sshd 24817 - [origin ip="1.2.3.4"] Failed password`,
-			logB:  "<38>1 2026-03-14T08:22:41.114Z host sshd 24817 - - Failed password",
+			title: "same json body different service",
+			logA:  `<30>Aug  4 10:41:05 host etcd[1102]: {"level":"info"}`,
+			logB:  `<30>Aug  4 10:41:05 host vault[1102]: {"level":"info"}`,
 			equal: false,
 		},
 		{
-			title: "3164 vs 5424",
-			logA:  "<38>Aug  4 09:14:22 host sshd: Failed password",
-			logB:  "<38>1 2026-03-14T08:22:41.114Z host sshd 24817 - - Failed password",
+			title: "clf body different request path",
+			logA:  `<190>Aug  4 09:45:11 web-01 httpd[4172]: 198.51.100.77 - - [04/Aug/2026:09:45:11 -0400] "GET /index.html HTTP/1.1" 200 512`,
+			logB:  `<190>Aug  4 09:45:11 web-01 httpd[4172]: 198.51.100.77 - - [04/Aug/2026:09:45:11 -0400] "GET /login.html HTTP/1.1" 200 512`,
 			equal: false,
+		},
+		{
+			title: "clf body same request path",
+			logA:  `<190>Aug  4 09:45:11 web-01 httpd[4172]: 198.51.100.77 - - [04/Aug/2026:09:45:11 -0400] "GET /users/2 HTTP/1.1" 200 512`,
+			logB:  `<190>Aug  4 09:45:12 web-02 httpd[4172]: 198.51.100.77 - - [04/Aug/2026:09:45:11 -0400] "GET /users/1 HTTP/1.1" 200 512`,
+			equal: true,
 		},
 	}
 

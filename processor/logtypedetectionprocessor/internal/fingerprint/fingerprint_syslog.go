@@ -16,38 +16,68 @@ package fingerprint
 
 import "strings"
 
-var alnumChars [256]bool
+var syslogAlphanumericChars [256]bool
+var syslogTagChars [256]bool
 
 func init() {
 	for c := byte('0'); c <= '9'; c++ {
-		alnumChars[c] = true
+		syslogAlphanumericChars[c] = true
+		syslogTagChars[c] = true
 	}
 	for c := byte('a'); c <= 'z'; c++ {
-		alnumChars[c] = true
+		syslogAlphanumericChars[c] = true
+		syslogTagChars[c] = true
 	}
 	for c := byte('A'); c <= 'Z'; c++ {
-		alnumChars[c] = true
+		syslogAlphanumericChars[c] = true
+		syslogTagChars[c] = true
+	}
+	for _, c := range []byte("-_./,") {
+		syslogTagChars[c] = true
 	}
 }
 
-// fingerprintSyslog creates a hash based off an RFC 3164 or RFC 5424 syslog
-// message. Header values become placeholders, the app name, msgid and
-// structured data names are kept, and message words containing a digit become
-// placeholders.
+// fingerprintSyslog creates a hash based off the service name of an RFC 3164
+// or RFC 5424 syslog log, combined with the structural hash of the message
+// body when it parses as a known format.
 func fingerprintSyslog(data string) uint64 {
 	i := skipSyslogPriority(data)
 	if i < 0 {
 		return 0
 	}
+
+	var service, msg string
 	if strings.HasPrefix(data[i:], "1 ") {
-		return fingerprintSyslog5424(data[i+2:])
+		service, msg = syslog5424Message(data[i+2:])
+	} else {
+		msg = syslog3164Message(data[i:])
+		service = syslog3164Tag(msg)
+		if sep := strings.Index(msg, ": "); sep >= 0 {
+			msg = msg[sep+2:]
+		}
+	}
+	if msg == "" {
+		return 0
 	}
 
-	return fingerprintSyslog3164(data[i:])
+	hash := foldFNVHashString(fnvOffsetBasis, service)
+	return foldFNVHashUint(hash, HashLog(msg, true))
 }
 
-// skipSyslogPriority returns the index just past the "<pri>" prefix, or -1 if
-// the prefix is missing or the priority is out of range.
+// syslog3164Tag returns the tag opening msg
+func syslog3164Tag(msg string) string {
+	i := 0
+	for i < len(msg) && syslogTagChars[msg[i]] {
+		i++
+	}
+	if i == 0 || i >= len(msg) || (msg[i] != ':' && msg[i] != '[') {
+		return ""
+	}
+
+	return msg[:i]
+}
+
+// skipSyslogPriority returns the index after the "<pri>" prefix
 func skipSyslogPriority(data string) int {
 	if len(data) < 3 || data[0] != '<' {
 		return -1
@@ -67,38 +97,26 @@ func skipSyslogPriority(data string) int {
 	return i + 1
 }
 
-// fingerprintSyslog3164 hashes the message after the priority. The timestamp
-// and hostname become placeholders and the remainder, tag included, is
-// normalized.
-func fingerprintSyslog3164(data string) uint64 {
+func syslog3164Message(data string) string {
 	if len(data) < 17 || !isSyslog3164Timestamp(data) {
-		return 0
+		return ""
 	}
-	hash := foldFNVHashString(fnvOffsetBasis, valuePlaceholder)
 
 	i := skipSpaces(data, 16)
 	end := endOfToken(data, i)
 	if end == i {
-		return 0
-	}
-	hash = foldFNVHashString(hash, textPlaceholder)
-
-	i = skipSpaces(data, end)
-	if i == len(data) {
-		return 0
+		return ""
 	}
 
-	return foldNormalizedMessage(hash, data[i:])
+	return data[skipSpaces(data, end):]
 }
 
-// isSyslog3164Timestamp reports whether data starts with a "Jan  2 15:04:05 "
-// timestamp.
 func isSyslog3164Timestamp(data string) bool {
 	if data[3] != ' ' || data[6] != ' ' || data[9] != ':' || data[12] != ':' || data[15] != ' ' {
 		return false
 	}
 	for _, i := range [3]int{0, 1, 2} {
-		if !alnumChars[data[i]] || isDigit(data[i]) {
+		if !syslogAlphanumericChars[data[i]] || isDigit(data[i]) {
 			return false
 		}
 	}
@@ -114,64 +132,42 @@ func isSyslog3164Timestamp(data string) bool {
 	return true
 }
 
-// fingerprintSyslog5424 hashes the message after the "<pri>1 " prefix. The
-// timestamp, hostname and procid become placeholders while the app name and
-// msgid are kept. A missing structured data field is tolerated.
-func fingerprintSyslog5424(data string) uint64 {
-	hash := uint64(fnvOffsetBasis)
-
+func syslog5424Message(data string) (string, string) {
 	end := endOfToken(data, 0)
 	if !isSyslog5424Timestamp(data[:end]) {
-		return 0
+		return "", ""
 	}
-	hash = foldFNVHashString(hash, valuePlaceholder)
 
-	// Hostname.
-	i := skipSpaces(data, end)
-	if end = endOfToken(data, i); end == i {
-		return 0
+	// Hostname, app name, procid and msgid.
+	var service string
+	i := end
+	for field := range 4 {
+		i = skipSpaces(data, i)
+		if end = endOfToken(data, i); end == i {
+			return "", ""
+		}
+		if field == 1 {
+			service = data[i:end]
+		}
+		i = end
 	}
-	hash = foldFNVHashString(hash, textPlaceholder)
 
-	// App name, kept in the hash.
-	i = skipSpaces(data, end)
-	if end = endOfToken(data, i); end == i {
-		return 0
-	}
-	hash = foldFNVHashString(hash, data[i:end])
-
-	// Procid.
-	i = skipSpaces(data, end)
-	if end = endOfToken(data, i); end == i {
-		return 0
-	}
-	hash = foldFNVHashString(hash, valuePlaceholder)
-
-	// Msgid, kept in the hash.
-	i = skipSpaces(data, end)
-	if end = endOfToken(data, i); end == i {
-		return 0
-	}
-	hash = foldFNVHashString(hash, data[i:end])
-
-	i = skipSpaces(data, end)
+	i = skipSpaces(data, i)
 	switch {
 	case i >= len(data):
-		return 0
+		return "", ""
 	case data[i] == '[':
-		if hash, i = foldStructuredData(hash, data, i); i < 0 {
-			return 0
+		if i = skipStructuredSyslogData(data, i); i < 0 {
+			return "", ""
 		}
 		i = skipSpaces(data, i)
 	case data[i] == '-' && (i+1 == len(data) || spaceChars[data[i+1]]):
 		i = skipSpaces(data, i+1)
 	}
 
-	return foldNormalizedMessage(hash, data[i:])
+	return service, data[i:]
 }
 
-// isSyslog5424Timestamp reports whether token is a nil value or looks like an
-// RFC 3339 timestamp.
 func isSyslog5424Timestamp(token string) bool {
 	if token == "-" {
 		return true
@@ -188,113 +184,25 @@ func isSyslog5424Timestamp(token string) bool {
 	return true
 }
 
-// foldStructuredData mixes the structured data ids and param names into hash,
-// discarding param values. It returns the index just past the last element,
-// or -1 if an element is malformed.
-func foldStructuredData(hash uint64, data string, start int) (uint64, int) {
+func skipStructuredSyslogData(data string, start int) int {
 	i := start
 	for i < len(data) && data[i] == '[' {
-		j := i + 1
-		for j < len(data) && data[j] != ' ' && data[j] != ']' {
-			j++
-		}
-		if j == i+1 || j >= len(data) {
-			return hash, -1
-		}
-		hash = foldFNVHashString(hash, data[i+1:j])
-		i = j
-
-		for {
-			i = skipSpaces(data, i)
-			if i >= len(data) {
-				return hash, -1
+		for i++; i < len(data) && data[i] != ']'; i++ {
+			if data[i] != '"' {
+				continue
 			}
-			if data[i] == ']' {
-				i++
-				break
-			}
-
-			j = i
-			for j < len(data) && data[j] != '=' && data[j] != ' ' && data[j] != ']' {
-				j++
-			}
-			if j == i || j >= len(data) || data[j] != '=' {
-				return hash, -1
-			}
-			hash = foldFNVHashString(hash, data[i:j])
-			hash = foldFNVHashString(hash, valuePlaceholder)
-
-			j++
-			if j >= len(data) || data[j] != '"' {
-				return hash, -1
-			}
-			for j++; j < len(data) && data[j] != '"'; j++ {
-				if data[j] == '\\' {
-					j++
+			for i++; i < len(data) && data[i] != '"'; i++ {
+				if data[i] == '\\' {
+					i++
 				}
 			}
-			if j >= len(data) {
-				return hash, -1
+			if i >= len(data) {
+				return -1
 			}
-			i = j + 1
 		}
-	}
-
-	return hash, i
-}
-
-// foldNormalizedMessage mixes the message into hash. Words containing a digit
-// become placeholders and whitespace runs collapse to a single space.
-func foldNormalizedMessage(hash uint64, msg string) uint64 {
-	for i := 0; i < len(msg); {
-		c := msg[i]
-		if spaceChars[c] {
-			hash = foldFNVHashByte(hash, ' ')
-			i = skipSpaces(msg, i)
-			continue
+		if i >= len(data) {
+			return -1
 		}
-		if !alnumChars[c] {
-			hash = foldFNVHashByte(hash, c)
-			i++
-			continue
-		}
-
-		digit := false
-		j := i
-		for ; j < len(msg) && alnumChars[msg[j]]; j++ {
-			digit = digit || isDigit(msg[j])
-		}
-		if digit {
-			hash = foldFNVHashString(hash, valuePlaceholder)
-		} else {
-			hash = foldFNVHashString(hash, msg[i:j])
-		}
-		i = j
-	}
-
-	return hash
-}
-
-func isDigit(c byte) bool {
-	return c >= '0' && c <= '9'
-}
-
-// endOfToken returns the index just past the whitespace-delimited token
-// starting at start.
-func endOfToken(data string, start int) int {
-	i := start
-	for i < len(data) && !spaceChars[data[i]] {
-		i++
-	}
-
-	return i
-}
-
-// skipSpaces returns the index of the first non-whitespace character at or
-// after start.
-func skipSpaces(data string, start int) int {
-	i := start
-	for i < len(data) && spaceChars[data[i]] {
 		i++
 	}
 
