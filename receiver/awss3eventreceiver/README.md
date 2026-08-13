@@ -18,8 +18,12 @@ The receiver detects the file format from the object's content, not from its nam
 | Format | Detection |
 |---|---|
 | Avro OCF | Leading `Obj\x01` magic bytes |
-| JSON | Leading `{` followed by `"`/`}`, or `[` followed by `{`/`]` (object, or array of objects) |
+| JSON | Leading `{` followed by `"`/`}`, or `[` followed by `{`/`]`. Covers arrays, `Records` wrappers, and value sequences including NDJSON |
 | Plain text | Everything else; parsed line by line |
+
+JSON covers three layouts, all read as a stream: a top-level array, an object whose `Records` key holds that array, and a sequence of top-level values one after another. That last shape is what makes newline-delimited JSON work, and it needs no format of its own: to a JSON decoder, NDJSON, a lone object, and concatenated pretty-printed documents are the same thing.
+
+A document too large to classify within the first 4 KiB is read line by line instead, so a single very large JSON object is never buffered whole.
 
 ### Compression
 
@@ -99,7 +103,7 @@ This approach ensures that:
 | visibility_timeout               | duration | 5m         | `false`  | The visibility timeout for SQS messages |
 | visibility_extension_interval    | duration | 1m         | `false`  | How often to extend message visibility during processing. Should be less than visibility_timeout.  Minimum is 10s. |
 | max_visibility_window            | duration | 1h         | `false`  | Maximum total time a message can remain invisible before becoming visible to other consumers. Must be less than SQS's 12-hour limit |
-| max_log_size                     | int      | 1048576    | `false`  | The maximum size of a log record in bytes. Logs exceeding this size will be split |
+| max_log_size                     | int      | 1048576    | `false`  | The maximum size of a log record in bytes. Logs exceeding this size will be split. The minimum is `4096`, since content detection peeks a fixed 4096-byte window; a smaller value is rejected |
 | max_logs_emitted                 | int      | 1000       | `false`  | The maximum number of log records to emit in a single batch. A higher number will result in fewer batches, but more memory |
 | raw                              | bool     | `false`    | `false`  | Emit each record's original text as the body instead of a parsed structure. Records are split as they would be when parsed — a JSON array or a `{"Records": [...]}` document yields one record per element; NDJSON and plain text yield one record per line. Content detection still runs, so unsupported binary content is routed to the dead-letter queue. Avro OCF holds no original text, so it emits the JSON encoding of each record. |
 | include_log_record_original      | bool     | `false`    | `false`  | Additionally record each parsed record's original text on the `log.record.original` attribute, leaving the structured body as-is. For a JSON array or `{"Records": [...]}` document this is each element's exact bytes. |

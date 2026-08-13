@@ -191,7 +191,15 @@ func TestConfigValidate(t *testing.T) {
 				cfg.SQSQueueURL = "https://sqs.us-west-2.amazonaws.com/123456789012/test-queue"
 				cfg.MaxLogSize = 0
 			},
-			expectedErr: "'max_log_size' must be greater than 0",
+			expectedErr: "'max_log_size' must be at least 4096",
+		},
+		{
+			desc: "max log size one below the detection window is rejected",
+			cfgMod: func(cfg *awss3eventreceiver.Config) {
+				cfg.SQSQueueURL = "https://sqs.us-west-2.amazonaws.com/123456789012/test-queue"
+				cfg.MaxLogSize = 4095
+			},
+			expectedErr: "'max_log_size' must be at least 4096",
 		},
 		{
 			desc: "Invalid max visibility window",

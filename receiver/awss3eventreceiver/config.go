@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/observiq/bindplane-otel-contrib/internal/aws/client"
+	"github.com/observiq/bindplane-otel-contrib/internal/blobstream"
 	"github.com/observiq/bindplane-otel-contrib/receiver/awss3eventreceiver/internal/constants"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configretry"
@@ -159,8 +160,10 @@ func (c *Config) Validate() error {
 		return errors.New("'workers' must be greater than 0")
 	}
 
-	if c.MaxLogSize <= 0 {
-		return errors.New("'max_log_size' must be greater than 0")
+	if c.MaxLogSize < blobstream.MinLogSize {
+		// Content detection peeks fixed windows against a buffer sized to max_log_size,
+		// so a smaller value fails every object at runtime with a buffer-full error.
+		return fmt.Errorf("'max_log_size' must be at least %d", blobstream.MinLogSize)
 	}
 
 	if err := c.ErrorBackOff.Validate(); err != nil {
