@@ -25,15 +25,17 @@ Fingerprinting the following:
 - 200 XML log records in `internal/fingerprint/testdata/xmlLogs.csv`
 - 200 CLF log records in `internal/fingerprint/testdata/clfLogs.csv`
 - 200 syslog records in `internal/fingerprint/testdata/sysLogs.csv`
+- 200 generic (key=value, CSV, plain text) log records in `internal/fingerprint/testdata/genericLogs.csv`
 
 ```
 goos: darwin
 goarch: arm64
 cpu: Apple M4 Pro
-BenchmarkFingerprintJSONLogs-14   388444 ns/op    942.92 MB/s  776.9 ns/record   0 B/op   0 allocs/op
-BenchmarkFingerprintXMLLogs-14    133741 ns/op   1452.55 MB/s  668.7 ns/record   0 B/op   0 allocs/op
-BenchmarkFingerprintCLFLogs-14     29976 ns/op    947.28 MB/s  149.9 ns/record   0 B/op   0 allocs/op
-BenchmarkFingerprintSyslogLogs-14  10695 ns/op   3950.53 MB/s   53.5 ns/record   0 B/op   0 allocs/op
+BenchmarkFingerprintJSONLogs-14    381608 ns/op    959.82 MB/s  763.2 ns/record   0 B/op   0 allocs/op
+BenchmarkFingerprintXMLLogs-14     124363 ns/op   1562.09 MB/s  621.8 ns/record   0 B/op   0 allocs/op
+BenchmarkFingerprintCLFLogs-14      29934 ns/op    948.61 MB/s  149.7 ns/record   0 B/op   0 allocs/op
+BenchmarkFingerprintSyslogLogs-14   56601 ns/op    746.47 MB/s  283.0 ns/record   0 B/op   0 allocs/op
+BenchmarkFingerprintGenericLogs-14  22239 ns/op    684.79 MB/s  111.2 ns/record   0 B/op   0 allocs/op
 ```
 
 ```sh

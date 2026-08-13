@@ -72,10 +72,16 @@ func TestFingerprintSyslogStructure(t *testing.T) {
 		equal      bool
 	}{
 		{
-			title: "3164 same tag different header and message",
+			title: "3164 same tag different header and values",
+			logA:  "<38>Aug  4 09:14:22 web-prod-03 sshd[24417]: Connection closed by 10.4.19.7 port 51422",
+			logB:  "<30>Dec 21 23:59:01 bastion sshd[8]: Connection closed by 192.168.4.8 port 22",
+			equal: true,
+		},
+		{
+			title: "3164 same tag different message text",
 			logA:  "<38>Aug  4 09:14:22 web-prod-03 sshd[24417]: Connection closed by 10.4.19.7 port 51422",
 			logB:  "<30>Dec 21 23:59:01 bastion sshd[8]: Accepted publickey for deploy",
-			equal: true,
+			equal: false,
 		},
 		{
 			title: "3164 different tag",
@@ -90,9 +96,9 @@ func TestFingerprintSyslogStructure(t *testing.T) {
 			equal: true,
 		},
 		{
-			title: "5424 same app different header and message",
+			title: "5424 same app different header",
 			logA:  "<38>1 2026-03-14T08:22:41.114Z bastion-01 sshd 24817 - - Failed password",
-			logB:  "<38>1 2026-12-01T23:59:59.000Z vpn-gw-02 sshd 8843 - - Accepted publickey",
+			logB:  "<38>1 2026-12-01T23:59:59.000Z vpn-gw-02 sshd 8843 - - Failed password",
 			equal: true,
 		},
 		{
