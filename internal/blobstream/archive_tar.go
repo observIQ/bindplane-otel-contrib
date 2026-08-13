@@ -49,6 +49,9 @@ func (b *tarBackend) Next() (archiveEntry, error) {
 // stream is owned by the caller).
 func (b *tarBackend) Close() error { return nil }
 
+// Materialized reports false: tar streams directly from the object.
+func (b *tarBackend) Materialized() bool { return false }
+
 // tarEntry is a single tar member. Its reader is the shared tar.Reader and is
 // only valid until the next call to tarBackend.Next, which matches the
 // forward-only iteration the producer performs.

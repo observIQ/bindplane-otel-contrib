@@ -36,10 +36,11 @@ type sevenZipBackend struct {
 
 var _ archiveBackend = (*sevenZipBackend)(nil)
 
-// newSevenZipBackend materializes reader to a temp file and opens a 7z reader over
-// it, cleaning up the temp file on any failure.
-func newSevenZipBackend(reader io.Reader, maxBytes int64) (archiveBackend, error) {
-	f, err := os.CreateTemp(archiveTempDir, "blobstream-7z-*")
+// newSevenZipBackend materializes reader to a temp file in tempDir (OS default when
+// empty) and opens a 7z reader over it, capping the materialized size at maxBytes and
+// cleaning up the temp file on any failure.
+func newSevenZipBackend(reader io.Reader, tempDir string, maxBytes int64) (archiveBackend, error) {
+	f, err := os.CreateTemp(tempDir, "blobstream-7z-*")
 	if err != nil {
 		return nil, fmt.Errorf("create temp file: %w", err)
 	}
@@ -90,6 +91,10 @@ func (b *sevenZipBackend) Close() error {
 	rerr := os.Remove(name)
 	return errors.Join(cerr, rerr)
 }
+
+// Materialized reports true: 7z reads from a materialized temp file, so its Next
+// never reports a member truncation.
+func (b *sevenZipBackend) Materialized() bool { return true }
 
 // sevenZipEntry is a single 7z member. Open returns a fresh io.ReadCloser that
 // the producer closes once the entry is consumed.

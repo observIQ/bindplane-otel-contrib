@@ -38,9 +38,9 @@ func read7zFixture(t *testing.T) []byte {
 // TestArchive7z_HeterogeneousEntries verifies a 7z with text, JSON and Avro
 // entries is detected and each entry is parsed on its own terms.
 func TestArchive7z_HeterogeneousEntries(t *testing.T) {
-	dir := withArchiveTempDir(t)
+	dir := newArchiveTempDir(t)
 
-	bodies, _, err := driveArchive(t, read7zFixture(t), Offset{})
+	bodies, _, err := driveArchiveInDir(t, read7zFixture(t), Offset{}, dir)
 	require.NoError(t, err)
 	require.Len(t, bodies, 6)
 	all := joined(bodies)
@@ -53,15 +53,15 @@ func TestArchive7z_HeterogeneousEntries(t *testing.T) {
 // TestArchive7z_Resume verifies the shared (entryIndex, offset) resume model works
 // for the 7z backend: resuming at entry 1 skips entry 0 entirely.
 func TestArchive7z_Resume(t *testing.T) {
-	dir := withArchiveTempDir(t)
+	dir := newArchiveTempDir(t)
 
 	body := read7zFixture(t)
 
-	all, _, err := driveArchive(t, body, Offset{})
+	all, _, err := driveArchiveInDir(t, body, Offset{}, dir)
 	require.NoError(t, err)
 	require.Len(t, all, 6)
 
-	fromEntry1, _, err := driveArchive(t, body, Offset{EntryIndex: 1, Offset: 0})
+	fromEntry1, _, err := driveArchiveInDir(t, body, Offset{EntryIndex: 1, Offset: 0}, dir)
 	require.NoError(t, err)
 	// entry 0 (a.log: line1,line2) skipped; entries 1 (j1,j2) and 2 (av1,av2) remain
 	require.Len(t, fromEntry1, 4)
@@ -74,13 +74,13 @@ func TestArchive7z_Resume(t *testing.T) {
 // TestArchive7z_EntryCountLimit verifies the shared bomb-limit machinery applies
 // to the 7z backend and routes to the DLQ.
 func TestArchive7z_EntryCountLimit(t *testing.T) {
-	dir := withArchiveTempDir(t)
+	dir := newArchiveTempDir(t)
 
 	body := read7zFixture(t)
 	ap := &archiveProducer{
 		stream: LogStream{Name: "o", MaxLogSize: testMaxLogSize, Logger: zap.NewNop(), TryDecoding: true},
 		open: func() (archiveBackend, error) {
-			return newSevenZipBackend(bytes.NewReader(body), defaultArchiveLimits().maxTotalBytes)
+			return newSevenZipBackend(bytes.NewReader(body), dir, defaultArchiveLimits().maxTotalBytes)
 		},
 		limits: archiveLimits{maxEntries: 1, maxEntryBytes: 1 << 30, maxTotalBytes: 1 << 30},
 	}
@@ -104,9 +104,9 @@ func TestArchive7z_EntryCountLimit(t *testing.T) {
 // TestArchive7z_TempCleanupOnMaterializeError verifies a failed materialization
 // removes the temp file.
 func TestArchive7z_TempCleanupOnMaterializeError(t *testing.T) {
-	dir := withArchiveTempDir(t)
+	dir := newArchiveTempDir(t)
 
-	_, err := newSevenZipBackend(errReader{}, defaultArchiveLimits().maxTotalBytes)
+	_, err := newSevenZipBackend(errReader{}, dir, defaultArchiveLimits().maxTotalBytes)
 	require.Error(t, err)
 	requireDirEmpty(t, dir)
 }
@@ -114,9 +114,9 @@ func TestArchive7z_TempCleanupOnMaterializeError(t *testing.T) {
 // TestArchive7z_TempCleanupOnBadArchive verifies a materialized but invalid 7z is
 // cleaned up.
 func TestArchive7z_TempCleanupOnBadArchive(t *testing.T) {
-	dir := withArchiveTempDir(t)
+	dir := newArchiveTempDir(t)
 
-	_, err := newSevenZipBackend(bytes.NewReader([]byte("7z\xbc\xaf\x27\x1c not a real archive")), defaultArchiveLimits().maxTotalBytes)
+	_, err := newSevenZipBackend(bytes.NewReader([]byte("7z\xbc\xaf\x27\x1c not a real archive")), dir, defaultArchiveLimits().maxTotalBytes)
 	require.Error(t, err)
 	var corrupt ErrCorruptArchive
 	require.ErrorAs(t, err, &corrupt)
@@ -127,10 +127,10 @@ func TestArchive7z_TempCleanupOnBadArchive(t *testing.T) {
 // TestArchive7z_MaterializeCap verifies 7z materialization aborts with an archive
 // limit error once the copied bytes exceed the cap.
 func TestArchive7z_MaterializeCap(t *testing.T) {
-	dir := withArchiveTempDir(t)
+	dir := newArchiveTempDir(t)
 
 	body := bytes.Repeat([]byte("A"), 100)
-	_, err := newSevenZipBackend(bytes.NewReader(body), 10)
+	_, err := newSevenZipBackend(bytes.NewReader(body), dir, 10)
 	require.Error(t, err)
 	var limit ErrArchiveLimitExceeded
 	require.ErrorAs(t, err, &limit)

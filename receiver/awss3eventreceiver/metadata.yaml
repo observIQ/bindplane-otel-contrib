@@ -97,3 +97,14 @@ telemetry:
         monotonic: true
         aggregation_temporality: cumulative
       attributes: []
+
+    s3event.truncated_objects:
+      enabled: true
+      description: The number of S3 objects that ended part way through a record; the records read before the cut are delivered and the object is acked
+      stability: alpha
+      unit: "{objects}"
+      sum:
+        value_type: int
+        monotonic: true
+        aggregation_temporality: cumulative
+      attributes: []

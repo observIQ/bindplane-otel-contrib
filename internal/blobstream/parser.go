@@ -51,33 +51,44 @@ type LogParser interface {
 }
 
 func newParser(stream LogStream, reader BufferedReader) (parser LogParser, err error) {
+	opts := stream.bodyOptions()
+
 	// if we're not trying to decode, use the line parser
 	if !stream.TryDecoding {
-		return NewLineParser(reader), nil
+		return NewLineParser(reader, opts), nil
 	}
 
 	// check for avro first
 	if isAvroOcf(stream, reader) {
-		return NewAvroOcfParser(reader, stream.Logger), nil
+		// Avro runs before the raw check. It is binary and holds no original text, so
+		// raw mode takes the JSON encoding of each record instead. See BodyOptions.
+		return NewAvroOcfParser(reader, stream.Logger, opts), nil
 	}
 
-	// check for json
+	// check for json. Raw mode uses the same parser selection so a JSON array or a
+	// {"Records": [...]} document is split into the same records structured parsing
+	// produces; the parser emits each record's original text as the body. The content
+	// gate below still rejects binary, so an image goes to the DLQ rather than emitting
+	// as garbled lines.
 	if isJSON(stream, reader) {
-		return NewJSONParser(reader), nil
+		return NewJSONParser(reader, opts), nil
 	}
 
-	// Terminal: the content is neither Avro nor JSON. Recognized text is parsed
-	// line by line; recognized non-text content (an image, a PDF, an unknown
-	// binary) is rejected so it lands in the DLQ instead of being emitted as
-	// garbled lines.
+	// Terminal: the content is neither Avro nor JSON.
+	return lineParserIfText(reader, opts)
+}
+
+// lineParserIfText returns a line parser for text. It rejects non-text content, which
+// then goes to the DLQ instead of emitting garbled lines.
+func lineParserIfText(reader BufferedReader, opts BodyOptions) (LogParser, error) {
 	header, _ := reader.Peek(detectionPeekBytes)
 	if len(header) == 0 {
 		// Empty object: nothing to parse, but not an error.
-		return NewLineParser(reader), nil
+		return NewLineParser(reader, opts), nil
 	}
 	detected := mimetype.Detect(header)
 	if isTextMIME(detected) {
-		return NewLineParser(reader), nil
+		return NewLineParser(reader, opts), nil
 	}
 	return nil, ErrUnsupportedContent{MIMEType: detected.String()}
 }

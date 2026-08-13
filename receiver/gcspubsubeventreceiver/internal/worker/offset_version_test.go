@@ -84,7 +84,8 @@ func readWithSeededGen(t *testing.T, generation int64, storedVersion string) int
 		maxLogsEmitted: 1000,
 	}
 
-	require.NoError(t, w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", false, zap.NewNop()))
+	_, err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", false, zap.NewNop())
+	require.NoError(t, err)
 	return sink.LogRecordCount()
 }
 

@@ -64,6 +64,13 @@ func multiBlockAvro(t *testing.T) []byte {
 // driveAvro reads an Avro object and returns the record count and the final error.
 func driveAvro(t *testing.T, body []byte, cut int, readErr error) (int, error) {
 	t.Helper()
+	return driveAvroWithSize(t, body, cut, readErr, 0)
+}
+
+// driveAvroWithSize is driveAvro with a known object size, so a clean-but-short raw
+// source reads as an interrupted download rather than a stored truncation.
+func driveAvroWithSize(t *testing.T, body []byte, cut int, readErr error, size int64) (int, error) {
+	t.Helper()
 	ctx := context.Background()
 
 	stream := LogStream{
@@ -72,6 +79,7 @@ func driveAvro(t *testing.T, body []byte, cut int, readErr error) (int, error) {
 		MaxLogSize:  testMaxLogSize,
 		Logger:      zap.NewNop(),
 		TryDecoding: true,
+		Size:        size,
 	}
 	reader, err := stream.BufferedReader(ctx)
 	require.NoError(t, err)

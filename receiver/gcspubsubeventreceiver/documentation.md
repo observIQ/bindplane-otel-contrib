@@ -4,10 +4,10 @@
 
 ## Resource Attributes
 
-| Name | Description | Values | Enabled | Semantic Convention | Stability |
-| ---- | ----------- | ------ | ------- | ------------------- | --------- |
-| gcs.bucket | The name of the GCS bucket containing the processed object | Any Str | true | - | - |
-| gcs.object | The name of the GCS object that was processed | Any Str | true | - | - |
+| Name | Description | Values | Enabled | Semantic Convention |
+| ---- | ----------- | ------ | ------- | ------------------- |
+| gcs.bucket | The name of the GCS bucket containing the processed object | Any Str | true | - |
+| gcs.object | The name of the GCS object that was processed | Any Str | true | - |
 
 ## Internal Telemetry
 
@@ -68,3 +68,11 @@ The number of individual log records skipped due to parse errors within a GCS ob
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
 | {errors} | Sum | Int | true | Alpha |
+
+### otelcol_gcsevent.truncated_objects
+
+The number of GCS objects that ended part way through a record; the records read before the cut are delivered and the object is acked
+
+| Unit | Metric Type | Value Type | Monotonic | Stability |
+| ---- | ----------- | ---------- | --------- | --------- |
+| {objects} | Sum | Int | true | Alpha |

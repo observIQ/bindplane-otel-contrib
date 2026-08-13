@@ -25,14 +25,17 @@ import (
 	"go.uber.org/zap"
 )
 
-// TestLineParser_TruncatedObjectIsNotRetryable asserts a stream cut short mid-record is
-// reported as content the receiver cannot use, rather than as a broken connection.
-// Retrying reads the same truncated bytes, so a retryable answer redelivers forever.
-func TestLineParser_TruncatedObjectIsNotRetryable(t *testing.T) {
+// TestLineParser_InterruptedDownloadIsRetryable asserts a source read failure part way
+// through (a download that broke, which net/http surfaces as io.ErrUnexpectedEOF from the
+// body) is reported as a broken stream so the object retries and resumes, rather than as a
+// truncated object that would dead-letter a recoverable download. The raw read error is
+// what distinguishes it from a stored-truncated object, whose source ends cleanly (see
+// TestTruncatedGzipIsNotRetryable).
+func TestLineParser_InterruptedDownloadIsRetryable(t *testing.T) {
 	t.Parallel()
 
 	reader := &errAfterPrefix{prefix: []byte("first\nsecond\n"), err: io.ErrUnexpectedEOF}
-	parser := NewLineParser(NewBufferedReader(reader, testMaxLogSize))
+	parser := NewLineParser(NewBufferedReader(reader, testMaxLogSize), BodyOptions{})
 
 	logs, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
@@ -47,11 +50,10 @@ func TestLineParser_TruncatedObjectIsNotRetryable(t *testing.T) {
 		records = append(records, rec)
 	}
 
-	require.Equal(t, []any{"first", "second"}, records, "records read before the cut are still delivered")
+	require.Equal(t, []any{"first", "second"}, records, "records read before the break are still delivered")
 	require.Error(t, last)
-	require.False(t, IsStreamRead(last), "a truncated object is not a broken connection")
-	require.True(t, IsTruncatedObject(last))
-	require.True(t, IsUnsupportedContent(last), "it must route to the dead-letter queue")
+	require.True(t, IsStreamRead(last), "a source read failure retries and resumes")
+	require.False(t, IsTruncatedObject(last), "a broken download is not a truncated object")
 }
 
 // TestTruncatedGzipIsNotRetryable covers the reported case end to end. A gzip object cut

@@ -74,14 +74,22 @@ func avroOcfBytes(t *testing.T, msgs []string) []byte {
 // returns each record's rendered body, the final resume position, and any fatal
 // (object-failing) error. It mirrors how the worker consumes a producer.
 func driveArchive(t *testing.T, body []byte, start Offset) (bodies []string, finalPos Offset, fatal error) {
+	return driveArchiveInDir(t, body, start, "")
+}
+
+// driveArchiveInDir is driveArchive with an explicit temp dir for materializing
+// random-access archives (empty uses the OS default). A test threads a scratch dir so
+// it can assert nothing is left behind, using its own stream rather than package state.
+func driveArchiveInDir(t *testing.T, body []byte, start Offset, tempDir string) (bodies []string, finalPos Offset, fatal error) {
 	t.Helper()
 	ctx := context.Background()
 	stream := LogStream{
-		Name:        "logs/object",
-		Body:        newNopReadCloser(body),
-		MaxLogSize:  testMaxLogSize,
-		Logger:      zap.NewNop(),
-		TryDecoding: true,
+		Name:           "logs/object",
+		Body:           newNopReadCloser(body),
+		MaxLogSize:     testMaxLogSize,
+		Logger:         zap.NewNop(),
+		TryDecoding:    true,
+		archiveTempDir: tempDir,
 	}
 	br, err := stream.BufferedReader(ctx)
 	require.NoError(t, err)

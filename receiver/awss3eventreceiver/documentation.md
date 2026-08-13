@@ -68,3 +68,11 @@ The number of individual log records skipped due to parse errors within an S3 ob
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
 | {errors} | Sum | Int | true | Alpha |
+
+### otelcol_s3event.truncated_objects
+
+The number of S3 objects that ended part way through a record; the records read before the cut are delivered and the object is acked
+
+| Unit | Metric Type | Value Type | Monotonic | Stability |
+| ---- | ----------- | ---------- | --------- | --------- |
+| {objects} | Sum | Int | true | Alpha |

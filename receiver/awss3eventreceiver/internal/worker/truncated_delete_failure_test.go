@@ -17,6 +17,7 @@ package worker_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"testing"
@@ -35,17 +36,15 @@ import (
 
 	"github.com/observiq/bindplane-otel-contrib/internal/aws/client/mocks"
 	"github.com/observiq/bindplane-otel-contrib/receiver/awss3eventreceiver/internal/metadata"
+	"github.com/observiq/bindplane-otel-contrib/receiver/awss3eventreceiver/internal/metadatatest"
 	"github.com/observiq/bindplane-otel-contrib/receiver/awss3eventreceiver/internal/worker"
 )
 
-// TestTruncatedArrayRoutesWholeObjectToDLQ drives a JSON array that ends mid-record
-// through the worker. A truncated object is a dead-letter condition: redelivering it
-// reads the same bytes and fails the same way, so the worker resets the message
-// visibility to hand it to the SQS redrive policy rather than deleting it. This can't
-// be exercised by the drain-loop table in TestProcessMessage, which only handles
-// objects that ack and delete, so the fake SQS (no redrive policy) would redeliver
-// forever.
-func TestTruncatedArrayRoutesWholeObjectToDLQ(t *testing.T) {
+// TestTruncatedObjectNotCountedWhenDeleteFails asserts that when a truncated object is
+// delivered but the SQS delete (the ack) fails, the truncation is NOT counted. The message
+// redelivers and will be reprocessed, so counting it now would double-count on each retry.
+// This matches the GCS worker, which gates the same counter on ack success.
+func TestTruncatedObjectNotCountedWhenDeleteFails(t *testing.T) {
 	ctx := context.Background()
 
 	mockSQS := &mocks.MockSQSClient{}
@@ -56,8 +55,6 @@ func TestTruncatedArrayRoutesWholeObjectToDLQ(t *testing.T) {
 
 	validS3Event := `{"Records":[{"eventName":"s3:ObjectCreated:Put","s3":{"bucket":{"name":"mybucket"},"object":{"key":"mykey1","size":40}}}]}`
 
-	// The exact object that produced the original redelivery hang: a JSON array that
-	// ends part way through, with no closing ']'.
 	truncated, err := os.ReadFile("testdata/logs_array_fragment.json")
 	require.NoError(t, err)
 	mockS3.EXPECT().GetObject(mock.Anything, mock.Anything, mock.Anything).Return(&s3.GetObjectOutput{
@@ -65,12 +62,13 @@ func TestTruncatedArrayRoutesWholeObjectToDLQ(t *testing.T) {
 		ContentLength: aws.Int64(int64(len(truncated))),
 	}, nil)
 
-	// The object routes to the dead-letter queue: visibility reset to 0, never deleted.
-	mockSQS.EXPECT().ChangeMessageVisibility(mock.Anything, mock.MatchedBy(func(input *sqs.ChangeMessageVisibilityInput) bool {
-		return input.VisibilityTimeout == 0
-	})).Return(&sqs.ChangeMessageVisibilityOutput{}, nil)
+	// The ack (delete) fails, so the message will redeliver.
+	mockSQS.EXPECT().DeleteMessage(mock.Anything, mock.Anything).
+		Return(&sqs.DeleteMessageOutput{}, errors.New("delete failed"))
 
-	set := componenttest.NewNopTelemetrySettings()
+	tt := componenttest.NewTelemetry()
+	defer func() { require.NoError(t, tt.Shutdown(context.Background())) }()
+	set := metadatatest.NewSettings(tt).TelemetrySettings
 	sink := new(consumertest.LogsSink)
 	tb, err := metadata.NewTelemetryBuilder(set)
 	require.NoError(t, err)
@@ -94,14 +92,7 @@ func TestTruncatedArrayRoutesWholeObjectToDLQ(t *testing.T) {
 	w.ProcessMessage(ctx, msg, "myqueue", func() { close(done) })
 	<-done
 
-	// The message must not be deleted (DeleteMessage is never expected on the mock),
-	// and the visibility reset must have been requested.
-	mockSQS.AssertExpectations(t)
-	mockS3.AssertExpectations(t)
-
-	// A truncated object is handled all-or-nothing: the worker returns as soon as it
-	// hits the cut, before the pending batch is flushed, so the complete records read
-	// before the cut are not delivered. The whole object goes to the dead-letter queue
-	// instead, where an operator recovers it.
-	require.Equal(t, 0, sink.LogRecordCount(), "a truncated object delivers nothing and routes the whole object to the DLQ")
+	require.Equal(t, 1, sink.LogRecordCount(), "the record read before the cut is still delivered")
+	_, err = tt.GetMetric("otelcol_s3event.truncated_objects")
+	require.Error(t, err, "a failed delete must not record a truncated object")
 }

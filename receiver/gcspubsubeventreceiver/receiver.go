@@ -35,6 +35,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/api/option"
 
+	"github.com/observiq/bindplane-otel-contrib/internal/blobstream"
 	"github.com/observiq/bindplane-otel-contrib/internal/storageclient"
 	"github.com/observiq/bindplane-otel-contrib/receiver/gcspubsubeventreceiver/internal/metadata"
 	"github.com/observiq/bindplane-otel-contrib/receiver/gcspubsubeventreceiver/internal/worker"
@@ -170,6 +171,10 @@ func (r *logsReceiver) Start(_ context.Context, host component.Host) error {
 			worker.WithSubscriberClient(r.subClient),
 			worker.WithMaxExtension(r.cfg.MaxExtension),
 			worker.WithErrorBackOff(r.cfg.ErrorBackOff),
+			worker.WithBodyOptions(blobstream.BodyOptions{
+				Raw:                      r.cfg.Raw,
+				IncludeLogRecordOriginal: r.cfg.IncludeLogRecordOriginal,
+			}),
 		)
 		w.SetOffsetStorage(r.offsetStorage)
 		return w

@@ -51,15 +51,11 @@ type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("injected read error") }
 
-// withArchiveTempDir points archiveTempDir at a scratch dir for the duration of a
-// test and returns the dir so the test can assert it is left empty.
-func withArchiveTempDir(t *testing.T) string {
+// newArchiveTempDir returns a fresh scratch dir for a test to thread into the archive
+// materialization path (via its own stream) and assert is left empty afterward.
+func newArchiveTempDir(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	prev := archiveTempDir
-	archiveTempDir = dir
-	t.Cleanup(func() { archiveTempDir = prev })
-	return dir
+	return t.TempDir()
 }
 
 func requireDirEmpty(t *testing.T, dir string) {
@@ -72,7 +68,7 @@ func requireDirEmpty(t *testing.T, dir string) {
 // TestArchiveZip_HeterogeneousEntries verifies a zip with text, JSON and Avro
 // entries is detected and each entry is parsed on its own terms.
 func TestArchiveZip_HeterogeneousEntries(t *testing.T) {
-	dir := withArchiveTempDir(t)
+	dir := newArchiveTempDir(t)
 
 	body := zipBytes(t, []tarFile{
 		{name: "a.log", body: []byte("line1\nline2\n")},
@@ -80,7 +76,7 @@ func TestArchiveZip_HeterogeneousEntries(t *testing.T) {
 		{name: "c.avro", body: avroOcfBytes(t, []string{"av1", "av2"})},
 	})
 
-	bodies, _, err := driveArchive(t, body, Offset{})
+	bodies, _, err := driveArchiveInDir(t, body, Offset{}, dir)
 	require.NoError(t, err)
 	require.Len(t, bodies, 6)
 	all := joined(bodies)
@@ -92,13 +88,13 @@ func TestArchiveZip_HeterogeneousEntries(t *testing.T) {
 
 // TestArchiveZip_DirectoryEntrySkipped verifies directory entries are skipped.
 func TestArchiveZip_DirectoryEntrySkipped(t *testing.T) {
-	dir := withArchiveTempDir(t)
+	dir := newArchiveTempDir(t)
 
 	body := zipBytes(t, []tarFile{
 		{name: "d", dir: true},
 		{name: "d/a.log", body: []byte("hello\nworld\n")},
 	})
-	bodies, _, err := driveArchive(t, body, Offset{})
+	bodies, _, err := driveArchiveInDir(t, body, Offset{}, dir)
 	require.NoError(t, err)
 	require.Equal(t, []string{"hello", "world"}, bodies)
 	requireDirEmpty(t, dir)
@@ -107,7 +103,7 @@ func TestArchiveZip_DirectoryEntrySkipped(t *testing.T) {
 // TestArchiveZip_EntryCountLimit verifies the shared bomb-limit machinery applies
 // to the zip backend and routes to the DLQ.
 func TestArchiveZip_EntryCountLimit(t *testing.T) {
-	dir := withArchiveTempDir(t)
+	dir := newArchiveTempDir(t)
 
 	raw := zipBytes(t, []tarFile{
 		{name: "a.log", body: []byte("x\n")},
@@ -117,7 +113,7 @@ func TestArchiveZip_EntryCountLimit(t *testing.T) {
 	ap := &archiveProducer{
 		stream: LogStream{Name: "o", MaxLogSize: testMaxLogSize, Logger: zap.NewNop(), TryDecoding: true},
 		open: func() (archiveBackend, error) {
-			return newZipBackend(bytes.NewReader(raw), defaultArchiveLimits().maxTotalBytes)
+			return newZipBackend(bytes.NewReader(raw), dir, defaultArchiveLimits().maxTotalBytes)
 		},
 		limits: archiveLimits{maxEntries: 2, maxEntryBytes: 1 << 30, maxTotalBytes: 1 << 30},
 	}
@@ -141,7 +137,7 @@ func TestArchiveZip_EntryCountLimit(t *testing.T) {
 // TestArchiveZip_Resume verifies the (entryIndex, offset) resume model works for
 // the zip backend: resuming at entry 1 skips entry 0 entirely.
 func TestArchiveZip_Resume(t *testing.T) {
-	dir := withArchiveTempDir(t)
+	dir := newArchiveTempDir(t)
 
 	body := zipBytes(t, []tarFile{
 		{name: "0.log", body: []byte("a1\na2\n")},
@@ -149,11 +145,11 @@ func TestArchiveZip_Resume(t *testing.T) {
 		{name: "2.log", body: []byte("c1\n")},
 	})
 
-	all, _, err := driveArchive(t, body, Offset{})
+	all, _, err := driveArchiveInDir(t, body, Offset{}, dir)
 	require.NoError(t, err)
 	require.Len(t, all, 5)
 
-	fromEntry1, _, err := driveArchive(t, body, Offset{EntryIndex: 1, Offset: 0})
+	fromEntry1, _, err := driveArchiveInDir(t, body, Offset{EntryIndex: 1, Offset: 0}, dir)
 	require.NoError(t, err)
 	require.Len(t, fromEntry1, 3) // j1,j2 + c1
 	require.NotContains(t, joined(fromEntry1), "a1")
@@ -165,9 +161,9 @@ func TestArchiveZip_Resume(t *testing.T) {
 // TestArchiveZip_TempCleanupOnMaterializeError verifies a failed materialization
 // removes the temp file so nothing leaks.
 func TestArchiveZip_TempCleanupOnMaterializeError(t *testing.T) {
-	dir := withArchiveTempDir(t)
+	dir := newArchiveTempDir(t)
 
-	_, err := newZipBackend(errReader{}, defaultArchiveLimits().maxTotalBytes)
+	_, err := newZipBackend(errReader{}, dir, defaultArchiveLimits().maxTotalBytes)
 	require.Error(t, err)
 	requireDirEmpty(t, dir)
 }
@@ -176,10 +172,10 @@ func TestArchiveZip_TempCleanupOnMaterializeError(t *testing.T) {
 // (bytes that are not a real zip) is cleaned up and classified as a corrupt
 // archive (a DLQ condition), not a generic transient failure.
 func TestArchiveZip_TempCleanupOnBadZip(t *testing.T) {
-	dir := withArchiveTempDir(t)
+	dir := newArchiveTempDir(t)
 
 	// "PK\x03\x04" prefix looks zip-ish but the rest is not a valid archive.
-	_, err := newZipBackend(bytes.NewReader([]byte("PK\x03\x04 not a real zip")), defaultArchiveLimits().maxTotalBytes)
+	_, err := newZipBackend(bytes.NewReader([]byte("PK\x03\x04 not a real zip")), dir, defaultArchiveLimits().maxTotalBytes)
 	require.Error(t, err)
 	var corrupt ErrCorruptArchive
 	require.ErrorAs(t, err, &corrupt)
@@ -193,10 +189,10 @@ func TestArchiveZip_TempCleanupOnBadZip(t *testing.T) {
 // need not be a valid zip: the cap trips during the copy, before the structure is
 // read.
 func TestArchiveZip_MaterializeCap(t *testing.T) {
-	dir := withArchiveTempDir(t)
+	dir := newArchiveTempDir(t)
 
 	body := bytes.Repeat([]byte("A"), 100)
-	_, err := newZipBackend(bytes.NewReader(body), 10)
+	_, err := newZipBackend(bytes.NewReader(body), dir, 10)
 	require.Error(t, err)
 	var limit ErrArchiveLimitExceeded
 	require.ErrorAs(t, err, &limit)

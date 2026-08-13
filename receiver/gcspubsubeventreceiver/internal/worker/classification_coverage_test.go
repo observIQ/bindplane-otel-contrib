@@ -115,7 +115,7 @@ func TestProcessRecord_RetriesWithLineParsingWhenNotJSON(t *testing.T) {
 	body := []byte(`{"foo":"bar"}`)
 	w := newGCSConsumeWorker(t, gcsClient(t, plainMeta, body, false), nil)
 
-	err := w.processRecord(context.Background(), "mybucket", "myobject", zap.NewNop())
+	_, err := w.processRecord(context.Background(), "mybucket", "myobject", zap.NewNop())
 	require.NoError(t, err, "a non-array JSON object falls back to line parsing")
 }
 
@@ -126,7 +126,7 @@ func TestConsumeGCS_NewReaderFailureFailsObject(t *testing.T) {
 
 	w := newGCSConsumeWorker(t, gcsClient(t, "", nil, true), nil)
 
-	err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", false, zap.NewNop())
+	_, err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", false, zap.NewNop())
 	require.Error(t, err)
 	require.ErrorContains(t, err, "get object")
 }
@@ -139,7 +139,7 @@ func TestConsumeGCS_LoadOffsetFailureFailsObject(t *testing.T) {
 	loadErr := errors.New("storage extension unavailable")
 	w := newGCSConsumeWorker(t, gcsClient(t, plainMeta, []byte("line1\n"), false), loadErrStorage{err: loadErr})
 
-	err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", false, zap.NewNop())
+	_, err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", false, zap.NewNop())
 	require.ErrorIs(t, err, loadErr)
 	require.ErrorContains(t, err, "load offset")
 }
@@ -152,7 +152,7 @@ func TestConsumeGCS_UnsupportedContentFailsAtParserCreation(t *testing.T) {
 	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 4000)...)
 	w := newGCSConsumeWorker(t, gcsClient(t, plainMeta, png, false), nil)
 
-	err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", true, zap.NewNop())
+	_, err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", true, zap.NewNop())
 	require.Error(t, err)
 	require.ErrorContains(t, err, "create parser")
 }
@@ -166,7 +166,7 @@ func TestConsumeGCS_MalformedRecordIsSkipped(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	w := newGCSConsumeWorker(t, gcsClient(t, plainMeta, body, false), nil)
 
-	err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", true, zap.New(core))
+	_, err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", true, zap.New(core))
 	require.NoError(t, err, "a malformed record is skipped, not fatal to the object")
 	require.Positive(t, logs.FilterMessage("parse log").Len(), "the skipped record must be logged")
 }
@@ -175,12 +175,16 @@ func TestConsumeGCS_MalformedRecordIsSkipped(t *testing.T) {
 // so the worker's per-record error-handling branches can be exercised deterministically
 // without crafting object content that provokes each classification.
 type fakeProducer struct {
-	records   []any
-	yieldErr  error
-	appendErr error
+	records    []any
+	yieldErr   error
+	appendErr  error
+	recordsErr error
 }
 
 func (f *fakeProducer) Records(context.Context, blobstream.Offset) (iter.Seq2[any, error], error) {
+	if f.recordsErr != nil {
+		return nil, f.recordsErr
+	}
 	return func(yield func(any, error) bool) {
 		for _, r := range f.records {
 			if !yield(r, nil) {
@@ -215,7 +219,7 @@ func TestConsumeGCS_DLQConditionFailsObject(t *testing.T) {
 
 	w := newFakeProducerWorkerGCS(t, &fakeProducer{yieldErr: blobstream.ErrUnsupportedContent{MIMEType: "image/png"}})
 
-	err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", false, zap.NewNop())
+	_, err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", false, zap.NewNop())
 	require.Error(t, err)
 	require.True(t, blobstream.IsUnsupportedContent(err), "an unsupported-content error is a DLQ condition, got %v", err)
 }
@@ -228,7 +232,7 @@ func TestConsumeGCS_AppendBodyFailureSkipsRecord(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	w := newFakeProducerWorkerGCS(t, &fakeProducer{records: []any{"rec"}, appendErr: errors.New("append boom")})
 
-	err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", false, zap.New(core))
+	_, err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", false, zap.New(core))
 	require.NoError(t, err, "an un-appendable record is skipped, not fatal to the object")
 	require.Positive(t, logs.FilterMessage("append log body").Len(), "the skipped record must be logged")
 }
@@ -245,7 +249,7 @@ func TestConsumeGCS_StreamReaderConstructionFailureFailsObject(t *testing.T) {
 	body := append([]byte{0x1f, 0x8b}, []byte("not-a-valid-gzip-header")...)
 	w := newGCSConsumeWorker(t, gcsClient(t, plainMeta, body, false), nil)
 
-	err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", true, zap.NewNop())
+	_, err := w.consumeLogsFromGCSObject(context.Background(), "mybucket", "myobject", true, zap.NewNop())
 	require.Error(t, err)
 	require.ErrorContains(t, err, "get stream reader")
 }

@@ -72,19 +72,29 @@ func CloseProducer(p RecordProducer) {
 func NewRecordProducer(_ context.Context, stream LogStream, reader BufferedReader, onParseError ParseErrorFunc) (RecordProducer, error) {
 	if stream.TryDecoding {
 		header, err := reader.Peek(detectionPeekBytes)
-		// A short object yields io.EOF; the partial header is still valid.
-		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("peek content: %w", err)
+		// A short object yields io.EOF; the partial header is still valid. A truncated
+		// compression layer yields io.ErrUnexpectedEOF here; the partial header is still
+		// valid for detection, and the truncation is classified later at open/parse time,
+		// so tolerate it like a clean short read (matching stream.decompress).
+		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+			// A non-EOF peek failure here is a decode failure of the object's own
+			// (de)compression layer (for example a bad-checksum gzip). Returned bare it
+			// is unclassified, so the worker treats it as transient and redelivers the
+			// same bytes forever. Classify it via the raw source: a broken/short download
+			// retries, a clean-but-corrupt object goes to the DLQ.
+			return nil, classifyReadFailure(reader, err)
 		}
 		if len(header) > 0 {
 			detected := mimetype.Detect(header)
 			limits := defaultArchiveLimits()
-			if open, ok := archiveBackendFor(detected, reader, limits.maxTotalBytes); ok {
+			if open, ok := archiveBackendFor(detected, reader, stream.archiveTempDir, limits.maxTotalBytes); ok {
 				return &archiveProducer{
 					stream:       stream,
 					open:         open,
 					limits:       limits,
 					onParseError: onParseError,
+					reader:       reader,
+					format:       detected.String(),
 				}, nil
 			}
 		}
@@ -103,15 +113,16 @@ func NewRecordProducer(_ context.Context, stream LogStream, reader BufferedReade
 //
 // Later PRs extend this switch with zip/7z/rar. Streaming backends (tar) read
 // reader directly; random-access backends materialize it inside their factory
-// so any materialization error surfaces from Records() rather than mid-stream.
-func archiveBackendFor(detected *mimetype.MIME, reader io.Reader, maxBytes int64) (func() (archiveBackend, error), bool) {
+// (into tempDir, OS default when empty) so any materialization error surfaces from
+// Records() rather than mid-stream.
+func archiveBackendFor(detected *mimetype.MIME, reader io.Reader, tempDir string, maxBytes int64) (func() (archiveBackend, error), bool) {
 	switch {
 	case detected.Is("application/x-tar"):
 		return func() (archiveBackend, error) { return newTarBackend(reader), nil }, true
 	case detected.Is("application/zip"):
-		return func() (archiveBackend, error) { return newZipBackend(reader, maxBytes) }, true
+		return func() (archiveBackend, error) { return newZipBackend(reader, tempDir, maxBytes) }, true
 	case detected.Is("application/x-7z-compressed"):
-		return func() (archiveBackend, error) { return newSevenZipBackend(reader, maxBytes) }, true
+		return func() (archiveBackend, error) { return newSevenZipBackend(reader, tempDir, maxBytes) }, true
 	case detected.Is("application/x-rar-compressed"):
 		return func() (archiveBackend, error) { return newRarBackend(reader) }, true
 	default:
@@ -159,6 +170,11 @@ type archiveBackend interface {
 	// Close releases resources held by the backend (for example a materialized
 	// temp file). It is always called once iteration finishes or is abandoned.
 	Close() error
+	// Materialized reports whether the backend reads from a fully materialized copy
+	// of the object (zip/7z) rather than the live object stream (tar/rar). A
+	// materialized backend's Next never reports a member truncation, so a member that
+	// ends in an unexpected EOF must be counted where it is read instead.
+	Materialized() bool
 }
 
 // archiveLimits bounds archive expansion to guard against archive bombs (small
@@ -228,6 +244,16 @@ type archiveProducer struct {
 	// backend is the open archive backend. It is held so Close can release a
 	// materialized backend's temp file even when the returned iterator is never driven.
 	backend archiveBackend
+	// reader is the decompressed stream the backend enumerates. Its ReadErr/AtEOF
+	// classify a failure to advance to the next entry: a broken stream fails the
+	// object (retry and resume), the bytes running out is truncation, and anything
+	// else is a corrupt container.
+	reader BufferedReader
+	// format labels the archive for a corrupt-container error.
+	format string
+	// materialized records whether the backend reads a materialized copy of the
+	// object (zip/7z). Set once the backend is opened in Records.
+	materialized bool
 
 	// curIndex and curParser track the entry currently being yielded so that
 	// Position() and AppendLogBody() reflect the right entry. They are only read
@@ -244,9 +270,40 @@ func (a *archiveProducer) Records(ctx context.Context, start Offset) (iter.Seq2[
 	a.closeBackend()
 	backend, err := a.open()
 	if err != nil {
-		return nil, fmt.Errorf("open archive: %w", err)
+		// Reconcile an open/materialize failure with the raw source, mirroring the Next()
+		// classification below. A materialized backend (zip/7z) reads the whole object
+		// here, so a broken or short download, or a corrupt-at-rest archive, first
+		// surfaces at open time. Without this, a short/broken download is dead-lettered
+		// (unrecoverable) and an unclassified decompression error redelivers forever.
+		switch {
+		case a.reader != nil && (a.reader.RawReadErr() != nil || a.reader.RawTruncated()):
+			// The source broke, or ended short of the object's known size: retry and
+			// resume from the saved entry offset. Strip the corrupt-archive wrapper so the
+			// result is purely a broken stream and does not also satisfy
+			// IsUnsupportedContent, which would route it to the dead-letter queue.
+			inner := err
+			var corruptArchive ErrCorruptArchive
+			if errors.As(err, &corruptArchive) {
+				inner = corruptArchive.Err
+			}
+			return nil, ErrStreamRead{Err: inner}
+		case IsUnsupportedContent(err):
+			// Already a dead-letter condition (corrupt archive or a tripped bomb limit)
+			// and the source was not short: keep the classification.
+			return nil, fmt.Errorf("open archive: %w", err)
+		case a.reader != nil && a.reader.RawAtEOF():
+			// The source delivered cleanly but the archive would not open: corrupt
+			// content (for example a truncated compression layer). Route it to the
+			// dead-letter queue rather than a bare error that redelivers forever.
+			return nil, ErrCorruptArchive{Type: a.format, Err: err}
+		default:
+			// An infrastructure failure (for example creating the materialization temp
+			// file) with the source not yet exhausted: keep it generic and retryable.
+			return nil, fmt.Errorf("open archive: %w", err)
+		}
 	}
 	a.backend = backend
+	a.materialized = backend.Materialized()
 
 	return func(yield func(any, error) bool) {
 		defer a.closeBackend()
@@ -259,10 +316,32 @@ func (a *archiveProducer) Records(ctx context.Context, start Offset) (iter.Seq2[
 				return
 			}
 			if err != nil {
-				// A malformed or truncated archive stops iteration; records
-				// emitted so far are kept, mirroring the leaf parsers' behavior
-				// on unexpected EOF.
-				a.stream.Logger.Warn("stopping archive iteration after entry error", zap.Error(err))
+				// Failure to advance to the next entry is classified the same way the
+				// leaf parsers classify a failed read, so records emitted so far are
+				// never silently acked with the rest of the archive lost.
+				//
+				// This fires only for streaming backends (tar/rar): a materialized
+				// backend (zip/7z) enumerates an in-memory slice, so its Next never
+				// returns a non-EOF error, and a corrupt container is caught earlier at
+				// open time as ErrCorruptArchive. The reader is always set on the
+				// production path; the nil check guards test constructors that omit it.
+				a.stream.Logger.Warn("archive iteration stopped on entry error", zap.Error(err))
+				switch {
+				case a.reader == nil:
+					yield(nil, ErrCorruptArchive{Type: a.format, Err: err})
+				case a.reader.RawReadErr() != nil || a.reader.RawTruncated():
+					// The source stream broke, or ended short of the object's size:
+					// the download did not complete. Fail the object so it retries and
+					// resumes from the saved entry offset.
+					yield(nil, ErrStreamRead{Err: err})
+				case a.reader.RawAtEOF():
+					// The source delivered cleanly but the archive structure ran out
+					// part way through: the object is truncated.
+					yield(nil, ErrTruncatedObject{Err: err})
+				default:
+					// The archive structure itself is malformed.
+					yield(nil, ErrCorruptArchive{Type: a.format, Err: err})
+				}
 				return
 			}
 			idx++
@@ -327,6 +406,10 @@ func (a *archiveProducer) consumeEntry(ctx context.Context, entry archiveEntry, 
 		MaxLogSize:  a.stream.MaxLogSize,
 		Logger:      a.stream.Logger,
 		TryDecoding: true,
+
+		// Body options apply to every entry, not only to a non-archive object.
+		Raw:                      a.stream.Raw,
+		IncludeLogRecordOriginal: a.stream.IncludeLogRecordOriginal,
 	}
 
 	// A member may itself be compressed (a .log.gz inside a tar). Decompress it down
@@ -380,6 +463,36 @@ func (a *archiveProducer) consumeEntry(ctx context.Context, entry archiveEntry, 
 			// other entries still read, so failing here would send them to the
 			// dead-letter queue alongside the bad one.
 			if isUnusableContent(rerr) {
+				a.skipEntry(ctx, entry.Name(), rerr)
+				return false
+			}
+			// A read failure reported against an entry while the object stream itself is
+			// clean (no raw read error, not short of a known size) is either the object
+			// stream running out within this entry or a per-entry decode failure.
+			if IsStreamRead(rerr) && a.reader != nil && a.reader.RawReadErr() == nil && !a.reader.RawTruncated() {
+				if errors.Is(rerr, io.ErrUnexpectedEOF) {
+					// A truncated member is reported by a STREAMING backend's Next() only when
+					// the OBJECT stream itself ran out (Next then fails to advance). Two cases
+					// break that assumption, and in both the object is otherwise intact so the
+					// member must be counted here or it is silently dropped and the object
+					// acked: a materialized backend (zip/7z) reads an in-memory index and never
+					// surfaces it via Next; and a streaming backend whose container is still
+					// intact (raw source not at EOF, more entries follow) advances cleanly to
+					// the next entry and never surfaces it either.
+					if a.materialized || !a.reader.RawAtEOF() {
+						a.skipEntry(ctx, entry.Name(), rerr)
+						return false
+					}
+					// Streaming backend AND the object stream ran out within this entry: the
+					// whole object is truncated, not this one entry. Do not count a per-entry
+					// parse error; the backend cannot advance to the next entry and the
+					// object-level handler reports the truncation once, which the worker
+					// delivers, acks, and counts as a single truncated object.
+					return false
+				}
+				// The object stream is intact, so this is a deterministic per-entry decode
+				// failure (a corrupt compressed member). Skip the entry rather than failing
+				// the whole archive and looping on every redelivery.
 				a.skipEntry(ctx, entry.Name(), rerr)
 				return false
 			}

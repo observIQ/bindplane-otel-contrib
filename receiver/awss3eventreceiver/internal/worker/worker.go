@@ -32,6 +32,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/aws/smithy-go"
+	"github.com/jonboulle/clockwork"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configretry"
 	"go.opentelemetry.io/collector/consumer"
@@ -119,7 +120,9 @@ func isNoSuchKeyError(err error) bool {
 
 // isUnsupportedFileTypeError checks if the error indicates an unsupported file type
 func isUnsupportedFileTypeError(err error) bool {
-	return blobstream.IsUnsupportedContent(err)
+	// A truncated object is delivered and acked before this classifier runs, so it is
+	// not a dead-letter condition even though it is unusable content.
+	return blobstream.IsUnsupportedContent(err) && !blobstream.IsTruncatedObject(err)
 }
 
 // DLQError represents an error that should trigger DLQ behavior
@@ -163,6 +166,10 @@ type Worker struct {
 	parseFunc                   parseFunc
 	obsrecv                     *receiverhelper.ObsReport
 	errorBackOff                configretry.BackOffConfig
+	bodyOptions                 blobstream.BodyOptions
+	// clock drives the visibility-extension timers. Injected for parity with the GCS
+	// worker and so tests can advance it instead of waiting on the wall clock.
+	clock clockwork.Clock
 }
 
 // Option is a functional option for configuring the Worker
@@ -198,6 +205,13 @@ func WithErrorBackOff(cfg configretry.BackOffConfig) Option {
 	}
 }
 
+// WithBodyOptions sets how parsed records become log record bodies.
+func WithBodyOptions(opts blobstream.BodyOptions) Option {
+	return func(w *Worker) {
+		w.bodyOptions = opts
+	}
+}
+
 // WithNotificationType sets the notification type
 func WithNotificationType(notificationType string) Option {
 	return func(w *Worker) {
@@ -220,6 +234,7 @@ func New(tel component.TelemetrySettings, nextConsumer consumer.Logs, client cli
 		visibilityExtensionInterval: visibilityExtensionInterval,
 		maxVisibilityWindow:         maxVisibilityWindow,
 		notificationType:            constants.NotificationTypeS3, // Default to S3 notification type
+		clock:                       clockwork.NewRealClock(),
 	}
 
 	for _, opt := range opts {
@@ -320,6 +335,7 @@ func (w *Worker) ProcessMessage(ctx context.Context, msg types.Message, queueURL
 	}
 
 	var keys []string
+	truncatedCount := 0
 	for _, recordData := range objectCreatedRecords {
 		record := recordData.record
 		decodedKey := recordData.decodedKey
@@ -327,31 +343,40 @@ func (w *Worker) ProcessMessage(ctx context.Context, msg types.Message, queueURL
 		recordLogger := logger.With(zap.String("bucket", record.S3.Bucket.Name), zap.String("key", decodedKey))
 		recordLogger.Debug("processing record")
 
-		err := w.processRecord(ctx, record, decodedKey, recordLogger)
+		truncated, err := w.processRecord(ctx, record, decodedKey, recordLogger)
 		if err != nil {
 			w.handleProcessingError(ctx, msg, queueURL, err, recordLogger)
 			return
 		}
+		if truncated {
+			truncatedCount++
+		}
 		keys = append(keys, decodedKey)
 		w.metrics.S3eventObjectsHandled.Add(ctx, 1)
 	}
-	w.deleteMessage(ctx, msg, queueURL, keys, logger)
+	// Counted only after a successful ack, so a truncation is recorded once per object
+	// actually acked rather than re-counted each time a failed delete redelivers it.
+	if w.deleteMessage(ctx, msg, queueURL, keys, logger) {
+		for i := 0; i < truncatedCount; i++ {
+			w.recordTruncatedObject(ctx)
+		}
+	}
 }
 
-func (w *Worker) processRecord(ctx context.Context, record events.S3EventRecord, decodedKey string, recordLogger *zap.Logger) error {
-	err := w.consumeLogsFromS3Object(ctx, record, decodedKey, true, recordLogger)
+func (w *Worker) processRecord(ctx context.Context, record events.S3EventRecord, decodedKey string, recordLogger *zap.Logger) (bool, error) {
+	truncated, err := w.consumeLogsFromS3Object(ctx, record, decodedKey, true, recordLogger)
 	if err != nil {
 		if errors.Is(err, blobstream.ErrNotArrayOrKnownObject) {
 			// try again without attempting to parse as JSON
 			recordLogger.Debug("parsing as JSON failed, trying again with line parsing")
 			return w.consumeLogsFromS3Object(ctx, record, decodedKey, false, recordLogger)
 		}
-		return err
+		return truncated, err
 	}
-	return nil
+	return truncated, nil
 }
 
-func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3EventRecord, decodedKey string, tryJSON bool, recordLogger *zap.Logger) error {
+func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3EventRecord, decodedKey string, tryJSON bool, recordLogger *zap.Logger) (bool, error) {
 	bucket := record.S3.Bucket.Name
 	size := record.S3.Object.Size
 	opts := []func(o *s3.Options){
@@ -367,12 +392,21 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 		Key:    aws.String(decodedKey),
 	}, opts...)
 	if err != nil {
-		return fmt.Errorf("get object: %w", err)
+		return false, fmt.Errorf("get object: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// version scopes the offset to this object; a replacement object has a different ETag.
 	version := aws.ToString(resp.ETag)
+
+	// Prefer the actual object size from the GetObject response over the size carried in
+	// the SQS event. The event size is a snapshot from when the event was emitted; if the
+	// object was overwritten smaller before this download, the stale (larger) event size
+	// would make a complete download look truncated (bytes read < size) and force a
+	// permanent retry loop. The event size is kept only for the debug log above.
+	if resp.ContentLength != nil {
+		size = *resp.ContentLength
+	}
 
 	now := time.Now()
 
@@ -384,6 +418,10 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 		MaxLogSize:      w.maxLogSize,
 		Logger:          recordLogger,
 		TryDecoding:     tryJSON,
+		Size:            size,
+
+		Raw:                      w.bodyOptions.Raw,
+		IncludeLogRecordOriginal: w.bodyOptions.IncludeLogRecordOriginal,
 	}
 
 	// Create the offset storage key for this object
@@ -393,7 +431,7 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 	offset := blobstream.NewOffset(0)
 	err = w.offsetStorage.LoadStorageData(ctx, offsetStorageKey, offset)
 	if err != nil {
-		return fmt.Errorf("load offset: %w", err)
+		return false, fmt.Errorf("load offset: %w", err)
 	}
 	startOffset := *offset
 
@@ -419,7 +457,7 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 
 	reader, err := stream.BufferedReader(ctx)
 	if err != nil {
-		return fmt.Errorf("get stream reader: %w", err)
+		return false, fmt.Errorf("get stream reader: %w", err)
 	}
 
 	newProducer := blobstream.NewRecordProducer
@@ -428,7 +466,7 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 	}
 	producer, err := newProducer(ctx, stream, reader, w.recordParseError)
 	if err != nil {
-		return fmt.Errorf("create parser: %w", err)
+		return false, fmt.Errorf("create parser: %w", err)
 	}
 	// Release a materialized archive's temp file even if the iterator is not driven below.
 	defer blobstream.CloseProducer(producer)
@@ -444,12 +482,26 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 	// Parse logs into a sequence of log records
 	logs, err := producer.Records(ctx, startOffset)
 	if err != nil {
-		return fmt.Errorf("parse logs: %w", err)
+		// A truncated object can be reported here, before any record is yielded (for
+		// example an Avro OCF whose header is cut short). Nothing was read, so there is
+		// nothing to deliver; ack it as truncated rather than failing, since a retry
+		// reads the same truncated bytes and the dead-letter queue would hold the same
+		// unrecoverable object. Mirrors the in-loop truncated handling below.
+		if blobstream.IsTruncatedObject(err) {
+			recordLogger.Warn("object truncated before any record was read; acking", zap.Error(err))
+			return true, nil
+		}
+		return false, fmt.Errorf("parse logs: %w", err)
 	}
 
 	// parseErr records a cancellation that stopped the read. The records already read
 	// are delivered below. The error is returned, so the message nacks.
 	var parseErr error
+	// truncated records that the object ended part way through a record. The metric is
+	// recorded only after the trailing batch flushes successfully below, so it counts
+	// objects actually acked as truncated rather than truncation events that later fail
+	// to deliver and redeliver.
+	var truncated bool
 
 	for log, err := range logs {
 		if err != nil {
@@ -459,17 +511,27 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 				parseErr = err
 				break
 			}
+			// A truncated object ends part way through a record. Deliver the records
+			// read before the cut and ack: the missing tail was never written, so the
+			// dead-letter queue (which would hold the same truncated bytes) cannot
+			// recover it, and a retry reads the same object. This must precede the
+			// IsUnsupportedContent branch, since a truncated object also satisfies it.
+			if blobstream.IsTruncatedObject(err) {
+				recordLogger.Warn("object truncated; delivering records read before the cut", zap.Error(err))
+				truncated = true
+				break
+			}
 			// A DLQ-condition error (for example an archive-bomb limit) is fatal for
 			// the whole object: fail so the message is routed to the DLQ rather than
 			// silently skipped.
 			if blobstream.IsUnsupportedContent(err) {
-				return err
+				return false, err
 			}
 			// A broken stream is fatal for the whole object. Acking here would drop
 			// every record after the break with no way to recover them, so fail and
 			// let the message redeliver and resume from the saved offset.
 			if blobstream.IsStreamRead(err) {
-				return err
+				return false, err
 			}
 			// Skipping the individual record rather than nacking the whole message, since
 			// retrying a malformed record would produce the same error. The remaining
@@ -494,7 +556,7 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 
 		if ld.LogRecordCount() >= w.maxLogsEmitted {
 			if err := w.flush(ctx, ld, batchesConsumedCount, recordLogger); err != nil {
-				return err
+				return false, err
 			}
 
 			batchesConsumedCount++
@@ -513,7 +575,7 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 
 	if ld.LogRecordCount() > 0 {
 		if err := w.flush(ctx, ld, batchesConsumedCount, recordLogger); err != nil {
-			return err
+			return false, err
 		}
 		if parseErr == nil {
 			recordLogger.Debug("processed S3 object", zap.Int("batches_consumed_count", batchesConsumedCount+1))
@@ -526,10 +588,10 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 	if parseErr != nil {
 		// The read stopped partway. Everything read is delivered and checkpointed
 		// above, so redelivery resumes at the first unread record.
-		return fmt.Errorf("read object: %w", parseErr)
+		return false, fmt.Errorf("read object: %w", parseErr)
 	}
 
-	return nil
+	return truncated, nil
 }
 
 // flush sends a batch to the next consumer on a drain context. Records already read
@@ -579,7 +641,18 @@ func (w *Worker) recordParseError(ctx context.Context) {
 	}
 }
 
-func (w *Worker) deleteMessage(ctx context.Context, msg types.Message, queueURL string, keys []string, recordLogger *zap.Logger) {
+// recordTruncatedObject counts an object that ended part way through a record. The
+// records read before the cut are delivered and the object is acked.
+func (w *Worker) recordTruncatedObject(ctx context.Context) {
+	if w.metrics != nil {
+		w.metrics.S3eventTruncatedObjects.Add(ctx, 1)
+	}
+}
+
+// deleteMessage acks the message by deleting it from the queue and reports whether the
+// delete succeeded. A failed delete leaves the message to redeliver, so callers gate any
+// once-per-acked-object bookkeeping on the returned value.
+func (w *Worker) deleteMessage(ctx context.Context, msg types.Message, queueURL string, keys []string, recordLogger *zap.Logger) bool {
 	// Ack on a detached context. A cancellation must not leave a consumed object in
 	// the queue.
 	deleteCtx, cancel := blobstream.CleanupContext(ctx)
@@ -592,7 +665,7 @@ func (w *Worker) deleteMessage(ctx context.Context, msg types.Message, queueURL 
 	_, err := w.client.SQS().DeleteMessage(deleteCtx, deleteParams)
 	if err != nil {
 		recordLogger.Error("delete message", zap.Error(err))
-		return
+		return false
 	}
 	recordLogger.Debug("deleted message")
 
@@ -603,10 +676,15 @@ func (w *Worker) deleteMessage(ctx context.Context, msg types.Message, queueURL 
 			recordLogger.Error("Failed to delete offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey))
 		}
 	}
+	return true
 }
 
 func (w *Worker) extendMessageVisibility(ctx context.Context, msg types.Message, queueURL string, logger *zap.Logger) {
-	monitor := newVisibilityMonitor(logger, msg, w.visibilityTimeout, w.visibilityExtensionInterval, w.maxVisibilityWindow)
+	clock := w.clock
+	if clock == nil {
+		clock = clockwork.NewRealClock()
+	}
+	monitor := newVisibilityMonitor(clock, logger, msg, w.visibilityTimeout, w.visibilityExtensionInterval, w.maxVisibilityWindow)
 	defer monitor.stop()
 
 	logger.Debug("starting visibility extension monitoring",
@@ -635,27 +713,29 @@ func (w *Worker) extendMessageVisibility(ctx context.Context, msg types.Message,
 }
 
 type visibilityMonitor struct {
+	clock                clockwork.Clock
 	logger               *zap.Logger
 	msg                  types.Message
 	startTime            time.Time
 	maxVisibilityEndTime time.Time
 	visibilityTimeout    time.Duration
 	extensionInterval    time.Duration
-	timer                *time.Timer
+	timer                clockwork.Timer
 }
 
-func newVisibilityMonitor(logger *zap.Logger, msg types.Message, visibilityTimeout, extensionInterval, maxVisibilityWindow time.Duration) *visibilityMonitor {
-	startTime := time.Now()
+func newVisibilityMonitor(clock clockwork.Clock, logger *zap.Logger, msg types.Message, visibilityTimeout, extensionInterval, maxVisibilityWindow time.Duration) *visibilityMonitor {
+	startTime := clock.Now()
 	firstExtensionTime := startTime.Add(getSafetyMargin(visibilityTimeout))
 
 	return &visibilityMonitor{
+		clock:                clock,
 		logger:               logger.With(zap.String("message_id", *msg.MessageId)),
 		msg:                  msg,
 		startTime:            startTime,
 		maxVisibilityEndTime: startTime.Add(maxVisibilityWindow),
 		visibilityTimeout:    visibilityTimeout,
 		extensionInterval:    extensionInterval,
-		timer:                time.NewTimer(time.Until(firstExtensionTime)),
+		timer:                clock.NewTimer(firstExtensionTime.Sub(startTime)),
 	}
 }
 
@@ -668,26 +748,26 @@ func (vm *visibilityMonitor) stop() {
 }
 
 func (vm *visibilityMonitor) nextExtensionTimer() <-chan time.Time {
-	return vm.timer.C
+	return vm.timer.Chan()
 }
 
 func (vm *visibilityMonitor) shouldExtendToMax() bool {
-	return !time.Now().Add(vm.extensionInterval).Before(vm.maxVisibilityEndTime)
+	return !vm.clock.Now().Add(vm.extensionInterval).Before(vm.maxVisibilityEndTime)
 }
 
 func (vm *visibilityMonitor) scheduleNextExtension(logger *zap.Logger) {
-	now := time.Now()
+	now := vm.clock.Now()
 	nextExtensionTime := now.Add(getSafetyMargin(vm.extensionInterval))
 	logger.Debug("resetting visibility extension timer", zap.Duration("extension_interval", vm.extensionInterval), zap.Time("next_extension_time", nextExtensionTime))
-	vm.timer.Reset(time.Until(nextExtensionTime))
+	vm.timer.Reset(nextExtensionTime.Sub(now))
 }
 
 func (vm *visibilityMonitor) getRemainingTime() time.Duration {
-	return time.Until(vm.maxVisibilityEndTime)
+	return vm.maxVisibilityEndTime.Sub(vm.clock.Now())
 }
 
 func (vm *visibilityMonitor) getTotalVisibilityTime() time.Duration {
-	return time.Since(vm.startTime)
+	return vm.clock.Now().Sub(vm.startTime)
 }
 
 func (w *Worker) extendToMaxAndStop(ctx context.Context, msg types.Message, queueURL string, monitor *visibilityMonitor, logger *zap.Logger) {

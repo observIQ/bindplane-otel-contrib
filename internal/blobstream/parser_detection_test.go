@@ -35,6 +35,11 @@ type failingPeekReader struct {
 	peekErr error
 	okPeeks int
 	seen    int
+	// rawReadErr, when set, is reported by RawReadErr once a peek has failed, modeling
+	// a break in the raw source (a real connection reset surfaces there, not only from
+	// Peek). Left nil, a peek failure looks like a decode error rather than a broken
+	// stream.
+	rawReadErr error
 }
 
 func (r *failingPeekReader) Peek(n int) ([]byte, error) {
@@ -43,6 +48,13 @@ func (r *failingPeekReader) Peek(n int) ([]byte, error) {
 		return nil, r.peekErr
 	}
 	return r.BufferedReader.Peek(n)
+}
+
+func (r *failingPeekReader) RawReadErr() error {
+	if r.rawReadErr != nil && r.seen > r.okPeeks {
+		return r.rawReadErr
+	}
+	return r.BufferedReader.RawReadErr()
 }
 
 // detectionStream builds a stream whose reader is supplied by the caller, so detection
@@ -96,9 +108,9 @@ func TestDetection_FailsWhenTheArchiveProbeCannotRead(t *testing.T) {
 	reader, err := stream.BufferedReader(context.Background())
 	require.NoError(t, err)
 
-	_, err = collectStream(t, stream, &failingPeekReader{BufferedReader: reader, peekErr: readErr})
+	_, err = collectStream(t, stream, &failingPeekReader{BufferedReader: reader, peekErr: readErr, rawReadErr: readErr})
 	require.ErrorIs(t, err, readErr)
-	require.ErrorContains(t, err, "peek content")
+	require.True(t, IsStreamRead(err), "a broken source during detection is a stream read failure")
 	require.False(t, IsUnsupportedContent(err), "a read error must stay retryable")
 }
 

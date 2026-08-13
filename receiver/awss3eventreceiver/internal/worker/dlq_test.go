@@ -171,7 +171,7 @@ func TestProcessMessageDLQConditions(t *testing.T) {
 			})
 
 			require.NoError(t, err)
-			w := worker.New(set, sink, mockClient, obsrecv, 4096, 1000, 100*time.Millisecond, 300*time.Second, 6*time.Hour, worker.WithTelemetryBuilder(tb))
+			w := worker.New(set, sink, mockClient, obsrecv, 4096, 1000, 1*time.Hour, 300*time.Second, 6*time.Hour, worker.WithTelemetryBuilder(tb))
 
 			msg := types.Message{
 				Body:          aws.String(validS3Event),
@@ -219,7 +219,7 @@ func TestProcessMessageDLQConditionsWithUnsupportedFileType(t *testing.T) {
 		ReceiverCreateSettings: params,
 	})
 	require.NoError(t, err)
-	w := worker.New(set, sink, fakeAWS, obsrecv, 4096, 1000, 100*time.Millisecond, 300*time.Second, 6*time.Hour, worker.WithTelemetryBuilder(tb))
+	w := worker.New(set, sink, fakeAWS, obsrecv, 4096, 1000, 1*time.Hour, 300*time.Second, 6*time.Hour, worker.WithTelemetryBuilder(tb))
 
 	// Get message from queue
 	msg, err := fakeAWS.SQS().ReceiveMessage(ctx, new(sqs.ReceiveMessageInput))
@@ -266,7 +266,7 @@ func TestDLQVisibilityTimeoutResetError(t *testing.T) {
 		ReceiverCreateSettings: params,
 	})
 	require.NoError(t, err)
-	w := worker.New(set, sink, mockClient, obsrecv, 4096, 1000, 100*time.Millisecond, 300*time.Second, 6*time.Hour, worker.WithTelemetryBuilder(tb))
+	w := worker.New(set, sink, mockClient, obsrecv, 4096, 1000, 1*time.Hour, 300*time.Second, 6*time.Hour, worker.WithTelemetryBuilder(tb))
 
 	msg := types.Message{
 		Body:          aws.String(validS3Event),
@@ -349,7 +349,7 @@ func TestDLQMetricsRecording(t *testing.T) {
 				ReceiverCreateSettings: params,
 			})
 			require.NoError(t, err)
-			w := worker.New(set, sink, mockClient, obsrecv, 4096, 1000, 100*time.Millisecond, 300*time.Second, 6*time.Hour, worker.WithTelemetryBuilder(tb))
+			w := worker.New(set, sink, mockClient, obsrecv, 4096, 1000, 1*time.Hour, 300*time.Second, 6*time.Hour, worker.WithTelemetryBuilder(tb))
 
 			msg := types.Message{
 				Body:          aws.String(validS3Event),
@@ -472,7 +472,7 @@ func TestDLQConditionDetection(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			w := worker.New(set, sink, mockClient, obsrecv, 4096, 1000, 100*time.Millisecond, 300*time.Second, 6*time.Hour, worker.WithTelemetryBuilder(tb))
+			w := worker.New(set, sink, mockClient, obsrecv, 4096, 1000, 1*time.Hour, 300*time.Second, 6*time.Hour, worker.WithTelemetryBuilder(tb))
 
 			msg := types.Message{
 				Body:          aws.String(validS3Event),

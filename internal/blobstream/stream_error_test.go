@@ -71,25 +71,25 @@ func TestBufferedReader_ReportsCorruptCompression(t *testing.T) {
 			// A gzip header naming a compression method that does not exist.
 			name: "gzip",
 			body: append([]byte{0x1f, 0x8b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, binaryPadding...),
-			want: "create gzip reader",
+			want: "corrupt gzip",
 		},
 		{
 			// An xz stream header whose flags fail their own checksum.
 			name: "xz",
 			body: append([]byte{0xfd, '7', 'z', 'X', 'Z', 0x00, 0xff, 0xff, 0xff, 0xff}, binaryPadding...),
-			want: "create xz reader",
+			want: "corrupt xz",
 		},
 		{
 			// A zlib header naming a preset dictionary the object does not carry.
 			name: "zlib",
 			body: append([]byte{0x78, 0x20}, binaryPadding...),
-			want: "create zlib reader",
+			want: "corrupt zlib",
 		},
 		{
 			// An lzip container declaring a version this decoder does not read.
 			name: "lzip",
 			body: append([]byte{'L', 'Z', 'I', 'P', 0xff, 0x0c}, binaryPadding...),
-			want: "create lzip reader",
+			want: "corrupt lzip",
 		},
 	}
 
@@ -107,8 +107,8 @@ func TestBufferedReader_ReportsCorruptCompression(t *testing.T) {
 			_, err := stream.BufferedReader(context.Background())
 			require.Error(t, err)
 			require.ErrorContains(t, err, tc.want)
-			require.False(t, IsUnsupportedContent(err),
-				"a corrupt container is retryable rather than a dead-letter condition")
+			require.True(t, IsUnsupportedContent(err),
+				"a corrupt compression header reads the same on every retry, so it routes to the dead-letter queue rather than redelivering forever")
 		})
 	}
 }
@@ -130,23 +130,28 @@ func TestBufferedReader_PassesThroughUnknownContent(t *testing.T) {
 	require.Equal(t, append([]byte{0x01, 0x02, 0x03}, binaryPadding...), got)
 }
 
-// TestBufferedReader_ReportsAFailedZstdDecoder asserts a zstd decoder that cannot be
-// built surfaces as an error rather than passing compressed bytes through as log lines.
-// The decoder only fails on an option it rejects, so the test supplies one.
+// TestBufferedReader_ReportsAFailedZstdDecoder asserts a zstd reader that cannot be built
+// is classified as a corrupt container and routed to the dead-letter queue, matching the
+// other content-detected decoders (gzip/xz/zlib/lzip). A reader that cannot decode the
+// object reads the same bytes on every retry, so it must not redeliver forever. The
+// decoder only fails on an option it rejects, so the test supplies one to trigger the path.
 func TestBufferedReader_ReportsAFailedZstdDecoder(t *testing.T) {
-	// Not parallel: the decoder options are package state.
-	original := zstdDecoderOptions
-	zstdDecoderOptions = []zstd.DOption{zstd.WithDecoderMaxMemory(0)}
-	defer func() { zstdDecoderOptions = original }()
+	t.Parallel()
 
 	stream := &LogStream{
 		Name:       "logs/object",
 		Body:       io.NopCloser(bytes.NewReader(zstdBytes(t, codecPayload))),
 		MaxLogSize: testMaxLogSize,
 		Logger:     zap.NewNop(),
+		// An option the decoder rejects is the only way the constructor fails; set it
+		// on this stream so the failure path runs without mutating package state.
+		zstdDecoderOpts: []zstd.DOption{zstd.WithDecoderMaxMemory(0)},
 	}
 
 	_, err := stream.BufferedReader(context.Background())
-	require.ErrorContains(t, err, "create zstd reader")
-	require.False(t, IsUnsupportedContent(err), "a decoder failure stays retryable")
+	require.Error(t, err)
+	var corrupt ErrCorruptContainer
+	require.ErrorAs(t, err, &corrupt, "a zstd reader that will not build is a corrupt container")
+	require.Equal(t, "zstd", corrupt.Format)
+	require.True(t, IsUnsupportedContent(err), "a container that cannot be decoded routes to the DLQ, not endless retry")
 }

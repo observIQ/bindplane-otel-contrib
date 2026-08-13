@@ -27,15 +27,23 @@ import (
 
 // newArchiveProducer builds a producer over an in-memory archive.
 func newArchiveProducer(t *testing.T, body []byte, logger *zap.Logger) RecordProducer {
+	return newArchiveProducerInDir(t, body, logger, "")
+}
+
+// newArchiveProducerInDir is newArchiveProducer with an explicit temp dir for
+// materializing random-access archives (empty uses the OS default). A test threads a
+// missing dir to force a create failure, using its own stream rather than package state.
+func newArchiveProducerInDir(t *testing.T, body []byte, logger *zap.Logger, tempDir string) RecordProducer {
 	t.Helper()
 	ctx := context.Background()
 
 	stream := LogStream{
-		Name:        "logs/object.tar",
-		Body:        newNopReadCloser(body),
-		MaxLogSize:  testMaxLogSize,
-		Logger:      logger,
-		TryDecoding: true,
+		Name:           "logs/object.tar",
+		Body:           newNopReadCloser(body),
+		MaxLogSize:     testMaxLogSize,
+		Logger:         logger,
+		TryDecoding:    true,
+		archiveTempDir: tempDir,
 	}
 	reader, err := stream.BufferedReader(ctx)
 	require.NoError(t, err)
@@ -48,10 +56,16 @@ func newArchiveProducer(t *testing.T, body []byte, logger *zap.Logger) RecordPro
 // driveArchiveWithLogger runs a body through the producer with the given logger and
 // returns each record body, the final position, and any object-failing error.
 func driveArchiveWithLogger(t *testing.T, body []byte, logger *zap.Logger) ([]string, Offset, error) {
+	return driveArchiveWithLoggerInDir(t, body, logger, "")
+}
+
+// driveArchiveWithLoggerInDir is driveArchiveWithLogger with an explicit temp dir for
+// materializing random-access archives (empty uses the OS default).
+func driveArchiveWithLoggerInDir(t *testing.T, body []byte, logger *zap.Logger, tempDir string) ([]string, Offset, error) {
 	t.Helper()
 	ctx := context.Background()
 
-	producer := newArchiveProducer(t, body, logger)
+	producer := newArchiveProducerInDir(t, body, logger, tempDir)
 	seq, err := producer.Records(ctx, Offset{})
 	if err != nil {
 		return nil, Offset{}, err
@@ -73,8 +87,9 @@ func driveArchiveWithLogger(t *testing.T, body []byte, logger *zap.Logger) ([]st
 }
 
 // TestArchive_StopsOnATruncatedArchive asserts a tar cut off mid-stream keeps the
-// records it already yielded and stops with a warning. The entries read so far are
-// good, so discarding them would lose data on every truncated object.
+// records it already yielded and surfaces the truncation. The entries read so far are
+// good, so they are still delivered, but the object ending part way through is reported
+// rather than silently acked.
 func TestArchive_StopsOnATruncatedArchive(t *testing.T) {
 	t.Parallel()
 
@@ -90,9 +105,10 @@ func TestArchive_StopsOnATruncatedArchive(t *testing.T) {
 	core, logs := observer.New(zap.WarnLevel)
 	bodies, _, err := driveArchiveWithLogger(t, truncated, zap.New(core))
 
-	require.NoError(t, err, "a truncated archive is not an object-level failure")
-	require.Equal(t, []string{"kept1", "kept2"}, bodies)
-	require.Positive(t, logs.FilterMessageSnippet("stopping archive iteration").Len())
+	require.Equal(t, []string{"kept1", "kept2"}, bodies, "records read before the cut are still delivered")
+	require.Error(t, err, "a truncated archive surfaces a truncation error, not a silent ack")
+	require.True(t, IsTruncatedObject(err), "the bytes ran out, so it is a truncated object")
+	require.Positive(t, logs.FilterMessageSnippet("archive iteration stopped").Len())
 }
 
 // TestArchive_SkipsEntriesWithNoUsableStructure asserts an entry the format stage

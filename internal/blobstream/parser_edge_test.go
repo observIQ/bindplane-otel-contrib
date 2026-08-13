@@ -144,10 +144,9 @@ func TestReadLine_ReportsAFailedUnread(t *testing.T) {
 // materialized fails with a clear error. Zip and 7z are read from a temp file, so a
 // broken temp directory stops them before any entry is opened.
 func TestArchive_ReportsUnusableTempDir(t *testing.T) {
-	// Not parallel: the temp directory is package state.
-	original := archiveTempDir
-	archiveTempDir = filepath.Join(t.TempDir(), "does-not-exist")
-	defer func() { archiveTempDir = original }()
+	t.Parallel()
+
+	missingDir := filepath.Join(t.TempDir(), "does-not-exist")
 
 	sevenZip, err := os.ReadFile("testdata/logs.7z")
 	require.NoError(t, err)
@@ -162,7 +161,7 @@ func TestArchive_ReportsUnusableTempDir(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, err := driveArchiveWithLogger(t, tc.body, zap.NewNop())
+			_, _, err := driveArchiveWithLoggerInDir(t, tc.body, zap.NewNop(), missingDir)
 			require.ErrorContains(t, err, "create temp file")
 		})
 	}

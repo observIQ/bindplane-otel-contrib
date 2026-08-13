@@ -310,3 +310,14 @@ func TestValidate_MaxLogsEmitted(t *testing.T) {
 		})
 	}
 }
+
+// TestBodyOptionDefaults asserts both body options default to false, so existing
+// configurations keep parsing exactly as they did before the options existed.
+func TestBodyOptionDefaults(t *testing.T) {
+	t.Parallel()
+
+	cfg := awss3eventreceiver.NewFactory().CreateDefaultConfig().(*awss3eventreceiver.Config)
+
+	require.False(t, cfg.Raw, "'raw' defaults to off: a receiver that can parse, parses")
+	require.False(t, cfg.IncludeLogRecordOriginal, "'include_log_record_original' is opt-in")
+}
