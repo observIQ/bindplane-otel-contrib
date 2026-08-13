@@ -23,7 +23,19 @@ import (
 )
 
 func TestFingerprintJSONLogsNoCollisions(t *testing.T) {
-	f, err := os.Open("testdata/jsonLogs.csv")
+	testFingerprintCorpusNoCollisions(t, "testdata/jsonLogs.csv")
+}
+
+func TestFingerprintCLFLogsNoCollisions(t *testing.T) {
+	testFingerprintCorpusNoCollisions(t, "testdata/clfLogs.csv")
+}
+
+func TestFingerprintXMLLogsNoCollisions(t *testing.T) {
+	testFingerprintCorpusNoCollisions(t, "testdata/xmlLogs.csv")
+}
+
+func testFingerprintCorpusNoCollisions(t *testing.T, path string) {
+	f, err := os.Open(path)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, f.Close())

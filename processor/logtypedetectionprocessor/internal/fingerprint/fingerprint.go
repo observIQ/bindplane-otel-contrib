@@ -53,6 +53,12 @@ func HashLog(data string) uint64 {
 		}
 	}
 
+	if last == '"' || last == '-' || (last >= '0' && last <= '9') {
+		if res := fingerprintCLF(data); res != 0 {
+			return res
+		}
+	}
+
 	return 0
 }
 
