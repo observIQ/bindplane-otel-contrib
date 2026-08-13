@@ -11,15 +11,62 @@ The AWS S3 Event Receiver consumes S3 event notifications for object creation ev
 5. Non-object creation events are ignored but removed from the queue.
 6. If an S3 object is not found (404 error), the corresponding SQS message is preserved for retry later.
 
-## Compression
+## File Format Support
 
-Gzip-compressed objects are decompressed automatically. The receiver detects gzip in priority order:
+The receiver detects the file format from the object's content, not from its name or content type. A correctly formatted object is parsed even when its extension or `Content-Type` is wrong, missing, or generic (S3 commonly reports `application/octet-stream`).
 
-1. A `Content-Encoding: gzip` header on the S3 object.
-2. A `.gz` object key suffix.
-3. The gzip magic number (`0x1f 0x8b 0x08`) at the start of the object body, used only when neither of the above is present.
+| Format | Detection |
+|---|---|
+| Avro OCF | Leading `Obj\x01` magic bytes |
+| JSON | Leading `{` followed by `"`/`}`, or `[` followed by `{`/`]` (object, or array of objects) |
+| Plain text | Everything else; parsed line by line |
 
-Detection method 3 handles producers — such as the AWS Landing Zone Accelerator — that export gzip-compressed objects without a content-encoding header or `.gz` extension. No configuration is required, and uncompressed objects are passed through unchanged.
+### Compression
+
+Compression is detected from content, not from the `.gz` extension or a `Content-Encoding` label. Compressed objects are transparently decompressed before parsing, and the decompressed bytes are then classified as Avro, JSON, or text. When a compression label disagrees with the detected content, a warning is logged and the content wins. This fixes objects that carry a `.gz` name but hold uncompressed bytes, which previously failed to parse and were redelivered indefinitely.
+
+| Codec | Detection |
+|---|---|
+| gzip | Content magic (`1f 8b`) |
+| bzip2 | Content magic |
+| xz | Content magic |
+| zstd | Content magic |
+| zlib | Content magic |
+| lzip | Content magic (`4c 5a 49 50`) |
+| lz4 (frame) | Content magic (`04 22 4d 18`) |
+| snappy (frame) | Content magic (`ff 06 00 00 sNaPpY`) |
+| raw DEFLATE | `Content-Encoding: deflate` (headerless, not detectable from content) |
+| lzma (alone) | `.lzma` name, `Content-Encoding: lzma`, or a `lzma` content type (no reliable magic) |
+
+The headerless formats (raw DEFLATE, lzma) are attempted only when a label names them, and the decode is best-effort.
+
+### Archives
+
+Archive objects are detected from content and expanded transparently: each entry is parsed independently (as Avro, JSON, or text) and its records are emitted as if the entries were concatenated. Entries may be heterogeneous (a tar can hold JSON, Avro, and plain-text members together).
+
+| Archive | Detection |
+|---|---|
+| tar | Content magic (`ustar`) |
+| zip | Content magic (`PK`) |
+| 7z | Content magic (`7z\xbc\xaf\x27\x1c`) |
+| rar | Content magic (`Rar!\x1a\x07`, RAR4 and RAR5) |
+
+Because compression is detected and stripped before archive detection runs, compressed tarballs work with no extra configuration: a `.tar.gz`, `.tar.zst`, `.tar.xz`, or `.tar.bz2` object is decompressed, re-detected as a tar, and expanded. This is content-driven and does not depend on the object's name.
+
+tar and rar are read as a stream and never fully buffered. zip and 7z require random access, so those objects are materialized to a temporary file (in the OS temp directory) that is removed once the archive is fully read or if any error occurs. The OS temp directory must have enough free space for the largest such archive (materialization is capped at 32 GiB); where that directory is RAM-backed (for example a `tmpfs` `/tmp`), a large zip or 7z consumes memory rather than disk.
+
+Multi-volume RAR sets (an archive split across several volume files) are not supported: one S3 object is treated as one complete archive. A single part of a multi-volume set will fail to parse and be routed to the DLQ.
+
+Archive handling notes:
+
+- **Directory entries** are skipped.
+- **Unsupported entries** (an image, a PDF, an unknown binary inside the archive) are skipped individually with a logged warning; the rest of the archive is still parsed.
+- **Archive-bomb protection**: total uncompressed bytes, per-entry uncompressed bytes, and entry count are capped. Declared entry sizes are never trusted; the limits are enforced against the bytes that actually flow. An archive that exceeds a limit is aborted and nacked for DLQ processing rather than expanded unboundedly.
+- **Resumption**: offsets for archive objects track both the entry index and the position within that entry, so an interrupted read resumes at the exact entry and position it left off. Non-archive objects continue to use a single byte offset, and offsets stored by earlier receiver versions remain valid.
+
+### Unsupported content
+
+Content that is not text, Avro, or JSON (for example an image or a PDF) is not parsed as text. It is rejected with its detected MIME type and the message is nacked for DLQ processing, rather than being emitted as garbled lines.
 
 ## Visibility Extension Behavior
 

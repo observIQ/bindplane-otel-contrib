@@ -16,6 +16,7 @@ package worker_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -121,6 +122,20 @@ func (r *cancelOnExhaustReader) Read(p []byte) (int, error) {
 func (r *cancelOnExhaustReader) Close() error { return nil }
 
 const cancelTestEvent = `{"Records":[{"eventName":"s3:ObjectCreated:Put","s3":{"bucket":{"name":"mybucket"},"object":{"key":"mykey","size":9}}}]}`
+
+// objectLines builds n newline-terminated lines and returns both the encoded bytes and
+// the lines they should parse into. Lines are padded so a modest count still exceeds the
+// content-detection window, which the parser peeks before any record is produced.
+func objectLines(start, n int) (body string, lines []string) {
+	var sb strings.Builder
+	for i := start; i < start+n; i++ {
+		line := fmt.Sprintf("line-%06d-padding-to-keep-the-object-comfortably-larger-than-the-detection-window", i)
+		lines = append(lines, line)
+		sb.WriteString(line)
+		sb.WriteString("\n")
+	}
+	return sb.String(), lines
+}
 
 type cancelTestHarness struct {
 	worker      *worker.Worker
@@ -248,21 +263,23 @@ func (h *cancelTestHarness) logged(msg string) bool {
 // before the stream was cut are delivered and checkpointed, the message is nacked for
 // redelivery rather than deleted, and the cancellation is not treated as a DLQ condition.
 func TestProcessMessage_CancelledMidObject(t *testing.T) {
+	const batchSize = 100
+	body, lines := objectLines(0, 250)
 	store := newMemStorage()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	h := newCancelTestHarness(t, 2, store, func() io.ReadCloser {
-		return &cancelOnExhaustReader{body: strings.NewReader("l1\nl2\nl3\n"), cancel: cancel}
+	h := newCancelTestHarness(t, batchSize, store, func() io.ReadCloser {
+		return &cancelOnExhaustReader{body: strings.NewReader(body), cancel: cancel}
 	})
 
 	done := make(chan struct{})
 	go h.worker.ProcessMessage(ctx, h.message, "myqueue", func() { close(done) })
 	<-done
 
-	require.Equal(t, []string{"l1", "l2", "l3"}, h.bodyStrings(t),
-		"the partial batch left in hand is drained rather than dropped for redelivery")
+	require.Equal(t, lines, h.bodyStrings(t),
+		"records read before the stream was cut are delivered, including the partial batch")
 
 	require.True(t, store.has(worker.OffsetStorageKey+"_mykey"),
 		"a cancelled object should leave a checkpoint behind")
@@ -280,13 +297,15 @@ func TestProcessMessage_CancelledMidObject(t *testing.T) {
 // written before the cancellation is what redelivery resumes from, so the two runs
 // together cover the object exactly once.
 func TestProcessMessage_ResumesFromCheckpointAfterCancellation(t *testing.T) {
+	const batchSize = 100
+	body, lines := objectLines(0, 250)
 	store := newMemStorage()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	first := newCancelTestHarness(t, 2, store, func() io.ReadCloser {
-		return &cancelOnExhaustReader{body: strings.NewReader("l1\nl2\nl3\n"), cancel: cancel}
+	first := newCancelTestHarness(t, batchSize, store, func() io.ReadCloser {
+		return &cancelOnExhaustReader{body: strings.NewReader(body), cancel: cancel}
 	})
 
 	done := make(chan struct{})
@@ -295,16 +314,16 @@ func TestProcessMessage_ResumesFromCheckpointAfterCancellation(t *testing.T) {
 	delivered := first.bodyStrings(t)
 	require.NotEmpty(t, delivered)
 
-	// Redelivery: the same object, now complete, processed on a live context.
-	second := newCancelTestHarness(t, 2, store, func() io.ReadCloser {
-		return io.NopCloser(strings.NewReader("l1\nl2\nl3\nl4\nl5\n"))
+	// Redelivery: the same object, now read to completion on a live context.
+	second := newCancelTestHarness(t, batchSize, store, func() io.ReadCloser {
+		return io.NopCloser(strings.NewReader(body))
 	})
 
 	done2 := make(chan struct{})
 	go second.worker.ProcessMessage(context.Background(), second.message, "myqueue", func() { close(done2) })
 	<-done2
 
-	require.Equal(t, []string{"l1", "l2", "l3", "l4", "l5"}, append(delivered, second.bodyStrings(t)...),
+	require.Equal(t, lines, append(delivered, second.bodyStrings(t)...),
 		"the two runs together should cover the object exactly once")
 	require.Equal(t, 1, *second.deleteCalls, "a fully read object should be deleted from the queue")
 }

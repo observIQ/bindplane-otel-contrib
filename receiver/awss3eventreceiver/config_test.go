@@ -276,3 +276,37 @@ func TestConfigValidate(t *testing.T) {
 		})
 	}
 }
+
+// TestValidate_MaxLogsEmitted asserts that max_logs_emitted must be positive. Zero used
+// to pass validation and then flush a batch on every single record, since the batching
+// check is `count >= maxLogsEmitted`.
+func TestValidate_MaxLogsEmitted(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name    string
+		value   int
+		wantErr string
+	}{
+		{name: "zero is rejected", value: 0, wantErr: "'max_logs_emitted' must be greater than 0"},
+		{name: "negative is rejected", value: -1, wantErr: "'max_logs_emitted' must be greater than 0"},
+		{name: "positive is accepted", value: 1},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := awss3eventreceiver.NewFactory().CreateDefaultConfig().(*awss3eventreceiver.Config)
+			cfg.SQSQueueURL = "https://sqs.us-east-1.amazonaws.com/123456789012/queue"
+			cfg.MaxLogsEmitted = tc.value
+
+			err := cfg.Validate()
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tc.wantErr)
+		})
+	}
+}

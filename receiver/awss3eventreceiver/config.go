@@ -72,7 +72,6 @@ type Config struct {
 	// MaxLogsEmitted defines the maximum number of log records to emit in a single batch.
 	// A higher number will result in fewer batches, but more memory usage.
 	// Default is 1000.
-	// TODO Allow 0 to represent no limit?
 	MaxLogsEmitted int `mapstructure:"max_logs_emitted"`
 
 	// StorageID is the ID of the storage extension to use for storing the offset.
@@ -112,6 +111,10 @@ func (c *Config) Validate() error {
 
 	if c.PollingBackoffFactor <= 1 {
 		return errors.New("'polling_backoff_factor' must be greater than 1")
+	}
+
+	if c.MaxLogsEmitted <= 0 {
+		return errors.New("'max_logs_emitted' must be greater than 0")
 	}
 
 	if c.VisibilityTimeout <= 0 {

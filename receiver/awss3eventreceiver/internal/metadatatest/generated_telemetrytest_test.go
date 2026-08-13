@@ -25,6 +25,7 @@ func TestSetupTelemetry(t *testing.T) {
 	tb.S3eventDlqUnsupportedFileErrors.Add(context.Background(), 1)
 	tb.S3eventFailures.Add(context.Background(), 1)
 	tb.S3eventObjectsHandled.Add(context.Background(), 1)
+	tb.S3eventParseErrors.Add(context.Background(), 1)
 	AssertEqualS3eventBatchSize(t, testTel,
 		[]metricdata.HistogramDataPoint[int64]{{}}, metricdatatest.IgnoreValue(),
 		metricdatatest.IgnoreTimestamp())
@@ -41,6 +42,9 @@ func TestSetupTelemetry(t *testing.T) {
 		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
 	AssertEqualS3eventObjectsHandled(t, testTel,
+		[]metricdata.DataPoint[int64]{{Value: 1}},
+		metricdatatest.IgnoreTimestamp())
+	AssertEqualS3eventParseErrors(t, testTel,
 		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
 

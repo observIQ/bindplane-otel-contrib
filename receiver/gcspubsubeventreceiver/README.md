@@ -77,7 +77,7 @@ Archive objects are detected from content and expanded transparently: each entry
 
 Because compression is detected and stripped before archive detection runs, compressed tarballs work with no extra configuration: a `.tar.gz`, `.tar.zst`, `.tar.xz`, or `.tar.bz2` object is decompressed, re-detected as a tar, and expanded. This is content-driven and does not depend on the object's name.
 
-tar and rar are read as a stream and never fully buffered. zip and 7z require random access, so those objects are materialized to a temporary file (in the OS temp directory) that is removed once the archive is fully read or if any error occurs.
+tar and rar are read as a stream and never fully buffered. zip and 7z require random access, so those objects are materialized to a temporary file (in the OS temp directory) that is removed once the archive is fully read or if any error occurs. The OS temp directory must have enough free space for the largest such archive (materialization is capped at 32 GiB); where that directory is RAM-backed (for example a `tmpfs` `/tmp`), a large zip or 7z consumes memory rather than disk.
 
 Multi-volume RAR sets (an archive split across several volume files) are not supported: one GCS object is treated as one complete archive. A single part of a multi-volume set will fail to parse and be routed to the DLQ.
 

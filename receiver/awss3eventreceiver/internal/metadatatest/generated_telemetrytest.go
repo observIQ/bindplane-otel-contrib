@@ -115,3 +115,19 @@ func AssertEqualS3eventObjectsHandled(t *testing.T, tt *componenttest.Telemetry,
 	require.NoError(t, err)
 	metricdatatest.AssertEqual(t, want, got, opts...)
 }
+
+func AssertEqualS3eventParseErrors(t *testing.T, tt *componenttest.Telemetry, dps []metricdata.DataPoint[int64], opts ...metricdatatest.Option) {
+	want := metricdata.Metrics{
+		Name:        "otelcol_s3event.parse_errors",
+		Description: "The number of individual log records skipped due to parse errors within an S3 object [Alpha]",
+		Unit:        "{errors}",
+		Data: metricdata.Sum[int64]{
+			Temporality: metricdata.CumulativeTemporality,
+			IsMonotonic: true,
+			DataPoints:  dps,
+		},
+	}
+	got, err := tt.GetMetric("otelcol_s3event.parse_errors")
+	require.NoError(t, err)
+	metricdatatest.AssertEqual(t, want, got, opts...)
+}

@@ -230,7 +230,7 @@ type gcsHarness struct {
 // fake GCS. cancelAfterBatches makes the downstream consumer cancel the worker's context
 // once it has accepted that many batches, which is how a config push lands partway
 // through an object. Zero leaves the context alone.
-func newGCSHarness(t *testing.T, attrs map[string]string, maxLogsEmitted int, store *memStorage,
+func newGCSHarness(t *testing.T, attrs map[string]string, maxLogsEmitted int, store storageclient.StorageClient,
 	storageClient *storage.Client, cancel context.CancelFunc, cancelAfterBatches int) *gcsHarness {
 	t.Helper()
 
