@@ -5,18 +5,10 @@ go 1.26.4
 require (
 	cloud.google.com/go/pubsub v1.51.0
 	cloud.google.com/go/storage v1.64.0
-	github.com/bodgit/sevenzip v1.6.5
-	github.com/gabriel-vasile/mimetype v1.4.15
 	github.com/google/go-cmp v0.7.0
 	github.com/jonboulle/clockwork v0.5.0
-	github.com/klauspost/compress v1.19.1
-	github.com/linkedin/goavro/v2 v2.15.0
-	github.com/nwaples/rardecode/v2 v2.3.0
 	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.12.0
-	github.com/pierrec/lz4/v4 v4.1.27
-	github.com/sorairolake/lzip-go v0.3.8
 	github.com/stretchr/testify v1.11.1
-	github.com/ulikunitz/xz v0.5.16
 	go.opentelemetry.io/collector/component v1.64.0
 	go.opentelemetry.io/collector/component/componenttest v0.158.0
 	go.opentelemetry.io/collector/confmap v1.64.0
@@ -34,6 +26,17 @@ require (
 	go.uber.org/zap v1.28.0
 	google.golang.org/api v0.292.0
 	google.golang.org/grpc v1.83.0
+)
+
+require (
+	github.com/bodgit/sevenzip v1.6.5 // indirect
+	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
+	github.com/linkedin/goavro/v2 v2.15.0 // indirect
+	github.com/nwaples/rardecode/v2 v2.3.0 // indirect
+	github.com/pierrec/lz4/v4 v4.1.28 // indirect
+	github.com/sorairolake/lzip-go v0.3.8 // indirect
+	github.com/ulikunitz/xz v0.5.16 // indirect
 )
 
 require (
@@ -77,6 +80,7 @@ require (
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
+	github.com/observiq/bindplane-otel-contrib/internal/blobstream v1.12.0
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
@@ -116,3 +120,5 @@ require (
 )
 
 replace github.com/observiq/bindplane-otel-contrib/internal/storageclient => ../../internal/storageclient
+
+replace github.com/observiq/bindplane-otel-contrib/internal/blobstream => ../../internal/blobstream

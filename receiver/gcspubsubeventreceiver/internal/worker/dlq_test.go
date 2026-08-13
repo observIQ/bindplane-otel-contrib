@@ -16,11 +16,13 @@
 package worker
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
 
 	"cloud.google.com/go/storage"
+	"github.com/observiq/bindplane-otel-contrib/internal/blobstream"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
 )
@@ -69,8 +71,8 @@ func TestDLQConditionKind(t *testing.T) {
 			wantKind: dlqErrorKindNone,
 		},
 		{
-			name:     "ErrNotArrayOrKnownObject",
-			err:      ErrNotArrayOrKnownObject,
+			name:     "blobstream.ErrNotArrayOrKnownObject",
+			err:      blobstream.ErrNotArrayOrKnownObject,
 			wantKind: dlqErrorKindUnsupportedFile,
 		},
 		{
@@ -135,8 +137,8 @@ func TestIsDLQConditionError(t *testing.T) {
 			wantDLQ: false,
 		},
 		{
-			name:    "ErrNotArrayOrKnownObject",
-			err:     ErrNotArrayOrKnownObject,
+			name:    "blobstream.ErrNotArrayOrKnownObject",
+			err:     blobstream.ErrNotArrayOrKnownObject,
 			wantDLQ: true,
 		},
 		{
@@ -154,5 +156,21 @@ func TestIsDLQConditionError(t *testing.T) {
 			got := isDLQConditionError(tc.err)
 			require.Equal(t, tc.wantDLQ, got)
 		})
+	}
+}
+
+func TestDLQConditionKind_CancellationIsNeverDLQ(t *testing.T) {
+	t.Parallel()
+
+	// A config push cancels the context mid-object. Routing that to the dead-letter
+	// queue would send good data to the DLQ on every config change.
+	for _, err := range []error{
+		context.Canceled,
+		context.DeadlineExceeded,
+		fmt.Errorf("read object: %w", context.Canceled),
+		fmt.Errorf("read object: %w", context.DeadlineExceeded),
+	} {
+		require.Equal(t, dlqErrorKindNone, dlqConditionKind(err), "err: %v", err)
+		require.False(t, isDLQConditionError(err), "err: %v", err)
 	}
 }

@@ -28,6 +28,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
+	"github.com/observiq/bindplane-otel-contrib/internal/blobstream"
 	"github.com/observiq/bindplane-otel-contrib/internal/storageclient"
 	"github.com/observiq/bindplane-otel-contrib/receiver/gcspubsubeventreceiver/internal/metadata"
 )
@@ -82,7 +83,7 @@ func TestCheckpoint_LogsSaveFailure(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	w := &Worker{offsetStorage: errStorage{err: errors.New("storage extension unavailable")}}
 
-	w.checkpoint(context.Background(), "_gcs_pub_event_offset_key", Offset{EntryIndex: 2, Offset: 512}, zap.New(core))
+	w.checkpoint(context.Background(), "_gcs_pub_event_offset_key", blobstream.Offset{EntryIndex: 2, Offset: 512}, zap.New(core))
 
 	entries := logs.FilterMessage("Failed to save offset").All()
 	require.Len(t, entries, 1)
