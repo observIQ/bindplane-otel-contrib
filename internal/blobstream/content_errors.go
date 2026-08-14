@@ -14,7 +14,10 @@
 
 package blobstream
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // IsUnsupportedContent reports that this package can never parse the object. The
 // content type is unknown, the archive structure failed to decode, or the archive
@@ -49,6 +52,24 @@ func isUnusableContent(err error) bool {
 	if errors.As(err, &corruptArchive) {
 		return true
 	}
+	var corruptContainer ErrCorruptContainer
+	if errors.As(err, &corruptContainer) {
+		return true
+	}
 	var decompressLimit ErrDecompressLimitExceeded
 	return errors.As(err, &decompressLimit)
 }
+
+// ErrCorruptContainer indicates an object matched a known format but its structure
+// would not decode. A retry reads the same bytes, so the object goes to the dead-letter
+// queue instead of being redelivered.
+type ErrCorruptContainer struct {
+	Format string
+	Err    error
+}
+
+func (e ErrCorruptContainer) Error() string {
+	return fmt.Sprintf("corrupt %s object: %v", e.Format, e.Err)
+}
+
+func (e ErrCorruptContainer) Unwrap() error { return e.Err }

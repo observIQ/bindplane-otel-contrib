@@ -76,7 +76,17 @@ func StartsWithAvroOcfMagic(reader BufferedReader) (bool, error) {
 func (p *avroOcfParser) Parse(_ context.Context, startOffset int64) (logs iter.Seq2[any, error], err error) {
 	ocfReader, err := goavro.NewOCFReader(p.reader)
 	if err != nil {
-		return nil, fmt.Errorf("create ocf reader: %w", err)
+		// The header failed to decode. Classify it the same way the scan end does: a
+		// broken stream retries, a header cut short is a truncated object, and anything
+		// else is a container this decoder cannot read. A header larger than the detection
+		// window can break mid-read here, so the raw failure is not always caught earlier.
+		if p.reader.ReadErr() != nil {
+			return nil, ErrStreamRead{Err: p.reader.ReadErr()}
+		}
+		if p.reader.AtEOF() {
+			return nil, ErrTruncatedObject{Err: err}
+		}
+		return nil, ErrCorruptContainer{Format: "avro", Err: err}
 	}
 
 	// yield a sequence of records from the ocf reader
@@ -120,9 +130,33 @@ func (p *avroOcfParser) Parse(_ context.Context, startOffset int64) (logs iter.S
 			}
 
 			// yield the avro record
-			if !yield(record, err) {
+			if !yield(record, nil) {
 				return
 			}
+		}
+
+		// Scan stops at the end of the object and on failure alike, and keeps the
+		// reason to itself. Without this check a broken stream looks like a clean
+		// finish, and every record after the break is lost with no report.
+		//
+		// The reader tells the three cases apart. A recorded failure means the
+		// stream broke. Reaching the end of the object means the scan finished,
+		// because the decoder reports its own end-of-input the same way it reports
+		// a fault. Anything else stopped early on content it could not decode.
+		scanErr := ocfReader.Err()
+		switch {
+		case scanErr == nil:
+			// The decoder read the object to its end.
+		case p.reader.ReadErr() != nil:
+			// The stream broke, so a later attempt can still read the object.
+			yield(nil, ErrStreamRead{Err: p.reader.ReadErr()})
+		case p.reader.AtEOF():
+			// The bytes ran out part way through. They were never written, so a
+			// later attempt reads the same object again.
+			yield(nil, ErrTruncatedObject{Err: scanErr})
+		default:
+			// The decoder stopped early on content it cannot read.
+			yield(nil, ErrCorruptContainer{Format: "avro", Err: scanErr})
 		}
 	}, nil
 }

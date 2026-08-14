@@ -54,6 +54,11 @@ func TestErrorMessages(t *testing.T) {
 			want: "object ends mid-record: unexpected EOF",
 		},
 		{
+			name: "corrupt container",
+			err:  ErrCorruptContainer{Format: "avro", Err: errors.New("sync marker mismatch")},
+			want: "corrupt avro object: sync marker mismatch",
+		},
+		{
 			name: "corrupt archive with a type",
 			err:  ErrCorruptArchive{Type: "zip", Err: errors.New("bad header")},
 			want: "corrupt zip archive: bad header",
@@ -116,6 +121,16 @@ func TestIsUnsupportedContent(t *testing.T) {
 			want: true,
 		},
 		{name: "corrupt archive", err: ErrCorruptArchive{Type: "tar", Err: errors.New("bad header")}, want: true},
+		{
+			name: "corrupt container",
+			err:  ErrCorruptContainer{Format: "avro", Err: errors.New("sync marker mismatch")},
+			want: true,
+		},
+		{
+			name: "wrapped corrupt container",
+			err:  fmt.Errorf("read object: %w", ErrCorruptContainer{Format: "avro", Err: errors.New("bad")}),
+			want: true,
+		},
 		{
 			name: "wrapped corrupt archive",
 			err:  fmt.Errorf("open archive: %w", ErrCorruptArchive{Type: "tar", Err: errors.New("bad header")}),

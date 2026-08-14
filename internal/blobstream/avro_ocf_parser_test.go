@@ -51,7 +51,7 @@ func TestParseAvroOcfLogs(t *testing.T) {
 		{filePath: "testdata/sample_logs.avro.gz", expectLogs: 900, startOffset: 100},
 		{filePath: "testdata/sample_logs.avro.gz", expectLogs: 1, startOffset: 999},
 		{filePath: "testdata/sample_logs.avro.gz", expectLogs: 0, startOffset: 1000},
-		{filePath: "testdata/sample_logs_corrupt.avro", expectLogs: 50}, // no error expected, just aborts
+		{filePath: "testdata/sample_logs_corrupt.avro", expectLogs: 50, expectReadError: "object ends mid-record"}, // truncated: the scan-end classifier reports the unexpected EOF
 		{filePath: "testdata/sample_logs_corrupt_schema.avro", expectLogs: 0, expectParseError: "cannot read OCF header with invalid avro.schema"},
 		{filePath: "testdata/sample_logs_corrupt_record.avro", expectLogs: 999, expectReadError: "cannot decode binary record", expectOffsets: thousandOffsets},
 		{filePath: "testdata/sample_logs_corrupt_block.avro", expectLogs: 982, expectReadError: "cannot decode binary record", expectOffsets: []int64{18, 19, 20, 21}},
