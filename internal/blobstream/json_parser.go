@@ -15,6 +15,7 @@
 package blobstream
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -114,80 +115,173 @@ func firstMeaningfulByte(buf []byte) (b byte, rest []byte, ok bool) {
 	return 0, nil, false
 }
 
-// Parse parses the JSON stream into a sequence of log records. The JSON stream is
-// expected be either:
+// jsonShape describes how an object holds its records. Classification runs before the
+// decoder reads. A json.Decoder cannot rewind after a search for a "Records" key.
+type jsonShape int
+
+const (
+	// jsonShapeArray is a top-level array of records: [{...},{...}].
+	jsonShapeArray jsonShape = iota
+
+	// jsonShapeRecordsWrapper is a single object whose "Records" key holds the array.
+	jsonShapeRecordsWrapper
+
+	// jsonShapeValueSequence is one top-level value after another. It covers
+	// newline-delimited JSON, a lone object, and concatenated documents. A
+	// json.Decoder reads all three the same way, so NDJSON needs no detection.
+	jsonShapeValueSequence
+)
+
+// classifyJSON reads an object's shape from its leading bytes. It consumes nothing.
 //
-// 1. an array of log records
-//
-// 2. a single object with a "Records" key that contains an array of log records
-//
-// The parser will return an error if the stream is not valid. It will return
-// ErrNotArrayOrKnownObject if the stream does not contain a valid array or object with a
-// "Records" key.
-func (p *jsonParser) Parse(_ context.Context, startOffset int64) (logs iter.Seq2[any, error], err error) {
-	// Read the first object
-	tok, err := p.decoder.Token()
-	if err != nil {
-		return nil, fmt.Errorf("read first token: %w", err)
+// The window matches the budget the "Records" search always used. A wrapper that holds
+// the key deeper than the budget classifies as it did before.
+func classifyJSON(reader BufferedReader) (jsonShape, error) {
+	window, err := reader.Peek(maxRecordsSearchBytes)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return 0, fmt.Errorf("peek: %w", err)
 	}
 
-	switch {
-	case tok == json.Delim('['):
-		// json structure is an array
-		return p.yieldArray(startOffset), nil
+	first, _, ok := firstMeaningfulByte(window)
+	if !ok {
+		return 0, ErrNotArrayOrKnownObject
+	}
 
-	case tok == json.Delim('{'):
-		// json structure is an object, find and yield the "Records" array containing log
-		// records
+	switch first {
+	case '[':
+		return jsonShapeArray, nil
+	case '{':
+		if opensRecordsArray(window) {
+			return jsonShapeRecordsWrapper, nil
+		}
+		if firstValueFitsInWindow(window) {
+			return jsonShapeValueSequence, nil
+		}
+		// A document too large for the window goes back to the caller, which falls
+		// back to line parsing. One value that large fills memory.
+		return 0, ErrNotArrayOrKnownObject
+	default:
+		return 0, ErrNotArrayOrKnownObject
+	}
+}
 
-		// iterate through key/value pairs
-		for p.decoder.More() {
-			// key
-			tok, err := p.decoder.Token()
-			if err != nil {
-				return nil, fmt.Errorf("read token: %w", err)
-			}
-			// Inside an object the decoder only returns string keys, so the
-			// assertion cannot fail. A zero value would fall through to the skip
-			// below, which keeps the decoder aligned.
-			key, _ := tok.(string)
+// firstValueFitsInWindow reports that a complete top-level value ends inside window.
+//
+// It separates a sequence of records from one oversized document. The sequence path
+// holds each record in memory, so it runs only when the first record is small.
+func firstValueFitsInWindow(window []byte) bool {
+	var first json.RawMessage
+	return json.NewDecoder(bytes.NewReader(window)).Decode(&first) == nil
+}
 
-			if key != "Records" {
-				// we only look for Records in the first 4096 bytes
-				if p.decoder.InputOffset() > maxRecordsSearchBytes {
-					return nil, ErrNotArrayOrKnownObject
-				}
+// opensRecordsArray reports that window starts an object whose "Records" key holds an
+// array. It decodes instead of matching text, so the word "Records" in a value does not
+// match. The throwaway decoder reads only the peeked bytes.
+func opensRecordsArray(window []byte) bool {
+	decoder := json.NewDecoder(bytes.NewReader(window))
 
-				// skip the non-"Records" value
-				if err := skipValue(p.decoder, maxRecordsSearchBytes); err != nil {
-					return nil, fmt.Errorf("skip value: %w", err)
-				}
-				continue
-			}
+	tok, err := decoder.Token()
+	if err != nil || tok != json.Delim('{') {
+		return false
+	}
 
-			// "Records" value
-			tok, err = p.decoder.Token()
-			if err != nil {
-				return nil, fmt.Errorf("read token: %w", err)
-			}
-			switch tok {
-			case json.Delim('['):
-				return p.yieldArray(startOffset), nil
-
-			default:
-				// "Records" exists but is not an array
-				return nil, ErrNotArrayOrKnownObject
-			}
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			// A truncated window or the end of the object: no "Records" key in budget.
+			return false
+		}
+		// A closing delimiter or a cut window is not a key, so no Records array opens.
+		key, ok := tok.(string)
+		if !ok {
+			return false
 		}
 
-		// we didn't find a top level array of log records or a "Records" key with an array of
-		// log records
-		return nil, ErrNotArrayOrKnownObject
+		if key != "Records" {
+			if err := skipValue(decoder, maxRecordsSearchBytes); err != nil {
+				return false
+			}
+			continue
+		}
 
-	default:
-		// not an array or object with a known key
-		return nil, ErrNotArrayOrKnownObject
+		tok, err = decoder.Token()
+		if err != nil {
+			return false
+		}
+		return tok == json.Delim('[')
 	}
+}
+
+// Parse reads the JSON stream into a sequence of log records. The stream holds an array
+// of records, an object with a "Records" array, or a sequence of top-level values.
+//
+// It returns ErrNotArrayOrKnownObject for any other content.
+func (p *jsonParser) Parse(_ context.Context, startOffset int64) (logs iter.Seq2[any, error], err error) {
+	shape, err := classifyJSON(p.reader)
+	if err != nil {
+		return nil, err
+	}
+
+	switch shape {
+	case jsonShapeArray:
+		// Step into the array so the loop below sees its elements.
+		if _, err := p.decoder.Token(); err != nil {
+			return nil, fmt.Errorf("read first token: %w", err)
+		}
+
+	case jsonShapeRecordsWrapper:
+		if err := p.seekRecordsArray(); err != nil {
+			return nil, err
+		}
+
+	case jsonShapeValueSequence:
+		// Nothing to step into: the records are the top-level values themselves.
+	}
+
+	// A sequence of top-level values has no closing delimiter, so only the two
+	// bracketed shapes can be checked for one.
+	return p.yieldValues(startOffset, shape != jsonShapeValueSequence), nil
+}
+
+// seekRecordsArray advances the decoder into the "Records" array. It skips the other
+// keys and decodes none of their values.
+func (p *jsonParser) seekRecordsArray() error {
+	if _, err := p.decoder.Token(); err != nil {
+		return fmt.Errorf("read first token: %w", err)
+	}
+
+	for p.decoder.More() {
+		tok, err := p.decoder.Token()
+		if err != nil {
+			return fmt.Errorf("read token: %w", err)
+		}
+		// Inside an object the decoder only returns string keys, so the assertion
+		// cannot fail. A zero value falls through to the skip below, which keeps the
+		// decoder aligned.
+		key, _ := tok.(string)
+
+		if key != "Records" {
+			if p.decoder.InputOffset() > maxRecordsSearchBytes {
+				return ErrNotArrayOrKnownObject
+			}
+			if err := skipValue(p.decoder, maxRecordsSearchBytes); err != nil {
+				return fmt.Errorf("skip value: %w", err)
+			}
+			continue
+		}
+
+		tok, err = p.decoder.Token()
+		if err != nil {
+			return fmt.Errorf("read token: %w", err)
+		}
+		if tok != json.Delim('[') {
+			// "Records" exists but is not an array
+			return ErrNotArrayOrKnownObject
+		}
+		return nil
+	}
+
+	return ErrNotArrayOrKnownObject
 }
 
 func (p *jsonParser) Offset() int64 {
@@ -225,9 +319,10 @@ func skipValue(decoder *json.Decoder, maxBytes int64) error {
 	return nil
 }
 
-func (p *jsonParser) yieldArray(startOffset int64) iter.Seq2[any, error] {
+// yieldValues decodes one record at a time. decoder.More() reports another element or
+// top-level value, so one loop drives an array and a sequence of documents.
+func (p *jsonParser) yieldValues(startOffset int64, closes bool) iter.Seq2[any, error] {
 	return func(yield func(any, error) bool) {
-		// Iterate through the array
 		for p.decoder.More() {
 			// RawMessage keeps each element's exact bytes for log.record.original.
 			// AppendLogBody decodes the body from the same bytes.
@@ -270,8 +365,11 @@ func (p *jsonParser) yieldArray(startOffset int64) iter.Seq2[any, error] {
 			}
 		}
 		// The loop above also ends when the object stops part way through, because
-		// More reports no further element either way. A complete array closes with a
-		// delimiter, so anything else here means the bytes ran out early.
+		// More reports no further element either way. A bracketed shape closes with a
+		// delimiter, so anything else there means the bytes ran out early.
+		if !closes {
+			return
+		}
 		if _, err := p.decoder.Token(); err != nil {
 			yield(nil, ErrTruncatedObject{Err: err})
 		}

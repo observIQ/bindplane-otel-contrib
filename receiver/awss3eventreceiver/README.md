@@ -18,8 +18,12 @@ The receiver detects the file format from the object's content, not from its nam
 | Format | Detection |
 |---|---|
 | Avro OCF | Leading `Obj\x01` magic bytes |
-| JSON | Leading `{` followed by `"`/`}`, or `[` followed by `{`/`]` (object, or array of objects) |
+| JSON | Leading `{` followed by `"`/`}`, or `[` followed by `{`/`]`. Covers arrays, `Records` wrappers, and value sequences including NDJSON |
 | Plain text | Everything else; parsed line by line |
+
+JSON covers three layouts, all read as a stream: a top-level array, an object whose `Records` key holds that array, and a sequence of top-level values one after another. That last shape is what makes newline-delimited JSON work, and it needs no format of its own: to a JSON decoder, NDJSON, a lone object, and concatenated pretty-printed documents are the same thing.
+
+A document too large to classify within the first 4 KiB is read line by line instead, so a single very large JSON object is never buffered whole.
 
 ### Compression
 
