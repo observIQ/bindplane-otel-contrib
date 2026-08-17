@@ -32,6 +32,10 @@ func BenchmarkFingerprintCLFLogs(b *testing.B) {
 	benchmarkFingerprintCorpus(b, "testdata/clfLogs.csv")
 }
 
+func BenchmarkFingerprintSyslogLogs(b *testing.B) {
+	benchmarkFingerprintCorpus(b, "testdata/sysLogs.csv")
+}
+
 func benchmarkFingerprintCorpus(b *testing.B, path string) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -58,7 +62,7 @@ func benchmarkFingerprintCorpus(b *testing.B, path string) {
 	n := 0
 	for b.Loop() {
 		for i := range bodies {
-			if HashLog(bodies[i]) == 0 {
+			if fingerprint(bodies[i], false) == 0 {
 				b.Fatal("no fingerprint")
 			}
 		}

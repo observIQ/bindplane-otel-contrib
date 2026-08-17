@@ -34,6 +34,11 @@ func TestFingerprintXMLLogsNoCollisions(t *testing.T) {
 	testFingerprintCorpusNoCollisions(t, "testdata/xmlLogs.csv")
 }
 
+// TODO: BP-74 enable this test once we have a way to fingerprint generic data
+// func TestFingerprintSysLogsNoCollisions(t *testing.T) {
+// 	testFingerprintCorpusNoCollisions(t, "testdata/sysLogs.csv")
+// }
+
 func testFingerprintCorpusNoCollisions(t *testing.T, path string) {
 	f, err := os.Open(path)
 	require.NoError(t, err)

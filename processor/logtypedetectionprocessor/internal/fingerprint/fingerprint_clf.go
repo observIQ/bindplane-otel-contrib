@@ -109,7 +109,7 @@ func foldNormalizedRequest(hash uint64, request string) uint64 {
 		digit := false
 		j := i
 		for j < len(request) && !clfDelimChars[request[j]] {
-			digit = digit || (request[j] >= '0' && request[j] <= '9')
+			digit = digit || (isDigit(request[j]))
 			j++
 		}
 		if digit {
@@ -121,28 +121,6 @@ func foldNormalizedRequest(hash uint64, request string) uint64 {
 	}
 
 	return hash
-}
-
-// endOfToken returns the index just past the whitespace-delimited token
-// starting at start.
-func endOfToken(data string, start int) int {
-	i := start
-	for i < len(data) && !spaceChars[data[i]] {
-		i++
-	}
-
-	return i
-}
-
-// skipSpaces returns the index of the first non-whitespace character at or
-// after start.
-func skipSpaces(data string, start int) int {
-	i := start
-	for i < len(data) && spaceChars[data[i]] {
-		i++
-	}
-
-	return i
 }
 
 // endOfQuotedField returns the index just past the quoted field starting at
@@ -174,7 +152,7 @@ func endOfNumberField(data string, start int) int {
 		return end
 	}
 	for i := start; i < end; i++ {
-		if data[i] < '0' || data[i] > '9' {
+		if !isDigit(data[i]) {
 			return -1
 		}
 	}
