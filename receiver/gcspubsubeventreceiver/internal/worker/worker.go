@@ -211,11 +211,14 @@ func (w *Worker) ProcessMessage(ctx context.Context, msg *PullMessage, subscript
 
 	w.metrics.GcseventObjectsHandled.Add(ctx, 1)
 
-	// Clean up offset storage for the processed object
+	// Delete the offset on a detached context. A cancellation would otherwise leave a
+	// stale offset for a processed object.
+	deleteCtx, cancelDelete := cleanupContext(ctx)
 	offsetStorageKey := fmt.Sprintf("%s_%s", OffsetStorageKey, objectID)
-	if err := w.offsetStorage.DeleteStorageData(ctx, offsetStorageKey); err != nil {
+	if err := w.offsetStorage.DeleteStorageData(deleteCtx, offsetStorageKey); err != nil {
 		logger.Error("failed to delete offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey))
 	}
+	cancelDelete()
 
 	w.ackMessage(ctx, msg.AckID, subscriptionPath)
 	logger.Debug("message acked")
@@ -227,7 +230,12 @@ func (w *Worker) ackMessage(ctx context.Context, ackID, subscriptionPath string)
 	if w.subClient == nil {
 		return
 	}
-	if err := w.subClient.Acknowledge(ctx, &pubsubpb.AcknowledgeRequest{
+	// Ack on a detached context. A cancellation must not leave a processed object in
+	// the subscription.
+	ackCtx, cancel := cleanupContext(ctx)
+	defer cancel()
+
+	if err := w.subClient.Acknowledge(ackCtx, &pubsubpb.AcknowledgeRequest{
 		Subscription: subscriptionPath,
 		AckIds:       []string{ackID},
 	}); err != nil {
@@ -241,7 +249,12 @@ func (w *Worker) nackMessage(ctx context.Context, ackID, subscriptionPath string
 	if w.subClient == nil {
 		return
 	}
-	if err := w.subClient.ModifyAckDeadline(ctx, &pubsubpb.ModifyAckDeadlineRequest{
+	// Nack on a detached context. The message then redelivers without waiting for the
+	// full ack deadline.
+	nackCtx, cancel := cleanupContext(ctx)
+	defer cancel()
+
+	if err := w.subClient.ModifyAckDeadline(nackCtx, &pubsubpb.ModifyAckDeadlineRequest{
 		Subscription:       subscriptionPath,
 		AckIds:             []string{ackID},
 		AckDeadlineSeconds: 0,
@@ -375,8 +388,16 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		return fmt.Errorf("parse logs: %w", err)
 	}
 
+	// parseErr records a cancellation that stopped the read. The records already read
+	// are delivered below. The error is returned, so the message nacks.
+	var parseErr error
+
 	for log, err := range logs {
 		if err != nil {
+			if isCancellation(err) {
+				parseErr = err
+				break
+			}
 			// A DLQ-condition error (for example an archive-bomb limit) is fatal for
 			// the whole object: fail so the message is routed to the DLQ rather than
 			// silently skipped.
@@ -411,23 +432,15 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		}
 
 		if ld.LogRecordCount() >= w.maxLogsEmitted {
-			obsCtx := w.obsrecv.StartLogsOp(ctx)
-			if err := w.nextConsumer.ConsumeLogs(ctx, ld); err != nil {
-				w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), err)
-				recordLogger.Error("consume logs", zap.Error(err), zap.Int("batches_consumed_count", batchesConsumedCount))
-				return fmt.Errorf("consume logs: %w", err)
+			if err := w.flush(ctx, ld, batchesConsumedCount, recordLogger); err != nil {
+				return err
 			}
-			w.metrics.GcseventBatchSize.Record(ctx, int64(ld.LogRecordCount()))
-			w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), nil)
 
 			batchesConsumedCount++
 			recordLogger.Debug("Reached max logs for single batch, starting new batch", zap.Int("batches_consumed_count", batchesConsumedCount))
 
 			// Save the offset to storage
-			pos := producer.position()
-			if err := w.offsetStorage.SaveStorageData(ctx, offsetStorageKey, &pos); err != nil {
-				recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int("entry_index", pos.EntryIndex), zap.Int64("offset", pos.Offset))
-			}
+			w.checkpoint(ctx, offsetStorageKey, producer.position(), recordLogger)
 
 			ld = plog.NewLogs()
 			rls = ld.ResourceLogs().AppendEmpty()
@@ -437,27 +450,56 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		}
 	}
 
-	if ld.LogRecordCount() == 0 {
-		return nil
-	}
-	w.metrics.GcseventBatchSize.Record(ctx, int64(ld.LogRecordCount()))
+	if ld.LogRecordCount() > 0 {
+		if err := w.flush(ctx, ld, batchesConsumedCount, recordLogger); err != nil {
+			return err
+		}
+		if parseErr == nil {
+			recordLogger.Debug("processed GCS object", zap.Int("batches_consumed_count", batchesConsumedCount+1))
+		}
 
-	obsCtx := w.obsrecv.StartLogsOp(ctx)
-	if err := w.nextConsumer.ConsumeLogs(ctx, ld); err != nil {
-		w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), err)
-		recordLogger.Error("consume logs", zap.Error(err), zap.Int("batches_consumed_count", batchesConsumedCount))
-		return fmt.Errorf("consume logs: %w", err)
+		// Save the offset to storage
+		w.checkpoint(ctx, offsetStorageKey, producer.position(), recordLogger)
 	}
-	w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), nil)
-	recordLogger.Debug("processed GCS object", zap.Int("batches_consumed_count", batchesConsumedCount+1))
 
-	// Save the offset to storage
-	pos := producer.position()
-	if err := w.offsetStorage.SaveStorageData(ctx, offsetStorageKey, &pos); err != nil {
-		recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int("entry_index", pos.EntryIndex), zap.Int64("offset", pos.Offset))
+	if parseErr != nil {
+		// The read stopped partway. Everything read is delivered and checkpointed
+		// above, so redelivery resumes at the first unread record.
+		return fmt.Errorf("read object: %w", parseErr)
 	}
 
 	return nil
+}
+
+// flush sends a batch to the next consumer on a drain context. Records already read
+// are delivered during wind-down.
+//
+// The line parser drops a truncated record, so a batch always ends on a record
+// boundary and the checkpoint stays accurate. Reading stops at the next failed refill.
+func (w *Worker) flush(ctx context.Context, ld plog.Logs, batchesConsumedCount int, recordLogger *zap.Logger) error {
+	flushCtx, cancel := drainContext(ctx)
+	defer cancel()
+
+	obsCtx := w.obsrecv.StartLogsOp(flushCtx)
+	err := w.nextConsumer.ConsumeLogs(flushCtx, ld)
+	w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), err)
+	if err != nil {
+		recordLogger.Error("consume logs", zap.Error(err), zap.Int("batches_consumed_count", batchesConsumedCount))
+		return fmt.Errorf("consume logs: %w", err)
+	}
+	w.metrics.GcseventBatchSize.Record(flushCtx, int64(ld.LogRecordCount()))
+	return nil
+}
+
+// checkpoint saves the parse position on a drain context. A late cancellation then
+// cannot lose the offset.
+func (w *Worker) checkpoint(ctx context.Context, offsetStorageKey string, pos Offset, recordLogger *zap.Logger) {
+	saveCtx, cancel := drainContext(ctx)
+	defer cancel()
+
+	if err := w.offsetStorage.SaveStorageData(saveCtx, offsetStorageKey, &pos); err != nil {
+		recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int("entry_index", pos.EntryIndex), zap.Int64("offset", pos.Offset))
+	}
 }
 
 // dlqErrorKind categorizes an error into a DLQ condition bucket.
@@ -473,7 +515,9 @@ const (
 // dlqConditionKind returns the DLQ error kind for the given error, or
 // dlqErrorKindNone if the error does not trigger a DLQ condition.
 func dlqConditionKind(err error) dlqErrorKind {
-	if err == nil {
+	// Cancellation is never a DLQ condition. A config push must not send good data to
+	// the dead-letter queue.
+	if err == nil || isCancellation(err) {
 		return dlqErrorKindNone
 	}
 	// GCS returns storage.ErrObjectNotExist when the object is not found.
@@ -540,6 +584,13 @@ func (w *Worker) recordDLQMetrics(ctx context.Context, err error) {
 // redelivery / DLQ processing. For transient errors the message is also nacked
 // so Pub/Sub can redeliver it after the ack deadline expires.
 func (w *Worker) handleProcessingError(ctx context.Context, ackID, subscriptionPath string, err error, logger *zap.Logger) {
+	if isCancellation(err) {
+		// A config push or a shutdown cancelled the context. Nack the message, so it
+		// redelivers at once and resumes from the checkpoint. This is not a failure.
+		logger.Info("processing cancelled, nacking message for redelivery", zap.Error(err))
+		w.nackMessage(ctx, ackID, subscriptionPath)
+		return
+	}
 	if isDLQConditionError(err) {
 		logger.Error("DLQ condition triggered, nacking message for redelivery/DLQ processing", zap.Error(err))
 		w.recordDLQMetrics(ctx, err)
