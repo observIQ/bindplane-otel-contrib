@@ -116,6 +116,6 @@ func TestFingerprintGenericStructure(t *testing.T) {
 }
 
 func TestHashLogGenericFallback(t *testing.T) {
-	require.NotZero(t, HashLog("plain text message", false))
-	require.NotZero(t, HashLog("plain text message", true))
+	require.NotZero(t, fingerprint("plain text message", false))
+	require.NotZero(t, fingerprint("plain text message", true))
 }
