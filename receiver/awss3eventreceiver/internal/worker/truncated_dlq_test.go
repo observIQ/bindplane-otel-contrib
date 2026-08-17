@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/observiq/bindplane-otel-contrib/internal/blobstream"
 )
 
 // TestTruncatedObjectRoutesToDLQ asserts a truncated object is a dead-letter condition.
@@ -27,7 +29,7 @@ import (
 func TestTruncatedObjectRoutesToDLQ(t *testing.T) {
 	t.Parallel()
 
-	err := error(ErrTruncatedObject{Err: io.ErrUnexpectedEOF})
+	err := error(blobstream.ErrTruncatedObject{Err: io.ErrUnexpectedEOF})
 	require.NotNil(t, isDLQConditionError(err), "a truncated object must be a DLQ condition")
 	require.NotNil(t, isDLQConditionError(fmt.Errorf("parse logs: %w", err)),
 		"the condition must survive wrapping")

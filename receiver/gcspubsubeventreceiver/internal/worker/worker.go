@@ -33,6 +33,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/api/googleapi"
 
+	"github.com/observiq/bindplane-otel-contrib/internal/blobstream"
 	"github.com/observiq/bindplane-otel-contrib/internal/storageclient"
 	"github.com/observiq/bindplane-otel-contrib/receiver/gcspubsubeventreceiver/internal/metadata"
 )
@@ -213,7 +214,7 @@ func (w *Worker) ProcessMessage(ctx context.Context, msg *PullMessage, subscript
 
 	// Delete the offset on a detached context. A cancellation would otherwise leave a
 	// stale offset for a processed object.
-	deleteCtx, cancelDelete := cleanupContext(ctx)
+	deleteCtx, cancelDelete := blobstream.CleanupContext(ctx)
 	offsetStorageKey := fmt.Sprintf("%s_%s", OffsetStorageKey, objectID)
 	if err := w.offsetStorage.DeleteStorageData(deleteCtx, offsetStorageKey); err != nil {
 		logger.Error("failed to delete offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey))
@@ -232,7 +233,7 @@ func (w *Worker) ackMessage(ctx context.Context, ackID, subscriptionPath string)
 	}
 	// Ack on a detached context. A cancellation must not leave a processed object in
 	// the subscription.
-	ackCtx, cancel := cleanupContext(ctx)
+	ackCtx, cancel := blobstream.CleanupContext(ctx)
 	defer cancel()
 
 	if err := w.subClient.Acknowledge(ackCtx, &pubsubpb.AcknowledgeRequest{
@@ -251,7 +252,7 @@ func (w *Worker) nackMessage(ctx context.Context, ackID, subscriptionPath string
 	}
 	// Nack on a detached context. The message then redelivers without waiting for the
 	// full ack deadline.
-	nackCtx, cancel := cleanupContext(ctx)
+	nackCtx, cancel := blobstream.CleanupContext(ctx)
 	defer cancel()
 
 	if err := w.subClient.ModifyAckDeadline(nackCtx, &pubsubpb.ModifyAckDeadlineRequest{
@@ -302,7 +303,7 @@ func (w *Worker) extendAckDeadline(ctx context.Context, ackID, subscriptionPath 
 func (w *Worker) processRecord(ctx context.Context, bucket, object string, recordLogger *zap.Logger) error {
 	err := w.consumeLogsFromGCSObject(ctx, bucket, object, true, recordLogger)
 	if err != nil {
-		if errors.Is(err, ErrNotArrayOrKnownObject) {
+		if errors.Is(err, blobstream.ErrNotArrayOrKnownObject) {
 			// try again without attempting to parse as JSON
 			recordLogger.Debug("parsing as JSON failed, trying again with line parsing")
 			return w.consumeLogsFromGCSObject(ctx, bucket, object, false, recordLogger)
@@ -336,7 +337,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		contentEncoding = &ce
 	}
 
-	stream := LogStream{
+	stream := blobstream.LogStream{
 		Name:            object,
 		ContentEncoding: contentEncoding,
 		ContentType:     contentType,
@@ -350,7 +351,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 	offsetStorageKey := fmt.Sprintf("%s_%s", OffsetStorageKey, object)
 
 	// Load the offset from storage
-	offset := NewOffset(0)
+	offset := blobstream.NewOffset(0)
 	err = w.offsetStorage.LoadStorageData(ctx, offsetStorageKey, offset)
 	if err != nil {
 		return fmt.Errorf("load offset: %w", err)
@@ -369,7 +370,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		return fmt.Errorf("get stream reader: %w", err)
 	}
 
-	producer, err := newRecordProducer(ctx, stream, bufferedReader, w.metrics)
+	producer, err := blobstream.NewRecordProducer(ctx, stream, bufferedReader, w.recordParseError)
 	if err != nil {
 		return fmt.Errorf("create parser: %w", err)
 	}
@@ -383,7 +384,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 	batchesConsumedCount := 0
 
 	// Parse logs into a sequence of log records
-	logs, err := producer.records(ctx, startOffset)
+	logs, err := producer.Records(ctx, startOffset)
 	if err != nil {
 		return fmt.Errorf("parse logs: %w", err)
 	}
@@ -394,7 +395,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 
 	for log, err := range logs {
 		if err != nil {
-			if isCancellation(err) {
+			if blobstream.IsCancellation(err) {
 				parseErr = err
 				break
 			}
@@ -407,7 +408,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 			// A broken stream is fatal for the whole object. Acking here would drop
 			// every record after the break with no way to recover them, so fail and
 			// let the message redeliver and resume from the saved offset.
-			if IsStreamRead(err) {
+			if blobstream.IsStreamRead(err) {
 				return err
 			}
 			// Skipping the individual record rather than nacking the whole message, since
@@ -423,7 +424,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		lr.SetObservedTimestamp(pcommon.NewTimestampFromTime(now))
 		lr.SetTimestamp(pcommon.NewTimestampFromTime(now))
 
-		err = producer.appendLogBody(ctx, lr, log)
+		err = producer.AppendLogBody(ctx, lr, log)
 		if err != nil {
 			// Same rationale as above: skip the record rather than failing the whole object.
 			recordLogger.Error("append log body", zap.Error(err))
@@ -440,7 +441,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 			recordLogger.Debug("Reached max logs for single batch, starting new batch", zap.Int("batches_consumed_count", batchesConsumedCount))
 
 			// Save the offset to storage
-			w.checkpoint(ctx, offsetStorageKey, producer.position(), recordLogger)
+			w.checkpoint(ctx, offsetStorageKey, producer.Position(), recordLogger)
 
 			ld = plog.NewLogs()
 			rls = ld.ResourceLogs().AppendEmpty()
@@ -459,7 +460,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		}
 
 		// Save the offset to storage
-		w.checkpoint(ctx, offsetStorageKey, producer.position(), recordLogger)
+		w.checkpoint(ctx, offsetStorageKey, producer.Position(), recordLogger)
 	}
 
 	if parseErr != nil {
@@ -477,7 +478,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 // The line parser drops a truncated record, so a batch always ends on a record
 // boundary and the checkpoint stays accurate. Reading stops at the next failed refill.
 func (w *Worker) flush(ctx context.Context, ld plog.Logs, batchesConsumedCount int, recordLogger *zap.Logger) error {
-	flushCtx, cancel := drainContext(ctx)
+	flushCtx, cancel := blobstream.DrainContext(ctx)
 	defer cancel()
 
 	obsCtx := w.obsrecv.StartLogsOp(flushCtx)
@@ -493,12 +494,21 @@ func (w *Worker) flush(ctx context.Context, ld plog.Logs, batchesConsumedCount i
 
 // checkpoint saves the parse position on a drain context. A late cancellation then
 // cannot lose the offset.
-func (w *Worker) checkpoint(ctx context.Context, offsetStorageKey string, pos Offset, recordLogger *zap.Logger) {
-	saveCtx, cancel := drainContext(ctx)
+func (w *Worker) checkpoint(ctx context.Context, offsetStorageKey string, pos blobstream.Offset, recordLogger *zap.Logger) {
+	saveCtx, cancel := blobstream.DrainContext(ctx)
 	defer cancel()
 
 	if err := w.offsetStorage.SaveStorageData(saveCtx, offsetStorageKey, &pos); err != nil {
 		recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int("entry_index", pos.EntryIndex), zap.Int64("offset", pos.Offset))
+	}
+}
+
+// recordParseError counts a record or archive entry that could not be parsed and was
+// skipped. blobstream calls it so the shared parser stack can report into this
+// receiver's own metric.
+func (w *Worker) recordParseError(ctx context.Context) {
+	if w.metrics != nil {
+		w.metrics.GcseventParseErrors.Add(ctx, 1)
 	}
 }
 
@@ -517,7 +527,7 @@ const (
 func dlqConditionKind(err error) dlqErrorKind {
 	// Cancellation is never a DLQ condition. A config push must not send good data to
 	// the dead-letter queue.
-	if err == nil || isCancellation(err) {
+	if err == nil || blobstream.IsCancellation(err) {
 		return dlqErrorKindNone
 	}
 	// GCS returns storage.ErrObjectNotExist when the object is not found.
@@ -529,28 +539,9 @@ func dlqConditionKind(err error) dlqErrorKind {
 	if errors.As(err, &apiErr) && apiErr.Code == 403 {
 		return dlqErrorKindPermissionDenied
 	}
-	// Unsupported file type detected during parsing.
-	if errors.Is(err, ErrNotArrayOrKnownObject) {
-		return dlqErrorKindUnsupportedFile
-	}
-	// A truncated object is unusable for the same reason: reading it again returns
-	// the same bytes.
-	if IsTruncatedObject(err) {
-		return dlqErrorKindUnsupportedFile
-	}
-	// Recognized but unsupported content (image, PDF, unknown binary).
-	var unsupported ErrUnsupportedContent
-	if errors.As(err, &unsupported) {
-		return dlqErrorKindUnsupportedFile
-	}
-	// An archive that tripped a bomb-safety limit.
-	var archiveLimit ErrArchiveLimitExceeded
-	if errors.As(err, &archiveLimit) {
-		return dlqErrorKindUnsupportedFile
-	}
-	// An object detected as an archive whose structure could not be decoded.
-	var corruptArchive ErrCorruptArchive
-	if errors.As(err, &corruptArchive) {
+	// Content this receiver can never parse: an unsupported type, a corrupt archive,
+	// or an archive that tripped a bomb-safety limit.
+	if blobstream.IsUnsupportedContent(err) {
 		return dlqErrorKindUnsupportedFile
 	}
 	return dlqErrorKindNone
@@ -584,7 +575,7 @@ func (w *Worker) recordDLQMetrics(ctx context.Context, err error) {
 // redelivery / DLQ processing. For transient errors the message is also nacked
 // so Pub/Sub can redeliver it after the ack deadline expires.
 func (w *Worker) handleProcessingError(ctx context.Context, ackID, subscriptionPath string, err error, logger *zap.Logger) {
-	if isCancellation(err) {
+	if blobstream.IsCancellation(err) {
 		// A config push or a shutdown cancelled the context. Nack the message, so it
 		// redelivers at once and resumes from the checkpoint. This is not a failure.
 		logger.Info("processing cancelled, nacking message for redelivery", zap.Error(err))

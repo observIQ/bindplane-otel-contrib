@@ -284,16 +284,10 @@ func TestProcessMessage(t *testing.T) {
 			objectSets:  logsFromFile(t, "testdata/json_lines.json"),
 			expectLines: 4,
 		},
-		{
-			name:        "attempts to parse as JSON, but fails after 1 log line",
-			objectSets:  logsFromFile(t, "testdata/logs_array_fragment.json"),
-			expectLines: 1,
-		},
-		{
-			name:        "does not attempt to parse as JSON and creates 112 log lines",
-			objectSets:  logsFromFile(t, "testdata/logs_array_fragment.txt"),
-			expectLines: 112,
-		},
+		// A truncated JSON array (logs_array_fragment.json) is not covered here: it routes
+		// the whole object to the dead-letter queue rather than acking. This drain loop
+		// only handles objects that ack and delete, so the truncated-array path is
+		// exercised in TestTruncatedArrayRoutesWholeObjectToDLQ instead.
 		{
 			name:        "parses as JSON and creates 4 log lines from the Records field ignoring other fields",
 			objectSets:  logsFromFile(t, "testdata/logs_array_in_records_one_line.json"),

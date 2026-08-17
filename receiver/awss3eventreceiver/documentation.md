@@ -4,10 +4,10 @@
 
 ## Resource Attributes
 
-| Name | Description | Values | Enabled | Semantic Convention | Stability |
-| ---- | ----------- | ------ | ------- | ------------------- | --------- |
-| aws.s3.bucket | The name of the S3 bucket containing the processed object | Any Str | true | - | - |
-| aws.s3.key | The key of the S3 object that was processed | Any Str | true | - | - |
+| Name | Description | Values | Enabled | Semantic Convention |
+| ---- | ----------- | ------ | ------- | ------------------- |
+| aws.s3.bucket | The name of the S3 bucket containing the processed object | Any Str | true | - |
+| aws.s3.key | The key of the S3 object that was processed | Any Str | true | - |
 
 ## Internal Telemetry
 
@@ -60,3 +60,11 @@ The number of S3 objects processed by the receiver
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
 | {objects} | Sum | Int | true | Alpha |
+
+### otelcol_s3event.parse_errors
+
+The number of individual log records skipped due to parse errors within an S3 object
+
+| Unit | Metric Type | Value Type | Monotonic | Stability |
+| ---- | ----------- | ---------- | --------- | --------- |
+| {errors} | Sum | Int | true | Alpha |

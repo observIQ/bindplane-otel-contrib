@@ -32,6 +32,7 @@ type TelemetryBuilder struct {
 	S3eventDlqUnsupportedFileErrors metric.Int64Counter
 	S3eventFailures                 metric.Int64Counter
 	S3eventObjectsHandled           metric.Int64Counter
+	S3eventParseErrors              metric.Int64Counter
 }
 
 // TelemetryBuilderOption applies changes to default builder.
@@ -98,6 +99,12 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...Teleme
 		"otelcol_s3event.objects_handled",
 		metric.WithDescription("The number of S3 objects processed by the receiver [Alpha]"),
 		metric.WithUnit("{objects}"),
+	)
+	errs = errors.Join(errs, err)
+	builder.S3eventParseErrors, err = builder.meter.Int64Counter(
+		"otelcol_s3event.parse_errors",
+		metric.WithDescription("The number of individual log records skipped due to parse errors within an S3 object [Alpha]"),
+		metric.WithUnit("{errors}"),
 	)
 	errs = errors.Join(errs, err)
 	return &builder, errs
