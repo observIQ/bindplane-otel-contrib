@@ -1,0 +1,8 @@
+logtypedetectionprocessor:
+  fingerprint_field: fingerprint
+  log_type_field: log_type
+  matchers:
+    - name: win_event_log
+      method: regex
+      priority: 1
+      value: ^\s*(?:<\?xml[^>]*\?>\s*)?<Event\b[^>]*\bxmlns="http://schemas\.microsoft\.com/win/2004/08/events/event"[^>]*>

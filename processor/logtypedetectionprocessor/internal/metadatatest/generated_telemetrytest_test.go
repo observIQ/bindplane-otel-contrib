@@ -19,8 +19,16 @@ func TestSetupTelemetry(t *testing.T) {
 	tb, err := metadata.NewTelemetryBuilder(testTel.NewTelemetrySettings())
 	require.NoError(t, err)
 	defer tb.Shutdown()
+	tb.LogTypeDetectionMatches.Add(context.Background(), 1)
 	tb.LogTypeDetectionRuns.Add(context.Background(), 1)
+	tb.LogTypes.Add(context.Background(), 1)
+	AssertEqualLogTypeDetectionMatches(t, testTel,
+		[]metricdata.DataPoint[int64]{{Value: 1}},
+		metricdatatest.IgnoreTimestamp())
 	AssertEqualLogTypeDetectionRuns(t, testTel,
+		[]metricdata.DataPoint[int64]{{Value: 1}},
+		metricdatatest.IgnoreTimestamp())
+	AssertEqualLogTypes(t, testTel,
 		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
 

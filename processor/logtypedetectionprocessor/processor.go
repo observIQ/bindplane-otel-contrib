@@ -16,6 +16,7 @@ package logtypedetectionprocessor
 
 import (
 	"context"
+	"sort"
 	"strconv"
 	"sync"
 
@@ -27,18 +28,39 @@ import (
 )
 
 type logTypeDetectionProcessor struct {
-	cfg            *Config
 	logTypes       sync.Map
 	detectionGroup singleflight.Group
+
+	logTypeField     string
+	fingerprintField string
+
+	matchers []Matcher
 
 	telemetry *metadata.TelemetryBuilder
 }
 
-func newLogTypeDetectionProcessor(cfg *Config, telemetry *metadata.TelemetryBuilder) *logTypeDetectionProcessor {
-	return &logTypeDetectionProcessor{
-		cfg:       cfg,
-		telemetry: telemetry,
+func newLogTypeDetectionProcessor(cfg *Config, telemetry *metadata.TelemetryBuilder) (*logTypeDetectionProcessor, error) {
+	p := &logTypeDetectionProcessor{
+		telemetry:        telemetry,
+		logTypeField:     cfg.LogTypeField,
+		fingerprintField: cfg.FingerprintField,
 	}
+
+	if cfg.Matchers != nil {
+		sort.SliceStable(cfg.Matchers, func(i, j int) bool {
+			return cfg.Matchers[i].Priority < cfg.Matchers[j].Priority
+		})
+
+		for _, m := range cfg.Matchers {
+			matcher, err := m.Build()
+			if err != nil {
+				return nil, err
+			}
+			p.matchers = append(p.matchers, matcher)
+		}
+	}
+
+	return p, nil
 }
 
 func (p *logTypeDetectionProcessor) start(_ context.Context, _ component.Host) error {
@@ -62,6 +84,9 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 				if logFingerprint <= 0 {
 					continue
 				}
+				if p.fingerprintField != "" {
+					logRecord.Attributes().PutStr(p.fingerprintField, strconv.FormatUint(logFingerprint, 16))
+				}
 				logType, ok := p.logTypes.Load(logFingerprint)
 				if !ok {
 					newLogType, err, _ := p.detectionGroup.Do(
@@ -81,9 +106,9 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 					}
 					logType = newLogType.(string)
 				}
-				logRecord.Attributes().PutStr("fingerprint", strconv.FormatUint(logFingerprint, 16))
 				if lt, ok := logType.(string); ok && lt != "" {
-					logRecord.Attributes().PutStr("logType", lt)
+					p.telemetry.LogTypeDetectionMatches.Add(ctx, 1)
+					logRecord.Attributes().PutStr(p.logTypeField, lt)
 				}
 			}
 		}
@@ -91,7 +116,13 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 	return ld, nil
 }
 
-func (p *logTypeDetectionProcessor) logType(ctx context.Context, _ string) string {
+func (p *logTypeDetectionProcessor) logType(ctx context.Context, logData string) string {
 	p.telemetry.LogTypeDetectionRuns.Add(ctx, 1)
+	for _, m := range p.matchers {
+		if m.Test(logData) {
+			p.telemetry.LogTypes.Add(ctx, 1)
+			return m.Name()
+		}
+	}
 	return ""
 }

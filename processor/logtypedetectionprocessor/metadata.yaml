@@ -10,11 +10,27 @@ status:
 
 telemetry:
   metrics:
+    log_type_detection_matches:
+      enabled: true
+      description: "Number of log type detection matches, one per log type match."
+      stability: alpha
+      unit: "{match}"
+      sum:
+        value_type: int
+        monotonic: true
     log_type_detection_runs:
       enabled: true
       description: "Number of log type detections run, one per newly seen log structure."
       stability: alpha
       unit: "{detection}"
+      sum:
+        value_type: int
+        monotonic: true
+    log_types:
+      enabled: true
+      description: "The number of hashes with a detected log type."
+      stability: alpha
+      unit: "{type}"
       sum:
         value_type: int
         monotonic: true

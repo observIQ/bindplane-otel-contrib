@@ -23,10 +23,12 @@ func Tracer(settings component.TelemetrySettings) trace.Tracer {
 // TelemetryBuilder provides an interface for components to report telemetry
 // as defined in metadata and user config.
 type TelemetryBuilder struct {
-	meter                metric.Meter
-	mu                   sync.Mutex
-	registrations        []metric.Registration
-	LogTypeDetectionRuns metric.Int64Counter
+	meter                   metric.Meter
+	mu                      sync.Mutex
+	registrations           []metric.Registration
+	LogTypeDetectionMatches metric.Int64Counter
+	LogTypeDetectionRuns    metric.Int64Counter
+	LogTypes                metric.Int64Counter
 }
 
 // TelemetryBuilderOption applies changes to default builder.
@@ -58,10 +60,22 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...Teleme
 	}
 	builder.meter = Meter(settings)
 	var err, errs error
+	builder.LogTypeDetectionMatches, err = builder.meter.Int64Counter(
+		"otelcol_log_type_detection_matches",
+		metric.WithDescription("Number of log type detection matches, one per log type match. [Alpha]"),
+		metric.WithUnit("{match}"),
+	)
+	errs = errors.Join(errs, err)
 	builder.LogTypeDetectionRuns, err = builder.meter.Int64Counter(
 		"otelcol_log_type_detection_runs",
 		metric.WithDescription("Number of log type detections run, one per newly seen log structure. [Alpha]"),
 		metric.WithUnit("{detection}"),
+	)
+	errs = errors.Join(errs, err)
+	builder.LogTypes, err = builder.meter.Int64Counter(
+		"otelcol_log_types",
+		metric.WithDescription("The number of hashes with a detected log type. [Alpha]"),
+		metric.WithUnit("{type}"),
 	)
 	errs = errors.Join(errs, err)
 	return &builder, errs

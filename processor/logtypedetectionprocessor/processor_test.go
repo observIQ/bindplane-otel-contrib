@@ -78,7 +78,8 @@ func TestProcessLogs(t *testing.T) {
 			tb, err := metadata.NewTelemetryBuilder(metadatatest.NewSettings(tel).TelemetrySettings)
 			require.NoError(t, err)
 
-			p := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+			p, err := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+			require.NoError(t, err)
 
 			out, err := p.processLogs(context.Background(), logsFromBodies(tc.bodies...))
 			require.NoError(t, err)
@@ -113,7 +114,8 @@ func TestProcessLogsCachesAcrossCalls(t *testing.T) {
 	tb, err := metadata.NewTelemetryBuilder(metadatatest.NewSettings(tel).TelemetrySettings)
 	require.NoError(t, err)
 
-	p := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+	p, err := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+	require.NoError(t, err)
 
 	for range 3 {
 		_, err := p.processLogs(context.Background(), logsFromBodies(`{"alpha":1}`))
@@ -132,7 +134,8 @@ func TestProcessLogsConcurrentSameStructure(t *testing.T) {
 	tb, err := metadata.NewTelemetryBuilder(metadatatest.NewSettings(tel).TelemetrySettings)
 	require.NoError(t, err)
 
-	p := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+	p, err := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+	require.NoError(t, err)
 
 	start := make(chan struct{})
 	var wg sync.WaitGroup
@@ -150,4 +153,33 @@ func TestProcessLogsConcurrentSameStructure(t *testing.T) {
 	require.NoError(t, err)
 	runs := got.Data.(metricdata.Sum[int64]).DataPoints[0].Value
 	require.Equal(t, int64(1), runs, "each fingerprint should only be detected once")
+}
+
+func TestPriorityOfMatchers(t *testing.T) {
+	tel := componenttest.NewTelemetry()
+	t.Cleanup(func() { require.NoError(t, tel.Shutdown(context.Background())) })
+
+	tb, err := metadata.NewTelemetryBuilder(metadatatest.NewSettings(tel).TelemetrySettings)
+	require.NoError(t, err)
+
+	config := createDefaultConfig().(*Config)
+	config.Matchers = []MatcherConfig{
+		{Name: "priority-10", Priority: 10, Value: `test`, Method: MatcherTypeStartsWith},
+		{Name: "priority-1", Priority: 1, Value: `test`, Method: MatcherTypeStartsWith},
+		{Name: "priority-2", Priority: 2, Value: `test`, Method: MatcherTypeStartsWith},
+	}
+	p, err := newLogTypeDetectionProcessor(config, tb)
+	require.NoError(t, err)
+
+	out, err := p.processLogs(context.Background(), logsFromBodies(`{"a":1,"b":"x"}`))
+	require.NoError(t, err)
+
+	records := out.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
+	require.Len(t, config.Matchers, len(p.matchers))
+
+	for i := 0; i < records.Len(); i++ {
+		if record, ok := records.At(i).Attributes().Get(defaultLogTypeField); ok {
+			require.Equal(t, "priority-1", record.AsString())
+		}
+	}
 }

@@ -6,6 +6,14 @@
 
 The following telemetry is emitted by this component.
 
+### otelcol_log_type_detection_matches
+
+Number of log type detection matches, one per log type match.
+
+| Unit | Metric Type | Value Type | Monotonic | Stability |
+| ---- | ----------- | ---------- | --------- | --------- |
+| {match} | Sum | Int | true | Alpha |
+
 ### otelcol_log_type_detection_runs
 
 Number of log type detections run, one per newly seen log structure.
@@ -13,3 +21,11 @@ Number of log type detections run, one per newly seen log structure.
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
 | {detection} | Sum | Int | true | Alpha |
+
+### otelcol_log_types
+
+The number of hashes with a detected log type.
+
+| Unit | Metric Type | Value Type | Monotonic | Stability |
+| ---- | ----------- | ---------- | --------- | --------- |
+| {type} | Sum | Int | true | Alpha |

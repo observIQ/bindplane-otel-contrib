@@ -15,17 +15,45 @@
 package logtypedetectionprocessor
 
 import (
+	"errors"
+
 	"go.opentelemetry.io/collector/component"
 )
 
+const (
+	defaultFingerprintField = "fingerprint"
+	defaultLogTypeField     = "log_type"
+)
+
+var errMissingLogTypeFieldError = errors.New("log_type_field is required")
+
 // Config is the config of the processor.
-type Config struct{}
+type Config struct {
+	Matchers         []MatcherConfig `mapstructure:"matchers"`
+	FingerprintField string          `mapstructure:"fingerprint_field"`
+	LogTypeField     string          `mapstructure:"log_type_field"`
+}
 
 func createDefaultConfig() component.Config {
-	return &Config{}
+	return &Config{
+		Matchers:         []MatcherConfig{},
+		FingerprintField: defaultFingerprintField,
+		LogTypeField:     defaultLogTypeField,
+	}
 }
 
 // Validate validates the processor configuration
 func (c Config) Validate() error {
+	if c.LogTypeField == "" {
+		return errMissingLogTypeFieldError
+	}
+
+	if c.Matchers != nil {
+		for _, m := range c.Matchers {
+			if err := m.Validate(); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
