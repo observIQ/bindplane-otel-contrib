@@ -156,6 +156,7 @@ type Worker struct {
 	notificationType            string
 	parseFunc                   parseFunc
 	obsrecv                     *receiverhelper.ObsReport
+	bodyOptions                 blobstream.BodyOptions
 }
 
 // Option is a functional option for configuring the Worker
@@ -181,6 +182,13 @@ func WithTelemetryBuilder(tb *metadata.TelemetryBuilder) Option {
 		if tb != nil {
 			w.metrics = tb
 		}
+	}
+}
+
+// WithBodyOptions sets how parsed records become log record bodies.
+func WithBodyOptions(opts blobstream.BodyOptions) Option {
+	return func(w *Worker) {
+		w.bodyOptions = opts
 	}
 }
 
@@ -367,6 +375,9 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 		MaxLogSize:      w.maxLogSize,
 		Logger:          recordLogger,
 		TryDecoding:     tryJSON,
+
+		Raw:                      w.bodyOptions.Raw,
+		IncludeLogRecordOriginal: w.bodyOptions.IncludeLogRecordOriginal,
 	}
 
 	// Create the offset storage key for this object

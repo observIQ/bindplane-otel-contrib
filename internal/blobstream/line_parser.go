@@ -27,6 +27,7 @@ import (
 
 type lineParser struct {
 	reader BufferedReader
+	opts   BodyOptions
 
 	// offset is the position after the last record sent to the consumer. It differs
 	// from the reader position. A truncated record is read but never emitted.
@@ -34,9 +35,10 @@ type lineParser struct {
 }
 
 // NewLineParser creates a new line parser.
-func NewLineParser(reader BufferedReader) LogParser {
+func NewLineParser(reader BufferedReader, opts BodyOptions) LogParser {
 	return &lineParser{
 		reader: reader,
+		opts:   opts,
 	}
 }
 
@@ -132,12 +134,14 @@ func trimLineEnding(line []byte) []byte {
 	return line
 }
 
-// AppendLogBody appends the log record to the log record body using SetStr.
+// AppendLogBody appends the log record to the log record body using SetStr. A line is
+// already its own original text, so the body and log.record.original match.
 func (p *lineParser) AppendLogBody(_ context.Context, lr plog.LogRecord, record any) error {
 	str, ok := record.(string)
 	if !ok {
 		return fmt.Errorf("expected string record, got %T", record)
 	}
 	lr.Body().SetStr(str)
+	p.opts.setOriginal(lr, str)
 	return nil
 }

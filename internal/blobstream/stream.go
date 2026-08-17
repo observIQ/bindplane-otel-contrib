@@ -46,6 +46,19 @@ type LogStream struct {
 	MaxLogSize      int
 	Logger          *zap.Logger
 	TryDecoding     bool
+
+	// Raw and IncludeLogRecordOriginal reach the parser for this object. See
+	// BodyOptions.
+	Raw                      bool
+	IncludeLogRecordOriginal bool
+}
+
+// bodyOptions returns the body options configured for this stream.
+func (stream *LogStream) bodyOptions() BodyOptions {
+	return BodyOptions{
+		Raw:                      stream.Raw,
+		IncludeLogRecordOriginal: stream.IncludeLogRecordOriginal,
+	}
 }
 
 // BufferedReader returns a BufferedReader for the log stream. Compression is

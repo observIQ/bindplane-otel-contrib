@@ -305,6 +305,10 @@ func (a *archiveProducer) consumeEntry(ctx context.Context, entry archiveEntry, 
 		MaxLogSize:  a.stream.MaxLogSize,
 		Logger:      a.stream.Logger,
 		TryDecoding: true,
+
+		// Body options apply to every entry, not only to a non-archive object.
+		Raw:                      a.stream.Raw,
+		IncludeLogRecordOriginal: a.stream.IncludeLogRecordOriginal,
 	}
 
 	parser, err := newParser(entryStream, entryReader)

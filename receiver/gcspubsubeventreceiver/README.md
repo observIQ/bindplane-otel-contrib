@@ -103,6 +103,8 @@ Content that is not text, Avro, or JSON (for example an image or a PDF) is not p
 | `max_extension` | duration | `1h` | `false` | The maximum duration for which the Pub/Sub client will extend the ack deadline for a message being processed |
 | `max_log_size` | int | `1048576` | `false` | The maximum size in bytes for a single log record. Logs exceeding this size will be split into chunks |
 | `max_logs_emitted` | int | `1000` | `false` | The maximum number of log records to emit in a single batch. Higher values reduce batches but increase memory usage |
+| `raw` | bool | `false` | `false` | Emit each record's original text as the body instead of a parsed structure. Content detection still runs, so unsupported binary content is routed to the dead-letter queue. Avro OCF holds no original text, so it emits the JSON encoding of each record. |
+| `include_log_record_original` | bool | `false` | `false` | Additionally record each log record's original text on the `log.record.original` attribute, leaving the body as-is. |
 | `storage` | component.ID | | `false` | The ID of a storage extension to use for tracking per-object byte offsets, enabling resumption of interrupted object reads |
 | `bucket_name_filter` | string | | `false` | A Go regular expression to filter GCS events by bucket name. Only events from matching buckets are processed |
 | `object_key_filter` | string | | `false` | A Go regular expression to filter GCS events by object name. Only objects with matching names are processed |

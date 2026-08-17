@@ -73,6 +73,14 @@ type Config struct {
 	// Default is 1000.
 	MaxLogsEmitted int `mapstructure:"max_logs_emitted"`
 
+	// Raw emits the original text as the body, not a parsed structure. Content
+	// detection still runs, so binary content goes to the DLQ. Defaults to false.
+	Raw bool `mapstructure:"raw"`
+
+	// IncludeLogRecordOriginal also writes the original text to the
+	// log.record.original attribute. Defaults to false.
+	IncludeLogRecordOriginal bool `mapstructure:"include_log_record_original"`
+
 	// StorageID is the ID of the storage extension to use for storing the offset.
 	StorageID *component.ID `mapstructure:"storage"`
 
