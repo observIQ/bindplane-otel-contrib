@@ -50,18 +50,14 @@ func fingerprintSyslog(data string) uint64 {
 	if strings.HasPrefix(data[i:], "1 ") {
 		service, msg = syslog5424Message(data[i+2:])
 	} else {
-		msg = syslog3164Message(data[i:])
-		service = syslog3164Tag(msg)
-		if sep := strings.Index(msg, ": "); sep >= 0 {
-			msg = msg[sep+2:]
-		}
+		service, msg = syslog3164Message(data[i:])
 	}
 	if msg == "" {
 		return 0
 	}
 
 	hash := foldFNVHashString(fnvOffsetBasis, service)
-	return foldFNVHashUint(hash, HashLog(msg, true))
+	return foldFNVHashUint(hash, fingerprint(msg, true))
 }
 
 // syslog3164Tag returns the tag opening msg
@@ -97,21 +93,30 @@ func skipSyslogPriority(data string) int {
 	return i + 1
 }
 
-func syslog3164Message(data string) string {
-	if len(data) < 17 || !isSyslog3164Timestamp(data) {
-		return ""
+func syslog3164Message(data string) (string, string) {
+	if !isSyslog3164Timestamp(data) {
+		return "", ""
 	}
 
 	i := skipSpaces(data, 16)
 	end := endOfToken(data, i)
 	if end == i {
-		return ""
+		return "", ""
 	}
 
-	return data[skipSpaces(data, end):]
+	msg := data[skipSpaces(data, end):]
+	service := syslog3164Tag(msg)
+	if sep := strings.Index(msg, ": "); sep >= 0 {
+		msg = msg[sep+2:]
+	}
+
+	return service, msg
 }
 
 func isSyslog3164Timestamp(data string) bool {
+	if len(data) < 17 {
+		return false
+	}
 	if data[3] != ' ' || data[6] != ' ' || data[9] != ':' || data[12] != ':' || data[15] != ' ' {
 		return false
 	}

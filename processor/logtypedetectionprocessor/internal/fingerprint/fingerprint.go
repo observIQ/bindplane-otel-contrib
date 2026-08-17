@@ -34,7 +34,13 @@ func init() {
 }
 
 // HashLog creates a hash based off the structure of the log.
-func HashLog(data string, skipRecursiveTypes bool) uint64 {
+func HashLog(data string) uint64 {
+	return fingerprint(data, false)
+}
+
+// fingerprint creates a hash based off the structure of the log with internal options
+// not exposed via the public API.
+func fingerprint(data string, skipRecursiveTypes bool) uint64 {
 	data = strings.TrimSpace(data)
 	if len(data) < 2 {
 		return 0
