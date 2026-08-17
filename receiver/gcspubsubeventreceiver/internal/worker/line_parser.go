@@ -15,6 +15,7 @@
 package worker
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -26,6 +27,10 @@ import (
 
 type lineParser struct {
 	reader BufferedReader
+
+	// offset is the position after the last record sent to the consumer. It differs
+	// from the reader position. A truncated record is read but never emitted.
+	offset int64
 }
 
 // NewLineParser creates a new line parser.
@@ -36,7 +41,7 @@ func NewLineParser(reader BufferedReader) LogParser {
 }
 
 func (p *lineParser) Offset() int64 {
-	return p.reader.Offset()
+	return p.offset
 }
 
 // Parse parses the log records from the reader using ReadLine.
@@ -46,11 +51,12 @@ func (p *lineParser) Parse(_ context.Context, startOffset int64) (logs iter.Seq2
 	if err != nil {
 		return nil, fmt.Errorf("discard to offset: %w", err)
 	}
+	p.offset = p.reader.Offset()
 
 	// logs is a sequence of log records that can be used with the provided appender
 	return func(yield func(any, error) bool) {
 		for {
-			lineBytes, _, err := p.reader.ReadLine()
+			lineBytes, _, err := readLine(p.reader)
 			if err != nil {
 				// A decompressing reader can wrap the sentinel.
 				if errors.Is(err, io.EOF) {
@@ -70,6 +76,9 @@ func (p *lineParser) Parse(_ context.Context, startOffset int64) (logs iter.Seq2
 				return
 			}
 
+			// Advance past consumed bytes, even for an empty line.
+			p.offset = p.reader.Offset()
+
 			// only yield non-empty lines
 			if len(lineBytes) > 0 {
 				if !yield(string(lineBytes), nil) {
@@ -78,6 +87,49 @@ func (p *lineParser) Parse(_ context.Context, startOffset int64) (logs iter.Seq2
 			}
 		}
 	}, nil
+}
+
+// readLine is bufio.Reader.ReadLine with the read error preserved.
+//
+// ReadLine returns (line, nil) when it holds bytes, even after a failed read. A
+// truncated record then looks like a final record with no newline.
+func readLine(r BufferedReader) (line []byte, isPrefix bool, err error) {
+	line, err = r.ReadSlice('\n')
+
+	if errors.Is(err, bufio.ErrBufferFull) {
+		// A record longer than the buffer, split at max_log_size. Return a trailing
+		// '\r' to the buffer, so the next chunk can find a split "\r\n".
+		if len(line) > 0 && line[len(line)-1] == '\r' {
+			if unreadErr := r.UnreadByte(); unreadErr != nil {
+				return nil, false, unreadErr
+			}
+			line = line[:len(line)-1]
+		}
+		return line, true, nil
+	}
+
+	if err != nil {
+		// Bytes with no terminator. At end of stream they are the final record. Under
+		// any other error they are a fragment, so drop them.
+		if errors.Is(err, io.EOF) && len(line) > 0 {
+			return line, false, nil
+		}
+		return nil, false, err
+	}
+
+	return trimLineEnding(line), false, nil
+}
+
+// trimLineEnding drops the trailing newline, and a "\r" before it.
+func trimLineEnding(line []byte) []byte {
+	if len(line) > 0 && line[len(line)-1] == '\n' {
+		drop := 1
+		if len(line) > 1 && line[len(line)-2] == '\r' {
+			drop = 2
+		}
+		line = line[:len(line)-drop]
+	}
+	return line
 }
 
 // AppendLogBody appends the log record to the log record body using SetStr.

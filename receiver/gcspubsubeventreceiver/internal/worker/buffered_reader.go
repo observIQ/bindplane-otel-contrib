@@ -23,6 +23,10 @@ import (
 type BufferedReader interface {
 	Offset() int64
 	ReadLine() (line []byte, isPrefix bool, err error)
+	// ReadSlice reads up to and including delim. It reports the read error with any
+	// bytes already held. ReadLine does not.
+	ReadSlice(delim byte) (line []byte, err error)
+	UnreadByte() error
 	Peek(n int) ([]byte, error)
 	io.Reader
 }
@@ -56,6 +60,16 @@ func (r *bufferedReader) Offset() int64 {
 // ReadLine reads a line from the reader.
 func (r *bufferedReader) ReadLine() (line []byte, isPrefix bool, err error) {
 	return r.reader.ReadLine()
+}
+
+// ReadSlice reads from the reader up to and including delim.
+func (r *bufferedReader) ReadSlice(delim byte) (line []byte, err error) {
+	return r.reader.ReadSlice(delim)
+}
+
+// UnreadByte returns the most recently read byte to the buffer.
+func (r *bufferedReader) UnreadByte() error {
+	return r.reader.UnreadByte()
 }
 
 // Read reads the given number of bytes.
