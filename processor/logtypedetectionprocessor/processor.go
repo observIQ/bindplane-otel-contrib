@@ -59,7 +59,6 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 				logRecord := scopeLogs.LogRecords().At(k)
 				body := logRecord.Body().AsString()
 				logFingerprint := fingerprint.HashLog(body)
-				logFingerprint := fingerprint.HashLog(body, false)
 				if logFingerprint <= 0 {
 					continue
 				}
