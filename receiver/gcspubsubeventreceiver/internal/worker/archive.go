@@ -332,6 +332,13 @@ func (a *archiveProducer) consumeEntry(ctx context.Context, entry archiveEntry, 
 				yield(nil, limitErr)
 				return true
 			}
+			// Content this entry cannot use stops the entry, not the object. The
+			// other entries still read, so failing here would send them to the
+			// dead-letter queue alongside the bad one.
+			if isUnusableEntry(rerr) {
+				a.skipEntry(ctx, entry.Name(), rerr)
+				return false
+			}
 			// A per-record decode error: forward it so the worker skips just this
 			// record, consistent with the non-archive path.
 			if !yield(nil, rerr) {
@@ -401,4 +408,18 @@ func (c *cappingReader) Read(p []byte) (int, error) {
 		return 0, c.tripped
 	}
 	return n, err
+}
+
+// isUnusableEntry reports content that reads the same way on a retry. It ends the entry
+// rather than the object, so the remaining entries still reach the pipeline.
+func isUnusableEntry(err error) bool {
+	if IsTruncatedObject(err) || errors.Is(err, ErrNotArrayOrKnownObject) {
+		return true
+	}
+	var unsupported ErrUnsupportedContent
+	if errors.As(err, &unsupported) {
+		return true
+	}
+	var corrupt ErrCorruptArchive
+	return errors.As(err, &corrupt)
 }

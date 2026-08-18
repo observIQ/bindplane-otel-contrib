@@ -383,6 +383,12 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 			if isDLQConditionError(err) {
 				return err
 			}
+			// A broken stream is fatal for the whole object. Acking here would drop
+			// every record after the break with no way to recover them, so fail and
+			// let the message redeliver and resume from the saved offset.
+			if IsStreamRead(err) {
+				return err
+			}
 			// Skipping the individual record rather than nacking the whole message, since
 			// retrying a malformed record would produce the same error.  The remaining
 			// records in the object can still be ingested successfully.
@@ -481,6 +487,11 @@ func dlqConditionKind(err error) dlqErrorKind {
 	}
 	// Unsupported file type detected during parsing.
 	if errors.Is(err, ErrNotArrayOrKnownObject) {
+		return dlqErrorKindUnsupportedFile
+	}
+	// A truncated object is unusable for the same reason: reading it again returns
+	// the same bytes.
+	if IsTruncatedObject(err) {
 		return dlqErrorKindUnsupportedFile
 	}
 	// Recognized but unsupported content (image, PDF, unknown binary).

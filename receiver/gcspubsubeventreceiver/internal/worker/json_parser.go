@@ -236,8 +236,10 @@ func (p *jsonParser) yieldArray(startOffset int64) iter.Seq2[any, error] {
 				if errors.Is(err, io.EOF) {
 					return
 				}
-				// unexpected end of file, not much we can do here
+				// The object stops part way through a record. The missing bytes
+				// were never written, so a retry reads the same thing.
 				if errors.Is(err, io.ErrUnexpectedEOF) {
+					yield(nil, ErrTruncatedObject{Err: err})
 					return
 				}
 				// unexpected error, return it
@@ -253,6 +255,12 @@ func (p *jsonParser) yieldArray(startOffset int64) iter.Seq2[any, error] {
 					return
 				}
 			}
+		}
+		// The loop above also ends when the object stops part way through, because
+		// More reports no further element either way. A complete array closes with a
+		// delimiter, so anything else here means the bytes ran out early.
+		if _, err := p.decoder.Token(); err != nil {
+			yield(nil, ErrTruncatedObject{Err: err})
 		}
 	}
 }
