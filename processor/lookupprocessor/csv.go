@@ -20,7 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync"
+	"sync/atomic"
 )
 
 var (
@@ -34,19 +34,29 @@ var (
 	errLookupColumnNotFound = errors.New("lookup column not found")
 )
 
-// CSVFile is a file that contains csv data
+// index maps a lookup key to the remaining columns of its row.
+type index map[string]map[string]string
+
+// CSVFile is a file that contains csv data.
+//
+// The index is published through an atomic pointer rather than guarded by a
+// lock, so a reload never blocks concurrent lookups. Load builds the whole
+// index off to the side and swaps it in with a single Store, which leaves
+// readers observing either the complete previous index or the complete new
+// one, never a partial rebuild.
 type CSVFile struct {
 	filepath     string
 	lookupColumn string
-	data         map[string]map[string]string
-	mux          *sync.RWMutex
+	data         atomic.Pointer[index]
+
+	// readHook runs after a reload has built the new index but before it is
+	// published, so a test can hold a reload in flight and observe that lookups
+	// proceed against the still-published old index. It is nil in production.
+	readHook func()
 }
 
-// Load loads the csv into memory
+// Load reads the csv and publishes a freshly built index.
 func (c *CSVFile) Load() error {
-	c.mux.Lock()
-	defer c.mux.Unlock()
-
 	file, err := os.Open(c.filepath)
 	if err != nil {
 		return fmt.Errorf("open file: %w", err)
@@ -64,7 +74,11 @@ func (c *CSVFile) Load() error {
 		return fmt.Errorf("index records: %w", err)
 	}
 
-	c.data = data
+	if c.readHook != nil {
+		c.readHook()
+	}
+
+	c.data.Store(&data)
 	return nil
 }
 
@@ -72,14 +86,12 @@ func (c *CSVFile) Load() error {
 // The context is accepted to satisfy the LookupSource interface; CSV lookups
 // are in-memory and do not block on it.
 func (c *CSVFile) Lookup(_ context.Context, key string) (map[string]string, error) {
-	c.mux.RLock()
-	defer c.mux.RUnlock()
-
-	if c.data == nil {
+	data := c.data.Load()
+	if data == nil {
 		return nil, errCSVNotLoaded
 	}
 
-	results, ok := c.data[key]
+	results, ok := (*data)[key]
 	if !ok {
 		return nil, errKeyNotFound
 	}
@@ -88,7 +100,7 @@ func (c *CSVFile) Lookup(_ context.Context, key string) (map[string]string, erro
 }
 
 // indexRecords indexes the records by the lookup column
-func indexRecords(records [][]string, lookupColumn string) (map[string]map[string]string, error) {
+func indexRecords(records [][]string, lookupColumn string) (index, error) {
 	if len(records) == 0 {
 		return nil, errNoRecords
 	}
@@ -99,7 +111,7 @@ func indexRecords(records [][]string, lookupColumn string) (map[string]map[strin
 		return nil, fmt.Errorf("find lookup index: %w", err)
 	}
 
-	result := make(map[string]map[string]string)
+	result := make(index)
 	for _, record := range records[1:] {
 		lookupKey := record[lookupIndex]
 		result[lookupKey] = make(map[string]string)
@@ -137,7 +149,6 @@ func (c *CSVFile) Close() error {
 // NewCSVFile creates a new CSVFile
 func NewCSVFile(filepath string, lookupColumn string) *CSVFile {
 	return &CSVFile{
-		mux:          &sync.RWMutex{},
 		filepath:     filepath,
 		lookupColumn: lookupColumn,
 	}
