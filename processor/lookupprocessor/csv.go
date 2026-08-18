@@ -21,6 +21,9 @@ import (
 	"fmt"
 	"os"
 	"sync/atomic"
+	"time"
+
+	"go.uber.org/zap"
 )
 
 var (
@@ -47,39 +50,135 @@ type index map[string]map[string]string
 type CSVFile struct {
 	filepath     string
 	lookupColumn string
+	logger       *zap.Logger
 	data         atomic.Pointer[index]
 
-	// readHook runs after a reload has built the new index but before it is
-	// published, so a test can hold a reload in flight and observe that lookups
-	// proceed against the still-published old index. It is nil in production.
+	// stamp identifies the file version behind the published index, so an
+	// unchanged file can be skipped without re-reading it. stampSettled records
+	// whether that stamp was taken late enough after the file's own modification
+	// time to identify the content unambiguously. Only Load writes them, and Load
+	// runs on a single goroutine.
+	stamp        fileStamp
+	stampSettled bool
+
+	// now reports the current time, and is a seam so a test can drive the
+	// stamp-settle check off a fixed clock; it defaults to time.Now. reads and
+	// readHook exist only for tests: reads counts completed file reads, and
+	// readHook runs between a read and the re-stat that follows it. readHook is
+	// nil in production.
+	reads    atomic.Int64
 	readHook func()
+	now      func() time.Time
 }
 
-// Load reads the csv and publishes a freshly built index.
+// stampSettleWindow is how long a file's modification time must already be in the
+// past before an equal stamp is trusted to mean the content is unchanged.
+//
+// A write takes its modification time from a coarse clock, so two writes landing
+// close together carry byte-identical timestamps. When they also produce the same
+// size, the first write's stamp is indistinguishable from the second's, and
+// skipping on it would serve the earlier content for as long as the file then sat
+// still. Re-reading once while the modification time is still this fresh closes
+// that window, and costs one extra read per write rather than one per interval.
+// The window covers the coarsest timestamp granularity still in common use, FAT's
+// two seconds, so it comfortably covers the millisecond-scale granularity that
+// Linux filesystems report.
+const stampSettleWindow = 2 * time.Second
+
+// fileStamp identifies a file version cheaply. It relies on a write advancing the
+// modification time, which holds on any filesystem storing mtime at sub-second
+// resolution. Two writes can still share a timestamp when they land in the same
+// clock tick, so a stamp only identifies content once its modification time has
+// settled; see stampSettleWindow. A rewrite that deliberately restores the
+// previous timestamp and keeps the same size would read as unchanged.
+type fileStamp struct {
+	modTime time.Time
+	size    int64
+}
+
+func stampOf(fi os.FileInfo) fileStamp {
+	return fileStamp{modTime: fi.ModTime(), size: fi.Size()}
+}
+
+// equal compares two stamps. It uses time.Equal rather than ==, since == on a
+// time.Time also compares the monotonic reading and the location pointer, which
+// would report a difference for the same instant and defeat the skip.
+func (s fileStamp) equal(o fileStamp) bool {
+	return s.size == o.size && s.modTime.Equal(o.modTime)
+}
+
+// Load publishes a freshly built index, skipping the read entirely when the file
+// has not changed since the last successful load.
 func (c *CSVFile) Load() error {
+	before, err := os.Stat(c.filepath)
+	if err != nil {
+		return fmt.Errorf("stat file: %w", err)
+	}
+
+	stamp := stampOf(before)
+	if c.data.Load() != nil && c.stampSettled && stamp.equal(c.stamp) {
+		c.logger.Debug("csv unchanged, skipping reload", zap.String("path", c.filepath))
+		return nil
+	}
+
+	data, err := c.readIndex()
+	if err != nil {
+		return err
+	}
+
+	// A rewrite landing mid-read can produce a truncated file that still parses
+	// cleanly, which would publish a partial index. Re-stat and read once more
+	// when the file moved under us. Writers that rename a completed file into
+	// place avoid the window entirely, since the swap is then atomic.
+	after, err := os.Stat(c.filepath)
+	if err != nil {
+		return fmt.Errorf("re-stat file: %w", err)
+	}
+	if retryStamp := stampOf(after); !retryStamp.equal(stamp) {
+		c.logger.Debug("csv changed while being read, retrying", zap.String("path", c.filepath))
+		stamp = retryStamp
+		if data, err = c.readIndex(); err != nil {
+			return err
+		}
+	}
+
+	c.data.Store(&data)
+	c.stamp = stamp
+	// now is unset only on a CSVFile built without NewCSVFile; fall back so that
+	// path publishes rather than panics.
+	now := c.now
+	if now == nil {
+		now = time.Now
+	}
+	c.stampSettled = now().Sub(stamp.modTime) >= stampSettleWindow
+	return nil
+}
+
+// readIndex reads the file and builds an index from it, without publishing.
+func (c *CSVFile) readIndex() (index, error) {
 	file, err := os.Open(c.filepath)
 	if err != nil {
-		return fmt.Errorf("open file: %w", err)
+		return nil, fmt.Errorf("open file: %w", err)
 	}
 	defer file.Close()
 
 	reader := csv.NewReader(file)
 	records, err := reader.ReadAll()
 	if err != nil {
-		return fmt.Errorf("read all: %w", err)
+		return nil, fmt.Errorf("read all: %w", err)
 	}
 
 	data, err := indexRecords(records, c.lookupColumn)
 	if err != nil {
-		return fmt.Errorf("index records: %w", err)
+		return nil, fmt.Errorf("index records: %w", err)
 	}
 
+	c.reads.Add(1)
 	if c.readHook != nil {
 		c.readHook()
 	}
 
-	c.data.Store(&data)
-	return nil
+	return data, nil
 }
 
 // Lookup returns a row of data that matches the key in the provided column.
@@ -147,9 +246,14 @@ func (c *CSVFile) Close() error {
 }
 
 // NewCSVFile creates a new CSVFile
-func NewCSVFile(filepath string, lookupColumn string) *CSVFile {
+func NewCSVFile(filepath string, lookupColumn string, logger *zap.Logger) *CSVFile {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &CSVFile{
 		filepath:     filepath,
 		lookupColumn: lookupColumn,
+		logger:       logger,
+		now:          time.Now,
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestLookup(t *testing.T) {
@@ -28,7 +29,7 @@ func TestLookup(t *testing.T) {
 		"region": "us-west",
 	}
 	csvPath := createTestCSVFile(t, csvContents)
-	csvFile := NewCSVFile(csvPath, "ip")
+	csvFile := NewCSVFile(csvPath, "ip", zap.NewNop())
 	err := csvFile.Load()
 	require.NoError(t, err)
 

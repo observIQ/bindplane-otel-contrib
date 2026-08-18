@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 // writeStallCSV writes a small host-keyed CSV and returns its path.
@@ -57,7 +58,7 @@ func writeStallCSV(t *testing.T, rows int) string {
 // reads the old index and never takes the reload's path.
 func TestReloadDoesNotBlockLookups(t *testing.T) {
 	path := writeStallCSV(t, 100)
-	csvFile := NewCSVFile(path, "host")
+	csvFile := NewCSVFile(path, "host", zap.NewNop())
 	require.NoError(t, csvFile.Load())
 
 	// Confirm the key resolves off the initial index before the reload starts.

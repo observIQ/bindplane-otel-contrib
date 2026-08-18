@@ -36,6 +36,17 @@ const defaultCacheTTL = 5 * time.Minute
 // memory today keep their hit rates.
 const defaultCacheMaxEntries = 100_000
 
+// defaultReloadInterval preserves the cadence the processor has always used.
+const defaultReloadInterval = time.Minute
+
+// resolveReloadInterval falls back to the default when the interval is unset.
+func resolveReloadInterval(cfg *Config) time.Duration {
+	if cfg.ReloadInterval > 0 {
+		return cfg.ReloadInterval
+	}
+	return defaultReloadInterval
+}
+
 // signal identifies the pipeline kind a processor instance is wired into. It
 // namespaces the storage extension client so concurrent processor instances
 // for the same component ID across signals do not share or close each other's
@@ -80,7 +91,7 @@ func (p *lookupProcessor) buildSource() (LookupSource, error) {
 	case p.cfg.API != nil:
 		return NewAPISource(p.cfg.API, p.logger)
 	case p.cfg.CSV != "":
-		return NewCSVFile(p.cfg.CSV, p.cfg.Field), nil
+		return NewCSVFile(p.cfg.CSV, p.cfg.Field, p.logger), nil
 	default:
 		return nil, errMissingSource
 	}
@@ -135,9 +146,10 @@ func (p *lookupProcessor) shutdown(context.Context) error {
 	return nil
 }
 
-// loadSource refreshes the source every minute until context is canceled.
+// loadSource refreshes the source on the configured interval until context is
+// canceled.
 func (p *lookupProcessor) loadSource(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(resolveReloadInterval(p.cfg))
 	defer ticker.Stop()
 	defer p.wg.Done()
 
@@ -145,7 +157,7 @@ func (p *lookupProcessor) loadSource(ctx context.Context) {
 		if err := p.source.Load(); err != nil {
 			p.logger.Error("failed to load source", zap.Error(err))
 		} else {
-			p.logger.Debug("source loaded/refreshed")
+			p.logger.Debug("source reload check complete")
 		}
 
 		select {
