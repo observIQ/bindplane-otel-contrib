@@ -52,13 +52,19 @@ func TestProcessLogs(t *testing.T) {
 		},
 		{
 			name:         "distinct structures detect separately",
-			bodies:       []string{`{"a":1}`, `{"c":1}`},
+			bodies:       []string{`{"alpha":1}`, `{"gamma":1}`},
+			expectedRuns: 2,
+			fingerprints: 2,
+		},
+		{
+			name:         "plain text detects via generic fingerprint",
+			bodies:       []string{"plain text line", "other words entirely"},
 			expectedRuns: 2,
 			fingerprints: 2,
 		},
 		{
 			name:         "unfingerprintable logs are skipped",
-			bodies:       []string{"plain text line", "", "x"},
+			bodies:       []string{"", "x", "nine char"},
 			expectedRuns: 0,
 			fingerprints: 0,
 		},
@@ -110,7 +116,7 @@ func TestProcessLogsCachesAcrossCalls(t *testing.T) {
 	p := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
 
 	for range 3 {
-		_, err := p.processLogs(context.Background(), logsFromBodies(`{"a":1}`))
+		_, err := p.processLogs(context.Background(), logsFromBodies(`{"alpha":1}`))
 		require.NoError(t, err)
 	}
 

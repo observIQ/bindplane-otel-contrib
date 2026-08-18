@@ -22,44 +22,39 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFingerprintJSONLogsNoCollisions(t *testing.T) {
-	testFingerprintCorpusNoCollisions(t, "testdata/jsonLogs.csv")
+func TestFingerprintNoCollisions(t *testing.T) {
+	testFingerprintCorpusNoCollisions(t, []string{
+		"testdata/jsonLogs.csv",
+		"testdata/clfLogs.csv",
+		"testdata/xmlLogs.csv",
+		"testdata/sysLogs.csv",
+		"testdata/genericLogs.csv",
+	})
 }
 
-func TestFingerprintCLFLogsNoCollisions(t *testing.T) {
-	testFingerprintCorpusNoCollisions(t, "testdata/clfLogs.csv")
-}
-
-func TestFingerprintXMLLogsNoCollisions(t *testing.T) {
-	testFingerprintCorpusNoCollisions(t, "testdata/xmlLogs.csv")
-}
-
-// TODO: BP-74 enable this test once we have a way to fingerprint generic data
-// func TestFingerprintSysLogsNoCollisions(t *testing.T) {
-// 	testFingerprintCorpusNoCollisions(t, "testdata/sysLogs.csv")
-// }
-
-func testFingerprintCorpusNoCollisions(t *testing.T, path string) {
-	f, err := os.Open(path)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, f.Close())
-	}()
-
-	records, err := csv.NewReader(f).ReadAll()
-	require.NoError(t, err)
-	require.Greater(t, len(records), 1)
-
+func testFingerprintCorpusNoCollisions(t *testing.T, paths []string) {
 	seen := map[uint64]string{}
-	for _, r := range records[1:] {
-		logType, body := r[0], r[1]
-		fp := HashLog(body)
-		require.NotZero(t, fp, "no fingerprint for %s: %s", logType, body)
+	for _, path := range paths {
+		f, err := os.Open(path)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, f.Close())
+		}()
 
-		if prev, ok := seen[fp]; ok {
-			require.Equal(t, prev, logType, "fingerprint %x collides between %s and %s", fp, prev, logType)
-			continue
+		records, err := csv.NewReader(f).ReadAll()
+		require.NoError(t, err)
+		require.Greater(t, len(records), 1)
+
+		for _, r := range records[1:] {
+			logType, body := r[0], r[1]
+			fp := HashLog(body)
+			require.NotZero(t, fp, "no fingerprint for %s: %s", logType, body)
+
+			if prev, ok := seen[fp]; ok {
+				require.Equal(t, prev, logType, "fingerprint %x collides between %s and %s", fp, prev, logType)
+				continue
+			}
+			seen[fp] = logType
 		}
-		seen[fp] = logType
 	}
 }

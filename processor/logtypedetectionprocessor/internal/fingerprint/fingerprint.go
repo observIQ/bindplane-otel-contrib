@@ -42,7 +42,7 @@ func HashLog(data string) uint64 {
 // not exposed via the public API.
 func fingerprint(data string, skipRecursiveTypes bool) uint64 {
 	data = strings.TrimSpace(data)
-	if len(data) < 2 {
+	if len(data) < 10 {
 		return 0
 	}
 
@@ -72,7 +72,7 @@ func fingerprint(data string, skipRecursiveTypes bool) uint64 {
 		}
 	}
 
-	return 0
+	return fingerprintGeneric(data)
 }
 
 const (
