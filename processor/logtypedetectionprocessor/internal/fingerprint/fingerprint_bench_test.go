@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package logtypedetectionprocessor
+package fingerprint
 
 import (
 	"encoding/csv"
@@ -21,7 +21,23 @@ import (
 )
 
 func BenchmarkFingerprintJSONLogs(b *testing.B) {
-	f, err := os.Open("testdata/jsonLogs.csv")
+	benchmarkFingerprintCorpus(b, "testdata/jsonLogs.csv")
+}
+
+func BenchmarkFingerprintXMLLogs(b *testing.B) {
+	benchmarkFingerprintCorpus(b, "testdata/xmlLogs.csv")
+}
+
+func BenchmarkFingerprintCLFLogs(b *testing.B) {
+	benchmarkFingerprintCorpus(b, "testdata/clfLogs.csv")
+}
+
+func BenchmarkFingerprintSyslogLogs(b *testing.B) {
+	benchmarkFingerprintCorpus(b, "testdata/sysLogs.csv")
+}
+
+func benchmarkFingerprintCorpus(b *testing.B, path string) {
+	f, err := os.Open(path)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -46,7 +62,7 @@ func BenchmarkFingerprintJSONLogs(b *testing.B) {
 	n := 0
 	for b.Loop() {
 		for i := range bodies {
-			if fingerprintLog(bodies[i]) == 0 {
+			if fingerprint(bodies[i], false) == 0 {
 				b.Fatal("no fingerprint")
 			}
 		}

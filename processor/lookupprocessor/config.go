@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/confmap"
 )
 
 const (
@@ -42,6 +43,8 @@ var (
 	errSourceTypeMismatch = errors.New("source_type does not match the configured source block")
 	errMissingRedisAddr   = errors.New("redis address is required")
 	errMissingAPIURL      = errors.New("api url is required")
+	errNegativeCacheMax   = errors.New("cache_max_entries must not be negative")
+	errNegativeInterval   = errors.New("reload_interval must not be negative")
 )
 
 // Config is the configuration for the processor.
@@ -50,13 +53,58 @@ type Config struct {
 	Field      string `mapstructure:"field"`
 	SourceType string `mapstructure:"source_type"`
 
-	CacheEnabled bool          `mapstructure:"cache_enabled"`
-	CacheTTL     time.Duration `mapstructure:"cache_ttl"`
-	StorageID    *component.ID `mapstructure:"storage"`
+	// ReloadInterval is how often the source is re-checked. Unset uses the
+	// historical 60s cadence. Re-checking an unchanged CSV costs one stat rather
+	// than a full re-read, so the default is cheap to leave alone.
+	ReloadInterval time.Duration `mapstructure:"reload_interval"`
+
+	CacheEnabled    bool          `mapstructure:"cache_enabled"`
+	CacheTTL        time.Duration `mapstructure:"cache_ttl"`
+	CacheMaxEntries int           `mapstructure:"cache_max_entries"`
+	StorageID       *component.ID `mapstructure:"storage"`
 
 	CSV   string       `mapstructure:"csv"`
 	Redis *RedisConfig `mapstructure:"redis"`
 	API   *APIConfig   `mapstructure:"api"`
+
+	// cacheKeysSet records which cache keys the configuration actually contained.
+	// createDefaultConfig fills all three, so a plain value check cannot tell a
+	// user's choice from a default, and warning on the default would fire for
+	// every existing CSV user.
+	cacheKeysSet map[string]bool
+}
+
+// cacheKeys are the settings that only apply to a source the cache fronts.
+// storage belongs here because it names the extension the cache persists
+// through, so a source that bypasses the cache never reads it.
+var cacheKeys = []string{"cache_enabled", "cache_ttl", "cache_max_entries", "storage"}
+
+// Unmarshal records which cache keys were present before applying the config.
+func (cfg *Config) Unmarshal(conf *confmap.Conf) error {
+	if err := conf.Unmarshal(cfg); err != nil {
+		return err
+	}
+
+	cfg.cacheKeysSet = make(map[string]bool, len(cacheKeys))
+	for _, key := range cacheKeys {
+		if conf.IsSet(key) {
+			cfg.cacheKeysSet[key] = true
+		}
+	}
+
+	return nil
+}
+
+// setCacheKeys returns the cache keys this configuration explicitly set, in a
+// stable order suitable for a log message.
+func (cfg Config) setCacheKeys() []string {
+	var set []string
+	for _, key := range cacheKeys {
+		if cfg.cacheKeysSet[key] {
+			set = append(set, key)
+		}
+	}
+	return set
 }
 
 // APIConfig is the configuration for API-based lookups.
@@ -101,6 +149,9 @@ func (cfg Config) Validate() error {
 	if cfg.Field == "" {
 		return errMissingField
 	}
+	if cfg.ReloadInterval < 0 {
+		return errNegativeInterval
+	}
 
 	switch cfg.Context {
 	case bodyContext, attributesContext, resourceContext:
@@ -143,6 +194,10 @@ func (cfg Config) Validate() error {
 		default:
 			return errInvalidSourceType
 		}
+	}
+
+	if cfg.CacheMaxEntries < 0 {
+		return errNegativeCacheMax
 	}
 
 	if cfg.Redis != nil && cfg.Redis.Address == "" {

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package logtypedetectionprocessor
+package fingerprint
 
 import (
 	"encoding/csv"
@@ -23,7 +23,24 @@ import (
 )
 
 func TestFingerprintJSONLogsNoCollisions(t *testing.T) {
-	f, err := os.Open("testdata/jsonLogs.csv")
+	testFingerprintCorpusNoCollisions(t, "testdata/jsonLogs.csv")
+}
+
+func TestFingerprintCLFLogsNoCollisions(t *testing.T) {
+	testFingerprintCorpusNoCollisions(t, "testdata/clfLogs.csv")
+}
+
+func TestFingerprintXMLLogsNoCollisions(t *testing.T) {
+	testFingerprintCorpusNoCollisions(t, "testdata/xmlLogs.csv")
+}
+
+// TODO: BP-74 enable this test once we have a way to fingerprint generic data
+// func TestFingerprintSysLogsNoCollisions(t *testing.T) {
+// 	testFingerprintCorpusNoCollisions(t, "testdata/sysLogs.csv")
+// }
+
+func testFingerprintCorpusNoCollisions(t *testing.T, path string) {
+	f, err := os.Open(path)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, f.Close())
@@ -36,7 +53,7 @@ func TestFingerprintJSONLogsNoCollisions(t *testing.T) {
 	seen := map[uint64]string{}
 	for _, r := range records[1:] {
 		logType, body := r[0], r[1]
-		fp := fingerprintLog(body)
+		fp := HashLog(body)
 		require.NotZero(t, fp, "no fingerprint for %s: %s", logType, body)
 
 		if prev, ok := seen[fp]; ok {

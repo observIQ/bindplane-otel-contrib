@@ -1,4 +1,8 @@
-# Bindplane Extension
+# Bindplane Extension (Deprecated)
+
+> **Deprecated.** The `throughputmeasurement` and `topology` processors now report their own state directly over an opamp extension: each processor takes an `opamp` component ID, all instances of a processor type share a single reporter (its `interval` — and, for throughput, `extra_labels` — comes from a `global` block carried by one processor), and it sends the same wire format this extension sends (snappy-encoded OTLP protobuf on `com.bindplane.measurements.v1`, snappy-encoded JSON on `com.bindplane.topology`). See the [throughputmeasurement](../../processor/throughputmeasurementprocessor/README.md) and [topology](../../processor/topologyprocessor/README.md) processor READMEs.
+>
+> This extension is kept for backwards compatibility with Bindplane servers that render it (via the processors' deprecated `bindplane_extension` field) and will be removed in a future release. Newer Bindplane servers configure the processors' `opamp` parameter and do not instantiate this extension.
 
 This extension is used by Bindplane in custom distributions to store Bindplane specific information.
 

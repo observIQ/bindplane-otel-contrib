@@ -16,6 +16,7 @@ package lookupprocessor
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -35,6 +36,11 @@ func TestValidate(t *testing.T) {
 			name: "missing field",
 			cfg:  Config{Context: "body"},
 			err:  errMissingField,
+		},
+		{
+			name: "negative reload_interval",
+			cfg:  Config{Context: "body", Field: "ip", ReloadInterval: -time.Second},
+			err:  errNegativeInterval,
 		},
 		{
 			name: "invalid context",
@@ -75,6 +81,25 @@ func TestValidate(t *testing.T) {
 				SourceType: "redis",
 			},
 			err: errSourceTypeMismatch,
+		},
+		{
+			name: "negative cache_max_entries",
+			cfg: Config{
+				Context:         "body",
+				Field:           "ip",
+				CSV:             "csv",
+				CacheMaxEntries: -1,
+			},
+			err: errNegativeCacheMax,
+		},
+		{
+			name: "valid cache_max_entries",
+			cfg: Config{
+				Context:         "body",
+				Field:           "ip",
+				CSV:             "csv",
+				CacheMaxEntries: 500,
+			},
 		},
 		{
 			name: "redis missing address",

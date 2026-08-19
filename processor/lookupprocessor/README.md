@@ -1,7 +1,7 @@
 # Lookup Processor
 
 This processor enriches telemetry by looking up values from an external data
-source and adding the resulting fields to the configured `context`.
+lookup and adding the resulting fields to the configured `context`.
 
 ## Supported pipelines
 - Logs
@@ -13,19 +13,27 @@ source and adding the resulting fields to the configured `context`.
    must be configured.
 2. When telemetry is received, the processor checks if the configured `field`
    exists in the configured `context`.
-3. If the field exists and the source returns a match, all other key/value
-   pairs from the source row are added to the `context` of the telemetry.
-4. An optional cache (enabled by default with a 5-minute TTL) stores recent
-   lookups. The cache backend is either an OpenTelemetry storage extension
-   (e.g. `file_storage`, `redis_storage`) for persistence across restarts, or
-   a per-instance in-memory map when no `storage` is configured.
+3. If the field exists and the lookup source returns a match, all other key/value
+   pairs from the matching row are added to the `context` of the telemetry.
+4. For a `redis` or `api` lookup, an optional cache (enabled by default with a
+   5-minute TTL) stores recent results. A CSV file is already held in memory, so
+   it is looked up directly and the cache does not apply. The cache backend is
+   either an OpenTelemetry storage extension (e.g. `file_storage`,
+   `redis_storage`) for persistence across restarts, or a per-instance in-memory
+   map when no `storage` is configured.
 
-   Eviction is lazy: there is no background sweeper. An expired entry is
-   recognized and removed only on the next read of the same key. A key that
-   is never looked up again remains in the cache until the process restarts
-   (in-memory backend) or until the storage extension reclaims it (persistent
-   backend). For high-cardinality keys that rarely repeat, prefer a storage
-   extension with bounded retention or disable the cache.
+   The in-memory backend is bounded by `cache_max_entries`. Reads never
+   mutate the cache; an expired entry is simply reported as a miss, so
+   concurrent lookups do not serialize. Reclamation happens on insert: when
+   an insert pushes the cache over `cache_max_entries`, expired entries are
+   evicted first, then arbitrary entries until the cache is back under the
+   limit.
+
+   The storage backend has no such bound; an expired entry is removed only
+   on the next read of the same key, and a key that is never looked up again
+   remains until the storage extension reclaims it. For high-cardinality
+   keys that rarely repeat, prefer a storage extension with bounded
+   retention or disable the cache.
 
 ## Configuration
 
@@ -34,24 +42,31 @@ source and adding the resulting fields to the configured `context`.
 | ---            | ---             | ---     | --- |
 | context        | string          | ` `     | Telemetry context to read/write. One of `attributes`, `body`, `resource.attributes`. |
 | field          | string          | ` `     | Field in `context` whose value is used as the lookup key. |
-| source_type    | string          | ` `     | Optional. One of `csv`, `redis`, `api`. When unset, the source is inferred from the source block. |
-| cache_enabled  | bool            | `true`  | Enable TTL caching of lookup results. |
-| cache_ttl      | duration        | `5m`    | Cache entry lifetime. |
-| storage        | component.ID    | `nil`   | Storage extension to back the cache (e.g. `file_storage`). When unset, the cache is in-memory and discarded on restart. |
-| csv            | string          | ` `     | Path to CSV file. See [CSV source](#csv-source). |
-| redis          | object          | `nil`   | Redis source config. See [Redis source](#redis-source). |
-| api            | object          | `nil`   | API source config. See [API source](#api-source). |
+| source_type    | string          | ` `     | Optional. One of `csv`, `redis`, `api`. When unset, the lookup source is inferred from the source block. |
+| reload_interval | duration       | `60s`   | How often the lookup source is re-checked for changes. An unchanged CSV is skipped without re-reading it. A negative value is rejected. |
+| cache_enabled  | bool            | `true`  | Enable TTL caching of lookup results. Not used with a CSV file. |
+| cache_ttl      | duration        | `5m`    | Cache entry lifetime. Not used with a CSV file. |
+| cache_max_entries | int          | `100000` | Maximum entries held by the in-memory cache. On overflow, expired entries are evicted first, then arbitrary entries. Ignored when `storage` is set, and not used with a CSV file. |
+| storage        | component.ID    | `nil`   | Storage extension to back the cache (e.g. `file_storage`). When unset, the cache is in-memory and discarded on restart. Not used with a CSV file. |
+| csv            | string          | ` `     | Path to CSV file. See [CSV Lookup Source](#csv-lookup-source). |
+| redis          | object          | `nil`   | Redis config. See [Redis Lookup Source](#redis-lookup-source). |
+| api            | object          | `nil`   | API config. See [API Lookup Source](#api-lookup-source). |
 
-### CSV source
+### CSV Lookup Source
 | Field | Type   | Default | Description |
 | ---   | ---    | ---     | --- |
-| csv   | string | ` `     | Filesystem path to a CSV file. The first row is the header. Reloaded every minute. |
+| csv   | string | ` `     | Filesystem path to a CSV file. The first row is the header. Re-checked on the `reload_interval` cadence (default one minute), and re-read only when it has changed. |
 
 The top-level `field` setting doubles as the CSV column name used to look up
 rows. The remaining columns of the matching row are added to the configured
 `context`.
 
-### Redis source
+The cache settings (`cache_enabled`, `cache_ttl`, `cache_max_entries`, `storage`)
+do not apply to a CSV file. The CSV index is already held in memory, so lookups
+never go through the cache. Setting any of them alongside `csv` logs a warning at
+startup, and will become a configuration error in a future release.
+
+### Redis Lookup Source
 | Field          | Type     | Default | Description |
 | ---            | ---      | ---     | --- |
 | address        | string   | ` `     | Redis server address `host:port`. |
@@ -66,12 +81,12 @@ rows. The remaining columns of the matching row are added to the configured
 The processor first tries `HGETALL` on the resolved key. If no fields are
 returned, it falls back to `GET` and decodes the value as JSON `map[string]string`.
 
-On startup, the source performs a `PING` (bounded by `dial_timeout`). A failed
+On startup, the lookup source performs a `PING` (bounded by `dial_timeout`). A failed
 `PING` aborts processor start so a misconfigured Redis (bad address, auth
 failure, unreachable host) surfaces immediately rather than masking the issue
 until the first lookup.
 
-### API source
+### API Lookup Source
 | Field            | Type              | Default | Description |
 | ---              | ---               | ---     | --- |
 | url              | string            | ` `     | URL template. `$fieldValue`, `${fieldValue}`, `$key`, or `${key}` are substituted with the URL-encoded lookup key. |

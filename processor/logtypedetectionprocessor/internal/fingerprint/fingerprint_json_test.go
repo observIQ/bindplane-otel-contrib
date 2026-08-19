@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package logtypedetectionprocessor
+package fingerprint
 
 import (
 	"strings"
@@ -34,7 +34,7 @@ func TestFingerprintJSONInvalid(t *testing.T) {
 		`[{"a":1}`,
 		`{"a":1]`,
 		`{a:1]`,
-		strings.Repeat(`{"a":`, maxDepth+1) + "1" + strings.Repeat("}", maxDepth+1),
+		strings.Repeat(`{"a":`, maxLogDepth+1) + "1" + strings.Repeat("}", maxLogDepth+1),
 	}
 
 	for _, c := range cases {

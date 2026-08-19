@@ -22,6 +22,8 @@ import (
 )
 
 // TopoRegistry represents a registry for the topology processor to register their TopologyState.
+// It exists only for backwards compatibility with the deprecated bindplane extension and the
+// v1 bindplane agent; delete with BPOP-5623.
 type TopoRegistry interface {
 	// RegisterTopologyState registers the topology state for the given processor.
 	// It should return an error if the processor has already been registered.
@@ -82,6 +84,8 @@ func (ts *TopoState) UpsertRoute(_ context.Context, gw GatewayInfo) {
 }
 
 // ResettableTopologyRegistry is a concrete version of TopologyDataRegistry that is able to be reset.
+// It exists only for backwards compatibility with the deprecated bindplane extension and the
+// v1 bindplane agent; delete with BPOP-5623.
 type ResettableTopologyRegistry struct {
 	topology *sync.Map
 }

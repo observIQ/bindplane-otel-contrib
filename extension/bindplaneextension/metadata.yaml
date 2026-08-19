@@ -6,7 +6,11 @@ status:
     active: [observIQ/fleet, observIQ/pipeline, observIQ/platformteam, observIQ/ai]
   class: extension
   stability:
-    beta: [extension]
+    deprecated: [extension]
+  deprecation:
+    extension:
+      date: "2026-08-10"
+      migration: "Configure the throughputmeasurement and topology processors with the `opamp` parameter and `global` block instead; see those processors' READMEs."
 
 tests:
   config:

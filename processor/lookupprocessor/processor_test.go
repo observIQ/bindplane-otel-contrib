@@ -125,7 +125,7 @@ func TestProcessLogs(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			csvPath := createTestCSVFile(t, tc.csvContents)
-			csvFile := NewCSVFile(csvPath, tc.field)
+			csvFile := NewCSVFile(csvPath, tc.field, zap.NewNop())
 			err := csvFile.Load()
 			require.NoError(t, err)
 
@@ -225,7 +225,7 @@ func TestProcessTraces(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			csvPath := createTestCSVFile(t, tc.csvContents)
-			csvFile := NewCSVFile(csvPath, tc.field)
+			csvFile := NewCSVFile(csvPath, tc.field, zap.NewNop())
 			err := csvFile.Load()
 			require.NoError(t, err)
 
@@ -359,7 +359,7 @@ func TestProcessMetrics(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			csvPath := createTestCSVFile(t, tc.csvContents)
-			csvFile := NewCSVFile(csvPath, tc.field)
+			csvFile := NewCSVFile(csvPath, tc.field, zap.NewNop())
 			err := csvFile.Load()
 			require.NoError(t, err)
 
@@ -383,7 +383,7 @@ func TestAddLookupValues(t *testing.T) {
 		"region": "us-west",
 	}
 	csvPath := createTestCSVFile(t, csvContents)
-	csvFile := NewCSVFile(csvPath, "ip")
+	csvFile := NewCSVFile(csvPath, "ip", zap.NewNop())
 	err := csvFile.Load()
 	require.NoError(t, err)
 

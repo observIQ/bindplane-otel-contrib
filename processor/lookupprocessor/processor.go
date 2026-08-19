@@ -17,6 +17,7 @@ package lookupprocessor
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,23 @@ import (
 )
 
 const defaultCacheTTL = 5 * time.Minute
+
+// defaultCacheMaxEntries bounds the in-memory cache backend. The value is
+// deliberately high: it exists to stop unbounded growth from high-cardinality
+// keys, not to constrain ordinary working sets, so workloads that fit in
+// memory today keep their hit rates.
+const defaultCacheMaxEntries = 100_000
+
+// defaultReloadInterval preserves the cadence the processor has always used.
+const defaultReloadInterval = time.Minute
+
+// resolveReloadInterval falls back to the default when the interval is unset.
+func resolveReloadInterval(cfg *Config) time.Duration {
+	if cfg.ReloadInterval > 0 {
+		return cfg.ReloadInterval
+	}
+	return defaultReloadInterval
+}
 
 // signal identifies the pipeline kind a processor instance is wired into. It
 // namespaces the storage extension client so concurrent processor instances
@@ -74,7 +92,7 @@ func (p *lookupProcessor) buildSource() (LookupSource, error) {
 	case p.cfg.API != nil:
 		return NewAPISource(p.cfg.API, p.logger)
 	case p.cfg.CSV != "":
-		return NewCSVFile(p.cfg.CSV, p.cfg.Field), nil
+		return NewCSVFile(p.cfg.CSV, p.cfg.Field, p.logger), nil
 	default:
 		return nil, errMissingSource
 	}
@@ -87,28 +105,40 @@ func (p *lookupProcessor) start(ctx context.Context, host component.Host) error 
 		return fmt.Errorf("failed to create lookup source: %w", err)
 	}
 
-	ttl := defaultCacheTTL
-	if p.cfg.CacheTTL > 0 {
-		ttl = p.cfg.CacheTTL
+	// A CSV index is already resident in memory, so fronting it with a cache cannot
+	// reduce work: it only adds a lock per lookup and a second copy of the data.
+	// Bypass structurally rather than by rejecting the config, because
+	// createDefaultConfig enables the cache, so rejecting it would fail every
+	// existing CSV configuration at startup.
+	if p.cfg.CSV != "" {
+		if keys := p.cfg.setCacheKeys(); len(keys) > 0 {
+			p.logger.Warn(
+				"cache settings do not apply to a csv source and are ignored; "+
+					"setting them with 'csv' becomes a configuration error in a future release",
+				zap.String("keys", strings.Join(keys, ", ")),
+			)
+		}
+		p.source = source
+	} else {
+		// Non-positive cache settings fall back to defaults inside NewLookupCache.
+		cached, err := NewLookupCache(
+			ctx,
+			source,
+			p.cfg.CacheTTL,
+			p.cfg.CacheMaxEntries,
+			p.cfg.CacheEnabled,
+			p.cfg.StorageID,
+			host,
+			p.componentID,
+			p.signal,
+			p.logger,
+		)
+		if err != nil {
+			_ = source.Close()
+			return fmt.Errorf("failed to create lookup cache: %w", err)
+		}
+		p.source = cached
 	}
-
-	cached, err := NewLookupCache(
-		ctx,
-		source,
-		ttl,
-		p.cfg.CacheEnabled,
-		p.cfg.StorageID,
-		host,
-		p.componentID,
-		p.signal,
-		p.logger,
-	)
-	if err != nil {
-		_ = source.Close()
-		return fmt.Errorf("failed to create lookup cache: %w", err)
-	}
-
-	p.source = cached
 
 	backgroundCtx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
@@ -132,9 +162,10 @@ func (p *lookupProcessor) shutdown(context.Context) error {
 	return nil
 }
 
-// loadSource refreshes the source every minute until context is canceled.
+// loadSource refreshes the source on the configured interval until context is
+// canceled.
 func (p *lookupProcessor) loadSource(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(resolveReloadInterval(p.cfg))
 	defer ticker.Stop()
 	defer p.wg.Done()
 
@@ -142,7 +173,7 @@ func (p *lookupProcessor) loadSource(ctx context.Context) {
 		if err := p.source.Load(); err != nil {
 			p.logger.Error("failed to load source", zap.Error(err))
 		} else {
-			p.logger.Debug("source loaded/refreshed")
+			p.logger.Debug("source reload check complete")
 		}
 
 		select {

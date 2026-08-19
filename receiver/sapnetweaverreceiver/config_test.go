@@ -22,8 +22,8 @@ import (
 	"github.com/observiq/bindplane-otel-contrib/receiver/sapnetweaverreceiver/internal/metadata"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/confmap/confmaptest"
-	"go.opentelemetry.io/collector/confmap/xconfmap"
 	"go.uber.org/multierr"
 )
 
@@ -104,7 +104,7 @@ func TestValidate(t *testing.T) {
 			cfg.ClientConfig.Endpoint = tc.endpoint
 			cfg.Username = tc.username
 			cfg.Password = tc.password
-			err := xconfmap.Validate(cfg)
+			err := confmap.Validate(cfg)
 			if tc.errExpected {
 				require.EqualError(t, err, tc.errText)
 				return
