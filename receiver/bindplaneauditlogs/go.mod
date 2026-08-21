@@ -3,7 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/receiver/bindplaneauditlogs
 go 1.26.4
 
 require (
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/collector/component/componenttest v0.158.0
 	go.opentelemetry.io/collector/config/confighttp v0.158.0
 	go.opentelemetry.io/collector/consumer/consumertest v0.158.0
@@ -73,11 +73,8 @@ require (
 )
 
 require (
-	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	go.opentelemetry.io/collector/component v1.64.0
 	go.opentelemetry.io/collector/config/configopaque v1.64.0 // indirect
 	go.opentelemetry.io/collector/consumer v1.64.0
 	go.opentelemetry.io/collector/receiver v1.64.0
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
