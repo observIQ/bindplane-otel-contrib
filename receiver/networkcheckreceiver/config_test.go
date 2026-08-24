@@ -64,6 +64,18 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "negative_jitter",
+			cfg: &Config{
+				Targets: []TargetConfig{{Method: MethodICMP, ClientConfig: func() confighttp.ClientConfig {
+					c := confighttp.NewDefaultClientConfig()
+					c.Endpoint = "8.8.8.8"
+					return c
+				}()}},
+				Jitter: -1,
+			},
+			wantErr: true,
+		},
+		{
 			name: "invalid_traceroute_threshold",
 			cfg: &Config{
 				Targets: []TargetConfig{{Method: MethodICMP}},

@@ -17,6 +17,7 @@ package networkcheckreceiver // import "github.com/observiq/bindplane-otel-contr
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -125,6 +126,15 @@ func (s *networkStatScraper) shutdown(_ context.Context) error {
 }
 
 func (s *networkStatScraper) scrape(ctx context.Context) (pmetric.Metrics, error) {
+	if s.cfg.Jitter > 0 {
+		delay := time.Duration(rand.Int64N(int64(s.cfg.Jitter)))
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return pmetric.NewMetrics(), ctx.Err()
+		}
+	}
+
 	errs := &scrapererror.ScrapeErrors{}
 	now := pcommon.NewTimestampFromTime(time.Now())
 
