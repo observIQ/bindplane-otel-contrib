@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -54,8 +55,26 @@ type tracerouter struct {
 	host string
 }
 
-func newTracerouter(cfg TracerouteConfig, host string) *tracerouter {
-	return &tracerouter{cfg: cfg, host: host}
+func newTracerouter(cfg TracerouteConfig, endpoint string) *tracerouter {
+	return &tracerouter{cfg: cfg, host: hostFromEndpoint(endpoint)}
+}
+
+// hostFromEndpoint extracts the bare hostname from an endpoint that may be a
+// full URL (e.g. "https://example.com/path") or a plain host/IP. The port is
+// stripped so the result can be passed to net.LookupHost.
+func hostFromEndpoint(endpoint string) string {
+	if u, err := url.Parse(endpoint); err == nil && u.Host != "" {
+		h, _, err := net.SplitHostPort(u.Host)
+		if err != nil {
+			return u.Host
+		}
+		return h
+	}
+	h, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return endpoint
+	}
+	return h
 }
 
 // shouldRun returns true if a traceroute should be performed given the current
