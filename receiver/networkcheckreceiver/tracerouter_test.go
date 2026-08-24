@@ -24,6 +24,25 @@ import (
 	"golang.org/x/net/icmp"
 )
 
+func TestHostFromEndpoint(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"https://apps.mypurecloud.com/", "apps.mypurecloud.com"},
+		{"https://apps.mypurecloud.com/some/path", "apps.mypurecloud.com"},
+		{"http://example.com:8080/health", "example.com"},
+		{"8.8.8.8", "8.8.8.8"},
+		{"example.com", "example.com"},
+		{"example.com:443", "example.com"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			require.Equal(t, tc.want, hostFromEndpoint(tc.input))
+		})
+	}
+}
+
 // TestICMPPacketConnIsNotNetConn pins the interface fact behind a crash in
 // traceICMP: ipv4.NewPacketConn type-asserts its argument to net.Conn without a
 // comma-ok, so handing it an *icmp.PacketConn panics. traceICMP must use
