@@ -49,6 +49,12 @@ type Config struct {
 	// each target is checked once every N * collection_interval.
 	BatchSize int `mapstructure:"batch_size"`
 
+	// Jitter is the maximum random delay added at the start of each scrape cycle.
+	// A random duration in [0, jitter) is chosen independently per cycle, which
+	// spreads probes across the interval when many agents share the same config.
+	// Default 0 disables jitter.
+	Jitter time.Duration `mapstructure:"jitter"`
+
 	// Traceroute configures optional traceroute probes.
 	Traceroute TracerouteConfig `mapstructure:"traceroute"`
 }
@@ -135,6 +141,10 @@ func (c *Config) Validate() error {
 
 	if c.BatchSize < 0 {
 		errs = multierr.Append(errs, errors.New("batch_size must be >= 0"))
+	}
+
+	if c.Jitter < 0 {
+		errs = multierr.Append(errs, errors.New("jitter must be >= 0"))
 	}
 
 	if c.Traceroute.Enabled {
