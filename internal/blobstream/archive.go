@@ -47,6 +47,16 @@ type RecordProducer interface {
 	Position() Offset
 }
 
+// CloseProducer releases resources a producer holds when its Records iterator is not driven
+// to completion — for example a materialized archive's temp file. It is safe to call on any
+// producer and after the iterator has already been fully consumed. Callers should defer it
+// right after creating a producer.
+func CloseProducer(p RecordProducer) {
+	if c, ok := p.(io.Closer); ok {
+		_ = c.Close()
+	}
+}
+
 // NewRecordProducer selects a producer from the object's decompressed content.
 // A recognized archive (currently tar; zip/7z/rar are added by later backends)
 // becomes an archiveProducer; everything else falls back to the single-parser
@@ -215,6 +225,10 @@ type archiveProducer struct {
 	limits       archiveLimits
 	onParseError ParseErrorFunc
 
+	// backend is the open archive backend. It is held so Close can release a
+	// materialized backend's temp file even when the returned iterator is never driven.
+	backend archiveBackend
+
 	// curIndex and curParser track the entry currently being yielded so that
 	// Position() and AppendLogBody() reflect the right entry. They are only read
 	// synchronously with the generator (between yields), so no locking is needed.
@@ -225,17 +239,17 @@ type archiveProducer struct {
 var _ RecordProducer = (*archiveProducer)(nil)
 
 func (a *archiveProducer) Records(ctx context.Context, start Offset) (iter.Seq2[any, error], error) {
+	// Release a backend from a prior Records call, so calling it twice cannot leak the
+	// first materialized temp file.
+	a.closeBackend()
 	backend, err := a.open()
 	if err != nil {
 		return nil, fmt.Errorf("open archive: %w", err)
 	}
+	a.backend = backend
 
 	return func(yield func(any, error) bool) {
-		defer func() {
-			if cerr := backend.Close(); cerr != nil {
-				a.stream.Logger.Warn("close archive backend", zap.Error(cerr))
-			}
-		}()
+		defer a.closeBackend()
 
 		var totalBytes int64
 		idx := -1
@@ -442,6 +456,25 @@ func (a *archiveProducer) AppendLogBody(ctx context.Context, lr plog.LogRecord, 
 		return fmt.Errorf("no active archive entry parser")
 	}
 	return a.curParser.AppendLogBody(ctx, lr, record)
+}
+
+// closeBackend releases the open backend, freeing a materialized backend's temp file.
+func (a *archiveProducer) closeBackend() {
+	if a.backend == nil {
+		return
+	}
+	if cerr := a.backend.Close(); cerr != nil {
+		a.stream.Logger.Warn("close archive backend", zap.Error(cerr))
+	}
+	a.backend = nil
+}
+
+// Close releases a materialized backend if the Records iterator was never driven to
+// completion. A driven iterator already releases it; Close then no-ops. Callers detect
+// this via an io.Closer type assertion, so it is optional on the RecordProducer contract.
+func (a *archiveProducer) Close() error {
+	a.closeBackend()
+	return nil
 }
 
 func (a *archiveProducer) Position() Offset {

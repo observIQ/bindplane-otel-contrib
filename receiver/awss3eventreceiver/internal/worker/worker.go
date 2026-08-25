@@ -430,6 +430,8 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 	if err != nil {
 		return fmt.Errorf("create parser: %w", err)
 	}
+	// Release a materialized archive's temp file even if the iterator is not driven below.
+	defer blobstream.CloseProducer(producer)
 
 	ld := plog.NewLogs()
 	rls := ld.ResourceLogs().AppendEmpty()

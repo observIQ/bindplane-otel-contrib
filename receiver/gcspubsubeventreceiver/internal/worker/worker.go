@@ -418,6 +418,8 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 	if err != nil {
 		return fmt.Errorf("create parser: %w", err)
 	}
+	// Release a materialized archive's temp file even if the iterator is not driven below.
+	defer blobstream.CloseProducer(producer)
 
 	ld := plog.NewLogs()
 	rls := ld.ResourceLogs().AppendEmpty()
