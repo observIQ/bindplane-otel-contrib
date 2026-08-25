@@ -112,7 +112,9 @@ func isNoSuchKeyError(err error) bool {
 
 // isUnsupportedFileTypeError checks if the error indicates an unsupported file type
 func isUnsupportedFileTypeError(err error) bool {
-	return errors.Is(err, ErrNotArrayOrKnownObject)
+	// A truncated object is unusable for the same reason: reading it again returns
+	// the same bytes.
+	return errors.Is(err, ErrNotArrayOrKnownObject) || IsTruncatedObject(err)
 }
 
 // DLQError represents an error that should trigger DLQ behavior
@@ -406,6 +408,12 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 
 	for log, err := range logs {
 		if err != nil {
+			// A broken stream is fatal for the whole object. Acking here would drop
+			// every record after the break with no way to recover them, so fail and
+			// let the message redeliver and resume from the saved offset.
+			if IsStreamRead(err) {
+				return err
+			}
 			recordLogger.Error("parse log", zap.Error(err))
 			continue
 		}
