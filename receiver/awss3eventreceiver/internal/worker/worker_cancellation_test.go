@@ -164,7 +164,9 @@ func newCancelTestHarness(t *testing.T, maxLogsEmitted int, store *memStorage, b
 
 	mockS3.EXPECT().GetObject(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
-			return &s3.GetObjectOutput{Body: bodyFn()}, nil
+			// A stable ETag, as real S3 (and S3-compatible backends) return, so the
+			// version-scoped offset matches on redelivery and the read resumes.
+			return &s3.GetObjectOutput{Body: bodyFn(), ETag: aws.String("etag-resume")}, nil
 		})
 	mockSQS.EXPECT().ChangeMessageVisibility(mock.Anything, mock.Anything).RunAndReturn(
 		func(ctx context.Context, in *sqs.ChangeMessageVisibilityInput, _ ...func(*sqs.Options)) (*sqs.ChangeMessageVisibilityOutput, error) {

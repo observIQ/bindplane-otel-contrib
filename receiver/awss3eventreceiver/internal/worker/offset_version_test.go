@@ -94,4 +94,9 @@ func TestConsume_IgnoresOffsetFromDifferentObjectVersion(t *testing.T) {
 	// discarded and the whole object is read.
 	require.Equal(t, 3, readWithSeededOffset(t, "etag-B", "etag-A"),
 		"a stale offset from a different object version must be ignored and the object read from the start")
+
+	// Empty version (a backend that omits ETag): ownership can't be confirmed, so even a
+	// same-empty stored offset is discarded rather than honored.
+	require.Equal(t, 3, readWithSeededOffset(t, "", ""),
+		"an empty/unknown version must not honor a stored offset")
 }

@@ -397,10 +397,10 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 	}
 	startOffset := *offset
 
-	// A mismatched version means the offset was saved for a different object that reused
-	// this name (or is a legacy offset). Discard it and re-read from the start rather than
-	// skipping the new object's head; a redundant re-read is tolerated, dropped records are not.
-	if startOffset.Version != version {
+	// Discard an offset we can't confirm belongs to this object — version mismatch, or an
+	// empty version (a backend that omits ETag, where a legacy empty offset would win).
+	// Re-reading from the start is tolerated; skipping the new object's head is not.
+	if version == "" || startOffset.Version != version {
 		if startOffset.Offset != 0 || startOffset.EntryIndex != 0 {
 			recordLogger.Info("stored offset was written for a different object version; restarting from the beginning",
 				zap.String("offset_storage_key", offsetStorageKey),
