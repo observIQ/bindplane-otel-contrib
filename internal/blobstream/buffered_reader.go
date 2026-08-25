@@ -137,7 +137,12 @@ func (r *bufferedReader) RawAtEOF() bool {
 	return r.raw.AtEOF()
 }
 
-// RawTruncated reports that the raw source ended short of the object's known size.
+// RawTruncated reports that the raw source ended short of the object's known size. It
+// fails open (reports false) when completeness cannot be judged: when the size is unknown
+// (expectedSize <= 0, e.g. a GCS transcoded object — logged at reader construction), and
+// when the transport already decompressed the payload, since the raw counter then measures
+// decompressed bytes against a compressed Content-Length. Fail-open is deliberate: a false
+// truncation would redeliver a complete object forever.
 func (r *bufferedReader) RawTruncated() bool {
 	return r.expectedSize > 0 && r.raw.AtEOF() && r.raw.Offset() < r.expectedSize
 }

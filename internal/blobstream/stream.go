@@ -114,6 +114,13 @@ func (stream *LogStream) BufferedReader(_ context.Context) (BufferedReader, erro
 	if decompressed {
 		reader = &decompressLimitReader{r: reader, limit: maxDecompressedBytes}
 	}
+	// A short download is only detectable when the raw byte count can be compared to the
+	// object's known size. When the size is unknown (Size <= 0, e.g. a GCS transcoded
+	// object) that check fails open — a truncated object reads as complete — so record it
+	// rather than let it pass silently.
+	if stream.Logger != nil && stream.Size <= 0 {
+		stream.Logger.Debug("object size unknown; a short download cannot be detected and reads as complete")
+	}
 	return newBufferedReaderWithRaw(reader, stream.MaxLogSize, raw, stream.Size), nil
 }
 
