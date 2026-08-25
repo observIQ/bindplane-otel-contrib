@@ -53,6 +53,9 @@ func (r *countingReader) Read(p []byte) (n int, err error) {
 	r.offset += int64(n)
 	switch {
 	case err == nil:
+		// A successful read clears any earlier error, so only a terminal failure — one with
+		// no successful read after it — is reported as the cause of a broken stream.
+		r.readErr = nil
 	case errors.Is(err, io.EOF):
 		r.atEOF = true
 	default:
