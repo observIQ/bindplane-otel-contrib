@@ -36,6 +36,10 @@ func BenchmarkFingerprintSyslogLogs(b *testing.B) {
 	benchmarkFingerprintCorpus(b, "testdata/sysLogs.csv")
 }
 
+func BenchmarkFingerprintGenericLogs(b *testing.B) {
+	benchmarkFingerprintCorpus(b, "testdata/genericLogs.csv")
+}
+
 func benchmarkFingerprintCorpus(b *testing.B, path string) {
 	f, err := os.Open(path)
 	if err != nil {

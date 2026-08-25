@@ -16,8 +16,12 @@ package fingerprint
 
 import "strings"
 
-// maxLogDepth bounds object nesting when fingerprinting logs.
-const maxLogDepth = 64
+const (
+	// maxLogDepth bounds object nesting when fingerprinting logs.
+	maxLogDepth = 64
+	// minLogLength is the minimum length of a log to fingerprint.
+	minLogLength = 10
+)
 
 var spaceChars [256]bool
 
@@ -42,7 +46,7 @@ func HashLog(data string) uint64 {
 // not exposed via the public API.
 func fingerprint(data string, skipRecursiveTypes bool) uint64 {
 	data = strings.TrimSpace(data)
-	if len(data) < 2 {
+	if len(data) < minLogLength {
 		return 0
 	}
 
@@ -72,7 +76,7 @@ func fingerprint(data string, skipRecursiveTypes bool) uint64 {
 		}
 	}
 
-	return 0
+	return fingerprintGeneric(data)
 }
 
 const (
