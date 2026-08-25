@@ -14,6 +14,10 @@
 
 package fingerprint
 
+// minCSVLength is the minimum amount of comma separated fields to fingerprint as CSV.
+// this prevents false positives for logs with commas in the message.
+const minCSVLength = 4
+
 // fingerprintGeneric hashes key=value, CSV and plain text logs. It is a best guess as formats
 // like key=value, CSV and plain text are not always consistent.
 func fingerprintGeneric(data string) uint64 {
@@ -81,7 +85,7 @@ func fingerprintCSV(data string) uint64 {
 		i++
 	}
 
-	if fields < 4 {
+	if fields < minCSVLength {
 		return 0
 	}
 
