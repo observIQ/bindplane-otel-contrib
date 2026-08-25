@@ -68,7 +68,7 @@ func TestJSONSequence_TruncatedFinalValueStops(t *testing.T) {
 	t.Parallel()
 
 	reader := NewBufferedReader(strings.NewReader("{\"host\":\"a\"}\n{\"host\":\"b"), 4096)
-	parser := NewJSONParser(reader, BodyOptions{})
+	parser := NewJSONParser(reader, nil, BodyOptions{})
 
 	records, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
@@ -92,7 +92,7 @@ func TestJSONSequence_StopsWhenConsumerBreaks(t *testing.T) {
 	t.Parallel()
 
 	reader := NewBufferedReader(strings.NewReader("{\"n\":1}\n{\"n\":2}\n{\"n\":3}\n"), 4096)
-	parser := NewJSONParser(reader, BodyOptions{})
+	parser := NewJSONParser(reader, nil, BodyOptions{})
 
 	records, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestJSONSequence_SkipsRecordsBeforeStartOffset(t *testing.T) {
 	startOffset := int64(strings.Index(body, "{\"n\":3}"))
 
 	reader := NewBufferedReader(strings.NewReader(body), 4096)
-	parser := NewJSONParser(reader, BodyOptions{})
+	parser := NewJSONParser(reader, nil, BodyOptions{})
 
 	records, err := parser.Parse(context.Background(), startOffset)
 	require.NoError(t, err)

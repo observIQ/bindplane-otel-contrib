@@ -62,7 +62,7 @@ func TestJSONWrapper_ConcatPrefixStreamBreakIsRetryable(t *testing.T) {
 	b.WriteString(`{"pad":"` + strings.Repeat("x", 50)) // second document, cut mid value
 	body := &errAfterPrefix{prefix: []byte(b.String()), err: readErr}
 
-	records, err := drainJSON(t, NewJSONParser(NewBufferedReader(body, testMaxLogSize), BodyOptions{}))
+	records, err := drainJSON(t, NewJSONParser(NewBufferedReader(body, testMaxLogSize), nil, BodyOptions{}))
 
 	require.Len(t, records, delivered+1, "the first document's records are delivered")
 	require.ErrorIs(t, err, readErr)
@@ -93,7 +93,7 @@ func TestJSONWrapper_OversizedTailTokenIsBounded(t *testing.T) {
 	body := `{"Records":[{"n":1}],"pad":"` + big + `"}`
 
 	src := &countingSource{r: strings.NewReader(body)}
-	parser := NewJSONParser(NewBufferedReader(src, 4096), BodyOptions{})
+	parser := NewJSONParser(NewBufferedReader(src, 4096), nil, BodyOptions{})
 
 	seq, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestJSONArray_ConcatStringStreamBreakIsRetryable(t *testing.T) {
 	b.WriteString(`"` + strings.Repeat("x", 50)) // a second top-level string, cut mid value
 	body := &errAfterPrefix{prefix: []byte(b.String()), err: readErr}
 
-	records, err := drainJSON(t, NewJSONParser(NewBufferedReader(body, testMaxLogSize), BodyOptions{}))
+	records, err := drainJSON(t, NewJSONParser(NewBufferedReader(body, testMaxLogSize), nil, BodyOptions{}))
 
 	require.Len(t, records, delivered+1, "the array's records are delivered")
 	require.ErrorIs(t, err, readErr)
@@ -161,7 +161,7 @@ func TestJSONWrapper_ConcatPrefixOversizedValueIsBounded(t *testing.T) {
 	// Second document: a non-Records prefix value far larger than the search window.
 	b.WriteString(`{"pad":"` + strings.Repeat("x", 8192) + `","Records":[{"n":2}]}`)
 
-	records, err := drainJSON(t, NewJSONParser(NewBufferedReader(strings.NewReader(b.String()), 4096), BodyOptions{}))
+	records, err := drainJSON(t, NewJSONParser(NewBufferedReader(strings.NewReader(b.String()), 4096), nil, BodyOptions{}))
 
 	require.Len(t, records, delivered+1, "only the first document's records are delivered")
 	require.Error(t, err)
@@ -212,7 +212,7 @@ func TestJSON_ConsumerStopAtOversizedRecord(t *testing.T) {
 	body := `{"n":1}` + "\n" + `{"big":"` + big + `"}` + "\n" + `{"m":2}` + "\n"
 
 	reader := NewBufferedReader(strings.NewReader(body), 4096)
-	parser := NewJSONParser(reader, BodyOptions{})
+	parser := NewJSONParser(reader, nil, BodyOptions{})
 	seq, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
 

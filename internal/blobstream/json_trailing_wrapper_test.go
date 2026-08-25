@@ -26,7 +26,7 @@ import (
 func driveJSONRecordsAndError(t *testing.T, body string, bufSize int) ([]string, error) {
 	t.Helper()
 	reader := NewBufferedReader(strings.NewReader(body), bufSize)
-	parser := NewJSONParser(reader, BodyOptions{})
+	parser := NewJSONParser(reader, nil, BodyOptions{})
 	seq, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
 

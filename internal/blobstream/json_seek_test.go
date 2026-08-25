@@ -55,7 +55,7 @@ func newSplitParser(header, body string, readErr error) LogParser {
 		header:         []byte(header),
 		body:           strings.NewReader(body),
 		readErr:        readErr,
-	}, BodyOptions{})
+	}, nil, BodyOptions{})
 }
 
 const recordsWrapperHeader = `{"Records":[`

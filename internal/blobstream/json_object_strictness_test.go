@@ -26,7 +26,7 @@ import (
 func collectRecordsAndErrors(t *testing.T, body string) ([]string, int) {
 	t.Helper()
 	reader := NewBufferedReader(strings.NewReader(body), 4096)
-	parser := NewJSONParser(reader, BodyOptions{})
+	parser := NewJSONParser(reader, nil, BodyOptions{})
 	records, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
 
@@ -69,7 +69,7 @@ func TestJSONArray_StopsWhenConsumerBreaksOnSkippedElement(t *testing.T) {
 	t.Parallel()
 
 	reader := NewBufferedReader(strings.NewReader(`[5, {"a":1}]`), 4096)
-	parser := NewJSONParser(reader, BodyOptions{})
+	parser := NewJSONParser(reader, nil, BodyOptions{})
 	records, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
 

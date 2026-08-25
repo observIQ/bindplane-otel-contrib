@@ -25,6 +25,7 @@ import (
 	"iter"
 
 	"go.opentelemetry.io/collector/pdata/plog"
+	"go.uber.org/zap"
 )
 
 var (
@@ -46,6 +47,10 @@ const (
 	// the first 4096 bytes of the JSON stream. This is to avoid parsing the entire file
 	// looking for a "Records" key and not finding it.
 	maxRecordsSearchBytes = 4096
+
+	// mixedSequenceLogMsg is warned once per file for a value sequence that mixes objects
+	// with non-object lines.
+	mixedSequenceLogMsg = "mixed content in JSON value sequence; string lines are emitted as bodies, malformed lines are dropped"
 )
 
 // MinLogSize is the smallest usable max_log_size. Content detection peeks fixed windows
@@ -123,12 +128,16 @@ type jsonParser struct {
 	// past the decoder, so the next resync must continue from it, not from the drained
 	// original reader, or the buffered-but-unread records between two resyncs are lost.
 	src io.Reader
+	// logger reports a mixed value sequence; may be nil.
+	logger *zap.Logger
+	// warnedMixed gates that warning to once per file.
+	warnedMixed bool
 }
 
 var _ LogParser = (*jsonParser)(nil)
 
-// NewJSONParser creates a new JSON parser.
-func NewJSONParser(reader BufferedReader, opts BodyOptions) LogParser {
+// NewJSONParser creates a new JSON parser. logger (may be nil) reports a mixed value sequence.
+func NewJSONParser(reader BufferedReader, logger *zap.Logger, opts BodyOptions) LogParser {
 	capped := &cappedRecordReader{r: reader}
 	return &jsonParser{
 		reader:  reader,
@@ -136,6 +145,7 @@ func NewJSONParser(reader BufferedReader, opts BodyOptions) LogParser {
 		opts:    opts,
 		src:     reader,
 		capped:  capped,
+		logger:  logger,
 	}
 }
 
@@ -475,6 +485,10 @@ func (p *jsonParser) yieldValues(startOffset int64, shape jsonShape) iter.Seq2[a
 						if closes {
 							return
 						}
+						// Malformed bytes mark the file mixed; an over-size record does not.
+						if isJSONStructureError(err) {
+							p.warnMixedOnce()
+						}
 						if !p.resyncAfterNewline() {
 							// The resync gave up. If it gave up because the raw source broke
 							// or fell short (rather than a clean end), that is a retryable
@@ -505,10 +519,19 @@ func (p *jsonParser) yieldValues(startOffset int64, shape jsonShape) iter.Seq2[a
 					}
 					continue
 				}
-				// A record must be a JSON object. A scalar or array element is skipped as
-				// a per-record parse error so the object's other records still deliver,
-				// rather than emitting a meaningless scalar body.
+				// In a value sequence a top-level string is a text line: mark the file mixed
+				// and emit it as a string body. Any other non-object value stays a per-record
+				// parse error so the other records still deliver.
 				if !isJSONObject(record) {
+					if shape == jsonShapeValueSequence {
+						p.warnMixedOnce()
+						if isJSONString(record) {
+							if !yield(record, nil) {
+								return
+							}
+							continue
+						}
+					}
 					if !yield(nil, fmt.Errorf("decode record: expected a JSON object")) {
 						return
 					}
@@ -721,6 +744,21 @@ func (p *jsonParser) AppendLogBody(_ context.Context, lr plog.LogRecord, record 
 // emits.
 func isJSONObject(raw json.RawMessage) bool {
 	return len(raw) > 0 && raw[0] == '{'
+}
+
+// isJSONString reports that raw is a JSON string value, judged from its opening token.
+func isJSONString(raw json.RawMessage) bool {
+	return len(raw) > 0 && raw[0] == '"'
+}
+
+// warnMixedOnce warns once per file that this value sequence mixes objects with non-object
+// lines. It is a no-op without a logger.
+func (p *jsonParser) warnMixedOnce() {
+	if p.logger == nil || p.warnedMixed {
+		return
+	}
+	p.warnedMixed = true
+	p.logger.Warn(mixedSequenceLogMsg)
 }
 
 // isJSONStructureError reports that the bytes themselves are malformed, rather than the

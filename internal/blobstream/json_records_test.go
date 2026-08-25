@@ -234,7 +234,7 @@ func TestJSONRecords_ReportsAFailedFirstRead(t *testing.T) {
 		BufferedReader: NewBufferedReader(strings.NewReader(""), 4096),
 		header:         []byte(`[{"host":"a"}]`),
 		readErr:        readErr,
-	}, BodyOptions{})
+	}, nil, BodyOptions{})
 
 	_, err := parser.Parse(context.Background(), 0)
 	require.ErrorIs(t, err, readErr)
@@ -251,7 +251,7 @@ func TestJSONRecords_RejectsNonContainerDocuments(t *testing.T) {
 		t.Run(body, func(t *testing.T) {
 			t.Parallel()
 
-			parser := NewJSONParser(NewBufferedReader(strings.NewReader(body), 4096), BodyOptions{})
+			parser := NewJSONParser(NewBufferedReader(strings.NewReader(body), 4096), nil, BodyOptions{})
 			_, err := parser.Parse(context.Background(), 0)
 			require.ErrorIs(t, err, ErrNotArrayOrKnownObject)
 		})

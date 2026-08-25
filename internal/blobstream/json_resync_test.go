@@ -55,7 +55,7 @@ func TestJSONSequence_ResumeAfterResyncSkipsDeliveredRecords(t *testing.T) {
 
 	// Pass 1: read everything, capturing the offset right after {"n":2}.
 	reader := NewBufferedReader(strings.NewReader(body), 4096)
-	parser := NewJSONParser(reader, BodyOptions{})
+	parser := NewJSONParser(reader, nil, BodyOptions{})
 	records, err := parser.Parse(context.Background(), 0)
 	require.NoError(t, err)
 
@@ -72,7 +72,7 @@ func TestJSONSequence_ResumeAfterResyncSkipsDeliveredRecords(t *testing.T) {
 
 	// Pass 2: resume past {"n":2}; only {"n":3} should remain.
 	reader2 := NewBufferedReader(strings.NewReader(body), 4096)
-	parser2 := NewJSONParser(reader2, BodyOptions{})
+	parser2 := NewJSONParser(reader2, nil, BodyOptions{})
 	records2, err := parser2.Parse(context.Background(), resumeOffset)
 	require.NoError(t, err)
 
