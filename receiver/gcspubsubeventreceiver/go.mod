@@ -10,7 +10,7 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.15
 	github.com/google/go-cmp v0.7.0
 	github.com/jonboulle/clockwork v0.5.0
-	github.com/klauspost/compress v1.19.1
+	github.com/klauspost/compress v1.19.2
 	github.com/linkedin/goavro/v2 v2.15.0
 	github.com/nwaples/rardecode/v2 v2.3.0
 	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.12.0
