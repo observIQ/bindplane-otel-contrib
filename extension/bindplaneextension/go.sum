@@ -52,8 +52,8 @@ github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden v0.159.0 h1
 github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden v0.159.0/go.mod h1:ExbYdUzLx9i757v9fc3meEPkepBScJKUfFiXxQJX5Do=
 github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest v0.159.0 h1:7JKqFkaTAaLCgP4XY57EAIDXGD4xb0NnlNVhIZ0fEd8=
 github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest v0.159.0/go.mod h1:Hc+PQQduHGJKUXXumlIydv2jr07sFN5yIllZDldoMKc=
-github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatautil v0.158.0 h1:vSSE5z1Tk3KTCSmxa1oGjOuQaWJYGXZtBG7XZn3NaNs=
-github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatautil v0.158.0/go.mod h1:WeaD+6LnrsPJ7ZE7V34FbG/8wnyt1mlW7FNFYy7H7zs=
+github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatautil v0.159.0 h1:myQAaDpKnfPy/KU9BsBEWPsinvEPI4UFO5Yi2v7RiTU=
+github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatautil v0.159.0/go.mod h1:Qzcts6LLXE+jpdEy1LCHL2Ddgit8hw08Ifj3zuYTitw=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRIccs7FGNTlIRMkT8wgtp5eCXdBlqhYGL6U=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
@@ -97,8 +97,8 @@ go.opentelemetry.io/collector/pdata/pprofile v0.159.0 h1:XBiJhSbPmx3YNM/6JKlz3f5
 go.opentelemetry.io/collector/pdata/pprofile v0.159.0/go.mod h1:0DEpjmeuvxA3zCiF0duzEIdB6fcKxO4RHz5v+FfOPg4=
 go.opentelemetry.io/collector/pdata/testdata v0.159.0 h1:BLFXNpik4QVWX/8j6ZKiEY6Nn+wDgpeyzT2g4pl6eGM=
 go.opentelemetry.io/collector/pdata/testdata v0.159.0/go.mod h1:Vtbm+CqE+KnMFU8PQzh0oNF5c0mG/6hPrdICviQ3CRo=
-go.opentelemetry.io/collector/pdata/xpdata v0.158.0 h1:OmR4P/zQwPyLMV7fJQgvNf/cOEEdSKPr24MbxasOgEY=
-go.opentelemetry.io/collector/pdata/xpdata v0.158.0/go.mod h1:zravF5gmRJ7dP+9uPQGslPSaGHkk8OlZpQ8g5hNtgQ0=
+go.opentelemetry.io/collector/pdata/xpdata v0.159.0 h1:+JGRmAwC0265SuqiMkOs3xoYv11StBKsywWFV9wcI38=
+go.opentelemetry.io/collector/pdata/xpdata v0.159.0/go.mod h1:PKIj0TUHUj7veBNrweelDrfQ0OMY9Ra7sN35DEdn3Yk=
 go.opentelemetry.io/collector/pipeline v1.65.0 h1:vvHaf4XJDS3sQ1zit4/jBGejIZUL1W2GYRaMXAZwwZI=
 go.opentelemetry.io/collector/pipeline v1.65.0/go.mod h1:RD90NG3Jbk965Xaqym3JyHkuol4uZJjQVUkD9ddXJIs=
 go.opentelemetry.io/collector/processor v1.65.0 h1:5vCiuLTRTbfZgrL9jBIEG4CNBVblq5rqiMnNc29zYIc=

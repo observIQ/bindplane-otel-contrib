@@ -12,8 +12,8 @@ require (
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/google/go-cmp v0.7.0
 	github.com/jonboulle/clockwork v0.5.0
-	github.com/observiq/bindplane-otel-contrib/internal/aws v1.12.0
-	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.12.0
+	github.com/observiq/bindplane-otel-contrib/internal/aws v1.13.0
+	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.13.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.65.0
 	go.opentelemetry.io/collector/component/componenttest v0.159.0
@@ -85,7 +85,7 @@ require (
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
-	github.com/observiq/bindplane-otel-contrib/internal/blobstream v1.12.0
+	github.com/observiq/bindplane-otel-contrib/internal/blobstream v1.13.0
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
