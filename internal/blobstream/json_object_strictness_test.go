@@ -37,7 +37,14 @@ func collectRecordsAndErrors(t *testing.T, body string) ([]string, int) {
 			errCount++
 			continue
 		}
-		got = append(got, string(record.(json.RawMessage)))
+		switch r := record.(type) {
+		case json.RawMessage:
+			got = append(got, string(r))
+		case rawTextLine:
+			got = append(got, string(r))
+		default:
+			t.Fatalf("unexpected record type %T", record)
+		}
 	}
 	return got, errCount
 }
@@ -52,14 +59,15 @@ func TestJSONArray_SkipsNonObjectElements(t *testing.T) {
 	require.Equal(t, 2, errCount, "each non-object element is reported as a skipped parse error")
 }
 
-// TestJSONSequence_SkipsNonObjectValues asserts the same strictness for a top-level value
-// sequence (NDJSON): a scalar line is skipped, the object lines deliver.
-func TestJSONSequence_SkipsNonObjectValues(t *testing.T) {
+// TestJSONSequence_EmitsScalarLineAsText asserts a top-level value sequence (NDJSON) is more
+// lenient than an array: a bare scalar line is emitted as its own text rather than skipped,
+// so no data is lost. The object lines still deliver as records.
+func TestJSONSequence_EmitsScalarLineAsText(t *testing.T) {
 	t.Parallel()
 
 	got, errCount := collectRecordsAndErrors(t, "{\"n\":1}\n5\n{\"n\":2}\n")
-	require.Equal(t, []string{`{"n":1}`, `{"n":2}`}, got, "only object values are delivered")
-	require.Equal(t, 1, errCount, "the scalar value is reported as a skipped parse error")
+	require.Equal(t, []string{`{"n":1}`, `5`, `{"n":2}`}, got, "the scalar line is emitted as text between the objects")
+	require.Equal(t, 0, errCount, "nothing is dropped")
 }
 
 // TestJSONArray_StopsWhenConsumerBreaksOnSkippedElement asserts the iterator releases if

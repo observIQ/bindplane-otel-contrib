@@ -35,14 +35,14 @@ func TestJSONSequence_ResyncsAfterMalformedLine(t *testing.T) {
 	require.Equal(t, 1, errCount, "the malformed line is skipped and reported once")
 }
 
-// TestJSONSequence_ResyncsAcrossConsecutiveMalformedLines asserts each malformed line is
+// TestJSONSequence_ResyncsAcrossConsecutiveMalformedLines asserts each corrupted line is
 // skipped independently, so a run of bad lines does not lose the good ones after them.
 func TestJSONSequence_ResyncsAcrossConsecutiveMalformedLines(t *testing.T) {
 	t.Parallel()
 
-	got, errCount := collectRecordsAndErrors(t, "{\"n\":1}\n{bad1\nalso bad\n{\"n\":2}\n")
+	got, errCount := collectRecordsAndErrors(t, "{\"n\":1}\n{bad1\n{bad2\n{\"n\":2}\n")
 	require.Equal(t, []string{`{"n":1}`, `{"n":2}`}, got)
-	require.Equal(t, 2, errCount, "each malformed line is reported")
+	require.Equal(t, 2, errCount, "each corrupted line is reported")
 }
 
 // TestJSONSequence_ResumeAfterResyncSkipsDeliveredRecords asserts the resume offset stays

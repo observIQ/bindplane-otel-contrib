@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"strings"
 
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.uber.org/zap"
@@ -50,7 +51,7 @@ const (
 
 	// mixedSequenceLogMsg is warned once per file for a value sequence that mixes objects
 	// with non-object lines.
-	mixedSequenceLogMsg = "mixed content in JSON value sequence; string lines are emitted as bodies, malformed lines are dropped"
+	mixedSequenceLogMsg = "mixed content in JSON value sequence; text lines are emitted as bodies, corrupted JSON is dropped"
 )
 
 // MinLogSize is the smallest usable max_log_size. Content detection peeks fixed windows
@@ -469,30 +470,52 @@ func (p *jsonParser) yieldValues(startOffset int64, shape jsonShape) iter.Seq2[a
 					// after it; a bracketed shape has no delimiter to realign to after a
 					// mid-decode failure, so it stops. A retry reads the same bytes.
 					if isJSONStructureError(err) || errors.Is(err, errRecordTooLarge) {
-						// On resume, a malformed line below the checkpoint was already
-						// reported in the first pass; re-yielding it double-counts the
-						// parse-error metric. Skip the report but still resync past it so
-						// the records after it are reached, mirroring the below-offset
-						// record skip above.
+						// Bracketed shapes stop here rather than resync: recovering the elements
+						// after a bad one needs bracket-depth tracking that mis-fires on braces
+						// and commas inside strings, so it is intentionally deferred for now.
+						if closes {
+							if currentOffset >= startOffset {
+								if !yield(nil, fmt.Errorf("decode record: %w", err)) {
+									return
+								}
+							}
+							return
+						}
+						// A value sequence captures the bad line and resyncs past it. Malformed
+						// bytes mark the file mixed; an over-size record does not.
+						line, ok := p.resyncAfterNewline(false)
+						if isJSONStructureError(err) {
+							p.warnMixedOnce()
+						}
+						// A line that is text rather than broken JSON structure is a real string:
+						// emit it as a string body. Corrupted JSON and an over-size record stay
+						// parse errors. On resume a line below the checkpoint was already handled,
+						// so gate the yield while still resyncing past it.
+						if isJSONStructureError(err) && isTextLine(line) {
+							if currentOffset >= startOffset {
+								if !yield(rawTextLine(bytes.TrimRight(line, "\r")), nil) {
+									return
+								}
+							}
+							if !ok {
+								// A broken or short source mid-capture is a retryable read
+								// failure, not a clean end to be acked.
+								if serr := p.boundaryStreamErr(); serr != nil {
+									yield(nil, serr)
+								}
+								return
+							}
+							continue
+						}
 						if currentOffset >= startOffset {
 							if !yield(nil, fmt.Errorf("decode record: %w", err)) {
 								return
 							}
 						}
-						// Bracketed shapes stop here rather than resync: recovering the elements
-						// after a bad one needs bracket-depth tracking that mis-fires on braces
-						// and commas inside strings, so it is intentionally deferred for now.
-						if closes {
-							return
-						}
-						// Malformed bytes mark the file mixed; an over-size record does not.
-						if isJSONStructureError(err) {
-							p.warnMixedOnce()
-						}
-						if !p.resyncAfterNewline() {
-							// The resync gave up. If it gave up because the raw source broke
-							// or fell short (rather than a clean end), that is a retryable
-							// read failure, not a clean finish to be acked.
+						if !ok {
+							// The resync gave up. If the raw source broke or fell short (rather
+							// than a clean end), that is a retryable read failure, not a clean
+							// finish to be acked.
 							if serr := p.boundaryStreamErr(); serr != nil {
 								yield(nil, serr)
 							}
@@ -519,20 +542,45 @@ func (p *jsonParser) yieldValues(startOffset int64, shape jsonShape) iter.Seq2[a
 					}
 					continue
 				}
-				// In a value sequence a top-level string is a text line: mark the file mixed
-				// and emit it as a string body. Any other non-object value stays a per-record
-				// parse error so the other records still deliver.
+				// A non-object value in a value sequence is not a record. Objects fall through
+				// as records below, so same-line concatenated objects still parse.
 				if !isJSONObject(record) {
-					if shape == jsonShapeValueSequence {
-						p.warnMixedOnce()
+					if shape != jsonShapeValueSequence {
+						if !yield(nil, fmt.Errorf("decode record: expected a JSON object")) {
+							return
+						}
+						continue
+					}
+					p.warnMixedOnce()
+					// If the value consumed its whole line it is a bare scalar: a JSON string
+					// keeps its unquoted body, anything else is emitted as its own text. If there
+					// is trailing content the value was only the prefix of a text line (e.g. a
+					// timestamp the decoder read as a number), so emit the whole line as text;
+					// corrupted JSON structure is dropped.
+					if !lineHasTrailing(p.decoder) {
 						if isJSONString(record) {
 							if !yield(record, nil) {
 								return
 							}
-							continue
+						} else if !yield(rawTextLine(string(record)), nil) {
+							return
 						}
+						continue
 					}
-					if !yield(nil, fmt.Errorf("decode record: expected a JSON object")) {
+					trailing, ok := p.resyncAfterNewline(true)
+					line := append(append([]byte{}, record...), trailing...)
+					if isTextLine(line) {
+						if !yield(rawTextLine(strings.TrimSpace(string(line))), nil) {
+							return
+						}
+					} else if !yield(nil, fmt.Errorf("decode record: expected a JSON object")) {
+						return
+					}
+					if !ok {
+						// A broken or short source mid-capture is a retryable read failure.
+						if serr := p.boundaryStreamErr(); serr != nil {
+							yield(nil, serr)
+						}
 						return
 					}
 					continue
@@ -670,23 +718,33 @@ func (p *jsonParser) boundaryStreamErr() error {
 // the current malformed line, so the lines after it still parse. A json.Decoder cannot
 // resync in place, so the remaining input (its read-ahead buffer plus the source) is
 // re-wrapped in a fresh decoder. baseOffset is advanced by the discarded bytes so Offset()
-// stays absolute for resume. It returns false when no terminating newline remains, i.e.
-// the rest of the object cannot be resynced and reading stops.
-func (p *jsonParser) resyncAfterNewline() bool {
+// stays absolute for resume. It returns the discarded line's content (from its first
+// non-space byte, so the caller can classify text vs corrupted JSON) and whether a
+// terminating newline was found; on EOF it returns the content read with ok=false.
+func (p *jsonParser) resyncAfterNewline(keepLeading bool) (line []byte, ok bool) {
 	base := p.baseOffset + p.decoder.InputOffset()
 	remaining := bufio.NewReader(io.MultiReader(p.decoder.Buffered(), p.src))
 
 	var discarded int64
-	sawContent := false
+	var content []byte
+	// keepLeading captures from the current byte (for trailing after a decoded value, where
+	// leading whitespace is part of the line); otherwise leading whitespace and separator
+	// newlines before the malformed content are skipped.
+	sawContent := keepLeading
 	for {
 		b, err := remaining.ReadByte()
 		if err != nil {
-			return false
+			// The source ended without a terminating newline. Return the content read so a
+			// final unterminated line can still be handled; ok=false means nothing remains.
+			return content, false
 		}
 		discarded++
 		switch b {
 		case ' ', '\t', '\r':
-			// Separator whitespace before the malformed content.
+			// Leading whitespace is a separator; interior whitespace is part of the line.
+			if sawContent {
+				content = append(content, b)
+			}
 		case '\n':
 			// A newline before any content is the separator ending the prior record;
 			// keep going. A newline after content ends the malformed line: resume there.
@@ -699,17 +757,59 @@ func (p *jsonParser) resyncAfterNewline() bool {
 				// The next resync continues from this reader, which has read ahead past
 				// what the decoder has consumed, so it must not fall back to p.reader.
 				p.src = remaining
-				return true
+				return content, true
 			}
 		default:
 			sawContent = true
+			content = append(content, b)
 		}
 	}
 }
 
+// isTextLine reports that a captured value-sequence line is plain text rather than broken
+// JSON structure. A line whose first byte opens an object or array is treated as corrupted
+// JSON; anything else is a real text line.
+func isTextLine(line []byte) bool {
+	return len(line) > 0 && line[0] != '{' && line[0] != '['
+}
+
+// lineHasTrailing reports whether non-whitespace remains before the next newline after the
+// value just decoded, i.e. the value was only the prefix of a longer text line. It reads the
+// decoder's already-buffered bytes, which does not disturb the decoder's own position. If the
+// buffer ends before a newline is seen, it reports no trailing (the common line fits the
+// buffer; a value split across a buffer refill is treated as a clean whole-line value).
+func lineHasTrailing(dec *json.Decoder) bool {
+	buf := dec.Buffered()
+	b := make([]byte, 1)
+	for {
+		n, err := buf.Read(b)
+		if n == 0 || err != nil {
+			return false
+		}
+		switch b[0] {
+		case ' ', '\t', '\r':
+		case '\n':
+			return false
+		default:
+			return true
+		}
+	}
+}
+
+// rawTextLine is a value-sequence line that is text rather than JSON. AppendLogBody emits it
+// as a plain string body, preserving the original line in both raw and structured modes.
+type rawTextLine string
+
 // AppendLogBody appends the log record to the log record body using FromRaw, decoding
 // the element's original bytes. In raw mode the original text becomes the body instead.
 func (p *jsonParser) AppendLogBody(_ context.Context, lr plog.LogRecord, record any) error {
+	// A recovered text line is already a string; emit it verbatim as the body.
+	if txt, ok := record.(rawTextLine); ok {
+		lr.Body().SetStr(string(txt))
+		p.opts.setOriginal(lr, string(txt))
+		return nil
+	}
+
 	raw, ok := record.(json.RawMessage)
 	if !ok {
 		return fmt.Errorf("expected json record, got %T", record)

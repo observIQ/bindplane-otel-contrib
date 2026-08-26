@@ -121,9 +121,10 @@ this line is not json
 	require.Equal(t, []any{
 		map[string]any{"host": "a"},
 		map[string]any{"host": "b"},
+		"this line is not json",
 		map[string]any{"host": "c"},
-	}, bodies, "the malformed line is skipped and the records after it are still delivered")
-	require.Len(t, errs, 1, "the malformed line is surfaced exactly once")
+	}, bodies, "the text line is emitted as a string body and the records after it still deliver")
+	require.Empty(t, errs, "a text line is recovered rather than surfaced as an error")
 }
 
 // TestNDJSON_DoesNotClaimSingleObjectForms asserts detection stays narrow. A one-line

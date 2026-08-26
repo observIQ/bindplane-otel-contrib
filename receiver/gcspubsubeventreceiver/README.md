@@ -49,7 +49,7 @@ JSON covers three layouts, all read as a stream: a top-level array, an object wh
 
 Classification looks only at the first 4 KiB. If the document's first JSON value fits in that window, the document is parsed as structured JSON. If the first value is larger than 4 KiB, the document cannot be classified and is read line by line instead. This can result in two files being parsed differently.
 
-Within a value sequence, a line that is not valid JSON is skipped as a parse error, and the records after it still parse. The same malformed content inside a top-level array stops parsing there, because the array cannot be realigned. A value sequence that also holds string values (mixed content) emits them as string bodies and warns once per file.
+Within a value sequence, a text line that is not JSON is emitted as a string body; only corrupted JSON structure (a broken object or array) is dropped as a parse error. The records after a dropped line still parse. A broken element inside a top-level array instead stops parsing there, because the array cannot be realigned. A value sequence that mixes object records with text lines warns once per file.
 
 ### Compression
 
