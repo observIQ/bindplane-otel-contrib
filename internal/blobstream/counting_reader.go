@@ -14,12 +14,17 @@
 
 package blobstream
 
-import "io"
+import (
+	"errors"
+	"io"
+)
 
 // countingReader is a reader that counts the number of bytes read.
 type countingReader struct {
-	reader io.Reader
-	offset int64
+	reader  io.Reader
+	offset  int64
+	readErr error
+	atEOF   bool
 }
 
 // Offset returns the number of bytes read.
@@ -27,9 +32,34 @@ func (r *countingReader) Offset() int64 {
 	return r.offset
 }
 
+// ReadErr returns the last failure the underlying reader reported, or nil. End of
+// stream is not a failure, so it is not recorded.
+//
+// A decoder that hides the cause of its own failure uses this to tell a broken stream
+// from content it cannot decode.
+func (r *countingReader) ReadErr() error {
+	return r.readErr
+}
+
+// AtEOF reports that the underlying reader reached the end of the object. A decoder
+// that stops without it stopped early.
+func (r *countingReader) AtEOF() bool {
+	return r.atEOF
+}
+
 // Read reads the given number of bytes and updates the offset.
 func (r *countingReader) Read(p []byte) (n int, err error) {
 	n, err = r.reader.Read(p)
 	r.offset += int64(n)
+	switch {
+	case err == nil:
+		// A successful read clears any earlier error, so only a terminal failure — one with
+		// no successful read after it — is reported as the cause of a broken stream.
+		r.readErr = nil
+	case errors.Is(err, io.EOF):
+		r.atEOF = true
+	default:
+		r.readErr = err
+	}
 	return n, err
 }

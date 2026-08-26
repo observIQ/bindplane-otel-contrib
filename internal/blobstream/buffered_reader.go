@@ -28,6 +28,10 @@ type BufferedReader interface {
 	ReadSlice(delim byte) (line []byte, err error)
 	UnreadByte() error
 	Peek(n int) ([]byte, error)
+	// ReadErr returns the last failure the underlying reader reported, or nil.
+	ReadErr() error
+	// AtEOF reports that the underlying reader reached the end of the object.
+	AtEOF() bool
 	io.Reader
 }
 
@@ -80,4 +84,14 @@ func (r *bufferedReader) Read(p []byte) (n int, err error) {
 // Peek peeks the given number of bytes.
 func (r *bufferedReader) Peek(n int) ([]byte, error) {
 	return r.reader.Peek(n)
+}
+
+// ReadErr returns the last failure the underlying reader reported, or nil.
+func (r *bufferedReader) ReadErr() error {
+	return r.countingReader.ReadErr()
+}
+
+// AtEOF reports that the underlying reader reached the end of the object.
+func (r *bufferedReader) AtEOF() bool {
+	return r.countingReader.AtEOF()
 }
