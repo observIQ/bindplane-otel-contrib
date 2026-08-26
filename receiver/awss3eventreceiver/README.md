@@ -21,9 +21,11 @@ The receiver detects the file format from the object's content, not from its nam
 | JSON | Leading `{` followed by `"`/`}`, or `[` followed by `{`/`]`. Covers arrays, `Records` wrappers, and value sequences including NDJSON |
 | Plain text | Everything else; parsed line by line |
 
-JSON covers three layouts, all read as a stream: a top-level array, an object whose `Records` key holds that array, and a sequence of top-level values one after another. That last shape is what makes newline-delimited JSON work, and it needs no format of its own: to a JSON decoder, NDJSON, a lone object, and concatenated pretty-printed documents are the same thing.
+JSON covers three layouts, all read as a stream: a top-level array, an object whose `Records` key holds that array, and a sequence of top-level values one after another. That last shape is what makes newline-delimited JSON work, and it needs no format of its own: to a JSON decoder, NDJSON, a lone object, and concatenated pretty-printed documents are the same thing. A lone object and NDJSON now parse into structured record bodies. Earlier they were read line by line, as string bodies.
 
-A document too large to classify within the first 4 KiB is read line by line instead, so a single very large JSON object is never buffered whole.
+Classification looks only at the first 4 KiB. If the document's first JSON value fits in that window, the document is parsed as structured JSON. If the first value is larger than 4 KiB, the document cannot be classified and is read line by line instead. This can result in two files being parsed differently.
+
+Within a value sequence, a line that is not valid JSON is skipped as a parse error, and the records after it still parse. The same malformed content inside a top-level array stops parsing there, because the array cannot be realigned. A value sequence that also holds string values (mixed content) emits them as string bodies and warns once per file.
 
 ### Compression
 
