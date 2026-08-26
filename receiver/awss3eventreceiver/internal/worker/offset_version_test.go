@@ -74,8 +74,9 @@ func readWithSeededOffset(t *testing.T, objectETag, storedVersion string) int {
 		maxLogsEmitted: 1000,
 	}
 
-	require.NoError(t, w.consumeLogsFromS3Object(context.Background(),
-		s3RecordFor("mykey", int64(len(body))), "mykey", false, zap.NewNop()))
+	_, err := w.consumeLogsFromS3Object(context.Background(),
+		s3RecordFor("mykey", int64(len(body))), "mykey", false, zap.NewNop())
+	require.NoError(t, err)
 	return sink.LogRecordCount()
 }
 

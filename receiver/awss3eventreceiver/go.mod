@@ -11,6 +11,7 @@ require (
 	github.com/aws/smithy-go v1.27.7
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/google/go-cmp v0.7.0
+	github.com/jonboulle/clockwork v0.5.0
 	github.com/observiq/bindplane-otel-contrib/internal/aws v1.12.0
 	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.12.0
 	github.com/stretchr/testify v1.11.1

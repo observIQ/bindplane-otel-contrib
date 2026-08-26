@@ -16,6 +16,7 @@ package blobstream
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -39,6 +40,7 @@ type avroOcfParser struct {
 	reader  BufferedReader
 	logger  *zap.Logger
 	counter int64
+	opts    BodyOptions
 }
 
 var _ LogParser = (*avroOcfParser)(nil)
@@ -46,11 +48,12 @@ var _ LogParser = (*avroOcfParser)(nil)
 // NewAvroOcfParser creates a new Avro OCF parser. Before attempting to parse the stream,
 // call StartsWithAvroOcfMagic to check if the stream starts with the Avro OCF magic
 // string.
-func NewAvroOcfParser(reader BufferedReader, logger *zap.Logger) LogParser {
+func NewAvroOcfParser(reader BufferedReader, logger *zap.Logger, opts BodyOptions) LogParser {
 	return &avroOcfParser{
 		reader:  reader,
 		logger:  logger,
 		counter: 0,
+		opts:    opts,
 	}
 }
 
@@ -76,12 +79,16 @@ func StartsWithAvroOcfMagic(reader BufferedReader) (bool, error) {
 func (p *avroOcfParser) Parse(_ context.Context, startOffset int64) (logs iter.Seq2[any, error], err error) {
 	ocfReader, err := goavro.NewOCFReader(p.reader)
 	if err != nil {
-		// The header failed to decode. Classify it the same way the scan end does: a
-		// broken stream retries, a header cut short is a truncated object, and anything
-		// else is a container this decoder cannot read. A header larger than the detection
-		// window can break mid-read here, so the raw failure is not always caught earlier.
-		if p.reader.ReadErr() != nil {
-			return nil, ErrStreamRead{Err: p.reader.ReadErr()}
+		// The header failed to decode. Classify it the same way the scan end does, off the
+		// raw source: a broken or short download retries, a header cut short at rest is a
+		// truncated object, and anything else is a container this decoder cannot read. A
+		// header larger than the detection window can break mid-read here, so the raw
+		// failure is not always caught earlier.
+		if p.reader.RawReadErr() != nil {
+			return nil, ErrStreamRead{Err: p.reader.RawReadErr()}
+		}
+		if p.reader.RawTruncated() {
+			return nil, ErrStreamRead{Err: err}
 		}
 		if p.reader.AtEOF() {
 			return nil, ErrTruncatedObject{Err: err}
@@ -135,27 +142,44 @@ func (p *avroOcfParser) Parse(_ context.Context, startOffset int64) (logs iter.S
 			}
 		}
 
-		// Scan stops at the end of the object and on failure alike, and keeps the
-		// reason to itself. Without this check a broken stream looks like a clean
-		// finish, and every record after the break is lost with no report.
+		// Scan returns false at a clean end and on a fault alike, so its return says
+		// nothing about which happened. Err() disambiguates: it is nil after a clean
+		// read and non-nil only on a real fault. Without classifying the fault a broken
+		// stream would look like a clean finish, losing every record after the break.
 		//
-		// The reader tells the three cases apart. A recorded failure means the
-		// stream broke. Reaching the end of the object means the scan finished,
-		// because the decoder reports its own end-of-input the same way it reports
-		// a fault. Anything else stopped early on content it could not decode.
+		// The raw source settles the retry decision, since a decompression error masks a
+		// clean raw source: a raw read error or a short raw source is a broken download.
+		// Otherwise the source was clean, so the decoder running out of input is a stored
+		// truncation and anything else is content the decoder cannot read.
 		scanErr := ocfReader.Err()
 		switch {
 		case scanErr == nil:
-			// The decoder read the object to its end.
-		case p.reader.ReadErr() != nil:
-			// The stream broke, so a later attempt can still read the object.
-			yield(nil, ErrStreamRead{Err: p.reader.ReadErr()})
-		case p.reader.AtEOF():
-			// The bytes ran out part way through. They were never written, so a
-			// later attempt reads the same object again.
+			// The decoder read the object to its end. goavro reports a nil error when the
+			// next block-count read hits a clean EOF, so a download that ended exactly at
+			// a block boundary looks identical to a real end. A source that ended short of
+			// the object's known size means the "end" is a cut, so report it for retry
+			// rather than acking the missing blocks. (A raw read error cannot reach here:
+			// it would make the scan error non-nil, handled by the next case.)
+			if p.reader.RawTruncated() {
+				yield(nil, ErrStreamRead{Err: io.ErrUnexpectedEOF})
+			}
+		case p.reader.RawReadErr() != nil:
+			// The raw source read failed, so the download broke. A later attempt can
+			// still read the object.
+			yield(nil, ErrStreamRead{Err: p.reader.RawReadErr()})
+		case p.reader.RawTruncated():
+			// The raw source ended short of the object's known size, so the download did
+			// not complete. Retry and resume from the saved offset.
+			yield(nil, ErrStreamRead{Err: scanErr})
+		case p.reader.AtEOF() || errors.Is(p.reader.ReadErr(), io.ErrUnexpectedEOF):
+			// The raw source delivered cleanly, but the decoder ran out of input: the
+			// object was stored truncated. A decompression layer runs out with
+			// io.ErrUnexpectedEOF; an uncompressed object simply reaches EOF. Deliver
+			// what was read and ack, since a later attempt reads the same bytes.
 			yield(nil, ErrTruncatedObject{Err: scanErr})
 		default:
-			// The decoder stopped early on content it cannot read.
+			// The raw source was clean and the decoder stopped early on content it
+			// cannot read: a corrupt container.
 			yield(nil, ErrCorruptContainer{Format: "avro", Err: scanErr})
 		}
 	}, nil
@@ -170,6 +194,29 @@ func (p *avroOcfParser) Offset() int64 {
 }
 
 // AppendLogBody appends the avro record to the log record.
+//
+// Avro OCF is binary and has no original text. For log.record.original the parser
+// encodes the decoded record as JSON. It skips the attribute if that fails.
 func (p *avroOcfParser) AppendLogBody(_ context.Context, lr plog.LogRecord, record any) error {
-	return lr.Body().FromRaw(record)
+	if p.opts.Raw {
+		encoded, err := json.Marshal(record)
+		if err != nil {
+			return fmt.Errorf("encode avro record as text: %w", err)
+		}
+		lr.Body().SetStr(string(encoded))
+		p.opts.setOriginal(lr, string(encoded))
+		return nil
+	}
+
+	if err := lr.Body().FromRaw(record); err != nil {
+		return err
+	}
+	if p.opts.IncludeLogRecordOriginal {
+		if encoded, err := json.Marshal(record); err == nil {
+			p.opts.setOriginal(lr, string(encoded))
+		} else {
+			p.logger.Warn("could not encode avro record for log.record.original", zap.Error(err))
+		}
+	}
+	return nil
 }

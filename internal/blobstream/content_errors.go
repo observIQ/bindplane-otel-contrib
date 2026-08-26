@@ -17,7 +17,30 @@ package blobstream
 import (
 	"errors"
 	"fmt"
+	"io"
 )
+
+// classifyReadFailure turns a non-clean read/decode failure into the right error type,
+// using the raw source's status to tell a broken stream apart from bad content:
+//
+//   - a raw read error, or a source that ended short of the object's known size, means
+//     the download did not complete, so the object fails and retries;
+//   - otherwise the source delivered cleanly, so an unexpected EOF is a truncated object
+//     and anything else is content the decoder could not read (a corrupt container).
+//
+// io.EOF is a clean end and must be handled by the caller before calling this.
+func classifyReadFailure(reader BufferedReader, err error) error {
+	if reader.RawReadErr() != nil {
+		return ErrStreamRead{Err: reader.RawReadErr()}
+	}
+	if reader.RawTruncated() {
+		return ErrStreamRead{Err: err}
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return ErrTruncatedObject{Err: err}
+	}
+	return ErrCorruptContainer{Format: "stream", Err: err}
+}
 
 // IsUnsupportedContent reports that this package can never parse the object. The
 // content type is unknown, the archive structure failed to decode, or the archive

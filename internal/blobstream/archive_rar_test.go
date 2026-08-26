@@ -94,7 +94,7 @@ func TestArchiveRar_DetectionRoutes(t *testing.T) {
 			t.Parallel()
 			detected := mimetype.Detect(tc.body)
 			require.True(t, detected.Is("application/x-rar-compressed"), "detected %s", detected.String())
-			open, ok := archiveBackendFor(detected, bytes.NewReader(tc.body), defaultArchiveLimits().maxTotalBytes)
+			open, ok := archiveBackendFor(detected, bytes.NewReader(tc.body), "", defaultArchiveLimits().maxTotalBytes)
 			require.True(t, ok)
 			require.NotNil(t, open)
 		})

@@ -33,6 +33,7 @@ type TelemetryBuilder struct {
 	S3eventFailures                 metric.Int64Counter
 	S3eventObjectsHandled           metric.Int64Counter
 	S3eventParseErrors              metric.Int64Counter
+	S3eventTruncatedObjects         metric.Int64Counter
 }
 
 // TelemetryBuilderOption applies changes to default builder.
@@ -105,6 +106,12 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...Teleme
 		"otelcol_s3event.parse_errors",
 		metric.WithDescription("The number of individual log records skipped due to parse errors within an S3 object [Alpha]"),
 		metric.WithUnit("{errors}"),
+	)
+	errs = errors.Join(errs, err)
+	builder.S3eventTruncatedObjects, err = builder.meter.Int64Counter(
+		"otelcol_s3event.truncated_objects",
+		metric.WithDescription("The number of S3 objects that ended part way through a record; the records read before the cut are delivered and the object is acked [Alpha]"),
+		metric.WithUnit("{objects}"),
 	)
 	errs = errors.Join(errs, err)
 	return &builder, errs

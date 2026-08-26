@@ -39,6 +39,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/observiq/bindplane-otel-contrib/internal/aws/client/mocks"
+	"github.com/observiq/bindplane-otel-contrib/internal/blobstream"
 	"github.com/observiq/bindplane-otel-contrib/internal/storageclient"
 	"github.com/observiq/bindplane-otel-contrib/receiver/awss3eventreceiver/internal/metadata"
 	"github.com/observiq/bindplane-otel-contrib/receiver/awss3eventreceiver/internal/worker"
@@ -328,4 +329,56 @@ func TestProcessMessage_ResumesFromCheckpointAfterCancellation(t *testing.T) {
 	require.Equal(t, lines, append(delivered, second.bodyStrings(t)...),
 		"the two runs together should cover the object exactly once")
 	require.Equal(t, 1, *second.deleteCalls, "a fully read object should be deleted from the queue")
+}
+
+// TestProcessMessage_BodyOptionsReachTheLogRecords asserts the receiver config is plumbed
+// all the way through to the emitted records, rather than only being accepted.
+func TestProcessMessage_BodyOptionsReachTheLogRecords(t *testing.T) {
+	body, lines := objectLines(0, 50)
+
+	mockSQS := &mocks.MockSQSClient{}
+	mockS3 := &mocks.MockS3Client{}
+	mockClient := &mocks.MockClient{}
+	mockClient.EXPECT().SQS().Return(mockSQS)
+	mockClient.EXPECT().S3().Return(mockS3)
+	mockS3.EXPECT().GetObject(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader(body))}, nil
+		})
+	mockSQS.EXPECT().DeleteMessage(mock.Anything, mock.Anything).Return(&sqs.DeleteMessageOutput{}, nil)
+	mockSQS.EXPECT().ChangeMessageVisibility(mock.Anything, mock.Anything).Return(&sqs.ChangeMessageVisibilityOutput{}, nil)
+
+	set := componenttest.NewNopTelemetrySettings()
+	tb, err := metadata.NewTelemetryBuilder(set)
+	require.NoError(t, err)
+
+	params := receivertest.NewNopSettings(metadata.Type)
+	obsrecv, err := receiverhelper.NewObsReport(receiverhelper.ObsReportSettings{
+		ReceiverID:             params.ID,
+		Transport:              "http",
+		ReceiverCreateSettings: params,
+	})
+	require.NoError(t, err)
+
+	sink := new(consumertest.LogsSink)
+	w := worker.New(set, sink, mockClient, obsrecv, 4096, 1000,
+		300*time.Second, 300*time.Second, 6*time.Hour,
+		worker.WithTelemetryBuilder(tb),
+		worker.WithBodyOptions(blobstream.BodyOptions{IncludeLogRecordOriginal: true}),
+	)
+	w.SetOffsetStorage(newMemStorage())
+
+	msg := types.Message{
+		Body:          aws.String(cancelTestEvent),
+		MessageId:     aws.String("body-options"),
+		ReceiptHandle: aws.String("receipt-handle"),
+	}
+	done := make(chan struct{})
+	go w.ProcessMessage(context.Background(), msg, "myqueue", func() { close(done) })
+	<-done
+
+	lr := sink.AllLogs()[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+	original, ok := lr.Attributes().Get("log.record.original")
+	require.True(t, ok, "include_log_record_original should reach the emitted records")
+	require.Equal(t, lines[0], original.Str())
 }

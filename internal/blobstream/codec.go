@@ -19,7 +19,6 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/zlib"
-	"fmt"
 	"io"
 	"strings"
 
@@ -63,7 +62,7 @@ func (stream *LogStream) octetStreamDecoder(br *bufio.Reader, header []byte) (io
 			zap.String("name", stream.Name))
 		lr, err := lzma.NewReader(br)
 		if err != nil {
-			return nil, false, fmt.Errorf("create lzma reader: %w", err)
+			return nil, false, ErrCorruptContainer{Format: "lzma", Err: err}
 		}
 		return lr, true, nil
 	case stream.labeledDeflate():
@@ -111,7 +110,7 @@ func (stream *LogStream) deflateReader(br *bufio.Reader, header []byte) (io.Read
 	if len(header) >= 2 && isZlibHeader(header[0], header[1]) {
 		zr, err := zlib.NewReader(br)
 		if err != nil {
-			return nil, fmt.Errorf("create zlib reader: %w", err)
+			return nil, ErrCorruptContainer{Format: "deflate", Err: err}
 		}
 		return zr, nil
 	}

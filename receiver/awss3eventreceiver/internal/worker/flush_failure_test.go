@@ -75,7 +75,7 @@ func TestConsume_TrailingFlushFailureFailsObject(t *testing.T) {
 	// Fewer records than maxLogsEmitted, so only the trailing flush runs.
 	w, record := newFlushFailWorker(t, "line1\nline2\n", 1000, consumeErr)
 
-	err := w.consumeLogsFromS3Object(context.Background(), record, "mykey", false, zap.NewNop())
+	_, err := w.consumeLogsFromS3Object(context.Background(), record, "mykey", false, zap.NewNop())
 	require.ErrorIs(t, err, consumeErr)
 	require.ErrorContains(t, err, "consume logs")
 }
@@ -90,7 +90,7 @@ func TestConsume_MidLoopFlushFailureFailsObject(t *testing.T) {
 	// maxLogsEmitted of 1 forces a flush after the first record, mid-loop.
 	w, record := newFlushFailWorker(t, "line1\nline2\nline3\n", 1, consumeErr)
 
-	err := w.consumeLogsFromS3Object(context.Background(), record, "mykey", false, zap.NewNop())
+	_, err := w.consumeLogsFromS3Object(context.Background(), record, "mykey", false, zap.NewNop())
 	require.ErrorIs(t, err, consumeErr)
 	require.ErrorContains(t, err, "consume logs")
 }

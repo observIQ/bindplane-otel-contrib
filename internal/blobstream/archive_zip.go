@@ -23,12 +23,6 @@ import (
 	"strings"
 )
 
-// archiveTempDir is the directory used to materialize random-access archives
-// (zip, and later 7z/rar). An empty value uses the OS default temp directory.
-// It is a package variable so tests can point it at a scratch directory and
-// assert nothing is left behind.
-var archiveTempDir = ""
-
 // zipBackend is a random-access archiveBackend over stdlib archive/zip. zip
 // needs an io.ReaderAt and a total size, which a streaming GCS body does not
 // provide, so the body is materialized to a temp file first. The temp file is
@@ -41,11 +35,12 @@ type zipBackend struct {
 
 var _ archiveBackend = (*zipBackend)(nil)
 
-// newZipBackend materializes reader to a temp file and opens a zip reader over
-// it. On any failure it cleans up the temp file before returning, so a failed
-// open never leaks.
-func newZipBackend(reader io.Reader, maxBytes int64) (archiveBackend, error) {
-	f, err := os.CreateTemp(archiveTempDir, "blobstream-zip-*")
+// newZipBackend materializes reader to a temp file in tempDir (OS default when
+// empty) and opens a zip reader over it, capping the materialized size at maxBytes so
+// a small archive cannot inflate an enormous temp file. On any failure it cleans up
+// the temp file before returning, so a failed open never leaks.
+func newZipBackend(reader io.Reader, tempDir string, maxBytes int64) (archiveBackend, error) {
+	f, err := os.CreateTemp(tempDir, "blobstream-zip-*")
 	if err != nil {
 		return nil, fmt.Errorf("create temp file: %w", err)
 	}
@@ -98,6 +93,10 @@ func (b *zipBackend) Close() error {
 	rerr := os.Remove(name)
 	return errors.Join(cerr, rerr)
 }
+
+// Materialized reports true: zip reads from a materialized temp file, so its Next
+// never reports a member truncation.
+func (b *zipBackend) Materialized() bool { return true }
 
 // zipEntry is a single zip member. Open returns a fresh io.ReadCloser that the
 // producer closes once the entry is consumed.

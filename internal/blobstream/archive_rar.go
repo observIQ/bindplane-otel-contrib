@@ -59,6 +59,9 @@ func (b *rarBackend) Next() (archiveEntry, error) {
 // Close is a no-op: rardecode holds no resources beyond the caller-owned stream.
 func (b *rarBackend) Close() error { return nil }
 
+// Materialized reports false: rar streams directly from the object.
+func (b *rarBackend) Materialized() bool { return false }
+
 // rarEntry is a single rar member. Its reader is the shared rar reader and is
 // only valid until the next call to Next, matching the forward-only iteration.
 type rarEntry struct {

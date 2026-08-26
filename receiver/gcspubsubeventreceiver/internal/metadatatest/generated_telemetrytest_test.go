@@ -26,6 +26,7 @@ func TestSetupTelemetry(t *testing.T) {
 	tb.GcseventFailures.Add(context.Background(), 1)
 	tb.GcseventObjectsHandled.Add(context.Background(), 1)
 	tb.GcseventParseErrors.Add(context.Background(), 1)
+	tb.GcseventTruncatedObjects.Add(context.Background(), 1)
 	AssertEqualGcseventBatchSize(t, testTel,
 		[]metricdata.HistogramDataPoint[int64]{{}}, metricdatatest.IgnoreValue(),
 		metricdatatest.IgnoreTimestamp())
@@ -45,6 +46,9 @@ func TestSetupTelemetry(t *testing.T) {
 		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
 	AssertEqualGcseventParseErrors(t, testTel,
+		[]metricdata.DataPoint[int64]{{Value: 1}},
+		metricdatatest.IgnoreTimestamp())
+	AssertEqualGcseventTruncatedObjects(t, testTel,
 		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
 

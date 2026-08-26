@@ -120,7 +120,7 @@ func TestConsume_AppliesRegionOption(t *testing.T) {
 		maxLogsEmitted: 1000,
 	}
 
-	err := w.consumeLogsFromS3Object(context.Background(), s3RecordFor("mykey", int64(len(body))), "mykey", false, zap.NewNop())
+	_, err := w.consumeLogsFromS3Object(context.Background(), s3RecordFor("mykey", int64(len(body))), "mykey", false, zap.NewNop())
 	require.NoError(t, err)
 	require.Equal(t, "us-west-2", gotRegion, "the record's region must be applied as a request option")
 }
@@ -149,7 +149,7 @@ func TestConsume_LoadOffsetFailureFailsObject(t *testing.T) {
 		maxLogsEmitted: 1000,
 	}
 
-	err := w.consumeLogsFromS3Object(context.Background(), s3RecordFor("mykey", 6), "mykey", false, zap.NewNop())
+	_, err := w.consumeLogsFromS3Object(context.Background(), s3RecordFor("mykey", 6), "mykey", false, zap.NewNop())
 	require.ErrorIs(t, err, loadErr)
 	require.ErrorContains(t, err, "load offset")
 }
@@ -181,7 +181,7 @@ func TestConsume_UnsupportedContentFailsAtParserCreation(t *testing.T) {
 		maxLogsEmitted: 1000,
 	}
 
-	err := w.consumeLogsFromS3Object(context.Background(), s3RecordFor("image.png", int64(len(png))), "image.png", true, zap.NewNop())
+	_, err := w.consumeLogsFromS3Object(context.Background(), s3RecordFor("image.png", int64(len(png))), "image.png", true, zap.NewNop())
 	require.Error(t, err)
 	require.ErrorContains(t, err, "create parser")
 }
@@ -214,7 +214,7 @@ func TestConsume_BrokenStreamMidObjectFailsObject(t *testing.T) {
 		maxLogsEmitted: 1000,
 	}
 
-	err := w.consumeLogsFromS3Object(context.Background(), s3RecordFor("mykey", 0), "mykey", false, zap.NewNop())
+	_, err := w.consumeLogsFromS3Object(context.Background(), s3RecordFor("mykey", 0), "mykey", false, zap.NewNop())
 	require.Error(t, err)
 	require.True(t, blobstream.IsStreamRead(err), "a mid-object read failure is a broken stream, got %v", err)
 }
@@ -249,7 +249,7 @@ func TestConsume_MalformedRecordIsSkipped(t *testing.T) {
 		maxLogsEmitted: 1000,
 	}
 
-	err := w.consumeLogsFromS3Object(context.Background(), s3RecordFor("mykey", int64(len(body))), "mykey", true, zap.New(core))
+	_, err := w.consumeLogsFromS3Object(context.Background(), s3RecordFor("mykey", int64(len(body))), "mykey", true, zap.New(core))
 	require.NoError(t, err, "a malformed record is skipped, not fatal to the object")
 	require.Positive(t, logs.FilterMessage("parse log").Len(), "the skipped record must be logged")
 }
@@ -258,12 +258,16 @@ func TestConsume_MalformedRecordIsSkipped(t *testing.T) {
 // so the worker's per-record error-handling branches can be exercised deterministically
 // without crafting object content that provokes each classification.
 type fakeProducer struct {
-	records   []any
-	yieldErr  error
-	appendErr error
+	records    []any
+	yieldErr   error
+	appendErr  error
+	recordsErr error
 }
 
 func (f *fakeProducer) Records(context.Context, blobstream.Offset) (iter.Seq2[any, error], error) {
+	if f.recordsErr != nil {
+		return nil, f.recordsErr
+	}
 	return func(yield func(any, error) bool) {
 		for _, r := range f.records {
 			if !yield(r, nil) {
@@ -316,7 +320,7 @@ func TestConsume_DLQConditionFailsObject(t *testing.T) {
 
 	w, record := newFakeProducerWorker(t, &fakeProducer{yieldErr: blobstream.ErrUnsupportedContent{MIMEType: "image/png"}})
 
-	err := w.consumeLogsFromS3Object(context.Background(), record, "mykey", false, zap.NewNop())
+	_, err := w.consumeLogsFromS3Object(context.Background(), record, "mykey", false, zap.NewNop())
 	require.Error(t, err)
 	require.True(t, blobstream.IsUnsupportedContent(err), "an unsupported-content error is a DLQ condition, got %v", err)
 }
@@ -329,7 +333,7 @@ func TestConsume_AppendBodyFailureSkipsRecord(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	w, record := newFakeProducerWorker(t, &fakeProducer{records: []any{"rec"}, appendErr: errors.New("append boom")})
 
-	err := w.consumeLogsFromS3Object(context.Background(), record, "mykey", false, zap.New(core))
+	_, err := w.consumeLogsFromS3Object(context.Background(), record, "mykey", false, zap.New(core))
 	require.NoError(t, err, "an un-appendable record is skipped, not fatal to the object")
 	require.Positive(t, logs.FilterMessage("append log body").Len(), "the skipped record must be logged")
 }

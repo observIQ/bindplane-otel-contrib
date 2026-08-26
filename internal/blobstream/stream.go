@@ -46,6 +46,34 @@ type LogStream struct {
 	MaxLogSize      int
 	Logger          *zap.Logger
 	TryDecoding     bool
+
+	// Size is the object's known raw size (Content-Length), used to tell an object
+	// stored truncated from a download that broke early. Zero means unknown.
+	Size int64
+
+	// Raw and IncludeLogRecordOriginal reach the parser for this object. See
+	// BodyOptions.
+	Raw                      bool
+	IncludeLogRecordOriginal bool
+
+	// zstdDecoderOpts overrides the zstd decoder options. Nil uses
+	// defaultZstdDecoderOptions. A test sets it to an option the decoder rejects to
+	// exercise the build-failure path on its own stream, without mutating package state.
+	zstdDecoderOpts []zstd.DOption
+
+	// archiveTempDir is the directory used to materialize random-access archives
+	// (zip, 7z). Empty uses the OS default temp directory. A test sets it to a scratch
+	// dir (to assert nothing is left behind) or a missing dir (to force a create
+	// failure) on its own stream, without mutating package state.
+	archiveTempDir string
+}
+
+// bodyOptions returns the body options configured for this stream.
+func (stream *LogStream) bodyOptions() BodyOptions {
+	return BodyOptions{
+		Raw:                      stream.Raw,
+		IncludeLogRecordOriginal: stream.IncludeLogRecordOriginal,
+	}
 }
 
 // BufferedReader returns a BufferedReader for the log stream. Compression is
@@ -54,26 +82,62 @@ type LogStream struct {
 // strip compression while leaving the label in place. The label is only used to
 // surface a warning when it disagrees with the detected content.
 func (stream *LogStream) BufferedReader(_ context.Context) (BufferedReader, error) {
+	// Count the raw source below decompression, so a decoder failure can be told apart
+	// from a broken source stream: a raw read error means the stream broke (retry), and
+	// a decoder failure with no raw read error means the content itself is at fault.
+	raw := &countingReader{reader: stream.Body}
+
 	// Wrap the body so the leading bytes can be inspected without consuming them.
 	// The same wrapper is handed downstream, so no bytes are lost.
-	br := bufio.NewReaderSize(stream.Body, detectionPeekBytes)
+	br := bufio.NewReaderSize(raw, detectionPeekBytes)
 
 	reader, decompressed, err := stream.decompress(br)
 	if err != nil {
+		// decompress classifies a delivered-but-unreadable header as a corrupt
+		// container, but it cannot see the raw source: a download cut inside the header
+		// (a raw read error, or fewer bytes than the object's size) is an incomplete
+		// download that a retry can still read, not corruption. Mirror classifyReadFailure
+		// so construction and parse-time failures agree.
+		if raw.ReadErr() != nil || (stream.Size > 0 && raw.AtEOF() && raw.Offset() < stream.Size) {
+			// Strip any corrupt-container wrapper so the result is purely a broken
+			// stream and does not also satisfy IsUnsupportedContent (which would route
+			// it to the dead-letter queue instead of a retry).
+			inner := err
+			var corrupt ErrCorruptContainer
+			if errors.As(err, &corrupt) {
+				inner = corrupt.Err
+			}
+			return nil, ErrStreamRead{Err: inner}
+		}
 		return nil, err
 	}
 	if decompressed {
 		reader = &decompressLimitReader{r: reader, limit: maxDecompressedBytes}
 	}
-	return NewBufferedReader(reader, stream.MaxLogSize), nil
+	// A short download is only detectable when the raw byte count can be compared to the
+	// object's known size. When the size is unknown (Size <= 0, e.g. a GCS transcoded
+	// object) that check fails open — a truncated object reads as complete — so record it
+	// rather than let it pass silently.
+	if stream.Logger != nil && stream.Size <= 0 {
+		stream.Logger.Debug("object size unknown; a short download cannot be detected and reads as complete")
+	}
+	return newBufferedReaderWithRaw(reader, stream.MaxLogSize, raw, stream.Size), nil
 }
 
-// zstdDecoderOptions configures the zstd decoder. Concurrency 1 keeps it synchronous
-// so it spawns no goroutines to leak, since the reader is never explicitly closed.
-//
-// It is a variable so a test can supply an option the decoder rejects, which is the only
-// way the constructor fails.
-var zstdDecoderOptions = []zstd.DOption{zstd.WithDecoderConcurrency(1)}
+// defaultZstdDecoderOptions configures the zstd decoder. Concurrency 1 keeps it
+// synchronous so it spawns no goroutines to leak, since the reader is never explicitly
+// closed. A stream may override it via zstdDecoderOpts (used by a test to supply an
+// option the decoder rejects, which is the only way the constructor fails).
+var defaultZstdDecoderOptions = []zstd.DOption{zstd.WithDecoderConcurrency(1)}
+
+// zstdOpts returns the stream's zstd decoder options, falling back to the package
+// default when the stream sets no override.
+func (stream *LogStream) zstdOpts() []zstd.DOption {
+	if stream.zstdDecoderOpts != nil {
+		return stream.zstdDecoderOpts
+	}
+	return defaultZstdDecoderOptions
+}
 
 // decompress detects the compression of the peeked content and returns a reader
 // over the decompressed bytes. Decompression is single-level: the format stage
@@ -83,7 +147,10 @@ func (stream *LogStream) decompress(br *bufio.Reader) (io.Reader, bool, error) {
 	header, err := br.Peek(detectionPeekBytes)
 	// A short object yields io.EOF (fewer than detectionPeekBytes available); that
 	// is expected and the partial header is still valid for detection.
-	if err != nil && !errors.Is(err, io.EOF) {
+	// A truncated source yields io.ErrUnexpectedEOF here; the partial header is still
+	// valid for format detection, and the truncation surfaces later at parse time where
+	// it is classified, so tolerate it like a clean short read.
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return nil, false, fmt.Errorf("peek content: %w", err)
 	}
 
@@ -94,7 +161,10 @@ func (stream *LogStream) decompress(br *bufio.Reader) (io.Reader, bool, error) {
 	case detected.Is("application/gzip"):
 		gzipReader, err := gzip.NewReader(br)
 		if err != nil {
-			return nil, false, fmt.Errorf("create gzip reader: %w", err)
+			// The header would not parse: the object is corrupt or truncated so early
+			// it has no usable header. Route it to the dead-letter queue rather than
+			// failing with an unclassified error that redelivers forever.
+			return nil, false, ErrCorruptContainer{Format: "gzip", Err: err}
 		}
 		return gzipReader, true, nil
 	case detected.Is("application/x-bzip2"):
@@ -102,13 +172,16 @@ func (stream *LogStream) decompress(br *bufio.Reader) (io.Reader, bool, error) {
 	case detected.Is("application/x-xz"):
 		xzReader, err := xz.NewReader(br)
 		if err != nil {
-			return nil, false, fmt.Errorf("create xz reader: %w", err)
+			return nil, false, ErrCorruptContainer{Format: "xz", Err: err}
 		}
 		return xzReader, true, nil
 	case detected.Is("application/zstd"):
-		zstdReader, err := zstd.NewReader(br, zstdDecoderOptions...)
+		zstdReader, err := zstd.NewReader(br, stream.zstdOpts()...)
 		if err != nil {
-			return nil, false, fmt.Errorf("create zstd reader: %w", err)
+			// A reader that will not build cannot decode the object, and a retry reads
+			// the same bytes. Route it to the dead-letter queue rather than failing with
+			// an unclassified error that redelivers forever, matching the decoders above.
+			return nil, false, ErrCorruptContainer{Format: "zstd", Err: err}
 		}
 		return zstdReader.IOReadCloser(), true, nil
 	case detected.Is("application/zlib"):
@@ -117,7 +190,7 @@ func (stream *LogStream) decompress(br *bufio.Reader) (io.Reader, bool, error) {
 		// in octetStreamDecoder.
 		zlibReader, err := zlib.NewReader(br)
 		if err != nil {
-			return nil, false, fmt.Errorf("create zlib reader: %w", err)
+			return nil, false, ErrCorruptContainer{Format: "zlib", Err: err}
 		}
 		return zlibReader, true, nil
 	case detected.Is("application/lzip"):
@@ -126,7 +199,10 @@ func (stream *LogStream) decompress(br *bufio.Reader) (io.Reader, bool, error) {
 		// not read the lzip container).
 		lzipReader, err := lzip.NewReader(br)
 		if err != nil {
-			return nil, false, fmt.Errorf("create lzip reader: %w", err)
+			// A truncated or corrupt lzip header fails here (for example a garbage
+			// size field). Route it to the dead-letter queue rather than failing with
+			// an unclassified error that redelivers forever.
+			return nil, false, ErrCorruptContainer{Format: "lzip", Err: err}
 		}
 		return lzipReader, true, nil
 	case detected.Is("application/octet-stream"):

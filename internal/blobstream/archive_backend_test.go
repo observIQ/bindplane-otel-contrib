@@ -49,10 +49,16 @@ type stubBackend struct {
 	entries  []archiveEntry
 	next     int
 	closeErr error
+	// nextErr, when set, is returned once the entries are exhausted instead of io.EOF,
+	// modeling a streaming backend that fails to advance to the next entry.
+	nextErr error
 }
 
 func (b *stubBackend) Next() (archiveEntry, error) {
 	if b.next >= len(b.entries) {
+		if b.nextErr != nil {
+			return nil, b.nextErr
+		}
 		return nil, io.EOF
 	}
 	entry := b.entries[b.next]
@@ -61,6 +67,9 @@ func (b *stubBackend) Next() (archiveEntry, error) {
 }
 
 func (b *stubBackend) Close() error { return b.closeErr }
+
+// Materialized reports false: the stub models a streaming backend.
+func (b *stubBackend) Materialized() bool { return false }
 
 // newStubArchive builds a producer over the given entries.
 func newStubArchive(backend *stubBackend, logger *zap.Logger) *archiveProducer {

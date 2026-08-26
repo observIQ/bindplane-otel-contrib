@@ -33,6 +33,7 @@ type TelemetryBuilder struct {
 	GcseventFailures                 metric.Int64Counter
 	GcseventObjectsHandled           metric.Int64Counter
 	GcseventParseErrors              metric.Int64Counter
+	GcseventTruncatedObjects         metric.Int64Counter
 }
 
 // TelemetryBuilderOption applies changes to default builder.
@@ -105,6 +106,12 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...Teleme
 		"otelcol_gcsevent.parse_errors",
 		metric.WithDescription("The number of individual log records skipped due to parse errors within a GCS object [Alpha]"),
 		metric.WithUnit("{errors}"),
+	)
+	errs = errors.Join(errs, err)
+	builder.GcseventTruncatedObjects, err = builder.meter.Int64Counter(
+		"otelcol_gcsevent.truncated_objects",
+		metric.WithDescription("The number of GCS objects that ended part way through a record; the records read before the cut are delivered and the object is acked [Alpha]"),
+		metric.WithUnit("{objects}"),
 	)
 	errs = errors.Join(errs, err)
 	return &builder, errs

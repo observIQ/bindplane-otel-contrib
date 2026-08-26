@@ -76,7 +76,7 @@ func TestParseAvroOcfLogs(t *testing.T) {
 			bufferedReader, err := stream.BufferedReader(context.Background())
 			require.NoError(t, err, "get buffered reader")
 
-			parser := blobstream.NewAvroOcfParser(bufferedReader, zap.NewNop())
+			parser := blobstream.NewAvroOcfParser(bufferedReader, zap.NewNop(), blobstream.BodyOptions{})
 			logs, err := parser.Parse(context.Background(), test.startOffset)
 			if test.expectParseError != "" {
 				require.Error(t, err)

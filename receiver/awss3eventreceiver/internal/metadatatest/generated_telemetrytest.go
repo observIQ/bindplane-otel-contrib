@@ -131,3 +131,19 @@ func AssertEqualS3eventParseErrors(t *testing.T, tt *componenttest.Telemetry, dp
 	require.NoError(t, err)
 	metricdatatest.AssertEqual(t, want, got, opts...)
 }
+
+func AssertEqualS3eventTruncatedObjects(t *testing.T, tt *componenttest.Telemetry, dps []metricdata.DataPoint[int64], opts ...metricdatatest.Option) {
+	want := metricdata.Metrics{
+		Name:        "otelcol_s3event.truncated_objects",
+		Description: "The number of S3 objects that ended part way through a record; the records read before the cut are delivered and the object is acked [Alpha]",
+		Unit:        "{objects}",
+		Data: metricdata.Sum[int64]{
+			Temporality: metricdata.CumulativeTemporality,
+			IsMonotonic: true,
+			DataPoints:  dps,
+		},
+	}
+	got, err := tt.GetMetric("otelcol_s3event.truncated_objects")
+	require.NoError(t, err)
+	metricdatatest.AssertEqual(t, want, got, opts...)
+}

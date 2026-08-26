@@ -26,6 +26,7 @@ import (
 	subscriber "cloud.google.com/go/pubsub/apiv1"
 	"cloud.google.com/go/pubsub/apiv1/pubsubpb"
 	"cloud.google.com/go/storage"
+	"github.com/jonboulle/clockwork"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configretry"
 	"go.opentelemetry.io/collector/consumer"
@@ -82,6 +83,8 @@ type Worker struct {
 	subClient         *subscriber.SubscriberClient
 	maxExtension      time.Duration
 	errorBackOff      configretry.BackOffConfig
+	clock             clockwork.Clock
+	bodyOptions       blobstream.BodyOptions
 }
 
 // Option is a functional option for configuring the Worker
@@ -121,6 +124,13 @@ func WithErrorBackOff(cfg configretry.BackOffConfig) Option {
 	}
 }
 
+// WithBodyOptions sets how parsed records become log record bodies.
+func WithBodyOptions(opts blobstream.BodyOptions) Option {
+	return func(w *Worker) {
+		w.bodyOptions = opts
+	}
+}
+
 // WithSubscriberClient sets the low-level Pub/Sub subscriber client used for
 // explicit Acknowledge and ModifyAckDeadline RPCs.
 func WithSubscriberClient(c *subscriber.SubscriberClient) Option {
@@ -148,6 +158,7 @@ func New(tel component.TelemetrySettings, nextConsumer consumer.Logs, storageCli
 		maxLogSize:     maxLogSize,
 		maxLogsEmitted: maxLogsEmitted,
 		maxExtension:   1 * time.Hour, // default; overridden by WithMaxExtension
+		clock:          clockwork.NewRealClock(),
 	}
 
 	for _, opt := range opts {
@@ -219,7 +230,7 @@ func (w *Worker) ProcessMessage(ctx context.Context, msg *PullMessage, subscript
 	logger.Debug("processing GCS object")
 
 	// Process the record, trying JSON first then falling back to line parsing
-	err := w.processRecord(ctx, bucketID, objectID, logger)
+	truncated, err := w.processRecord(ctx, bucketID, objectID, logger)
 	if err != nil {
 		w.handleProcessingError(ctx, msg.AckID, subscriptionPath, err, logger)
 		return false
@@ -244,6 +255,11 @@ func (w *Worker) ProcessMessage(ctx context.Context, msg *PullMessage, subscript
 	}
 	cancelDelete()
 
+	// Counted after the ack so a truncation is recorded once, for an object actually
+	// acked, rather than re-counted each time a nacked message redelivers.
+	if truncated {
+		w.recordTruncatedObject(ctx)
+	}
 	return true
 }
 
@@ -296,19 +312,20 @@ func (w *Worker) extendAckDeadline(ctx context.Context, ackID, subscriptionPath 
 	}
 
 	const extensionSecs int32 = 30
-	// Extend at 50% of the extension period (safety margin).
-	ticker := time.NewTicker(time.Duration(extensionSecs) * time.Second / 2)
+	// Extend at 50% of the extension period (safety margin). The clock is injected
+	// so tests can advance it instead of waiting real seconds.
+	ticker := w.clock.NewTicker(time.Duration(extensionSecs) * time.Second / 2)
 	defer ticker.Stop()
 
-	start := time.Now()
+	start := w.clock.Now()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			if time.Since(start) >= w.maxExtension {
+		case <-ticker.Chan():
+			if w.clock.Since(start) >= w.maxExtension {
 				logger.Info("reached maximum ack deadline extension, stopping",
-					zap.Duration("total_time", time.Since(start)))
+					zap.Duration("total_time", w.clock.Since(start)))
 				return
 			}
 			if err := w.subClient.ModifyAckDeadline(ctx, &pubsubpb.ModifyAckDeadlineRequest{
@@ -324,26 +341,26 @@ func (w *Worker) extendAckDeadline(ctx context.Context, ackID, subscriptionPath 
 	}
 }
 
-func (w *Worker) processRecord(ctx context.Context, bucket, object string, recordLogger *zap.Logger) error {
-	err := w.consumeLogsFromGCSObject(ctx, bucket, object, true, recordLogger)
+func (w *Worker) processRecord(ctx context.Context, bucket, object string, recordLogger *zap.Logger) (bool, error) {
+	truncated, err := w.consumeLogsFromGCSObject(ctx, bucket, object, true, recordLogger)
 	if err != nil {
 		if errors.Is(err, blobstream.ErrNotArrayOrKnownObject) {
 			// try again without attempting to parse as JSON
 			recordLogger.Debug("parsing as JSON failed, trying again with line parsing")
 			return w.consumeLogsFromGCSObject(ctx, bucket, object, false, recordLogger)
 		}
-		return err
+		return truncated, err
 	}
-	return nil
+	return truncated, nil
 }
 
-func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object string, tryJSON bool, recordLogger *zap.Logger) error {
+func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object string, tryJSON bool, recordLogger *zap.Logger) (bool, error) {
 	recordLogger.Debug("reading GCS object")
 
 	obj := w.storageClient.Bucket(bucket).Object(object)
 	reader, err := obj.NewReader(ctx)
 	if err != nil {
-		return fmt.Errorf("get object: %w", err)
+		return false, fmt.Errorf("get object: %w", err)
 	}
 	defer reader.Close()
 
@@ -364,6 +381,13 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		contentEncoding = &ce
 	}
 
+	// reader.Attrs.Size is the object's stored size, used to tell a download that broke
+	// early from an object stored truncated. For an object GCS decompressively transcodes
+	// (a gzip object served and decompressed on read), it is -1: the decompressed length
+	// is unknown, so size-based truncation detection is disabled (blobstream treats any
+	// non-positive size as unknown). An interrupted download is still caught as a broken
+	// stream through the raw read error and retried; a transcoded object that was stored
+	// truncated is undetectable by design and is failed by content, never silently acked.
 	stream := blobstream.LogStream{
 		Name:            object,
 		ContentEncoding: contentEncoding,
@@ -372,6 +396,10 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		MaxLogSize:      w.maxLogSize,
 		Logger:          recordLogger,
 		TryDecoding:     tryJSON,
+		Size:            reader.Attrs.Size,
+
+		Raw:                      w.bodyOptions.Raw,
+		IncludeLogRecordOriginal: w.bodyOptions.IncludeLogRecordOriginal,
 	}
 
 	// Create the offset storage key for this object
@@ -381,7 +409,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 	offset := blobstream.NewOffset(0)
 	err = w.offsetStorage.LoadStorageData(ctx, offsetStorageKey, offset)
 	if err != nil {
-		return fmt.Errorf("load offset: %w", err)
+		return false, fmt.Errorf("load offset: %w", err)
 	}
 	startOffset := *offset
 
@@ -407,7 +435,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 
 	bufferedReader, err := stream.BufferedReader(ctx)
 	if err != nil {
-		return fmt.Errorf("get stream reader: %w", err)
+		return false, fmt.Errorf("get stream reader: %w", err)
 	}
 
 	newProducer := blobstream.NewRecordProducer
@@ -416,7 +444,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 	}
 	producer, err := newProducer(ctx, stream, bufferedReader, w.recordParseError)
 	if err != nil {
-		return fmt.Errorf("create parser: %w", err)
+		return false, fmt.Errorf("create parser: %w", err)
 	}
 	// Release a materialized archive's temp file even if the iterator is not driven below.
 	defer blobstream.CloseProducer(producer)
@@ -432,12 +460,26 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 	// Parse logs into a sequence of log records
 	logs, err := producer.Records(ctx, startOffset)
 	if err != nil {
-		return fmt.Errorf("parse logs: %w", err)
+		// A truncated object can be reported here, before any record is yielded (for
+		// example an Avro OCF whose header is cut short). Nothing was read, so there is
+		// nothing to deliver; ack it as truncated rather than failing, since a retry
+		// reads the same truncated bytes and the dead-letter queue would hold the same
+		// unrecoverable object. Mirrors the in-loop truncated handling below.
+		if blobstream.IsTruncatedObject(err) {
+			recordLogger.Warn("object truncated before any record was read; acking", zap.Error(err))
+			return true, nil
+		}
+		return false, fmt.Errorf("parse logs: %w", err)
 	}
 
 	// parseErr records a cancellation that stopped the read. The records already read
 	// are delivered below. The error is returned, so the message nacks.
 	var parseErr error
+	// truncated records that the object ended part way through a record. The metric is
+	// recorded only after the trailing batch flushes successfully below, so it counts
+	// objects actually acked as truncated rather than truncation events that later fail
+	// to deliver and redeliver.
+	var truncated bool
 
 	for log, err := range logs {
 		if err != nil {
@@ -445,17 +487,27 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 				parseErr = err
 				break
 			}
+			// A truncated object ends part way through a record. Deliver the records
+			// read before the cut and ack: the missing tail was never written, so the
+			// dead-letter queue (which would hold the same truncated bytes) cannot
+			// recover it, and a retry reads the same object. This must precede the
+			// isDLQConditionError branch, since a truncated object also satisfies it.
+			if blobstream.IsTruncatedObject(err) {
+				recordLogger.Warn("object truncated; delivering records read before the cut", zap.Error(err))
+				truncated = true
+				break
+			}
 			// A DLQ-condition error (for example an archive-bomb limit) is fatal for
 			// the whole object: fail so the message is routed to the DLQ rather than
 			// silently skipped.
 			if isDLQConditionError(err) {
-				return err
+				return false, err
 			}
 			// A broken stream is fatal for the whole object. Acking here would drop
 			// every record after the break with no way to recover them, so fail and
 			// let the message redeliver and resume from the saved offset.
 			if blobstream.IsStreamRead(err) {
-				return err
+				return false, err
 			}
 			// Skipping the individual record rather than nacking the whole message, since
 			// retrying a malformed record would produce the same error.  The remaining
@@ -480,7 +532,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 
 		if ld.LogRecordCount() >= w.maxLogsEmitted {
 			if err := w.flush(ctx, ld, batchesConsumedCount, recordLogger); err != nil {
-				return err
+				return false, err
 			}
 
 			batchesConsumedCount++
@@ -499,7 +551,7 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 
 	if ld.LogRecordCount() > 0 {
 		if err := w.flush(ctx, ld, batchesConsumedCount, recordLogger); err != nil {
-			return err
+			return false, err
 		}
 		if parseErr == nil {
 			recordLogger.Debug("processed GCS object", zap.Int("batches_consumed_count", batchesConsumedCount+1))
@@ -512,10 +564,10 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 	if parseErr != nil {
 		// The read stopped partway. Everything read is delivered and checkpointed
 		// above, so redelivery resumes at the first unread record.
-		return fmt.Errorf("read object: %w", parseErr)
+		return false, fmt.Errorf("read object: %w", parseErr)
 	}
 
-	return nil
+	return truncated, nil
 }
 
 // flush sends a batch to the next consumer on a drain context. Records already read
@@ -565,6 +617,14 @@ func (w *Worker) recordParseError(ctx context.Context) {
 	}
 }
 
+// recordTruncatedObject counts an object that ended part way through a record. The
+// records read before the cut are delivered and the object is acked.
+func (w *Worker) recordTruncatedObject(ctx context.Context) {
+	if w.metrics != nil {
+		w.metrics.GcseventTruncatedObjects.Add(ctx, 1)
+	}
+}
+
 // dlqErrorKind categorizes an error into a DLQ condition bucket.
 type dlqErrorKind int
 
@@ -591,6 +651,11 @@ func dlqConditionKind(err error) dlqErrorKind {
 	var apiErr *googleapi.Error
 	if errors.As(err, &apiErr) && apiErr.Code == 403 {
 		return dlqErrorKindPermissionDenied
+	}
+	// A truncated object is delivered and acked before this classifier runs, so it is
+	// not a dead-letter condition even though it is unusable content.
+	if blobstream.IsTruncatedObject(err) {
+		return dlqErrorKindNone
 	}
 	// Content this receiver can never parse: an unsupported type, a corrupt archive,
 	// or an archive that tripped a bomb-safety limit.

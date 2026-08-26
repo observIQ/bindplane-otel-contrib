@@ -30,7 +30,7 @@ import (
 func newLineParserFromString(s string, maxLogSize int) blobstream.LogParser {
 	r := strings.NewReader(s)
 	br := blobstream.NewBufferedReader(r, maxLogSize)
-	return blobstream.NewLineParser(br)
+	return blobstream.NewLineParser(br, blobstream.BodyOptions{})
 }
 
 // TestLineParser_FinalUnterminatedLineTrimsCR asserts that a final line with no trailing

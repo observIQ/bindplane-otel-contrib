@@ -28,16 +28,33 @@ type BufferedReader interface {
 	ReadSlice(delim byte) (line []byte, err error)
 	UnreadByte() error
 	Peek(n int) ([]byte, error)
-	// ReadErr returns the last failure the underlying reader reported, or nil.
+	// ReadErr returns the last failure the underlying (post-decompression) reader
+	// reported, or nil.
 	ReadErr() error
-	// AtEOF reports that the underlying reader reached the end of the object.
+	// AtEOF reports that the underlying (post-decompression) reader reached the end.
 	AtEOF() bool
+	// RawReadErr returns the last failure the raw source reported (below any
+	// decompression), or nil. A decoder failure with no raw read error means the source
+	// delivered the bytes and the content itself is at fault, so a retry reads the same
+	// bytes; a raw read error means the stream broke and a retry may succeed.
+	RawReadErr() error
+	// RawAtEOF reports that the raw source reached the end of the object.
+	RawAtEOF() bool
+	// RawTruncated reports that the raw source ended having delivered fewer bytes than
+	// the object's known size, i.e. the download did not complete. It reports false when
+	// the size is unknown.
+	RawTruncated() bool
 	io.Reader
 }
 
 type bufferedReader struct {
 	countingReader *countingReader
 	reader         *bufio.Reader
+	// raw counts the raw source below any decompression. For an uncompressed stream it
+	// is the same counter as countingReader.
+	raw *countingReader
+	// expectedSize is the object's known raw size (Content-Length), or 0 when unknown.
+	expectedSize int64
 }
 
 // NewBufferedReader returns a BufferedReader that wraps the given reader and buffers the
@@ -49,6 +66,20 @@ func NewBufferedReader(reader io.Reader, bufferSize int) BufferedReader {
 	return &bufferedReader{
 		countingReader: r,
 		reader:         bufio.NewReaderSize(r, bufferSize),
+		raw:            r,
+	}
+}
+
+// newBufferedReaderWithRaw is NewBufferedReader with an explicit raw source counter and
+// the object's known size, used on the main path where decompression sits between the
+// source and the parser.
+func newBufferedReaderWithRaw(reader io.Reader, bufferSize int, raw *countingReader, expectedSize int64) BufferedReader {
+	r := &countingReader{reader: reader}
+	return &bufferedReader{
+		countingReader: r,
+		reader:         bufio.NewReaderSize(r, bufferSize),
+		raw:            raw,
+		expectedSize:   expectedSize,
 	}
 }
 
@@ -94,4 +125,24 @@ func (r *bufferedReader) ReadErr() error {
 // AtEOF reports that the underlying reader reached the end of the object.
 func (r *bufferedReader) AtEOF() bool {
 	return r.countingReader.AtEOF()
+}
+
+// RawReadErr returns the last failure the raw source reported, or nil.
+func (r *bufferedReader) RawReadErr() error {
+	return r.raw.ReadErr()
+}
+
+// RawAtEOF reports that the raw source reached the end of the object.
+func (r *bufferedReader) RawAtEOF() bool {
+	return r.raw.AtEOF()
+}
+
+// RawTruncated reports that the raw source ended short of the object's known size. It
+// fails open (reports false) when completeness cannot be judged: when the size is unknown
+// (expectedSize <= 0, e.g. a GCS transcoded object — logged at reader construction), and
+// when the transport already decompressed the payload, since the raw counter then measures
+// decompressed bytes against a compressed Content-Length. Fail-open is deliberate: a false
+// truncation would redeliver a complete object forever.
+func (r *bufferedReader) RawTruncated() bool {
+	return r.expectedSize > 0 && r.raw.AtEOF() && r.raw.Offset() < r.expectedSize
 }

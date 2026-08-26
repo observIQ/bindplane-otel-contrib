@@ -284,10 +284,14 @@ func TestProcessMessage(t *testing.T) {
 			objectSets:  logsFromFile(t, "testdata/json_lines.json"),
 			expectLines: 4,
 		},
-		// A truncated JSON array (logs_array_fragment.json) is not covered here: it routes
-		// the whole object to the dead-letter queue rather than acking. This drain loop
-		// only handles objects that ack and delete, so the truncated-array path is
-		// exercised in TestTruncatedArrayRoutesWholeObjectToDLQ instead.
+		{
+			// A truncated JSON array delivers the records read before the cut and acks;
+			// the truncation is surfaced through a counter. The deliver-then-ack path is
+			// asserted end to end in TestTruncatedArrayDeliversRecordsThenAcks.
+			name:        "delivers the record before the cut from a truncated JSON array",
+			objectSets:  logsFromFile(t, "testdata/logs_array_fragment.json"),
+			expectLines: 1,
+		},
 		{
 			name:        "parses as JSON and creates 4 log lines from the Records field ignoring other fields",
 			objectSets:  logsFromFile(t, "testdata/logs_array_in_records_one_line.json"),

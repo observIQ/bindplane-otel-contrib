@@ -24,13 +24,14 @@ import (
 	"github.com/observiq/bindplane-otel-contrib/internal/blobstream"
 )
 
-// TestTruncatedObjectRoutesToDLQ asserts a truncated object is a dead-letter condition.
-// Redelivering it reads the same bytes, so retrying never drains the queue.
-func TestTruncatedObjectRoutesToDLQ(t *testing.T) {
+// TestTruncatedObjectIsNotADLQCondition asserts a truncated object is not a dead-letter
+// condition. The records read before the cut are delivered and the object is acked, so it
+// must not be routed to the DLQ.
+func TestTruncatedObjectIsNotADLQCondition(t *testing.T) {
 	t.Parallel()
 
 	err := error(blobstream.ErrTruncatedObject{Err: io.ErrUnexpectedEOF})
-	require.NotNil(t, isDLQConditionError(err), "a truncated object must be a DLQ condition")
-	require.NotNil(t, isDLQConditionError(fmt.Errorf("parse logs: %w", err)),
-		"the condition must survive wrapping")
+	require.Nil(t, isDLQConditionError(err), "a truncated object is delivered and acked, not dead-lettered")
+	require.Nil(t, isDLQConditionError(fmt.Errorf("parse logs: %w", err)),
+		"the classification must survive wrapping")
 }
