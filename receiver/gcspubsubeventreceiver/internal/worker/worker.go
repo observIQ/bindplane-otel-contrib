@@ -184,28 +184,28 @@ func (w *Worker) ProcessMessage(ctx context.Context, msg *PullMessage, subscript
 	// Filter for OBJECT_FINALIZE events only
 	if eventType != EventTypeObjectFinalize {
 		logger.Debug("skipping non-OBJECT_FINALIZE event")
-		w.ackMessage(ctx, msg.AckID, subscriptionPath)
+		_ = w.ackMessage(ctx, msg.AckID, subscriptionPath)
 		return false
 	}
 
 	// Validate required attributes
 	if bucketID == "" || objectID == "" {
 		logger.Warn("message missing required attributes (bucketId, objectId)")
-		w.ackMessage(ctx, msg.AckID, subscriptionPath)
+		_ = w.ackMessage(ctx, msg.AckID, subscriptionPath)
 		return false
 	}
 
 	// Apply bucket name filter
 	if w.bucketNameFilter != nil && !w.bucketNameFilter.MatchString(bucketID) {
 		logger.Debug("skipping message due to bucket name filter")
-		w.ackMessage(ctx, msg.AckID, subscriptionPath)
+		_ = w.ackMessage(ctx, msg.AckID, subscriptionPath)
 		return false
 	}
 
 	// Apply object key filter
 	if w.objectKeyFilter != nil && !w.objectKeyFilter.MatchString(objectID) {
 		logger.Debug("skipping message due to object key filter")
-		w.ackMessage(ctx, msg.AckID, subscriptionPath)
+		_ = w.ackMessage(ctx, msg.AckID, subscriptionPath)
 		return false
 	}
 
