@@ -382,3 +382,64 @@ func TestProcessMessage_BodyOptionsReachTheLogRecords(t *testing.T) {
 	require.True(t, ok, "include_log_record_original should reach the emitted records")
 	require.Equal(t, lines[0], original.Str())
 }
+
+// TestProcessMessage_NDJSONIsReadOnce asserts an NDJSON object is fetched a single time.
+// Before NDJSON was recognized, the JSON parser failed with ErrNotArrayOrKnownObject and
+// the worker re-opened the object to line-parse it, so every such object was read twice.
+func TestProcessMessage_NDJSONIsReadOnce(t *testing.T) {
+	const ndjson = `{"host":"a","msg":"first"}
+{"host":"b","msg":"second"}
+{"host":"c","msg":"third"}
+`
+
+	mockSQS := &mocks.MockSQSClient{}
+	mockS3 := &mocks.MockS3Client{}
+	mockClient := &mocks.MockClient{}
+	mockClient.EXPECT().SQS().Return(mockSQS)
+	mockClient.EXPECT().S3().Return(mockS3)
+
+	var opens int
+	var mu sync.Mutex
+	mockS3.EXPECT().GetObject(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(_ context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+			mu.Lock()
+			opens++
+			mu.Unlock()
+			return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader(ndjson))}, nil
+		})
+	mockSQS.EXPECT().DeleteMessage(mock.Anything, mock.Anything).Return(&sqs.DeleteMessageOutput{}, nil)
+	mockSQS.EXPECT().ChangeMessageVisibility(mock.Anything, mock.Anything).Return(&sqs.ChangeMessageVisibilityOutput{}, nil)
+
+	set := componenttest.NewNopTelemetrySettings()
+	tb, err := metadata.NewTelemetryBuilder(set)
+	require.NoError(t, err)
+
+	params := receivertest.NewNopSettings(metadata.Type)
+	obsrecv, err := receiverhelper.NewObsReport(receiverhelper.ObsReportSettings{
+		ReceiverID:             params.ID,
+		Transport:              "http",
+		ReceiverCreateSettings: params,
+	})
+	require.NoError(t, err)
+
+	sink := new(consumertest.LogsSink)
+	w := worker.New(set, sink, mockClient, obsrecv, 4096, 1000,
+		300*time.Second, 300*time.Second, 6*time.Hour, worker.WithTelemetryBuilder(tb))
+	w.SetOffsetStorage(newMemStorage())
+
+	msg := types.Message{
+		Body:          aws.String(cancelTestEvent),
+		MessageId:     aws.String("ndjson"),
+		ReceiptHandle: aws.String("receipt-handle"),
+	}
+	done := make(chan struct{})
+	go w.ProcessMessage(context.Background(), msg, "myqueue", func() { close(done) })
+	<-done
+
+	require.Equal(t, 1, opens, "an NDJSON object should be fetched once, not re-read")
+	require.Equal(t, 3, sink.LogRecordCount())
+
+	lr := sink.AllLogs()[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+	require.Equal(t, map[string]any{"host": "a", "msg": "first"}, lr.Body().AsRaw(),
+		"NDJSON records are parsed rather than emitted as text")
+}

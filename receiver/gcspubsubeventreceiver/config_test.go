@@ -109,6 +109,9 @@ func TestConfigValidate(t *testing.T) {
 		desc        string
 		cfgMod      func(*gcspubsubeventreceiver.Config)
 		expectedErr string
+		// contains matches expectedErr as a substring instead of exactly, for the regex
+		// validation errors whose suffix is the standard library's parse message.
+		contains bool
 	}{
 		{
 			desc: "Valid config",
@@ -173,7 +176,16 @@ func TestConfigValidate(t *testing.T) {
 				cfg.SubscriptionID = "test-subscription"
 				cfg.MaxLogSize = 0
 			},
-			expectedErr: "'max_log_size' must be greater than 0",
+			expectedErr: "'max_log_size' must be at least 4096",
+		},
+		{
+			desc: "max log size one below the detection window is rejected",
+			cfgMod: func(cfg *gcspubsubeventreceiver.Config) {
+				cfg.ProjectID = "test-project"
+				cfg.SubscriptionID = "test-subscription"
+				cfg.MaxLogSize = 4095
+			},
+			expectedErr: "'max_log_size' must be at least 4096",
 		},
 		{
 			desc: "Invalid max logs emitted",
@@ -192,6 +204,7 @@ func TestConfigValidate(t *testing.T) {
 				cfg.BucketNameFilter = "[invalid"
 			},
 			expectedErr: "'bucket_name_filter' \"[invalid\" is invalid:",
+			contains:    true,
 		},
 		{
 			desc: "Invalid object key filter regex",
@@ -201,6 +214,7 @@ func TestConfigValidate(t *testing.T) {
 				cfg.ObjectKeyFilter = "[invalid"
 			},
 			expectedErr: "'object_key_filter' \"[invalid\" is invalid:",
+			contains:    true,
 		},
 		{
 			desc: "Valid config with filters",
@@ -222,7 +236,11 @@ func TestConfigValidate(t *testing.T) {
 			err := cfg.Validate()
 			if tc.expectedErr != "" {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.expectedErr)
+				if tc.contains {
+					assert.Contains(t, err.Error(), tc.expectedErr)
+				} else {
+					assert.EqualError(t, err, tc.expectedErr)
+				}
 			} else {
 				assert.NoError(t, err)
 			}

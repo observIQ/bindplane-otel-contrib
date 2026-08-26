@@ -29,7 +29,7 @@ import (
 func newJSONParserForBody(t *testing.T, opts BodyOptions) LogParser {
 	t.Helper()
 	reader := NewBufferedReader(strings.NewReader("[]"), 4096)
-	return NewJSONParser(reader, opts)
+	return NewJSONParser(reader, nil, opts)
 }
 
 func TestJSONAppendLogBody_RejectsForeignRecordType(t *testing.T) {

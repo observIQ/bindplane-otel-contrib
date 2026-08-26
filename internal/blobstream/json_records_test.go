@@ -93,28 +93,51 @@ func TestJSONRecords_ReadsSupportedLayouts(t *testing.T) {
 	}
 }
 
-// TestJSONRecords_RejectsUnusableLayouts covers the shapes the parser refuses. Each
-// returns ErrNotArrayOrKnownObject, which the worker answers with a line-parse retry.
-func TestJSONRecords_RejectsUnusableLayouts(t *testing.T) {
+// TestJSONRecords_ReadsSingleValueLayouts covers the shapes the "Records" search alone
+// rejected. Each is a complete JSON value, so the value-sequence path reads it as one
+// record instead of sending it to the line parser.
+func TestJSONRecords_ReadsSingleValueLayouts(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
 		name string
 		body string
+		want []any
 	}{
-		{name: "empty object", body: `{}`},
-		{name: "object with no records key", body: `{"host":"a","msg":"first"}`},
-		{name: "records holding a string", body: `{"Records":"not an array"}`},
-		{name: "records holding an object", body: `{"Records":{"host":"a"}}`},
-		{name: "records holding a number", body: `{"Records":7}`},
+		{
+			name: "empty object",
+			body: `{}`,
+			want: []any{map[string]any{}},
+		},
+		{
+			name: "object with no records key",
+			body: `{"host":"a","msg":"first"}`,
+			want: []any{map[string]any{"host": "a", "msg": "first"}},
+		},
+		{
+			name: "records holding a string",
+			body: `{"Records":"not an array"}`,
+			want: []any{map[string]any{"Records": "not an array"}},
+		},
+		{
+			name: "records holding an object",
+			body: `{"Records":{"host":"a"}}`,
+			want: []any{map[string]any{"Records": map[string]any{"host": "a"}}},
+		},
+		{
+			name: "records holding a number",
+			body: `{"Records":7}`,
+			want: []any{map[string]any{"Records": float64(7)}},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := driveJSON(t, tc.body)
-			require.ErrorIs(t, err, ErrNotArrayOrKnownObject)
+			bodies, err := driveJSON(t, tc.body)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, bodies)
 		})
 	}
 }
@@ -211,7 +234,7 @@ func TestJSONRecords_ReportsAFailedFirstRead(t *testing.T) {
 		BufferedReader: NewBufferedReader(strings.NewReader(""), 4096),
 		header:         []byte(`[{"host":"a"}]`),
 		readErr:        readErr,
-	}, BodyOptions{})
+	}, nil, BodyOptions{})
 
 	_, err := parser.Parse(context.Background(), 0)
 	require.ErrorIs(t, err, readErr)
@@ -228,7 +251,7 @@ func TestJSONRecords_RejectsNonContainerDocuments(t *testing.T) {
 		t.Run(body, func(t *testing.T) {
 			t.Parallel()
 
-			parser := NewJSONParser(NewBufferedReader(strings.NewReader(body), 4096), BodyOptions{})
+			parser := NewJSONParser(NewBufferedReader(strings.NewReader(body), 4096), nil, BodyOptions{})
 			_, err := parser.Parse(context.Background(), 0)
 			require.ErrorIs(t, err, ErrNotArrayOrKnownObject)
 		})

@@ -55,7 +55,14 @@ type bufferedReader struct {
 	raw *countingReader
 	// expectedSize is the object's known raw size (Content-Length), or 0 when unknown.
 	expectedSize int64
+	// bufSize is the read buffer size, which equals the configured max_log_size. Parsers
+	// use it to bound a single record the way max_log_size bounds a single line.
+	bufSize int
 }
+
+// maxRecordBytes reports the configured max_log_size, so a parser can bound a single
+// record to the same limit that bounds a single line.
+func (r *bufferedReader) maxRecordBytes() int64 { return int64(r.bufSize) }
 
 // NewBufferedReader returns a BufferedReader that wraps the given reader and buffers the
 // reads. The buffer size is the size of the buffer to use for the reader. It will be the
@@ -67,6 +74,7 @@ func NewBufferedReader(reader io.Reader, bufferSize int) BufferedReader {
 		countingReader: r,
 		reader:         bufio.NewReaderSize(r, bufferSize),
 		raw:            r,
+		bufSize:        bufferSize,
 	}
 }
 
@@ -80,6 +88,7 @@ func newBufferedReaderWithRaw(reader io.Reader, bufferSize int, raw *countingRea
 		reader:         bufio.NewReaderSize(r, bufferSize),
 		raw:            raw,
 		expectedSize:   expectedSize,
+		bufSize:        bufferSize,
 	}
 }
 

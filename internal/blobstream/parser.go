@@ -71,7 +71,7 @@ func newParser(stream LogStream, reader BufferedReader) (parser LogParser, err e
 	// gate below still rejects binary, so an image goes to the DLQ rather than emitting
 	// as garbled lines.
 	if isJSON(stream, reader) {
-		return NewJSONParser(reader, opts), nil
+		return NewJSONParser(reader, stream.Logger, opts), nil
 	}
 
 	// Terminal: the content is neither Avro nor JSON.

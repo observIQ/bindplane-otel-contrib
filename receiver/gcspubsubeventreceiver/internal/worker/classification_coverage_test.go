@@ -109,14 +109,21 @@ func newGCSConsumeWorker(t *testing.T, client *storage.Client, store storageclie
 // TestProcessRecord_RetriesWithLineParsingWhenNotJSON asserts an object that is valid
 // JSON but not an array or known-records object is retried as line-delimited text rather
 // than failing, so a plain JSON document is still ingested.
+//
+// The input is an oversized non-wrapper object: a small lone object now parses as a value
+// sequence, so the fallback to line parsing is only reached by content that still
+// classifies as ErrNotArrayOrKnownObject. The Debug log asserts the fallback actually ran.
 func TestProcessRecord_RetriesWithLineParsingWhenNotJSON(t *testing.T) {
 	t.Parallel()
 
-	body := []byte(`{"foo":"bar"}`)
+	body := []byte(`{"data":"` + strings.Repeat("x", 5000) + `"}`)
+	core, logs := observer.New(zap.DebugLevel)
 	w := newGCSConsumeWorker(t, gcsClient(t, plainMeta, body, false), nil)
 
-	_, err := w.processRecord(context.Background(), "mybucket", "myobject", zap.NewNop())
-	require.NoError(t, err, "a non-array JSON object falls back to line parsing")
+	_, err := w.processRecord(context.Background(), "mybucket", "myobject", zap.New(core))
+	require.NoError(t, err, "an oversized non-array JSON object falls back to line parsing")
+	require.Positive(t, logs.FilterMessage("parsing as JSON failed, trying again with line parsing").Len(),
+		"the JSON->line fallback must be exercised")
 }
 
 // TestConsumeGCS_NewReaderFailureFailsObject asserts a missing object fails at reader

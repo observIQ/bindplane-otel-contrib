@@ -42,8 +42,14 @@ The receiver detects the file format from the object's content, not from its nam
 | Format | Detection |
 |---|---|
 | Avro OCF | Leading `Obj\x01` magic bytes |
-| JSON | Leading `{` followed by `"`/`}`, or `[` followed by `{`/`]` (object, or array of objects) |
+| JSON | Leading `{` followed by `"`/`}`, or `[` followed by `{`/`]`. Covers arrays, `Records` wrappers, and value sequences including NDJSON |
 | Plain text | Everything else; parsed line by line |
+
+JSON covers three layouts, all read as a stream: a top-level array, an object whose `Records` key holds that array, and a sequence of top-level values one after another. That last shape is what makes newline-delimited JSON work, and it needs no format of its own: to a JSON decoder, NDJSON, a lone object, and concatenated pretty-printed documents are the same thing. A lone object and NDJSON now parse into structured record bodies. Earlier they were read line by line, as string bodies.
+
+Classification looks only at the first 4 KiB. If the document's first JSON value fits in that window, the document is parsed as structured JSON. If the first value is larger than 4 KiB, the document cannot be classified and is read line by line instead. This can result in two files being parsed differently.
+
+Within a value sequence, a text line that is not JSON is emitted as a string body; only corrupted JSON structure (a broken object or array) is dropped as a parse error. The records after a dropped line still parse. A broken element inside a top-level array instead stops parsing there, because the array cannot be realigned. A value sequence that mixes object records with text lines warns once per file.
 
 ### Compression
 
@@ -101,7 +107,7 @@ Content that is not text, Avro, or JSON (for example an image or a PDF) is not p
 | `credentials_file` | string | | `false` | Path to a Google Cloud service account credentials JSON file. If empty, Application Default Credentials (ADC) are used |
 | `workers` | int | `5` | `false` | The number of concurrent workers to process Pub/Sub messages in parallel |
 | `max_extension` | duration | `1h` | `false` | The maximum duration for which the Pub/Sub client will extend the ack deadline for a message being processed |
-| `max_log_size` | int | `1048576` | `false` | The maximum size in bytes for a single log record. Logs exceeding this size will be split into chunks |
+| `max_log_size` | int | `1048576` | `false` | The maximum size in bytes for a single log record. Logs exceeding this size will be split into chunks. The minimum is `4096`, since content detection peeks a fixed 4096-byte window; a smaller value is rejected |
 | `max_logs_emitted` | int | `1000` | `false` | The maximum number of log records to emit in a single batch. Higher values reduce batches but increase memory usage |
 | `raw` | bool | `false` | `false` | Emit each record's original text as the body instead of a parsed structure. Records are split as they would be when parsed — a JSON array or a `{"Records": [...]}` document yields one record per element; NDJSON and plain text yield one record per line. Content detection still runs, so unsupported binary content is routed to the dead-letter queue. Avro OCF holds no original text, so it emits the JSON encoding of each record. |
 | `include_log_record_original` | bool | `false` | `false` | Additionally record each parsed record's original text on the `log.record.original` attribute, leaving the structured body as-is. For a JSON array or `{"Records": [...]}` document this is each element's exact bytes. |
