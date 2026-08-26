@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/config/configretry"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/receiver"
 
@@ -52,7 +53,16 @@ func createDefaultConfig() component.Config {
 		MaxLogSize:                  1024 * 1024,
 		MaxLogsEmitted:              1000,
 		NotificationType:            "s3", // Default to direct S3 events for backward compatibility
+		ErrorBackOff:                defaultErrorBackOff(),
 	}
+}
+
+// defaultErrorBackOff returns the standard collector backoff defaults, disabled, so
+// downstream-error retry backoff is opt-in and behavior is unchanged out of the box.
+func defaultErrorBackOff() configretry.BackOffConfig {
+	b := configretry.NewDefaultBackOffConfig()
+	b.Enabled = false
+	return b
 }
 
 // createLogsReceiver creates a logs receiver

@@ -9,6 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.107.0
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.46.4
 	github.com/aws/smithy-go v1.27.7
+	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/google/go-cmp v0.7.0
 	github.com/linkedin/goavro/v2 v2.15.0
 	github.com/observiq/bindplane-otel-contrib/internal/aws v1.12.0
@@ -16,8 +17,10 @@ require (
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/component v1.64.0
 	go.opentelemetry.io/collector/component/componenttest v0.158.0
+	go.opentelemetry.io/collector/config/configretry v1.64.0
 	go.opentelemetry.io/collector/confmap v1.64.0
 	go.opentelemetry.io/collector/consumer v1.64.0
+	go.opentelemetry.io/collector/consumer/consumererror v0.158.0
 	go.opentelemetry.io/collector/consumer/consumertest v0.158.0
 	go.opentelemetry.io/collector/pdata v1.64.0
 	go.opentelemetry.io/collector/pipeline v1.64.0
@@ -46,6 +49,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.33.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.38.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.45.4 // indirect
+	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -66,7 +70,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/collector/consumer/consumererror v0.158.0 // indirect
 	go.opentelemetry.io/collector/consumer/xconsumer v0.158.0 // indirect
 	go.opentelemetry.io/collector/extension v1.64.0 // indirect
 	go.opentelemetry.io/collector/extension/xextension v0.158.0 // indirect

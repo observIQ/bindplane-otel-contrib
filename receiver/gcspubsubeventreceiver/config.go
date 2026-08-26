@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/config/configretry"
 )
 
 // Config defines the configuration for the GCS Pub/Sub Event receiver.
@@ -75,6 +76,12 @@ type Config struct {
 
 	// ObjectKeyFilter is a regex filter to apply to the GCS object name.
 	ObjectKeyFilter string `mapstructure:"object_key_filter"`
+
+	// ErrorBackOff is the exponential backoff applied when a downstream consumer returns a
+	// (non-permanent) error, so a struggling downstream is retried with backoff rather than
+	// hammered by immediate redelivery. Disabled by default; when disabled the message is
+	// left for the ack deadline to lapse and redeliver, as before.
+	ErrorBackOff configretry.BackOffConfig `mapstructure:"error_backoff"`
 }
 
 // Validate checks if all required fields are present and valid.
@@ -123,6 +130,10 @@ func (c *Config) Validate() error {
 		if err != nil {
 			return fmt.Errorf("'object_key_filter' %q is invalid: %w", c.ObjectKeyFilter, err)
 		}
+	}
+
+	if err := c.ErrorBackOff.Validate(); err != nil {
+		return fmt.Errorf("'error_backoff' is invalid: %w", err)
 	}
 
 	return nil

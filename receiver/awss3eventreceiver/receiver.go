@@ -130,6 +130,7 @@ func newLogsReceiver(params receiver.Settings, cfg *Config, next consumer.Logs, 
 
 				// Set notification type
 				opts = append(opts, worker.WithNotificationType(cfg.NotificationType))
+				opts = append(opts, worker.WithErrorBackOff(cfg.ErrorBackOff))
 				return worker.New(tel, next, client.NewClient(awsConfig), obsrecv, cfg.MaxLogSize, cfg.MaxLogsEmitted, cfg.VisibilityTimeout, cfg.VisibilityExtensionInterval, cfg.MaxVisibilityWindow, opts...)
 			},
 		},

@@ -169,6 +169,7 @@ func (r *logsReceiver) Start(_ context.Context, host component.Host) error {
 			worker.WithObjectKeyFilter(r.objectKeyFilter),
 			worker.WithSubscriberClient(r.subClient),
 			worker.WithMaxExtension(r.cfg.MaxExtension),
+			worker.WithErrorBackOff(r.cfg.ErrorBackOff),
 		)
 		w.SetOffsetStorage(r.offsetStorage)
 		return w
@@ -272,9 +273,11 @@ func (r *logsReceiver) poll(ctx context.Context, deferThis func()) {
 // pullMessages issues a single Pull RPC, deduplicates the batch, and dispatches
 // unique messages to the worker channel. Returns the number of messages dispatched.
 func (r *logsReceiver) pullMessages(ctx context.Context) int {
+	// Workers is validated > 0 and is a small operator-configured count.
+	maxMessages := int32(r.cfg.Workers) // #nosec G115 -- workers is validated > 0 and small
 	resp, err := r.subClient.Pull(ctx, &pubsubpb.PullRequest{
 		Subscription: r.subscriptionPath,
-		MaxMessages:  int32(r.cfg.Workers),
+		MaxMessages:  maxMessages,
 	})
 	if err != nil {
 		// Context cancellation is expected during shutdown.

@@ -45,6 +45,10 @@ func TestLoadConfig(t *testing.T) {
 	cm, err := confmaptest.LoadConf(filepath.Join("testdata", "test_config.yaml"))
 	require.NoError(t, err)
 
+	// The default (disabled) error backoff is present on every loaded config unless the
+	// file overrides it; the testdata does not, so expect the factory default.
+	defaultBackOff := gcspubsubeventreceiver.NewFactory().CreateDefaultConfig().(*gcspubsubeventreceiver.Config).ErrorBackOff
+
 	tests := []struct {
 		id          component.ID
 		expected    component.Config
@@ -66,6 +70,7 @@ func TestLoadConfig(t *testing.T) {
 				DedupTTL:       10 * time.Minute,
 				MaxLogSize:     4096,
 				MaxLogsEmitted: 500,
+				ErrorBackOff:   defaultBackOff,
 			},
 			expectError: false,
 		},

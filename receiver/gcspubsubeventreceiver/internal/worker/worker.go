@@ -26,6 +26,7 @@ import (
 	"cloud.google.com/go/pubsub/apiv1/pubsubpb"
 	"cloud.google.com/go/storage"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/config/configretry"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -73,6 +74,7 @@ type Worker struct {
 	obsrecv          *receiverhelper.ObsReport
 	subClient        *subscriber.SubscriberClient
 	maxExtension     time.Duration
+	errorBackOff     configretry.BackOffConfig
 }
 
 // Option is a functional option for configuring the Worker
@@ -102,6 +104,13 @@ func WithTelemetryBuilder(tb *metadata.TelemetryBuilder) Option {
 		if tb != nil {
 			w.metrics = tb
 		}
+	}
+}
+
+// WithErrorBackOff sets the retry backoff applied when a downstream consume fails.
+func WithErrorBackOff(cfg configretry.BackOffConfig) Option {
+	return func(w *Worker) {
+		w.errorBackOff = cfg
 	}
 }
 
@@ -175,28 +184,28 @@ func (w *Worker) ProcessMessage(ctx context.Context, msg *PullMessage, subscript
 	// Filter for OBJECT_FINALIZE events only
 	if eventType != EventTypeObjectFinalize {
 		logger.Debug("skipping non-OBJECT_FINALIZE event")
-		w.ackMessage(ctx, msg.AckID, subscriptionPath)
+		_ = w.ackMessage(ctx, msg.AckID, subscriptionPath)
 		return false
 	}
 
 	// Validate required attributes
 	if bucketID == "" || objectID == "" {
 		logger.Warn("message missing required attributes (bucketId, objectId)")
-		w.ackMessage(ctx, msg.AckID, subscriptionPath)
+		_ = w.ackMessage(ctx, msg.AckID, subscriptionPath)
 		return false
 	}
 
 	// Apply bucket name filter
 	if w.bucketNameFilter != nil && !w.bucketNameFilter.MatchString(bucketID) {
 		logger.Debug("skipping message due to bucket name filter")
-		w.ackMessage(ctx, msg.AckID, subscriptionPath)
+		_ = w.ackMessage(ctx, msg.AckID, subscriptionPath)
 		return false
 	}
 
 	// Apply object key filter
 	if w.objectKeyFilter != nil && !w.objectKeyFilter.MatchString(objectID) {
 		logger.Debug("skipping message due to object key filter")
-		w.ackMessage(ctx, msg.AckID, subscriptionPath)
+		_ = w.ackMessage(ctx, msg.AckID, subscriptionPath)
 		return false
 	}
 
@@ -211,28 +220,45 @@ func (w *Worker) ProcessMessage(ctx context.Context, msg *PullMessage, subscript
 
 	w.metrics.GcseventObjectsHandled.Add(ctx, 1)
 
-	// Clean up offset storage for the processed object
+	// Ack first, then delete the offset only once the ack succeeds. If the ack fails the
+	// message redelivers, so the offset must remain as the resume point; deleting it
+	// first would reprocess the whole object from the start on that redelivery.
+	if err := w.ackMessage(ctx, msg.AckID, subscriptionPath); err != nil {
+		return false
+	}
+	logger.Debug("message acked")
+
+	// Delete the offset on a detached context. A cancellation would otherwise leave a
+	// stale offset for an acked object.
+	deleteCtx, cancelDelete := cleanupContext(ctx)
 	offsetStorageKey := fmt.Sprintf("%s_%s", OffsetStorageKey, objectID)
-	if err := w.offsetStorage.DeleteStorageData(ctx, offsetStorageKey); err != nil {
+	if err := w.offsetStorage.DeleteStorageData(deleteCtx, offsetStorageKey); err != nil {
 		logger.Error("failed to delete offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey))
 	}
+	cancelDelete()
 
-	w.ackMessage(ctx, msg.AckID, subscriptionPath)
-	logger.Debug("message acked")
 	return true
 }
 
-// ackMessage acknowledges a message so Pub/Sub does not redeliver it.
-func (w *Worker) ackMessage(ctx context.Context, ackID, subscriptionPath string) {
+// ackMessage acknowledges a message so Pub/Sub does not redeliver it. It returns the
+// acknowledge error so the caller can keep the offset when the ack does not land.
+func (w *Worker) ackMessage(ctx context.Context, ackID, subscriptionPath string) error {
 	if w.subClient == nil {
-		return
+		return nil
 	}
-	if err := w.subClient.Acknowledge(ctx, &pubsubpb.AcknowledgeRequest{
+	// Ack on a detached context. A cancellation must not leave a processed object in
+	// the subscription.
+	ackCtx, cancel := cleanupContext(ctx)
+	defer cancel()
+
+	if err := w.subClient.Acknowledge(ackCtx, &pubsubpb.AcknowledgeRequest{
 		Subscription: subscriptionPath,
 		AckIds:       []string{ackID},
 	}); err != nil {
 		w.logger.Error("failed to ack message", zap.Error(err), zap.String("ack_id", ackID))
+		return err
 	}
+	return nil
 }
 
 // nackMessage makes a message immediately available for redelivery by setting
@@ -241,7 +267,12 @@ func (w *Worker) nackMessage(ctx context.Context, ackID, subscriptionPath string
 	if w.subClient == nil {
 		return
 	}
-	if err := w.subClient.ModifyAckDeadline(ctx, &pubsubpb.ModifyAckDeadlineRequest{
+	// Nack on a detached context. The message then redelivers without waiting for the
+	// full ack deadline.
+	nackCtx, cancel := cleanupContext(ctx)
+	defer cancel()
+
+	if err := w.subClient.ModifyAckDeadline(nackCtx, &pubsubpb.ModifyAckDeadlineRequest{
 		Subscription:       subscriptionPath,
 		AckIds:             []string{ackID},
 		AckDeadlineSeconds: 0,
@@ -375,8 +406,16 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		return fmt.Errorf("parse logs: %w", err)
 	}
 
+	// parseErr records a cancellation that stopped the read. The records already read
+	// are delivered below. The error is returned, so the message nacks.
+	var parseErr error
+
 	for log, err := range logs {
 		if err != nil {
+			if isCancellation(err) {
+				parseErr = err
+				break
+			}
 			// A DLQ-condition error (for example an archive-bomb limit) is fatal for
 			// the whole object: fail so the message is routed to the DLQ rather than
 			// silently skipped.
@@ -411,23 +450,15 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		}
 
 		if ld.LogRecordCount() >= w.maxLogsEmitted {
-			obsCtx := w.obsrecv.StartLogsOp(ctx)
-			if err := w.nextConsumer.ConsumeLogs(ctx, ld); err != nil {
-				w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), err)
-				recordLogger.Error("consume logs", zap.Error(err), zap.Int("batches_consumed_count", batchesConsumedCount))
-				return fmt.Errorf("consume logs: %w", err)
+			if err := w.flush(ctx, ld, batchesConsumedCount, recordLogger); err != nil {
+				return err
 			}
-			w.metrics.GcseventBatchSize.Record(ctx, int64(ld.LogRecordCount()))
-			w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), nil)
 
 			batchesConsumedCount++
 			recordLogger.Debug("Reached max logs for single batch, starting new batch", zap.Int("batches_consumed_count", batchesConsumedCount))
 
 			// Save the offset to storage
-			pos := producer.position()
-			if err := w.offsetStorage.SaveStorageData(ctx, offsetStorageKey, &pos); err != nil {
-				recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int("entry_index", pos.EntryIndex), zap.Int64("offset", pos.Offset))
-			}
+			w.checkpoint(ctx, offsetStorageKey, producer.position(), recordLogger)
 
 			ld = plog.NewLogs()
 			rls = ld.ResourceLogs().AppendEmpty()
@@ -437,27 +468,58 @@ func (w *Worker) consumeLogsFromGCSObject(ctx context.Context, bucket, object st
 		}
 	}
 
-	if ld.LogRecordCount() == 0 {
-		return nil
-	}
-	w.metrics.GcseventBatchSize.Record(ctx, int64(ld.LogRecordCount()))
+	if ld.LogRecordCount() > 0 {
+		if err := w.flush(ctx, ld, batchesConsumedCount, recordLogger); err != nil {
+			return err
+		}
+		if parseErr == nil {
+			recordLogger.Debug("processed GCS object", zap.Int("batches_consumed_count", batchesConsumedCount+1))
+		}
 
-	obsCtx := w.obsrecv.StartLogsOp(ctx)
-	if err := w.nextConsumer.ConsumeLogs(ctx, ld); err != nil {
-		w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), err)
-		recordLogger.Error("consume logs", zap.Error(err), zap.Int("batches_consumed_count", batchesConsumedCount))
-		return fmt.Errorf("consume logs: %w", err)
+		// Save the offset to storage
+		w.checkpoint(ctx, offsetStorageKey, producer.position(), recordLogger)
 	}
-	w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), nil)
-	recordLogger.Debug("processed GCS object", zap.Int("batches_consumed_count", batchesConsumedCount+1))
 
-	// Save the offset to storage
-	pos := producer.position()
-	if err := w.offsetStorage.SaveStorageData(ctx, offsetStorageKey, &pos); err != nil {
-		recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int("entry_index", pos.EntryIndex), zap.Int64("offset", pos.Offset))
+	if parseErr != nil {
+		// The read stopped partway. Everything read is delivered and checkpointed
+		// above, so redelivery resumes at the first unread record.
+		return fmt.Errorf("read object: %w", parseErr)
 	}
 
 	return nil
+}
+
+// flush sends a batch to the next consumer on a drain context. Records already read
+// are delivered during wind-down.
+//
+// The line parser drops a truncated record, so a batch always ends on a record
+// boundary and the checkpoint stays accurate. Reading stops at the next failed refill.
+func (w *Worker) flush(ctx context.Context, ld plog.Logs, batchesConsumedCount int, recordLogger *zap.Logger) error {
+	flushCtx, cancel := drainContext(ctx)
+	defer cancel()
+
+	obsCtx := w.obsrecv.StartLogsOp(flushCtx)
+	err := consumeWithRetry(flushCtx, w.errorBackOff, recordLogger, func() error {
+		return w.nextConsumer.ConsumeLogs(flushCtx, ld)
+	})
+	w.obsrecv.EndLogsOp(obsCtx, metadata.Type.String(), ld.LogRecordCount(), err)
+	if err != nil {
+		recordLogger.Error("consume logs", zap.Error(err), zap.Int("batches_consumed_count", batchesConsumedCount))
+		return fmt.Errorf("consume logs: %w", err)
+	}
+	w.metrics.GcseventBatchSize.Record(flushCtx, int64(ld.LogRecordCount()))
+	return nil
+}
+
+// checkpoint saves the parse position on a drain context. A late cancellation then
+// cannot lose the offset.
+func (w *Worker) checkpoint(ctx context.Context, offsetStorageKey string, pos Offset, recordLogger *zap.Logger) {
+	saveCtx, cancel := drainContext(ctx)
+	defer cancel()
+
+	if err := w.offsetStorage.SaveStorageData(saveCtx, offsetStorageKey, &pos); err != nil {
+		recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int("entry_index", pos.EntryIndex), zap.Int64("offset", pos.Offset))
+	}
 }
 
 // dlqErrorKind categorizes an error into a DLQ condition bucket.
@@ -473,7 +535,9 @@ const (
 // dlqConditionKind returns the DLQ error kind for the given error, or
 // dlqErrorKindNone if the error does not trigger a DLQ condition.
 func dlqConditionKind(err error) dlqErrorKind {
-	if err == nil {
+	// Cancellation is never a DLQ condition. A config push must not send good data to
+	// the dead-letter queue.
+	if err == nil || isCancellation(err) {
 		return dlqErrorKindNone
 	}
 	// GCS returns storage.ErrObjectNotExist when the object is not found.
@@ -540,13 +604,27 @@ func (w *Worker) recordDLQMetrics(ctx context.Context, err error) {
 // redelivery / DLQ processing. For transient errors the message is also nacked
 // so Pub/Sub can redeliver it after the ack deadline expires.
 func (w *Worker) handleProcessingError(ctx context.Context, ackID, subscriptionPath string, err error, logger *zap.Logger) {
+	// Only a genuine shutdown/config-push counts as a cancellation: our own context is
+	// cancelled, or the error is context.Canceled. A bare DeadlineExceeded with a live
+	// context is a downstream timeout (backpressure), not a shutdown, so it must fall
+	// through to the retry path below rather than nacking for immediate redelivery.
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		// A config push or a shutdown cancelled the context. Nack the message, so it
+		// redelivers at once and resumes from the checkpoint. This is not a failure.
+		logger.Info("processing cancelled, nacking message for redelivery", zap.Error(err))
+		w.nackMessage(ctx, ackID, subscriptionPath)
+		return
+	}
 	if isDLQConditionError(err) {
 		logger.Error("DLQ condition triggered, nacking message for redelivery/DLQ processing", zap.Error(err))
 		w.recordDLQMetrics(ctx, err)
 		w.nackMessage(ctx, ackID, subscriptionPath)
 		return
 	}
-	logger.Error("error processing record, nacking message for retry", zap.Error(err))
+	// A transient failure such as a broken source stream. Preserve the message and let
+	// the ack deadline lapse, so redelivery backs off instead of retrying at once. This
+	// matches the awss3 receiver's visibility-timeout behavior. The cancellation and DLQ
+	// conditions above still nack for immediate redelivery.
+	logger.Error("error processing record, preserving message for retry", zap.Error(err))
 	w.metrics.GcseventFailures.Add(ctx, 1)
-	w.nackMessage(ctx, ackID, subscriptionPath)
 }
