@@ -60,3 +60,11 @@ The number of S3 objects processed by the receiver
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
 | {objects} | Sum | Int | true | Alpha |
+
+### otelcol_s3event.parse_errors
+
+The number of individual log records skipped due to parse errors within an S3 object
+
+| Unit | Metric Type | Value Type | Monotonic | Stability |
+| ---- | ----------- | ---------- | --------- | --------- |
+| {errors} | Sum | Int | true | Alpha |

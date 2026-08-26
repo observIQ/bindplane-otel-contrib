@@ -41,6 +41,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/observiq/bindplane-otel-contrib/internal/aws/client"
+	"github.com/observiq/bindplane-otel-contrib/internal/blobstream"
 	"github.com/observiq/bindplane-otel-contrib/internal/storageclient"
 	"github.com/observiq/bindplane-otel-contrib/receiver/awss3eventreceiver/internal/constants"
 	"github.com/observiq/bindplane-otel-contrib/receiver/awss3eventreceiver/internal/metadata"
@@ -79,7 +80,7 @@ func parseS3Event(messageBody string) (*events.S3Event, error) {
 func isDLQConditionError(err error) error {
 	// Cancellation is never a DLQ condition. The check is explicit because the
 	// classifiers below match on the error text.
-	if err == nil || isCancellation(err) {
+	if err == nil || blobstream.IsCancellation(err) {
 		return nil
 	}
 	if isAccessDeniedError(err) {
@@ -118,9 +119,7 @@ func isNoSuchKeyError(err error) bool {
 
 // isUnsupportedFileTypeError checks if the error indicates an unsupported file type
 func isUnsupportedFileTypeError(err error) bool {
-	// A truncated object is unusable for the same reason: reading it again returns
-	// the same bytes.
-	return errors.Is(err, ErrNotArrayOrKnownObject) || IsTruncatedObject(err)
+	return blobstream.IsUnsupportedContent(err)
 }
 
 // DLQError represents an error that should trigger DLQ behavior
@@ -142,11 +141,16 @@ func (e *DLQError) Unwrap() error {
 // It also handles deleting messages from the SQS queue after they have been processed.
 // It is designed to be used in a worker pool.
 type Worker struct {
-	logger                      *zap.Logger
-	tel                         component.TelemetrySettings
-	client                      client.Client
-	nextConsumer                consumer.Logs
-	offsetStorage               storageclient.StorageClient
+	logger        *zap.Logger
+	tel           component.TelemetrySettings
+	client        client.Client
+	nextConsumer  consumer.Logs
+	offsetStorage storageclient.StorageClient
+
+	// newRecordProducer builds the record producer for an object's decompressed stream.
+	// It defaults to blobstream.NewRecordProducer; tests override it to drive the
+	// per-record error-handling branches without crafting exotic object content.
+	newRecordProducer           func(context.Context, blobstream.LogStream, blobstream.BufferedReader, blobstream.ParseErrorFunc) (blobstream.RecordProducer, error)
 	maxLogSize                  int
 	maxLogsEmitted              int
 	visibilityTimeout           time.Duration
@@ -337,7 +341,7 @@ func (w *Worker) ProcessMessage(ctx context.Context, msg types.Message, queueURL
 func (w *Worker) processRecord(ctx context.Context, record events.S3EventRecord, decodedKey string, recordLogger *zap.Logger) error {
 	err := w.consumeLogsFromS3Object(ctx, record, decodedKey, true, recordLogger)
 	if err != nil {
-		if errors.Is(err, ErrNotArrayOrKnownObject) {
+		if errors.Is(err, blobstream.ErrNotArrayOrKnownObject) {
 			// try again without attempting to parse as JSON
 			recordLogger.Debug("parsing as JSON failed, trying again with line parsing")
 			return w.consumeLogsFromS3Object(ctx, record, decodedKey, false, recordLogger)
@@ -367,9 +371,12 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 	}
 	defer resp.Body.Close()
 
+	// version scopes the offset to this object; a replacement object has a different ETag.
+	version := aws.ToString(resp.ETag)
+
 	now := time.Now()
 
-	stream := LogStream{
+	stream := blobstream.LogStream{
 		Name:            decodedKey,
 		ContentEncoding: resp.ContentEncoding,
 		ContentType:     resp.ContentType,
@@ -383,17 +390,31 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 	offsetStorageKey := fmt.Sprintf("%s_%s", OffsetStorageKey, decodedKey)
 
 	// Load the offset from storage
-	offset := NewOffset(0)
+	offset := blobstream.NewOffset(0)
 	err = w.offsetStorage.LoadStorageData(ctx, offsetStorageKey, offset)
 	if err != nil {
 		return fmt.Errorf("load offset: %w", err)
 	}
-	startOffset := offset.Offset
+	startOffset := *offset
 
-	if startOffset == 0 {
+	// Discard an offset we can't confirm belongs to this object — version mismatch, or an
+	// empty version (a backend that omits ETag, where a legacy empty offset would win).
+	// Re-reading from the start is tolerated; skipping the new object's head is not.
+	if version == "" || startOffset.Version != version {
+		if startOffset.Offset != 0 || startOffset.EntryIndex != 0 {
+			recordLogger.Info("stored offset was written for a different object version; restarting from the beginning",
+				zap.String("offset_storage_key", offsetStorageKey),
+				zap.String("stored_version", startOffset.Version),
+				zap.String("object_version", version))
+		}
+		startOffset = *blobstream.NewOffset(0)
+	}
+
+	if startOffset.Offset == 0 && startOffset.EntryIndex == 0 {
 		recordLogger.Debug("no offset found, starting from beginning", zap.String("offset_storage_key", offsetStorageKey))
 	} else {
-		recordLogger.Debug("loaded offset", zap.String("offset_storage_key", offsetStorageKey), zap.Int64("offset", startOffset))
+		recordLogger.Debug("loaded offset", zap.String("offset_storage_key", offsetStorageKey),
+			zap.Int("entry_index", startOffset.EntryIndex), zap.Int64("offset", startOffset.Offset))
 	}
 
 	reader, err := stream.BufferedReader(ctx)
@@ -401,10 +422,16 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 		return fmt.Errorf("get stream reader: %w", err)
 	}
 
-	parser, err := newParser(ctx, stream, reader)
+	newProducer := blobstream.NewRecordProducer
+	if w.newRecordProducer != nil {
+		newProducer = w.newRecordProducer
+	}
+	producer, err := newProducer(ctx, stream, reader, w.recordParseError)
 	if err != nil {
 		return fmt.Errorf("create parser: %w", err)
 	}
+	// Release a materialized archive's temp file even if the iterator is not driven below.
+	defer blobstream.CloseProducer(producer)
 
 	ld := plog.NewLogs()
 	rls := ld.ResourceLogs().AppendEmpty()
@@ -415,7 +442,7 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 	batchesConsumedCount := 0
 
 	// Parse logs into a sequence of log records
-	logs, err := parser.Parse(ctx, startOffset)
+	logs, err := producer.Records(ctx, startOffset)
 	if err != nil {
 		return fmt.Errorf("parse logs: %w", err)
 	}
@@ -428,17 +455,27 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 		if err != nil {
 			// Cancellation is checked first. A cancelled read is also a broken
 			// stream, and shutdown has its own wind-down path.
-			if isCancellation(err) {
+			if blobstream.IsCancellation(err) {
 				parseErr = err
 				break
+			}
+			// A DLQ-condition error (for example an archive-bomb limit) is fatal for
+			// the whole object: fail so the message is routed to the DLQ rather than
+			// silently skipped.
+			if blobstream.IsUnsupportedContent(err) {
+				return err
 			}
 			// A broken stream is fatal for the whole object. Acking here would drop
 			// every record after the break with no way to recover them, so fail and
 			// let the message redeliver and resume from the saved offset.
-			if IsStreamRead(err) {
+			if blobstream.IsStreamRead(err) {
 				return err
 			}
+			// Skipping the individual record rather than nacking the whole message, since
+			// retrying a malformed record would produce the same error. The remaining
+			// records in the object can still be ingested successfully.
 			recordLogger.Error("parse log", zap.Error(err))
+			w.recordParseError(ctx)
 			continue
 		}
 
@@ -447,9 +484,11 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 		lr.SetObservedTimestamp(pcommon.NewTimestampFromTime(now))
 		lr.SetTimestamp(pcommon.NewTimestampFromTime(record.EventTime))
 
-		err := parser.AppendLogBody(ctx, lr, log)
+		err := producer.AppendLogBody(ctx, lr, log)
 		if err != nil {
+			// Same rationale as above: skip the record rather than failing the whole object.
 			recordLogger.Error("append log body", zap.Error(err))
+			w.recordParseError(ctx)
 			continue
 		}
 
@@ -462,7 +501,7 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 			recordLogger.Debug("Reached max logs for single batch, starting new batch", zap.Int("batches_consumed_count", batchesConsumedCount))
 
 			// Save the offset to storage
-			w.checkpoint(ctx, offsetStorageKey, parser.Offset(), recordLogger)
+			w.checkpoint(ctx, offsetStorageKey, version, producer.Position(), recordLogger)
 
 			ld = plog.NewLogs()
 			rls = ld.ResourceLogs().AppendEmpty()
@@ -481,7 +520,7 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 		}
 
 		// Save the offset to storage
-		w.checkpoint(ctx, offsetStorageKey, parser.Offset(), recordLogger)
+		w.checkpoint(ctx, offsetStorageKey, version, producer.Position(), recordLogger)
 	}
 
 	if parseErr != nil {
@@ -499,7 +538,7 @@ func (w *Worker) consumeLogsFromS3Object(ctx context.Context, record events.S3Ev
 // The line parser drops a truncated record, so a batch always ends on a record
 // boundary and the checkpoint stays accurate. Reading stops at the next failed refill.
 func (w *Worker) flush(ctx context.Context, ld plog.Logs, batchesConsumedCount int, recordLogger *zap.Logger) error {
-	flushCtx, cancel := drainContext(ctx)
+	flushCtx, cancel := blobstream.DrainContext(ctx)
 	defer cancel()
 
 	obsCtx := w.obsrecv.StartLogsOp(flushCtx)
@@ -515,21 +554,35 @@ func (w *Worker) flush(ctx context.Context, ld plog.Logs, batchesConsumedCount i
 	return nil
 }
 
-// checkpoint saves the parse position on a drain context. A late cancellation then
-// cannot lose the offset.
-func (w *Worker) checkpoint(ctx context.Context, offsetStorageKey string, offset int64, recordLogger *zap.Logger) {
-	saveCtx, cancel := drainContext(ctx)
+// checkpoint saves the parse position on a fully detached context, so a cancellation
+// landing while the save is in flight cannot abort it and strand the offset. The trade
+// is that a live shutdown waits for the save. Delivery flushes stay on the drain
+// context; only the offset save is unconditionally detached.
+func (w *Worker) checkpoint(ctx context.Context, offsetStorageKey, version string, pos blobstream.Offset, recordLogger *zap.Logger) {
+	saveCtx, cancel := blobstream.CleanupContext(ctx)
 	defer cancel()
 
-	if err := w.offsetStorage.SaveStorageData(saveCtx, offsetStorageKey, NewOffset(offset)); err != nil {
-		recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int64("offset", offset))
+	// Stamp the object version so a redelivery of this same object resumes here, while a
+	// different object reusing the name is detected on load and read from the start.
+	pos.Version = version
+	if err := w.offsetStorage.SaveStorageData(saveCtx, offsetStorageKey, &pos); err != nil {
+		recordLogger.Error("Failed to save offset", zap.Error(err), zap.String("offset_storage_key", offsetStorageKey), zap.Int("entry_index", pos.EntryIndex), zap.Int64("offset", pos.Offset))
+	}
+}
+
+// recordParseError counts a record or archive entry that could not be parsed and was
+// skipped. blobstream calls it so the shared parser stack can report into this
+// receiver's own metric.
+func (w *Worker) recordParseError(ctx context.Context) {
+	if w.metrics != nil {
+		w.metrics.S3eventParseErrors.Add(ctx, 1)
 	}
 }
 
 func (w *Worker) deleteMessage(ctx context.Context, msg types.Message, queueURL string, keys []string, recordLogger *zap.Logger) {
 	// Ack on a detached context. A cancellation must not leave a consumed object in
 	// the queue.
-	deleteCtx, cancel := cleanupContext(ctx)
+	deleteCtx, cancel := blobstream.CleanupContext(ctx)
 	defer cancel()
 
 	deleteParams := &sqs.DeleteMessageInput{
@@ -733,7 +786,7 @@ func (w *Worker) handleProcessingError(ctx context.Context, msg types.Message, q
 func (w *Worker) resetVisibilityTimeout(ctx context.Context, msg types.Message, queueURL string, logger *zap.Logger) error {
 	// Nack on a detached context. The message then redelivers without waiting for the
 	// full visibility timeout.
-	nackCtx, cancel := cleanupContext(ctx)
+	nackCtx, cancel := blobstream.CleanupContext(ctx)
 	defer cancel()
 
 	changeParams := &sqs.ChangeMessageVisibilityInput{
