@@ -164,9 +164,9 @@ func TestPriorityOfMatchers(t *testing.T) {
 
 	config := createDefaultConfig().(*Config)
 	config.Matchers = []MatcherConfig{
-		{Name: "priority-10", Priority: 10, Value: `test`, Method: MatcherTypeStartsWith},
-		{Name: "priority-1", Priority: 1, Value: `test`, Method: MatcherTypeStartsWith},
-		{Name: "priority-2", Priority: 2, Value: `test`, Method: MatcherTypeStartsWith},
+		{Name: "priority-10", Priority: 10, Value: `{"a"`, Method: MatcherTypeStartsWith},
+		{Name: "priority-1", Priority: 1, Value: `{"a"`, Method: MatcherTypeStartsWith},
+		{Name: "priority-2", Priority: 2, Value: `{"a"`, Method: MatcherTypeStartsWith},
 	}
 	p, err := newLogTypeDetectionProcessor(config, tb)
 	require.NoError(t, err)
@@ -177,9 +177,38 @@ func TestPriorityOfMatchers(t *testing.T) {
 	records := out.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
 	require.Len(t, config.Matchers, len(p.matchers))
 
-	for i := 0; i < records.Len(); i++ {
-		if record, ok := records.At(i).Attributes().Get(defaultLogTypeField); ok {
-			require.Equal(t, "priority-1", record.AsString())
-		}
+	require.Equal(t, 1, records.Len())
+	logType, ok := records.At(0).Attributes().Get(defaultLogTypeField)
+	require.True(t, ok)
+	require.Equal(t, "priority-1", logType.AsString())
+}
+
+func TestUnknownLogType(t *testing.T) {
+	tel := componenttest.NewTelemetry()
+	t.Cleanup(func() { require.NoError(t, tel.Shutdown(context.Background())) })
+
+	tb, err := metadata.NewTelemetryBuilder(metadatatest.NewSettings(tel).TelemetrySettings)
+	require.NoError(t, err)
+
+	cfg := createDefaultConfig().(*Config)
+	cfg.Matchers = []MatcherConfig{{Name: "json_a", Method: MatcherTypeStartsWith, Value: `{"a"`}}
+	p, err := newLogTypeDetectionProcessor(cfg, tb)
+	require.NoError(t, err)
+
+	out, err := p.processLogs(context.Background(), logsFromBodies(`{"a":1}`, `{"z":1}`, "plain text line"))
+	require.NoError(t, err)
+
+	records := out.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
+	for i, want := range []string{"json_a", unknownLogType, unknownLogType} {
+		got, ok := records.At(i).Attributes().Get(defaultLogTypeField)
+		require.True(t, ok, "record %d has no log type", i)
+		require.Equal(t, want, got.Str())
 	}
+
+	metadatatest.AssertEqualLogTypeDetectionUnknown(t, tel,
+		[]metricdata.DataPoint[int64]{{Value: 2}},
+		metricdatatest.IgnoreTimestamp())
+	metadatatest.AssertEqualLogTypeDetectionMatches(t, tel,
+		[]metricdata.DataPoint[int64]{{Value: 1}},
+		metricdatatest.IgnoreTimestamp())
 }

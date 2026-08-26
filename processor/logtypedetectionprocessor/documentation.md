@@ -22,6 +22,14 @@ Number of log type detections run, one per newly seen log structure.
 | ---- | ----------- | ---------- | --------- | --------- |
 | {detection} | Sum | Int | true | Alpha |
 
+### otelcol_log_type_detection_unknown
+
+Number of logs with no detected log type.
+
+| Unit | Metric Type | Value Type | Monotonic | Stability |
+| ---- | ----------- | ---------- | --------- | --------- |
+| {log} | Sum | Int | true | Alpha |
+
 ### otelcol_log_types
 
 The number of hashes with a detected log type.

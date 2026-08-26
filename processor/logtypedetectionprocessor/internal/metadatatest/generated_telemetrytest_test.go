@@ -21,11 +21,15 @@ func TestSetupTelemetry(t *testing.T) {
 	defer tb.Shutdown()
 	tb.LogTypeDetectionMatches.Add(context.Background(), 1)
 	tb.LogTypeDetectionRuns.Add(context.Background(), 1)
+	tb.LogTypeDetectionUnknown.Add(context.Background(), 1)
 	tb.LogTypes.Add(context.Background(), 1)
 	AssertEqualLogTypeDetectionMatches(t, testTel,
 		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
 	AssertEqualLogTypeDetectionRuns(t, testTel,
+		[]metricdata.DataPoint[int64]{{Value: 1}},
+		metricdatatest.IgnoreTimestamp())
+	AssertEqualLogTypeDetectionUnknown(t, testTel,
 		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
 	AssertEqualLogTypes(t, testTel,

@@ -53,6 +53,22 @@ func AssertEqualLogTypeDetectionRuns(t *testing.T, tt *componenttest.Telemetry, 
 	metricdatatest.AssertEqual(t, want, got, opts...)
 }
 
+func AssertEqualLogTypeDetectionUnknown(t *testing.T, tt *componenttest.Telemetry, dps []metricdata.DataPoint[int64], opts ...metricdatatest.Option) {
+	want := metricdata.Metrics{
+		Name:        "otelcol_log_type_detection_unknown",
+		Description: "Number of logs with no detected log type. [Alpha]",
+		Unit:        "{log}",
+		Data: metricdata.Sum[int64]{
+			Temporality: metricdata.CumulativeTemporality,
+			IsMonotonic: true,
+			DataPoints:  dps,
+		},
+	}
+	got, err := tt.GetMetric("otelcol_log_type_detection_unknown")
+	require.NoError(t, err)
+	metricdatatest.AssertEqual(t, want, got, opts...)
+}
+
 func AssertEqualLogTypes(t *testing.T, tt *componenttest.Telemetry, dps []metricdata.DataPoint[int64], opts ...metricdatatest.Option) {
 	want := metricdata.Metrics{
 		Name:        "otelcol_log_types",

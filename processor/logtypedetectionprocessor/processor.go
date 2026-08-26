@@ -81,7 +81,9 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 				logRecord := scopeLogs.LogRecords().At(k)
 				body := logRecord.Body().AsString()
 				logFingerprint := fingerprint.HashLog(body)
-				if logFingerprint <= 0 {
+				if logFingerprint == 0 {
+					p.telemetry.LogTypeDetectionUnknown.Add(ctx, 1)
+					logRecord.Attributes().PutStr(p.logTypeField, unknownLogType)
 					continue
 				}
 				if p.fingerprintField != "" {
@@ -106,10 +108,14 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 					}
 					logType = newLogType.(string)
 				}
-				if lt, ok := logType.(string); ok && lt != "" {
+				lt, _ := logType.(string)
+				if lt == "" {
+					lt = unknownLogType
+					p.telemetry.LogTypeDetectionUnknown.Add(ctx, 1)
+				} else {
 					p.telemetry.LogTypeDetectionMatches.Add(ctx, 1)
-					logRecord.Attributes().PutStr(p.logTypeField, lt)
 				}
+				logRecord.Attributes().PutStr(p.logTypeField, lt)
 			}
 		}
 	}

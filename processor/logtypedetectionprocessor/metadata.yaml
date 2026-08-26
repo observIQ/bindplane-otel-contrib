@@ -26,6 +26,14 @@ telemetry:
       sum:
         value_type: int
         monotonic: true
+    log_type_detection_unknown:
+      enabled: true
+      description: "Number of logs with no detected log type."
+      stability: alpha
+      unit: "{log}"
+      sum:
+        value_type: int
+        monotonic: true
     log_types:
       enabled: true
       description: "The number of hashes with a detected log type."

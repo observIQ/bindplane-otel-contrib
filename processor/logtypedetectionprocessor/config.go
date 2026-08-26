@@ -23,6 +23,7 @@ import (
 const (
 	defaultFingerprintField = "fingerprint"
 	defaultLogTypeField     = "log_type"
+	unknownLogType          = "unknown"
 )
 
 var errMissingLogTypeFieldError = errors.New("log_type_field is required")

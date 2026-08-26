@@ -28,6 +28,7 @@ type TelemetryBuilder struct {
 	registrations           []metric.Registration
 	LogTypeDetectionMatches metric.Int64Counter
 	LogTypeDetectionRuns    metric.Int64Counter
+	LogTypeDetectionUnknown metric.Int64Counter
 	LogTypes                metric.Int64Counter
 }
 
@@ -70,6 +71,12 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...Teleme
 		"otelcol_log_type_detection_runs",
 		metric.WithDescription("Number of log type detections run, one per newly seen log structure. [Alpha]"),
 		metric.WithUnit("{detection}"),
+	)
+	errs = errors.Join(errs, err)
+	builder.LogTypeDetectionUnknown, err = builder.meter.Int64Counter(
+		"otelcol_log_type_detection_unknown",
+		metric.WithDescription("Number of logs with no detected log type. [Alpha]"),
+		metric.WithUnit("{log}"),
 	)
 	errs = errors.Join(errs, err)
 	builder.LogTypes, err = builder.meter.Int64Counter(
