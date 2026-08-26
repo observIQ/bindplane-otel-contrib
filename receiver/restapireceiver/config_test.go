@@ -162,6 +162,36 @@ func TestConfig_Validate(t *testing.T) {
 			expectedErr: "",
 		},
 		{
+			name: "valid bearer auth with header_prefix",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeBearer,
+				BearerConfig: BearerConfig{
+					Token:        "test-token",
+					HeaderPrefix: "CwsAuth Bearer=",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "bearer auth header_prefix with CRLF",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeBearer,
+				BearerConfig: BearerConfig{
+					Token:        "test-token",
+					HeaderPrefix: "Bearer \r\nX-Injected: evil",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid bearer header_prefix",
+		},
+		{
 			name: "basic auth missing username",
 			config: &Config{
 				URL:      "https://api.example.com/data",
@@ -305,6 +335,40 @@ func TestConfig_Validate(t *testing.T) {
 				},
 			},
 			expectedErr: "",
+		},
+		{
+			name: "valid oauth2 auth with header_prefix",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeOAuth2,
+				OAuth2Config: OAuth2Config{
+					ClientID:     "test-client-id",
+					ClientSecret: "test-client-secret",
+					TokenURL:     "https://oauth.example.com/token",
+					HeaderPrefix: "CwsAuth Bearer=",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "oauth2 auth header_prefix with newline",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeOAuth2,
+				OAuth2Config: OAuth2Config{
+					ClientID:     "test-client-id",
+					ClientSecret: "test-client-secret",
+					TokenURL:     "https://oauth.example.com/token",
+					HeaderPrefix: "CwsAuth\nBearer=",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid oauth2 header_prefix",
 		},
 		{
 			name: "akamai edgegrid auth missing access token",

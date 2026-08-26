@@ -64,9 +64,10 @@ Use `auth_mode: none` for public APIs that don't require authentication. No addi
 
 #### Bearer Token
 
-| Field   | Type   | Default | Required | Description                                              |
-| ------- | ------ | ------- | -------- | -------------------------------------------------------- |
-| `token` | string |         | `true`   | Bearer token value (required if `auth_mode` is `bearer`) |
+| Field           | Type   | Default    | Required | Description                                                                        |
+| --------------- | ------ | ---------- | -------- | ---------------------------------------------------------------------------------- |
+| `token`         | string |            | `true`   | Bearer token value (required if `auth_mode` is `bearer`)                           |
+| `header_prefix` | string | `Bearer `  | `false`  | Prefix placed before the token in the `Authorization` header. See the note below.   |
 
 #### Basic Auth
 
@@ -84,6 +85,21 @@ Use `auth_mode: none` for public APIs that don't require authentication. No addi
 | `token_url`       | string            |         | `true`   | OAuth2 token endpoint URL (required if `auth_mode` is `oauth2`) |
 | `scopes`          | []string          |         | `false`  | OAuth2 scopes to request                                        |
 | `endpoint_params` | map[string]string |         | `false`  | Additional parameters to send to the token endpoint             |
+| `header_prefix`   | string            | `Bearer ` | `false` | Prefix placed before the access token in the `Authorization` header. See the note below. |
+
+##### Custom Authorization Header Prefix
+
+Some APIs expect a token under a non-standard `Authorization` scheme. `header_prefix` (available
+for both `bearer` and `oauth2`) replaces the default `Bearer ` prefix. Citrix Cloud, for example,
+expects `Authorization: CwsAuth Bearer=<token>`, which is `header_prefix: "CwsAuth Bearer="`.
+
+Two things to watch, because both produce a silently malformed header rather than an error:
+
+- **No separator is inserted.** The prefix is concatenated directly onto the token, so include the
+  trailing space yourself if the scheme needs one. `header_prefix: "Token"` yields
+  `Authorization: Token<token>`, not `Token <token>`.
+- **Quote the value in YAML.** Unquoted YAML strips trailing whitespace, so `header_prefix: Bearer `
+  becomes `Bearer` and produces `Authorization: Bearer<token>`. Always quote: `"Bearer "`.
 
 #### Akamai EdgeGrid
 
@@ -268,6 +284,27 @@ receivers:
       endpoint_params:
         audience: "https://api.example.com"
         resource: "https://api.example.com"
+```
+
+### Citrix Cloud API (Custom Authorization Prefix)
+
+Citrix Cloud uses a standard OAuth2 client credentials exchange but sends the token under its own
+`CwsAuth Bearer=` scheme, and requires the customer ID as a separate header. The token URL embeds
+your customer ID.
+
+```yaml
+receivers:
+  restapi:
+    url: "https://api.cloud.com/systemlog/records"
+    max_poll_interval: 5m
+    auth_mode: oauth2
+    oauth2:
+      client_id: "your-client-id"
+      client_secret: "your-client-secret"
+      token_url: "https://api.cloud.com/cctrustoauth2/your-customer-id/tokens/clients"
+      header_prefix: "CwsAuth Bearer="
+    headers:
+      Citrix-CustomerId: "your-customer-id"
 ```
 
 ### Akamai EdgeGrid Authentication

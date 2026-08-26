@@ -49,6 +49,20 @@ const (
 	authModeAkamaiEdgeGrid AuthMode = "akamai_edgegrid"
 )
 
+// defaultAuthHeaderPrefix is the Authorization header prefix used when
+// header_prefix is not configured. The trailing space is significant.
+const defaultAuthHeaderPrefix = "Bearer "
+
+// authHeaderPrefix returns the configured Authorization header prefix, falling
+// back to the default when unset. The prefix is used verbatim: no separator is
+// inserted between it and the token.
+func authHeaderPrefix(prefix string) string {
+	if prefix == "" {
+		return defaultAuthHeaderPrefix
+	}
+	return prefix
+}
+
 // UnmarshalText implements the encoding.TextUnmarshaler interface
 func (m *AuthMode) UnmarshalText(text []byte) error {
 	mode := AuthMode(text)
@@ -268,6 +282,10 @@ type APIKeyConfig struct {
 // BearerConfig defines bearer token authentication configuration.
 type BearerConfig struct {
 	Token configopaque.String `mapstructure:"token"`
+	// HeaderPrefix is prepended verbatim to the token to form the Authorization
+	// header value. No separator is inserted, so a prefix meant to be followed by
+	// a space must include it (e.g. "Bearer "). Defaults to "Bearer " when unset.
+	HeaderPrefix string `mapstructure:"header_prefix"`
 }
 
 // BasicConfig defines basic authentication configuration.
@@ -283,6 +301,12 @@ type OAuth2Config struct {
 	TokenURL       string              `mapstructure:"token_url"`
 	Scopes         []string            `mapstructure:"scopes"`
 	EndpointParams map[string]string   `mapstructure:"endpoint_params"`
+	// HeaderPrefix is prepended verbatim to the access token to form the
+	// Authorization header value. No separator is inserted, so a prefix meant to be
+	// followed by a space must include it (e.g. "Bearer "). Defaults to "Bearer "
+	// when unset. Set this for APIs using a non-standard scheme, such as Citrix
+	// Cloud's "CwsAuth Bearer=".
+	HeaderPrefix string `mapstructure:"header_prefix"`
 }
 
 // AkamaiEdgeGridConfig defines Akamai EdgeGrid authentication configuration.
@@ -477,6 +501,9 @@ func (c *Config) Validate() error {
 		if string(c.BearerConfig.Token) == "" {
 			return fmt.Errorf("token is required when auth_mode is bearer")
 		}
+		if err := validateHeaderValue(c.BearerConfig.HeaderPrefix); err != nil {
+			return fmt.Errorf("invalid bearer header_prefix: %w", err)
+		}
 	case authModeBasic:
 		if c.BasicConfig.Username == "" {
 			return fmt.Errorf("username is required when auth_mode is basic")
@@ -493,6 +520,9 @@ func (c *Config) Validate() error {
 		}
 		if c.OAuth2Config.TokenURL == "" {
 			return fmt.Errorf("token_url is required when auth_mode is oauth2")
+		}
+		if err := validateHeaderValue(c.OAuth2Config.HeaderPrefix); err != nil {
+			return fmt.Errorf("invalid oauth2 header_prefix: %w", err)
 		}
 	case authModeAkamaiEdgeGrid:
 		if string(c.AkamaiEdgeGridConfig.AccessToken) == "" {

@@ -245,6 +245,69 @@ func TestIntegration_WithPaginationAndAuth(t *testing.T) {
 	require.GreaterOrEqual(t, totalRecords, 4)
 }
 
+// TestIntegration_CustomAuthHeaderPrefix verifies that a custom Authorization
+// header prefix is applied to every request across a paginated poll cycle.
+func TestIntegration_CustomAuthHeaderPrefix(t *testing.T) {
+	var requestCount atomic.Int32
+	expectedAuthHeader := "CwsAuth Bearer=test-token-123"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, expectedAuthHeader, r.Header.Get("Authorization"))
+		requestCount.Add(1)
+
+		var data []map[string]any
+		switch r.URL.Query().Get("offset") {
+		case "0", "":
+			data = []map[string]any{{"id": "1"}, {"id": "2"}}
+		case "2":
+			data = []map[string]any{{"id": "3"}, {"id": "4"}}
+		default:
+			data = []map[string]any{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"data": data, "total": 4})
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:           server.URL,
+		ResponseField: "data",
+		AuthMode:      authModeBearer,
+		BearerConfig: BearerConfig{
+			Token:        "test-token-123",
+			HeaderPrefix: "CwsAuth Bearer=",
+		},
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName: "offset",
+				LimitFieldName:  "limit",
+				StartingOffset:  0,
+			},
+			TotalRecordCountField: "total",
+		},
+		MaxPollInterval: 100 * time.Millisecond,
+		ClientConfig:    confighttp.ClientConfig{},
+	}
+
+	sink := new(consumertest.LogsSink)
+	receiver, err := newRESTAPILogsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, receiver.Start(ctx, componenttest.NewNopHost()))
+
+	require.Eventually(t, func() bool {
+		return logRecordCount(sink) >= 4
+	}, 5*time.Second, 10*time.Millisecond)
+
+	require.NoError(t, receiver.Shutdown(ctx))
+
+	// More than one request means the prefix survived pagination, not just the first call.
+	require.Greater(t, requestCount.Load(), int32(1))
+}
+
 // TestIntegration_TimestampPagination tests timestamp-based pagination.
 func TestIntegration_TimestampPagination(t *testing.T) {
 	var mu sync.Mutex
