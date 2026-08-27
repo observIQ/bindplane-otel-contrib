@@ -223,6 +223,69 @@ func TestRESTAPIClient_GetJSON_BearerAuth(t *testing.T) {
 	require.Len(t, data, 1)
 }
 
+func TestRESTAPIClient_GetJSON_BearerAuth_HeaderPrefix(t *testing.T) {
+	// The prefix is used verbatim: nothing is inserted between it and the token.
+	testCases := []struct {
+		name           string
+		headerPrefix   string
+		expectedHeader string
+	}{
+		{
+			name:           "unset falls back to the default",
+			headerPrefix:   "",
+			expectedHeader: "Bearer test-token",
+		},
+		{
+			name:           "citrix cloud scheme",
+			headerPrefix:   "CwsAuth Bearer=",
+			expectedHeader: "CwsAuth Bearer=test-token",
+		},
+		{
+			name:           "casing is preserved exactly",
+			headerPrefix:   "CWSAuth bearer=",
+			expectedHeader: "CWSAuth bearer=test-token",
+		},
+		{
+			name:           "no separator is inserted",
+			headerPrefix:   "Token",
+			expectedHeader: "Tokentest-token",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, tc.expectedHeader, r.Header.Get("Authorization"))
+
+				response := []map[string]any{
+					{"id": "1"},
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(response)
+			}))
+			defer server.Close()
+
+			cfg := &Config{
+				URL:      server.URL,
+				AuthMode: authModeBearer,
+				BearerConfig: BearerConfig{
+					Token:        "test-token",
+					HeaderPrefix: tc.headerPrefix,
+				},
+				ClientConfig: confighttp.ClientConfig{},
+			}
+
+			ctx := context.Background()
+			client, err := newRESTAPIClient(ctx, componenttest.NewNopTelemetrySettings(), cfg, componenttest.NewNopHost())
+			require.NoError(t, err)
+
+			data, err := client.GetJSON(ctx, server.URL, url.Values{})
+			require.NoError(t, err)
+			require.Len(t, data, 1)
+		})
+	}
+}
+
 func TestRESTAPIClient_GetJSON_BasicAuth(t *testing.T) {
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -334,6 +397,62 @@ func TestRESTAPIClient_GetJSON_OAuth2Auth(t *testing.T) {
 
 	params := url.Values{}
 	data, err := client.GetJSON(ctx, apiServer.URL, params)
+	require.NoError(t, err)
+	require.Len(t, data, 1)
+}
+
+func TestRESTAPIClient_GetJSON_OAuth2Auth_HeaderPrefix(t *testing.T) {
+	// Mirrors the Citrix Cloud API: a standard client_credentials exchange whose
+	// token is then sent under the non-standard "CwsAuth Bearer=" scheme.
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "POST", r.Method)
+		require.NoError(t, r.ParseForm())
+		require.Equal(t, "client_credentials", r.Form.Get("grant_type"))
+
+		// Citrix documents expires_in as a JSON string rather than a number.
+		response := map[string]any{
+			"access_token": "test-oauth2-token",
+			"token_type":   "bearer",
+			"expires_in":   "3600",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer tokenServer.Close()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "CwsAuth Bearer=test-oauth2-token", r.Header.Get("Authorization"))
+		// Citrix also requires the customer ID, supplied via the headers map.
+		require.Equal(t, "test-customer-id", r.Header.Get("Citrix-CustomerId"))
+
+		response := []map[string]any{
+			{"id": "1"},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer apiServer.Close()
+
+	cfg := &Config{
+		URL:      apiServer.URL,
+		AuthMode: authModeOAuth2,
+		OAuth2Config: OAuth2Config{
+			ClientID:     "test-client-id",
+			ClientSecret: "test-client-secret",
+			TokenURL:     tokenServer.URL + "/token",
+			HeaderPrefix: "CwsAuth Bearer=",
+		},
+		Headers: map[string]string{
+			"Citrix-CustomerId": "test-customer-id",
+		},
+		ClientConfig: confighttp.ClientConfig{},
+	}
+
+	ctx := context.Background()
+	client, err := newRESTAPIClient(ctx, componenttest.NewNopTelemetrySettings(), cfg, componenttest.NewNopHost())
+	require.NoError(t, err)
+
+	data, err := client.GetJSON(ctx, apiServer.URL, url.Values{})
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }

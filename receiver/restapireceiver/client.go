@@ -459,7 +459,7 @@ func (c *defaultRESTAPIClient) applyAuth(req *http.Request) error {
 		if string(c.cfg.BearerConfig.Token) == "" {
 			return fmt.Errorf("bearer token is required")
 		}
-		req.Header.Set("Authorization", "Bearer "+string(c.cfg.BearerConfig.Token))
+		req.Header.Set("Authorization", authHeaderPrefix(c.cfg.BearerConfig.HeaderPrefix)+string(c.cfg.BearerConfig.Token))
 		return nil
 
 	case authModeBasic:
@@ -479,7 +479,7 @@ func (c *defaultRESTAPIClient) applyAuth(req *http.Request) error {
 		if err != nil {
 			return fmt.Errorf("failed to get OAuth2 token: %w", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+		req.Header.Set("Authorization", authHeaderPrefix(c.cfg.OAuth2Config.HeaderPrefix)+token.AccessToken)
 		return nil
 
 	case authModeAkamaiEdgeGrid:
