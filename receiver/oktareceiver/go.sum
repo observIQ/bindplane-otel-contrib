@@ -70,8 +70,8 @@ github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJ
 github.com/modern-go/reflect2 v1.0.2/go.mod h1:yWuevngMOJpCy52FWWMvUC8ws7m/LJsjYzDa0/r8luk=
 github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee h1:W5t00kpgFdJifH4BDsTlE89Zl93FEloxaWZfGcifgq8=
 github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee/go.mod h1:yWuevngMOJpCy52FWWMvUC8ws7m/LJsjYzDa0/r8luk=
-github.com/okta/okta-sdk-golang/v6 v6.1.6 h1:bObKXhkFh1c1tCfjcYoRoTjDJeIPMsEZHrjLasawEpk=
-github.com/okta/okta-sdk-golang/v6 v6.1.6/go.mod h1:hLXAo1HqjsWlMdbop9yLVJ9MWIek9qRsNbkhZQAiXsw=
+github.com/okta/okta-sdk-golang/v6 v6.1.7 h1:LVOCEfR/oFDLOm2/DDRFdfSoi2Yfa5UTs2rU9zyKrfg=
+github.com/okta/okta-sdk-golang/v6 v6.1.7/go.mod h1:hLXAo1HqjsWlMdbop9yLVJ9MWIek9qRsNbkhZQAiXsw=
 github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden v0.159.0 h1:z2FvBmvlvE/jsVFwGfKOUQweGjJlPfH0QBOo2ES76kE=
 github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden v0.159.0/go.mod h1:ExbYdUzLx9i757v9fc3meEPkepBScJKUfFiXxQJX5Do=
 github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest v0.159.0 h1:7JKqFkaTAaLCgP4XY57EAIDXGD4xb0NnlNVhIZ0fEd8=

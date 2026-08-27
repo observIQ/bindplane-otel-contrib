@@ -3,7 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/receiver/oktareceiver
 go 1.26.4
 
 require (
-	github.com/okta/okta-sdk-golang/v6 v6.1.6
+	github.com/okta/okta-sdk-golang/v6 v6.1.7
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden v0.159.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest v0.159.0
 	github.com/stretchr/testify v1.11.1
