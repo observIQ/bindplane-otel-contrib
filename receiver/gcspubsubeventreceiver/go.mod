@@ -3,7 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/receiver/gcspubsubeventreceive
 go 1.26.4
 
 require (
-	cloud.google.com/go/pubsub v1.51.0
+	cloud.google.com/go/pubsub v1.51.1
 	cloud.google.com/go/storage v1.64.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/google/go-cmp v0.7.0
@@ -28,7 +28,7 @@ require (
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.28.0
 	google.golang.org/api v0.293.0
-	google.golang.org/grpc v1.83.0
+	google.golang.org/grpc v1.83.1
 )
 
 require (
@@ -36,7 +36,7 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/linkedin/goavro/v2 v2.15.0 // indirect
-	github.com/nwaples/rardecode/v2 v2.3.0 // indirect
+	github.com/nwaples/rardecode/v2 v2.4.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.29 // indirect
 	github.com/sorairolake/lzip-go v0.3.8 // indirect
 	github.com/ulikunitz/xz v0.5.16 // indirect
