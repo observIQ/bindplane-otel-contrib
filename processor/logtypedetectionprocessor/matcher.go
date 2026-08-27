@@ -51,6 +51,9 @@ func (c MatcherConfig) Validate() error {
 
 	switch c.Method {
 	case MatcherTypeRegex:
+		if c.Value == "" {
+			return fmt.Errorf("regex matcher requires a value")
+		}
 		if _, err := regexp.Compile(c.Value); err != nil {
 			return fmt.Errorf("invalid regex %q: %w", c.Value, err)
 		}

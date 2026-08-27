@@ -16,6 +16,7 @@ package logtypedetectionprocessor
 
 import (
 	"context"
+	"math"
 	"sort"
 	"strconv"
 	"sync"
@@ -47,11 +48,13 @@ func newLogTypeDetectionProcessor(cfg *Config, telemetry *metadata.TelemetryBuil
 	}
 
 	if cfg.Matchers != nil {
-		sort.SliceStable(cfg.Matchers, func(i, j int) bool {
-			return cfg.Matchers[i].Priority < cfg.Matchers[j].Priority
+		matchers := make([]MatcherConfig, len(cfg.Matchers))
+		copy(matchers, cfg.Matchers)
+		sort.SliceStable(matchers, func(i, j int) bool {
+			return priorityRank(matchers[i].Priority) < priorityRank(matchers[j].Priority)
 		})
 
-		for _, m := range cfg.Matchers {
+		for _, m := range matchers {
 			matcher, err := m.Build()
 			if err != nil {
 				return nil, err
@@ -61,6 +64,14 @@ func newLogTypeDetectionProcessor(cfg *Config, telemetry *metadata.TelemetryBuil
 	}
 
 	return p, nil
+}
+
+// priorityRank orders unset priority (0) last.
+func priorityRank(priority int) int {
+	if priority == 0 {
+		return math.MaxInt
+	}
+	return priority
 }
 
 func (p *logTypeDetectionProcessor) start(_ context.Context, _ component.Host) error {
