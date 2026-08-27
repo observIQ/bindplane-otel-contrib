@@ -456,3 +456,234 @@ func TestIntegration_ErrorRecovery(t *testing.T) {
 	allLogs := sink.AllLogs()
 	require.Greater(t, len(allLogs), 0)
 }
+
+// TestIntegration_PostCursorPaginationInBody is the end-to-end proof for
+// POST-based polling: it walks two pages of an opaque cursor carried in the JSON
+// request body, modeled on CrowdStrike's POST /alerts/combined/alerts/v1.
+func TestIntegration_PostCursorPaginationInBody(t *testing.T) {
+	var mu sync.Mutex
+	var seenBodies []map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+
+		// The static request_body survives on every page...
+		require.Equal(t, "status:'new'", body["filter"])
+		require.Equal(t, "created_timestamp|asc", body["sort"])
+		// ...and the generated limit arrives as a JSON number, not a string.
+		require.Equal(t, float64(2), body["limit"])
+
+		mu.Lock()
+		seenBodies = append(seenBodies, body)
+		mu.Unlock()
+
+		after, hasAfter := body["after"]
+		if hasAfter {
+			// An opaque cursor must come back as a string, never coerced.
+			require.IsType(t, "", after)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		switch after {
+		case nil:
+			_, _ = w.Write([]byte(`{
+				"resources": [{"id": "1", "message": "alert 1"}, {"id": "2", "message": "alert 2"}],
+				"meta": {"pagination": {"after": "cursor-page-2"}}
+			}`))
+		case "cursor-page-2":
+			_, _ = w.Write([]byte(`{
+				"resources": [{"id": "3", "message": "alert 3"}, {"id": "4", "message": "alert 4"}],
+				"meta": {"pagination": {"after": "cursor-page-3"}}
+			}`))
+		default:
+			// A partial page ends the walk.
+			_, _ = w.Write([]byte(`{"resources": [], "meta": {"pagination": {"after": ""}}}`))
+		}
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:           server.URL,
+		Method:        methodPOST,
+		ParamLocation: paramLocationBody,
+		ResponseField: "resources",
+		AuthMode:      authModeNone,
+		RequestBody: map[string]any{
+			"filter": "status:'new'",
+			"sort":   "created_timestamp|asc",
+		},
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "after",
+				LimitFieldName:      "limit",
+				Limit:               2,
+				NextOffsetFieldName: "meta.pagination.after",
+			},
+		},
+		MinPollInterval:   100 * time.Millisecond,
+		MaxPollInterval:   time.Second,
+		BackoffMultiplier: 2.0,
+		ClientConfig:      confighttp.ClientConfig{},
+	}
+	require.NoError(t, cfg.Validate())
+
+	sink := new(consumertest.LogsSink)
+	rcvr, err := newRESTAPILogsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+	require.NoError(t, err)
+
+	require.NoError(t, rcvr.Start(context.Background(), componenttest.NewNopHost()))
+	defer func() {
+		require.NoError(t, rcvr.Shutdown(context.Background()))
+	}()
+
+	require.Eventually(t, func() bool {
+		return logRecordCount(sink) >= 4
+	}, 5*time.Second, 10*time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(seenBodies), 2)
+	// The first request of the run carries no cursor; the second carries the
+	// opaque token read from meta.pagination.after.
+	require.NotContains(t, seenBodies[0], "after")
+	require.Equal(t, "cursor-page-2", seenBodies[1]["after"])
+}
+
+// TestIntegration_PostCursorPaginationInBody_Metrics covers the metrics poll
+// loop, which is a hand-copy of the logs one.
+func TestIntegration_PostCursorPaginationInBody_Metrics(t *testing.T) {
+	var requestCount atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		require.Equal(t, http.MethodPost, r.Method)
+
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		require.Equal(t, "cpu", body["metric_filter"])
+
+		w.Header().Set("Content-Type", "application/json")
+		if body["after"] == nil {
+			_, _ = w.Write([]byte(`{
+				"resources": [{"name": "cpu.usage", "value": 42}, {"name": "cpu.idle", "value": 58}],
+				"meta": {"pagination": {"after": "cursor-page-2"}}
+			}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"resources": [], "meta": {"pagination": {"after": ""}}}`))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:           server.URL,
+		Method:        methodPOST,
+		ParamLocation: paramLocationBody,
+		ResponseField: "resources",
+		AuthMode:      authModeNone,
+		RequestBody:   map[string]any{"metric_filter": "cpu"},
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "after",
+				LimitFieldName:      "limit",
+				Limit:               2,
+				NextOffsetFieldName: "meta.pagination.after",
+			},
+		},
+		Metrics:           MetricsConfig{NameField: "name"},
+		MinPollInterval:   100 * time.Millisecond,
+		MaxPollInterval:   time.Second,
+		BackoffMultiplier: 2.0,
+		ClientConfig:      confighttp.ClientConfig{},
+	}
+	require.NoError(t, cfg.Validate())
+
+	sink := new(consumertest.MetricsSink)
+	rcvr, err := newRESTAPIMetricsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+	require.NoError(t, err)
+
+	require.NoError(t, rcvr.Start(context.Background(), componenttest.NewNopHost()))
+	defer func() {
+		require.NoError(t, rcvr.Shutdown(context.Background()))
+	}()
+
+	require.Eventually(t, func() bool {
+		return len(sink.AllMetrics()) > 0
+	}, 5*time.Second, 10*time.Millisecond)
+
+	require.GreaterOrEqual(t, requestCount.Load(), int32(2))
+}
+
+// TestIntegration_PostWithQueryParamLocation covers a POST that paginates via
+// the query string while sending a static JSON body.
+func TestIntegration_PostWithQueryParamLocation(t *testing.T) {
+	var mu sync.Mutex
+	var seenQueries []string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		// Pagination goes in the query string, so the body holds only the static
+		// request_body.
+		require.Equal(t, map[string]any{"filter": "status:'new'"}, body)
+
+		mu.Lock()
+		seenQueries = append(seenQueries, r.URL.RawQuery)
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("offset") == "0" {
+			_, _ = w.Write([]byte(`{"data": [{"id": "1"}, {"id": "2"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data": []}`))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:           server.URL,
+		Method:        methodPOST,
+		ParamLocation: paramLocationQuery,
+		ResponseField: "data",
+		AuthMode:      authModeNone,
+		RequestBody:   map[string]any{"filter": "status:'new'"},
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName: "offset",
+				LimitFieldName:  "limit",
+				Limit:           2,
+			},
+		},
+		MinPollInterval:   100 * time.Millisecond,
+		MaxPollInterval:   time.Second,
+		BackoffMultiplier: 2.0,
+		ClientConfig:      confighttp.ClientConfig{},
+	}
+	require.NoError(t, cfg.Validate())
+
+	sink := new(consumertest.LogsSink)
+	rcvr, err := newRESTAPILogsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+	require.NoError(t, err)
+
+	require.NoError(t, rcvr.Start(context.Background(), componenttest.NewNopHost()))
+	defer func() {
+		require.NoError(t, rcvr.Shutdown(context.Background()))
+	}()
+
+	require.Eventually(t, func() bool {
+		return logRecordCount(sink) >= 2
+	}, 5*time.Second, 10*time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Contains(t, seenQueries[0], "offset=0")
+	require.Contains(t, seenQueries[0], "limit=2")
+}

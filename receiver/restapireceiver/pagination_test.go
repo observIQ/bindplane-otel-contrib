@@ -1766,3 +1766,339 @@ func TestBuildPaginationParams_TimeBound_StartTimeNow(t *testing.T) {
 	require.NoError(t, err)
 	require.InDelta(t, before.Unix(), fromEpoch, 2)
 }
+
+func TestBuildPaginationValues_Types(t *testing.T) {
+	testCases := []struct {
+		name     string
+		cfg      *Config
+		state    *paginationState
+		expected map[string]any
+	}{
+		{
+			name: "offset_limit numeric offset is an int",
+			cfg: &Config{
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "offset",
+						LimitFieldName:  "limit",
+					},
+				},
+			},
+			state:    &paginationState{CurrentOffset: 40, Limit: 20},
+			expected: map[string]any{"offset": 40, "limit": 20},
+		},
+		{
+			name: "offset_limit digit-only cursor token stays a string",
+			cfg: &Config{
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName:     "after",
+						LimitFieldName:      "limit",
+						NextOffsetFieldName: "meta.pagination.after",
+					},
+				},
+			},
+			// An opaque cursor that happens to be all digits (with a leading
+			// zero) must not be coerced to a number.
+			state:    &paginationState{CurrentOffsetToken: "0012345", Limit: 100},
+			expected: map[string]any{"after": "0012345", "limit": 100},
+		},
+		{
+			name: "page_size values are ints",
+			cfg: &Config{
+				Pagination: PaginationConfig{
+					Mode: paginationModePageSize,
+					PageSize: PageSizePagination{
+						PageNumFieldName:  "page",
+						PageSizeFieldName: "size",
+					},
+				},
+			},
+			state:    &paginationState{CurrentPage: 3, PageSize: 50},
+			expected: map[string]any{"page": 3, "size": 50},
+		},
+		{
+			name: "rfc3339 time bounds are strings",
+			cfg: &Config{
+				StartTimeParamName: "since",
+				EndTimeParamName:   "until",
+				Pagination:         PaginationConfig{Mode: paginationModeNone},
+			},
+			state: &paginationState{
+				ResolvedStartTime: "2025-01-01T00:00:00Z",
+				ResolvedEndTime:   "2025-01-02T00:00:00Z",
+			},
+			expected: map[string]any{
+				"since": "2025-01-01T00:00:00Z",
+				"until": "2025-01-02T00:00:00Z",
+			},
+		},
+		{
+			name: "epoch nanosecond time bound keeps every digit",
+			cfg: &Config{
+				StartTimeParamName: "since",
+				TimestampFormat:    epochNanoseconds,
+				Pagination:         PaginationConfig{Mode: paginationModeNone},
+			},
+			// A float64 round trip would lose the trailing digits of this value.
+			state:    &paginationState{ResolvedStartTime: "1704067200123456789"},
+			expected: map[string]any{"since": json.Number("1704067200123456789")},
+		},
+		{
+			name: "epoch fractional second time bound keeps its fraction",
+			cfg: &Config{
+				StartTimeParamName: "since",
+				TimestampFormat:    epochSecondsFractional,
+				Pagination:         PaginationConfig{Mode: paginationModeNone},
+			},
+			state:    &paginationState{ResolvedStartTime: "1704067200.123456"},
+			expected: map[string]any{"since": json.Number("1704067200.123456")},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.expected, buildPaginationValues(tc.cfg, tc.state))
+		})
+	}
+}
+
+func TestBuildPaginationValues_TimestampModeEpochIsJSONNumber(t *testing.T) {
+	ts := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	testCases := []struct {
+		format   string
+		expected any
+	}{
+		{format: epochSeconds, expected: json.Number("1735689600")},
+		{format: epochMilliseconds, expected: json.Number("1735689600000")},
+		{format: epochMicroseconds, expected: json.Number("1735689600000000")},
+		{format: epochNanoseconds, expected: json.Number("1735689600000000000")},
+		{format: epochSecondsFractional, expected: json.Number("1735689600")},
+		{format: "", expected: "2025-01-01T00:00:00Z"},
+		{format: "2006-01-02", expected: "2025-01-01"},
+	}
+
+	for _, tc := range testCases {
+		name := tc.format
+		if name == "" {
+			name = "default_rfc3339"
+		}
+		t.Run(name, func(t *testing.T) {
+			cfg := &Config{
+				StartTimeParamName: "since",
+				TimestampFormat:    tc.format,
+				Pagination: PaginationConfig{
+					Mode:      paginationModeTimestamp,
+					Timestamp: TimestampPagination{TimestampFieldName: "created_at"},
+				},
+			}
+			state := &paginationState{CurrentTimestamp: ts, PageSize: 100}
+
+			values := buildPaginationValues(cfg, state)
+			require.Equal(t, tc.expected, values["since"])
+		})
+	}
+}
+
+// TestBuildPaginationParams_MatchesBuildPaginationValues is the regression gate
+// on the typed-value refactor: the query string the receiver produces must be
+// exactly the stringified form of the typed values, for every pagination mode.
+func TestBuildPaginationParams_MatchesBuildPaginationValues(t *testing.T) {
+	configs := map[string]*Config{
+		"offset_limit numeric": {
+			StartTimeParamName: "since",
+			StartTimeValue:     "2025-01-01T00:00:00Z",
+			EndTimeParamName:   "until",
+			Pagination: PaginationConfig{
+				Mode: paginationModeOffsetLimit,
+				OffsetLimit: OffsetLimitPagination{
+					OffsetFieldName: "offset",
+					LimitFieldName:  "limit",
+					Limit:           25,
+				},
+			},
+		},
+		"offset_limit epoch bounds": {
+			StartTimeParamName: "since",
+			StartTimeValue:     "1704067200",
+			EndTimeParamName:   "until",
+			TimestampFormat:    epochSeconds,
+			Pagination: PaginationConfig{
+				Mode: paginationModeOffsetLimit,
+				OffsetLimit: OffsetLimitPagination{
+					OffsetFieldName:     "after",
+					LimitFieldName:      "limit",
+					NextOffsetFieldName: "meta.pagination.after",
+				},
+			},
+		},
+		"page_size": {
+			Pagination: PaginationConfig{
+				Mode: paginationModePageSize,
+				PageSize: PageSizePagination{
+					PageNumFieldName:  "page",
+					PageSizeFieldName: "size",
+					StartingPage:      1,
+				},
+			},
+		},
+		"timestamp": {
+			StartTimeParamName: "since",
+			StartTimeValue:     "2025-01-01T00:00:00Z",
+			Pagination: PaginationConfig{
+				Mode: paginationModeTimestamp,
+				Timestamp: TimestampPagination{
+					TimestampFieldName: "created_at",
+					PageSizeFieldName:  "per_page",
+					PageSize:           100,
+				},
+			},
+		},
+		"none": {
+			Pagination: PaginationConfig{Mode: paginationModeNone},
+		},
+	}
+
+	for name, cfg := range configs {
+		t.Run(name, func(t *testing.T) {
+			state := newPaginationState(cfg)
+			// Advance once so token/offset/page values are non-zero too.
+			state.CurrentOffsetToken = "tok-1"
+			state.PagesFetched = 1
+
+			params := buildPaginationParams(cfg, state)
+			values := buildPaginationValues(cfg, state)
+
+			require.Len(t, params, len(values))
+			for key, value := range values {
+				require.Equal(t, paramValueToString(value), params.Get(key), "key %q", key)
+			}
+		})
+	}
+}
+
+// TestGeneratedParamNames_CoversBuildPaginationValues guards against drift
+// between the two functions that must agree on which request parameter names the
+// receiver owns: generatedParamNames feeds the request_body collision check, so
+// a key it misses would be silently overwritable.
+func TestGeneratedParamNames_CoversBuildPaginationValues(t *testing.T) {
+	modes := []PaginationMode{
+		paginationModeNone,
+		paginationModeOffsetLimit,
+		paginationModePageSize,
+		paginationModeTimestamp,
+	}
+
+	for _, mode := range modes {
+		t.Run(string(mode), func(t *testing.T) {
+			cfg := &Config{
+				StartTimeParamName: "since",
+				StartTimeValue:     "2025-01-01T00:00:00Z",
+				EndTimeParamName:   "until",
+				Pagination: PaginationConfig{
+					Mode: mode,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "offset",
+						LimitFieldName:  "limit",
+					},
+					PageSize: PageSizePagination{
+						PageNumFieldName:  "page",
+						PageSizeFieldName: "size",
+					},
+					Timestamp: TimestampPagination{
+						TimestampFieldName: "created_at",
+						PageSizeFieldName:  "per_page",
+						PageSize:           100,
+					},
+				},
+			}
+			state := newPaginationState(cfg)
+			state.PagesFetched = 1
+
+			owned := cfg.generatedParamNames()
+			for key := range buildPaginationValues(cfg, state) {
+				require.Contains(t, owned, key,
+					"buildPaginationValues produces %q but generatedParamNames does not claim it", key)
+			}
+		})
+	}
+}
+
+func TestNewPaginationState_OffsetLimit_ConfiguredLimit(t *testing.T) {
+	testCases := []struct {
+		name     string
+		limit    int
+		expected int
+	}{
+		{name: "unset falls back to the historical default", limit: 0, expected: 10},
+		{name: "configured limit is used", limit: 250, expected: 250},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "offset",
+						LimitFieldName:  "limit",
+						Limit:           tc.limit,
+					},
+				},
+			}
+			require.Equal(t, tc.expected, newPaginationState(cfg).Limit)
+		})
+	}
+}
+
+// TestBuildPaginationValues_TokenModeOmitsCursorOnFirstPage covers the
+// first-page contract for opaque-cursor pagination: the offset field carries a
+// cursor in this mode, so no cursor must be sent before one has been obtained.
+// A numeric 0 in a JSON request body is rejected by APIs that expect a string
+// token there (e.g. CrowdStrike's "after").
+func TestBuildPaginationValues_TokenModeOmitsCursorOnFirstPage(t *testing.T) {
+	cfg := &Config{
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "after",
+				LimitFieldName:      "limit",
+				NextOffsetFieldName: "meta.pagination.after",
+			},
+		},
+	}
+
+	t.Run("no token and no offset omits the cursor", func(t *testing.T) {
+		values := buildPaginationValues(cfg, &paginationState{Limit: 100})
+		require.NotContains(t, values, "after")
+		require.Equal(t, 100, values["limit"])
+	})
+
+	t.Run("token is sent once available", func(t *testing.T) {
+		values := buildPaginationValues(cfg, &paginationState{CurrentOffsetToken: "tok", Limit: 100})
+		require.Equal(t, "tok", values["after"])
+	})
+
+	t.Run("non-zero offset still resumes numerically", func(t *testing.T) {
+		// A checkpoint written before token-based pagination was configured.
+		values := buildPaginationValues(cfg, &paginationState{CurrentOffset: 20, Limit: 100})
+		require.Equal(t, 20, values["after"])
+	})
+
+	t.Run("numeric offset mode always sends the offset", func(t *testing.T) {
+		numericCfg := &Config{
+			Pagination: PaginationConfig{
+				Mode: paginationModeOffsetLimit,
+				OffsetLimit: OffsetLimitPagination{
+					OffsetFieldName: "offset",
+					LimitFieldName:  "limit",
+				},
+			},
+		}
+		values := buildPaginationValues(numericCfg, &paginationState{Limit: 10})
+		require.Equal(t, 0, values["offset"])
+	})
+}

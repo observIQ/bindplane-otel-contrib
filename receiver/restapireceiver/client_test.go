@@ -20,6 +20,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -31,6 +32,14 @@ import (
 	"go.opentelemetry.io/collector/config/confighttp"
 	"go.opentelemetry.io/collector/config/configopaque"
 )
+
+// getJSON calls defaultRESTAPIClient.GetJSON, which is deliberately not part of
+// the restAPIClient interface — the receiver uses FetchFullResponse plus
+// extractDataFromResponse. GetJSON remains the vehicle for the client's
+// authentication-mode coverage below.
+func getJSON(ctx context.Context, c restAPIClient, requestURL string, params url.Values) ([]map[string]any, error) {
+	return c.(*defaultRESTAPIClient).GetJSON(ctx, apiRequest{URL: requestURL, Query: params})
+}
 
 func TestNewRESTAPIClient(t *testing.T) {
 	testCases := []struct {
@@ -105,7 +114,7 @@ func TestRESTAPIClient_GetJSON_NoAuth(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetJSON(ctx, server.URL, params)
+	data, err := getJSON(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 2)
 	require.Equal(t, "1", data[0]["id"])
@@ -143,7 +152,7 @@ func TestRESTAPIClient_GetJSON_NoAuthMode(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetJSON(ctx, server.URL, params)
+	data, err := getJSON(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 	require.Equal(t, "1", data[0]["id"])
@@ -182,7 +191,7 @@ func TestRESTAPIClient_GetJSON_APIKeyAuth(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetJSON(ctx, server.URL, params)
+	data, err := getJSON(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
@@ -218,7 +227,7 @@ func TestRESTAPIClient_GetJSON_BearerAuth(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetJSON(ctx, server.URL, params)
+	data, err := getJSON(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
@@ -279,7 +288,7 @@ func TestRESTAPIClient_GetJSON_BearerAuth_HeaderPrefix(t *testing.T) {
 			client, err := newRESTAPIClient(ctx, componenttest.NewNopTelemetrySettings(), cfg, componenttest.NewNopHost())
 			require.NoError(t, err)
 
-			data, err := client.GetJSON(ctx, server.URL, url.Values{})
+			data, err := getJSON(ctx, client, server.URL, url.Values{})
 			require.NoError(t, err)
 			require.Len(t, data, 1)
 		})
@@ -321,7 +330,7 @@ func TestRESTAPIClient_GetJSON_BasicAuth(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetJSON(ctx, server.URL, params)
+	data, err := getJSON(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
@@ -396,7 +405,7 @@ func TestRESTAPIClient_GetJSON_OAuth2Auth(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetJSON(ctx, apiServer.URL, params)
+	data, err := getJSON(ctx, client, apiServer.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
@@ -452,7 +461,7 @@ func TestRESTAPIClient_GetJSON_OAuth2Auth_HeaderPrefix(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, componenttest.NewNopTelemetrySettings(), cfg, componenttest.NewNopHost())
 	require.NoError(t, err)
 
-	data, err := client.GetJSON(ctx, apiServer.URL, url.Values{})
+	data, err := getJSON(ctx, client, apiServer.URL, url.Values{})
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
@@ -511,7 +520,7 @@ func TestRESTAPIClient_GetJSON_OAuth2Auth_WithScopes(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetJSON(ctx, apiServer.URL, params)
+	data, err := getJSON(ctx, client, apiServer.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
@@ -564,7 +573,7 @@ func TestRESTAPIClient_GetJSON_AkamaiEdgeGridAuth(t *testing.T) {
 	// EscapedPath ("") disagree with server-side EscapedPath ("/").)
 	requestURL := server.URL + "/siem/v1/configs/102889"
 	params := url.Values{"limit": []string{"10"}, "offset": []string{"0"}}
-	data, err := client.GetJSON(ctx, requestURL, params)
+	data, err := getJSON(ctx, client, requestURL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 
@@ -647,7 +656,7 @@ func TestRESTAPIClient_GetJSON_AkamaiEdgeGridAuth_AccountKey(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, componenttest.NewNopTelemetrySettings(), cfg, componenttest.NewNopHost())
 	require.NoError(t, err)
 
-	_, err = client.GetJSON(ctx, server.URL, url.Values{"other": []string{"v"}})
+	_, err = getJSON(ctx, client, server.URL, url.Values{"other": []string{"v"}})
 	require.NoError(t, err)
 
 	q, err := url.ParseQuery(capturedQuery)
@@ -691,7 +700,7 @@ func TestRESTAPIClient_GetJSON_WithQueryParams(t *testing.T) {
 	params := url.Values{}
 	params.Set("param1", "value1")
 	params.Set("param2", "value2")
-	data, err := client.GetJSON(ctx, server.URL, params)
+	data, err := getJSON(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
@@ -732,7 +741,7 @@ func TestRESTAPIClient_GetJSON_ResponseField(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetJSON(ctx, server.URL, params)
+	data, err := getJSON(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 2)
 	require.Equal(t, "1", data[0]["id"])
@@ -765,7 +774,7 @@ func TestRESTAPIClient_GetJSON_HTTPError(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetJSON(ctx, server.URL, params)
+	data, err := getJSON(ctx, client, server.URL, params)
 	require.Error(t, err)
 	require.Nil(t, data)
 	require.Contains(t, err.Error(), "500")
@@ -797,7 +806,7 @@ func TestRESTAPIClient_GetJSON_InvalidJSON(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetJSON(ctx, server.URL, params)
+	data, err := getJSON(ctx, client, server.URL, params)
 	require.Error(t, err)
 	require.Nil(t, data)
 }
@@ -838,7 +847,7 @@ func TestRESTAPIClient_GetJSON_CustomHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetJSON(ctx, server.URL, params)
+	data, err := getJSON(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
@@ -875,7 +884,7 @@ func TestRESTAPIClient_GetFullResponse_CustomHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, _, err := client.GetFullResponse(ctx, server.URL, params)
+	data, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL, Query: params})
 	require.NoError(t, err)
 	require.NotNil(t, data)
 }
@@ -916,7 +925,7 @@ func TestRESTAPIClient_GetJSON_SensitiveHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetJSON(ctx, server.URL, params)
+	data, err := getJSON(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
@@ -953,7 +962,7 @@ func TestRESTAPIClient_GetFullResponse_SensitiveHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, _, err := client.GetFullResponse(ctx, server.URL, params)
+	data, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL, Query: params})
 	require.NoError(t, err)
 	require.NotNil(t, data)
 }
@@ -990,7 +999,7 @@ func TestRESTAPIClient_GetNDJSON(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, metadata, _, err := client.GetNDJSON(ctx, server.URL, params, true)
+	data, metadata, _, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: params}, true)
 	require.NoError(t, err)
 	require.Len(t, data, 3)
 	require.Equal(t, "1", data[0]["id"])
@@ -1021,7 +1030,7 @@ func TestRESTAPIClient_GetNDJSON_EmptyResponse(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, metadata, _, err := client.GetNDJSON(ctx, server.URL, url.Values{}, true)
+	data, metadata, _, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, true)
 	require.NoError(t, err)
 	require.Len(t, data, 0)
 	require.Empty(t, metadata)
@@ -1048,7 +1057,7 @@ func TestRESTAPIClient_GetNDJSON_MetadataOnly(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, metadata, _, err := client.GetNDJSON(ctx, server.URL, url.Values{}, true)
+	data, metadata, _, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, true)
 	require.NoError(t, err)
 	require.Len(t, data, 0)
 	require.Equal(t, "xyz", metadata["offset"])
@@ -1075,7 +1084,7 @@ func TestRESTAPIClient_GetNDJSON_HTTPError(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, metadata, _, err := client.GetNDJSON(ctx, server.URL, url.Values{}, true)
+	data, metadata, _, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "403")
 	require.Nil(t, data)
@@ -1211,7 +1220,7 @@ func TestRESTAPIClient_GetNDJSON_MetadataInHeader(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, metadata, headers, err := client.GetNDJSON(ctx, server.URL, url.Values{}, false)
+	data, metadata, headers, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, false)
 	require.NoError(t, err)
 	require.Len(t, data, 3)
 	require.Equal(t, "1", data[0]["id"])
@@ -1243,7 +1252,7 @@ func TestRESTAPIClient_GetNDJSON_ReturnsHeaders(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, metadata, headers, err := client.GetNDJSON(ctx, server.URL, url.Values{}, true)
+	data, metadata, headers, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, true)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 	require.Equal(t, "body-offset", metadata["offset"])
@@ -1276,7 +1285,7 @@ func TestRESTAPIClient_GetFullResponse_ReturnsHeaders(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, headers, err := client.GetFullResponse(ctx, server.URL, url.Values{})
+	data, headers, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL, Query: url.Values{}})
 	require.NoError(t, err)
 	require.NotNil(t, data)
 	require.Equal(t, "page2", headers.Get("X-Next-Cursor"))
@@ -1309,8 +1318,355 @@ func TestRESTAPIClient_GetJSON_EmptyArray(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := client.GetJSON(ctx, server.URL, params)
+	data, err := getJSON(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.NotNil(t, data)
 	require.Len(t, data, 0)
+}
+
+// newTestClient builds a client against the given config for the POST tests.
+func newTestClient(ctx context.Context, t *testing.T, cfg *Config) restAPIClient {
+	t.Helper()
+	client, err := newRESTAPIClient(ctx, componenttest.NewNopTelemetrySettings(), cfg, componenttest.NewNopHost())
+	require.NoError(t, err)
+	return client
+}
+
+func TestRESTAPIClient_Post_Body(t *testing.T) {
+	var (
+		gotMethod      string
+		gotContentType string
+		gotBody        []byte
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotContentType = r.Header.Get("Content-Type")
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"resources": [{"id": "1"}]}`))
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	cfg := &Config{
+		URL:           server.URL,
+		Method:        methodPOST,
+		ParamLocation: paramLocationBody,
+		AuthMode:      authModeNone,
+		ResponseField: "resources",
+		ClientConfig:  confighttp.ClientConfig{},
+	}
+	client := newTestClient(ctx, t, cfg)
+
+	resp, _, err := client.FetchFullResponse(ctx, apiRequest{
+		URL: server.URL,
+		Body: map[string]any{
+			"filter": "status:'new'",
+			"limit":  100,
+			// An opaque cursor that looks numeric must stay a JSON string.
+			"after": "0012345",
+		},
+	})
+	require.NoError(t, err)
+	require.Contains(t, resp, "resources")
+
+	require.Equal(t, http.MethodPost, gotMethod)
+	require.Equal(t, "application/json", gotContentType)
+	require.JSONEq(t, `{"filter": "status:'new'", "limit": 100, "after": "0012345"}`, string(gotBody))
+	// JSONEq would accept "100" for 100, so assert the raw encoding too.
+	require.Contains(t, string(gotBody), `"limit":100`)
+	require.Contains(t, string(gotBody), `"after":"0012345"`)
+}
+
+func TestRESTAPIClient_Post_EmptyBody(t *testing.T) {
+	var (
+		gotBody        []byte
+		gotContentType string
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		gotContentType = r.Header.Get("Content-Type")
+		_, _ = w.Write([]byte(`{"data": []}`))
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	cfg := &Config{
+		URL:          server.URL,
+		Method:       methodPOST,
+		AuthMode:     authModeNone,
+		ClientConfig: confighttp.ClientConfig{},
+	}
+	client := newTestClient(ctx, t, cfg)
+
+	_, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL})
+	require.NoError(t, err)
+
+	// A nil body must encode as an empty object, not the literal "null".
+	require.Equal(t, "{}", string(gotBody))
+	require.Equal(t, "application/json", gotContentType)
+}
+
+func TestRESTAPIClient_Get_UnsetMethodSendsNoBody(t *testing.T) {
+	var (
+		gotMethod      string
+		gotBody        []byte
+		gotContentType string
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotBody, _ = io.ReadAll(r.Body)
+		gotContentType = r.Header.Get("Content-Type")
+		_, _ = w.Write([]byte(`{"data": []}`))
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	// Method is deliberately unset, as it is in every Config literal built by a
+	// test that bypasses Validate().
+	cfg := &Config{
+		URL:          server.URL,
+		AuthMode:     authModeNone,
+		ClientConfig: confighttp.ClientConfig{},
+	}
+	client := newTestClient(ctx, t, cfg)
+
+	_, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL})
+	require.NoError(t, err)
+
+	require.Equal(t, http.MethodGet, gotMethod)
+	require.Empty(t, gotBody)
+	require.Empty(t, gotContentType)
+}
+
+func TestRESTAPIClient_Post_ContentTypeOverride(t *testing.T) {
+	testCases := []struct {
+		name             string
+		headers          map[string]string
+		sensitiveHeaders map[string]configopaque.String
+		expected         string
+	}{
+		{
+			name:     "default",
+			expected: "application/json",
+		},
+		{
+			name:     "headers override",
+			headers:  map[string]string{"Content-Type": "application/vnd.api+json"},
+			expected: "application/vnd.api+json",
+		},
+		{
+			name:             "sensitive headers win over headers",
+			headers:          map[string]string{"Accept": "application/json"},
+			sensitiveHeaders: map[string]configopaque.String{"Content-Type": "application/secret+json"},
+			expected:         "application/secret+json",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotContentType string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotContentType = r.Header.Get("Content-Type")
+				_, _ = w.Write([]byte(`{"data": []}`))
+			}))
+			defer server.Close()
+
+			ctx := context.Background()
+			cfg := &Config{
+				URL:              server.URL,
+				Method:           methodPOST,
+				AuthMode:         authModeNone,
+				Headers:          tc.headers,
+				SensitiveHeaders: tc.sensitiveHeaders,
+				ClientConfig:     confighttp.ClientConfig{},
+			}
+			client := newTestClient(ctx, t, cfg)
+
+			_, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL})
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, gotContentType)
+		})
+	}
+}
+
+func TestRESTAPIClient_Post_NoHTMLEscaping(t *testing.T) {
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"data": []}`))
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	cfg := &Config{
+		URL:          server.URL,
+		Method:       methodPOST,
+		AuthMode:     authModeNone,
+		ClientConfig: confighttp.ClientConfig{},
+	}
+	client := newTestClient(ctx, t, cfg)
+
+	// CrowdStrike FQL filters contain comparison operators; they must be sent
+	// literally rather than as > / < escapes.
+	_, _, err := client.FetchFullResponse(ctx, apiRequest{
+		URL:  server.URL,
+		Body: map[string]any{"filter": "created_timestamp:>'2025-01-01'+severity:<50"},
+	})
+	require.NoError(t, err)
+
+	require.Contains(t, string(gotBody), `created_timestamp:>'2025-01-01'+severity:<50`)
+	require.NotContains(t, string(gotBody), `\u003e`)
+	require.NotContains(t, string(gotBody), `\u003c`)
+}
+
+func TestRESTAPIClient_Post_EpochBodyValueIsExact(t *testing.T) {
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"data": []}`))
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	cfg := &Config{
+		URL:          server.URL,
+		Method:       methodPOST,
+		AuthMode:     authModeNone,
+		ClientConfig: confighttp.ClientConfig{},
+	}
+	client := newTestClient(ctx, t, cfg)
+
+	_, _, err := client.FetchFullResponse(ctx, apiRequest{
+		URL:  server.URL,
+		Body: map[string]any{"since": json.Number("1704067200123456789")},
+	})
+	require.NoError(t, err)
+
+	// A float64 round trip would render this as 1.7040672001234568e+18.
+	require.Equal(t, `{"since":1704067200123456789}`, string(gotBody))
+}
+
+func TestRESTAPIClient_Post_QueryAndBody(t *testing.T) {
+	var (
+		gotQuery string
+		gotBody  []byte
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		gotBody, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"data": []}`))
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	cfg := &Config{
+		URL:           server.URL,
+		Method:        methodPOST,
+		ParamLocation: paramLocationQuery,
+		AuthMode:      authModeNone,
+		ClientConfig:  confighttp.ClientConfig{},
+	}
+	client := newTestClient(ctx, t, cfg)
+
+	_, _, err := client.FetchFullResponse(ctx, apiRequest{
+		URL:   server.URL,
+		Query: url.Values{"offset": []string{"20"}, "limit": []string{"10"}},
+		Body:  map[string]any{"filter": "status:'new'"},
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, "limit=10&offset=20", gotQuery)
+	require.JSONEq(t, `{"filter": "status:'new'"}`, string(gotBody))
+}
+
+func TestRESTAPIClient_Post_Redirect(t *testing.T) {
+	var (
+		hops    int
+		gotBody []byte
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hops++
+		if r.URL.Path != "/final" {
+			http.Redirect(w, r, "/final", http.StatusTemporaryRedirect)
+			return
+		}
+		gotBody, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"data": []}`))
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	cfg := &Config{
+		URL:          server.URL,
+		Method:       methodPOST,
+		AuthMode:     authModeNone,
+		ClientConfig: confighttp.ClientConfig{},
+	}
+	client := newTestClient(ctx, t, cfg)
+
+	_, _, err := client.FetchFullResponse(ctx, apiRequest{
+		URL:  server.URL,
+		Body: map[string]any{"filter": "status:'new'"},
+	})
+	require.NoError(t, err)
+
+	// The body must survive the redirect, which requires GetBody to be set —
+	// it is, because buildRequest passes a *bytes.Reader.
+	require.Equal(t, 2, hops)
+	require.JSONEq(t, `{"filter": "status:'new'"}`, string(gotBody))
+}
+
+func TestRESTAPIClient_Post_AkamaiEdgeGridSignsBody(t *testing.T) {
+	var authHeaders []string
+	var bodies []string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeaders = append(authHeaders, r.Header.Get("Authorization"))
+		body, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(body))
+		_, _ = w.Write([]byte(`{"data": []}`))
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	cfg := &Config{
+		URL:      server.URL,
+		Method:   methodPOST,
+		AuthMode: authModeAkamaiEdgeGrid,
+		AkamaiEdgeGridConfig: AkamaiEdgeGridConfig{
+			AccessToken:  "akab-access-token",
+			ClientToken:  "akab-client-token",
+			ClientSecret: "client-secret",
+		},
+		ClientConfig: confighttp.ClientConfig{},
+	}
+	client := newTestClient(ctx, t, cfg)
+
+	_, _, err := client.FetchFullResponse(ctx, apiRequest{
+		URL:  server.URL,
+		Body: map[string]any{"filter": "a"},
+	})
+	require.NoError(t, err)
+
+	_, _, err = client.FetchFullResponse(ctx, apiRequest{
+		URL:  server.URL,
+		Body: map[string]any{"filter": "b"},
+	})
+	require.NoError(t, err)
+
+	require.Len(t, authHeaders, 2)
+	require.NotEmpty(t, authHeaders[0])
+	// EdgeGrid hashes the request body into its signing string, so two POSTs
+	// with different bodies must not produce the same signature. This is what
+	// requires the body to be attached before applyAuth runs.
+	require.NotEqual(t, authHeaders[0], authHeaders[1])
+
+	// EdgeGrid signing consumes and replaces req.Body; the server must still
+	// receive the full payload.
+	require.Equal(t, []string{`{"filter":"a"}`, `{"filter":"b"}`}, bodies)
 }

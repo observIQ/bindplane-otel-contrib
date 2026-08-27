@@ -40,7 +40,12 @@ func NewFactory() receiver.Factory {
 func createDefaultConfig() component.Config {
 	return &Config{
 		URL:      "",
+		Method:   methodGET,
 		AuthMode: authModeNone,
+		// ParamLocation is deliberately left empty. Validate() derives it from
+		// the method ("body" for POST, "query" otherwise); seeding it here would
+		// make that derivation dead code, and a user who wrote only
+		// "method: post" would silently get query-string pagination.
 		Pagination: PaginationConfig{
 			Mode:           paginationModeNone,
 			PageLimit:      0,

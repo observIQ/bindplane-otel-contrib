@@ -15,7 +15,9 @@
 package restapireceiver
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,19 +34,28 @@ import (
 
 var _ restAPIClient = (*defaultRESTAPIClient)(nil)
 
+// apiRequest describes a single outbound polling request.
+type apiRequest struct {
+	// URL is the request URL. Any query string it already carries is preserved.
+	URL string
+	// Query holds parameters merged into the URL's existing query string.
+	Query url.Values
+	// Body holds the top-level keys of the JSON request body. It is ignored when
+	// the configured method does not take a body.
+	Body map[string]any
+}
+
 // restAPIClient is an interface for making REST API requests.
 // This interface allows for easier testing by enabling mock implementations.
 type restAPIClient interface {
-	// GetJSON fetches JSON data from the specified URL with the given query parameters.
-	// Returns an array of map[string]any representing the JSON objects.
-	GetJSON(ctx context.Context, requestURL string, params url.Values) ([]map[string]any, error)
-	// GetFullResponse fetches the full JSON response from the specified URL.
-	// Returns the full response as map[string]any for pagination parsing, plus response headers.
-	GetFullResponse(ctx context.Context, requestURL string, params url.Values) (map[string]any, http.Header, error)
-	// GetNDJSON fetches an NDJSON response from the specified URL.
+	// FetchFullResponse fetches the full JSON response for the given request.
+	// Returns the full response as map[string]any for pagination parsing, plus
+	// response headers.
+	FetchFullResponse(ctx context.Context, req apiRequest) (map[string]any, http.Header, error)
+	// FetchNDJSON fetches an NDJSON response for the given request.
 	// When metadataInBody is true the last line is treated as pagination metadata;
 	// when false all lines are treated as data (metadata comes from headers instead).
-	GetNDJSON(ctx context.Context, requestURL string, params url.Values, metadataInBody bool) (data []map[string]any, metadata map[string]any, headers http.Header, err error)
+	FetchNDJSON(ctx context.Context, req apiRequest, metadataInBody bool) (data []map[string]any, metadata map[string]any, headers http.Header, err error)
 	// Shutdown shuts down the REST API client.
 	Shutdown() error
 }
@@ -95,18 +106,39 @@ func (c *defaultRESTAPIClient) Shutdown() error {
 	return nil
 }
 
-// GetJSON fetches JSON data from the specified URL with the given query parameters.
-func (c *defaultRESTAPIClient) GetJSON(ctx context.Context, requestURL string, params url.Values) ([]map[string]any, error) {
-	// Build the request URL with query parameters
-	u, err := url.Parse(requestURL)
+// marshalJSONBody encodes a request body as JSON. Map keys are sorted so the encoding is
+// deterministic, and HTML escaping is disabled so that values such as query
+// filters containing <, > or & are transmitted literally.
+func marshalJSONBody(body map[string]any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(body); err != nil {
+		return nil, err
+	}
+	// Encode appends a trailing newline; drop it so the body is byte-exact.
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
+}
+
+// buildRequest constructs the outgoing HTTP request: the URL with merged query
+// parameters, the JSON body when the configured method takes one, authentication,
+// and headers.
+//
+// The body is attached before applyAuth because Akamai EdgeGrid includes a hash
+// of the POST body in its signing string. A *bytes.Reader is used so that
+// http.NewRequestWithContext populates ContentLength and GetBody, keeping the
+// request replayable across redirects and transport retries; EdgeGrid signing
+// swaps req.Body for a NopCloser but leaves GetBody and ContentLength intact.
+func (c *defaultRESTAPIClient) buildRequest(ctx context.Context, r apiRequest) (*http.Request, error) {
+	u, err := url.Parse(r.URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse URL: %w", err)
 	}
 
 	// Add query parameters
-	if len(params) > 0 {
+	if len(r.Query) > 0 {
 		existingParams := u.Query()
-		for key, values := range params {
+		for key, values := range r.Query {
 			for _, value := range values {
 				existingParams.Add(key, value)
 			}
@@ -114,40 +146,82 @@ func (c *defaultRESTAPIClient) GetJSON(ctx context.Context, requestURL string, p
 		u.RawQuery = existingParams.Encode()
 	}
 
-	// Create the HTTP request
-	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	var bodyReader io.Reader
+	hasBody := false
+	if c.cfg.Method == methodPOST {
+		body := r.Body
+		if body == nil {
+			// A nil map would encode as "null"; send an empty object instead.
+			body = map[string]any{}
+		}
+		raw, err := marshalJSONBody(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		bodyReader = bytes.NewReader(raw)
+		hasBody = true
+	}
+
+	req, err := http.NewRequestWithContext(ctx, c.cfg.Method.httpMethod(), u.String(), bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Apply authentication
+	// Set default headers
+	req.Header.Set("Accept", "application/json")
+	if hasBody {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	// Apply authentication (after the body is attached, so EdgeGrid can hash it)
 	if err := c.applyAuth(req); err != nil {
 		return nil, fmt.Errorf("failed to apply authentication: %w", err)
 	}
 
-	// Set default headers
-	req.Header.Set("Accept", "application/json")
-
 	// Apply custom headers (may override defaults)
 	c.applyHeaders(req)
 
-	// Make the request
+	return req, nil
+}
+
+// do issues the request and returns the raw response body and headers.
+func (c *defaultRESTAPIClient) do(ctx context.Context, r apiRequest) ([]byte, http.Header, error) {
+	req, err := c.buildRequest(ctx, r)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
+		return nil, nil, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Check for HTTP errors
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(body))
+		return nil, nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Read the response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return body, resp.Header, nil
+}
+
+// GetJSON fetches JSON data for the given request and extracts the array of
+// items from it.
+//
+// This is not part of restAPIClient and is not used by the receiver, which goes
+// through FetchFullResponse and extractDataFromResponse instead. It is retained
+// as the vehicle for the client's authentication-mode test coverage.
+func (c *defaultRESTAPIClient) GetJSON(ctx context.Context, r apiRequest) ([]map[string]any, error) {
+	body, _, err := c.do(ctx, r)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse JSON
@@ -195,59 +269,11 @@ func (c *defaultRESTAPIClient) GetJSON(ctx context.Context, requestURL string, p
 	return result, nil
 }
 
-// GetFullResponse fetches the full JSON response from the specified URL.
-func (c *defaultRESTAPIClient) GetFullResponse(ctx context.Context, requestURL string, params url.Values) (map[string]any, http.Header, error) {
-	// Build the request URL with query parameters
-	u, err := url.Parse(requestURL)
+// FetchFullResponse fetches the full JSON response for the given request.
+func (c *defaultRESTAPIClient) FetchFullResponse(ctx context.Context, r apiRequest) (map[string]any, http.Header, error) {
+	body, headers, err := c.do(ctx, r)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse URL: %w", err)
-	}
-
-	// Add query parameters
-	if len(params) > 0 {
-		existingParams := u.Query()
-		for key, values := range params {
-			for _, value := range values {
-				existingParams.Add(key, value)
-			}
-		}
-		u.RawQuery = existingParams.Encode()
-	}
-
-	// Create the HTTP request
-	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Apply authentication
-	if err := c.applyAuth(req); err != nil {
-		return nil, nil, fmt.Errorf("failed to apply authentication: %w", err)
-	}
-
-	// Set default headers
-	req.Header.Set("Accept", "application/json")
-
-	// Apply custom headers (may override defaults)
-	c.applyHeaders(req)
-
-	// Make the request
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check for HTTP errors
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, nil, err
 	}
 
 	// Parse JSON
@@ -261,77 +287,29 @@ func (c *defaultRESTAPIClient) GetFullResponse(ctx context.Context, requestURL s
 	if !ok {
 		// If response is an array, wrap it in a map
 		if arr, ok := jsonData.([]any); ok {
-			return map[string]any{"data": arr}, resp.Header, nil
+			return map[string]any{"data": arr}, headers, nil
 		}
 		return nil, nil, fmt.Errorf("response is not a JSON object or array")
 	}
 
-	return responseMap, resp.Header, nil
+	return responseMap, headers, nil
 }
 
-// GetNDJSON fetches an NDJSON response from the specified URL.
-// Each line of the response is a separate JSON object. The last line is treated
-// as metadata (e.g., containing pagination cursors like an offset token).
-// All other lines are returned as data objects.
-func (c *defaultRESTAPIClient) GetNDJSON(ctx context.Context, requestURL string, params url.Values, metadataInBody bool) ([]map[string]any, map[string]any, http.Header, error) {
-	// Build the request URL with query parameters
-	u, err := url.Parse(requestURL)
+// FetchNDJSON fetches an NDJSON response for the given request.
+// Each line of the response is a separate JSON object. When metadataInBody is
+// true the last line is treated as metadata (e.g., containing pagination cursors
+// like an offset token) and all other lines are returned as data objects.
+func (c *defaultRESTAPIClient) FetchNDJSON(ctx context.Context, r apiRequest, metadataInBody bool) ([]map[string]any, map[string]any, http.Header, error) {
+	body, headers, err := c.do(ctx, r)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to parse URL: %w", err)
-	}
-
-	// Add query parameters
-	if len(params) > 0 {
-		existingParams := u.Query()
-		for key, values := range params {
-			for _, value := range values {
-				existingParams.Add(key, value)
-			}
-		}
-		u.RawQuery = existingParams.Encode()
-	}
-
-	// Create the HTTP request
-	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Apply authentication
-	if err := c.applyAuth(req); err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to apply authentication: %w", err)
-	}
-
-	// Set default headers
-	req.Header.Set("Accept", "application/json")
-
-	// Apply custom headers (may override defaults)
-	c.applyHeaders(req)
-
-	// Make the request
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check for HTTP errors
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, nil, nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, nil, nil, err
 	}
 
 	data, metadata, err := parseNDJSON(body, metadataInBody, c.logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return data, metadata, resp.Header, nil
+	return data, metadata, headers, nil
 }
 
 // parseNDJSON parses an NDJSON response body into data objects and a metadata object.

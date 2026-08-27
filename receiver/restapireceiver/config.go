@@ -15,6 +15,7 @@
 package restapireceiver // import "github.com/observiq/bindplane-otel-contrib/receiver/restapireceiver"
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -137,10 +138,86 @@ func (m *PaginationMode) UnmarshalText(text []byte) error {
 	}
 }
 
+// Method defines the HTTP method used for polling requests.
+type Method string
+
+const (
+	methodGET  Method = "get"
+	methodPOST Method = "post"
+)
+
+// UnmarshalText implements the encoding.TextUnmarshaler interface
+func (m *Method) UnmarshalText(text []byte) error {
+	method := Method(text)
+	switch method {
+	case methodGET, methodPOST:
+		*m = method
+		return nil
+	default:
+		return fmt.Errorf("invalid method: %s, must be one of: get, post", text)
+	}
+}
+
+// httpMethod returns the wire-format HTTP method token. HTTP methods are
+// case-sensitive and http.NewRequestWithContext does not normalize them, so the
+// lowercase config value must never be passed to the transport directly. Akamai
+// EdgeGrid signing also only hashes a request body when the method is exactly
+// http.MethodPost. An unset method means GET.
+func (m Method) httpMethod() string {
+	if m == methodPOST {
+		return http.MethodPost
+	}
+	return http.MethodGet
+}
+
+// ParamLocation defines where the receiver sends the pagination and time-bound
+// values it generates for each request.
+type ParamLocation string
+
+const (
+	paramLocationQuery ParamLocation = "query"
+	paramLocationBody  ParamLocation = "body"
+)
+
+// UnmarshalText implements the encoding.TextUnmarshaler interface
+func (p *ParamLocation) UnmarshalText(text []byte) error {
+	loc := ParamLocation(text)
+	switch loc {
+	case paramLocationQuery, paramLocationBody:
+		*p = loc
+		return nil
+	default:
+		return fmt.Errorf("invalid param_location: %s, must be one of: query, body", text)
+	}
+}
+
 // Config defines configuration for the REST API receiver.
 type Config struct {
 	// URL is the base URL for the REST API endpoint (required).
 	URL string `mapstructure:"url"`
+
+	// Method is the HTTP method used for polling requests: "get" (default) or "post".
+	Method Method `mapstructure:"method"`
+
+	// ParamLocation controls where the pagination and time-bound values the
+	// receiver generates are sent.
+	// "query": appended to the query string.
+	// "body": set as top-level keys in the JSON request body.
+	// Defaults to "body" when method is "post" and "query" otherwise. Must be
+	// "query" when method is "get".
+	ParamLocation ParamLocation `mapstructure:"param_location"`
+
+	// RequestBody is a static JSON request body sent with each request, expressed
+	// as a nested map. Only valid when method is "post".
+	//
+	// When param_location is "body", the pagination and time-bound values the
+	// receiver generates are merged over the top-level keys of this map on each
+	// request. A key the receiver manages must not appear here; Validate rejects
+	// the collision.
+	//
+	// Values are NOT masked in logs or configuration dumps. Do not put
+	// credentials here; use auth_mode or sensitive_headers instead.
+	RequestBody map[string]any `mapstructure:"request_body"`
 
 	// ResponseFormat defines the format of the API response body.
 	// "json" (default): standard JSON array or object with a data field.
@@ -359,10 +436,18 @@ type OffsetLimitPagination struct {
 	// StartingOffset is the starting offset value.
 	StartingOffset int `mapstructure:"starting_offset"`
 
-	// LimitFieldName is the name of the query parameter for limit.
+	// LimitFieldName is the name of the request parameter for limit.
 	// Required for numeric offset pagination. Optional when NextOffsetFieldName
 	// is set (token-based pagination), since page advance is driven by the token.
 	LimitFieldName string `mapstructure:"limit_field_name"`
+
+	// Limit is the value sent for LimitFieldName on each request. It is also the
+	// expected page size for the "a full page means there may be more" heuristic
+	// in parseOffsetLimitResponse, so it should match the page size the API
+	// actually returns. When LimitFieldName is unset (token-based pagination) it
+	// is used only as that heuristic threshold and should be set to the API's own
+	// page size. Defaults to 10.
+	Limit int `mapstructure:"limit"`
 
 	// NextOffsetFieldName is the name of the field or header that contains the next offset token.
 	// When set, the receiver uses token-based (cursor) pagination instead of numeric offsets.
@@ -473,6 +558,56 @@ func (c *Config) Validate() error {
 		// Valid formats
 	default:
 		return fmt.Errorf("invalid response_format: %s, must be one of: json, ndjson", c.ResponseFormat)
+	}
+
+	// Apply default method
+	if c.Method == "" {
+		c.Method = methodGET
+	}
+
+	// Validate method
+	switch c.Method {
+	case methodGET, methodPOST:
+		// Valid methods
+	default:
+		return fmt.Errorf("invalid method: %s, must be one of: get, post", c.Method)
+	}
+
+	// Apply default param location. A POST carries the generated values in its
+	// body by default; a GET can only ever use the query string.
+	if c.ParamLocation == "" {
+		if c.Method == methodPOST {
+			c.ParamLocation = paramLocationBody
+		} else {
+			c.ParamLocation = paramLocationQuery
+		}
+	}
+
+	// Validate param location
+	switch c.ParamLocation {
+	case paramLocationQuery, paramLocationBody:
+		// Valid locations
+	default:
+		return fmt.Errorf("invalid param_location: %s, must be one of: query, body", c.ParamLocation)
+	}
+
+	// A GET with a body has undefined semantics and is dropped or rejected by
+	// many servers, caches, and proxies, so reject the combination outright
+	// rather than let it fail as a silent empty poll.
+	if c.Method == methodGET && c.ParamLocation != paramLocationQuery {
+		return fmt.Errorf("param_location must be query when method is get")
+	}
+
+	if c.Method == methodGET && len(c.RequestBody) > 0 {
+		return fmt.Errorf("request_body is not supported when method is get")
+	}
+
+	// The request body is JSON-encoded on every request, so reject a body that
+	// cannot be encoded at startup rather than on every poll.
+	if len(c.RequestBody) > 0 {
+		if _, err := json.Marshal(c.RequestBody); err != nil {
+			return fmt.Errorf("request_body cannot be encoded as JSON: %w", err)
+		}
 	}
 
 	// Validate auth
@@ -634,6 +769,26 @@ func (c *Config) Validate() error {
 		}
 		if c.Pagination.Timestamp.TimestampFieldName == "" {
 			return fmt.Errorf("timestamp_field_name is required when pagination.mode is timestamp")
+		}
+	}
+
+	if c.Pagination.OffsetLimit.Limit < 0 {
+		return fmt.Errorf("limit must be greater than or equal to 0")
+	}
+
+	// The receiver derives its pagination and time-bound values from its own
+	// state and sets them on every request, so a static request_body must not
+	// also set them. Rejecting the collision here means the value the server
+	// sees can never disagree with the value the pagination heuristics assume.
+	if c.ParamLocation == paramLocationBody {
+		for name, owner := range c.generatedParamNames() {
+			if _, ok := c.RequestBody[name]; !ok {
+				continue
+			}
+			if owner == "pagination.offset_limit.limit_field_name" {
+				return fmt.Errorf("request_body key %q conflicts with %s; set pagination.offset_limit.limit instead", name, owner)
+			}
+			return fmt.Errorf("request_body key %q conflicts with %s; the receiver sets this value on each request, so it must not be set in request_body", name, owner)
 		}
 	}
 

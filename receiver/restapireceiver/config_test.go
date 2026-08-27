@@ -15,6 +15,7 @@
 package restapireceiver
 
 import (
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1398,6 +1399,181 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectedErr: "start_time_value (1748736000) must be before end_time_value (1704067200)",
 		},
+		{
+			name: "valid post config with request body",
+			config: &Config{
+				URL:      "https://api.example.com/alerts",
+				Method:   methodPOST,
+				AuthMode: authModeNone,
+				RequestBody: map[string]any{
+					"filter": "status:'new'",
+					"sort":   "created_timestamp|asc",
+				},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "valid post config with param_location query",
+			config: &Config{
+				URL:           "https://api.example.com/alerts",
+				Method:        methodPOST,
+				ParamLocation: paramLocationQuery,
+				AuthMode:      authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "invalid method",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				Method:   Method("put"),
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid method: put, must be one of: get, post",
+		},
+		{
+			name: "invalid param_location",
+			config: &Config{
+				URL:           "https://api.example.com/data",
+				ParamLocation: ParamLocation("header"),
+				AuthMode:      authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "invalid param_location: header, must be one of: query, body",
+		},
+		{
+			name: "param_location body rejected with get",
+			config: &Config{
+				URL:           "https://api.example.com/data",
+				Method:        methodGET,
+				ParamLocation: paramLocationBody,
+				AuthMode:      authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "param_location must be query when method is get",
+		},
+		{
+			name: "request_body rejected with get",
+			config: &Config{
+				URL:         "https://api.example.com/data",
+				Method:      methodGET,
+				AuthMode:    authModeNone,
+				RequestBody: map[string]any{"filter": "x"},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "request_body is not supported when method is get",
+		},
+		{
+			name: "request_body that cannot be encoded as JSON",
+			config: &Config{
+				URL:         "https://api.example.com/data",
+				Method:      methodPOST,
+				AuthMode:    authModeNone,
+				RequestBody: map[string]any{"ch": make(chan int)},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "request_body cannot be encoded as JSON",
+		},
+		{
+			name: "request_body key conflicts with limit_field_name",
+			config: &Config{
+				URL:         "https://api.example.com/alerts",
+				Method:      methodPOST,
+				AuthMode:    authModeNone,
+				RequestBody: map[string]any{"limit": 100},
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "after",
+						LimitFieldName:  "limit",
+					},
+				},
+			},
+			expectedErr: `request_body key "limit" conflicts with pagination.offset_limit.limit_field_name; set pagination.offset_limit.limit instead`,
+		},
+		{
+			name: "request_body key conflicts with offset_field_name",
+			config: &Config{
+				URL:         "https://api.example.com/alerts",
+				Method:      methodPOST,
+				AuthMode:    authModeNone,
+				RequestBody: map[string]any{"after": "pinned"},
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "after",
+						LimitFieldName:  "limit",
+					},
+				},
+			},
+			expectedErr: `request_body key "after" conflicts with pagination.offset_limit.offset_field_name; the receiver sets this value on each request`,
+		},
+		{
+			name: "request_body key conflicts with start_time_param_name",
+			config: &Config{
+				URL:                "https://api.example.com/alerts",
+				Method:             methodPOST,
+				AuthMode:           authModeNone,
+				StartTimeParamName: "since",
+				StartTimeValue:     "2025-01-01T00:00:00Z",
+				RequestBody:        map[string]any{"since": "2020-01-01T00:00:00Z"},
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: `request_body key "since" conflicts with start_time_param_name`,
+		},
+		{
+			name: "request_body key conflict ignored when param_location is query",
+			config: &Config{
+				URL:           "https://api.example.com/alerts",
+				Method:        methodPOST,
+				ParamLocation: paramLocationQuery,
+				AuthMode:      authModeNone,
+				RequestBody:   map[string]any{"limit": 100},
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "after",
+						LimitFieldName:  "limit",
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "negative offset_limit limit",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "offset",
+						LimitFieldName:  "limit",
+						Limit:           -1,
+					},
+				},
+			},
+			expectedErr: "limit must be greater than or equal to 0",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1418,6 +1594,11 @@ func TestConfig_DefaultValues(t *testing.T) {
 	cfg := factory.CreateDefaultConfig().(*Config)
 
 	require.Equal(t, authModeNone, cfg.AuthMode)
+	require.Equal(t, methodGET, cfg.Method)
+	// ParamLocation must stay empty in the default config so that Validate() can
+	// derive it from the method. Seeding it here would silently give a config
+	// that sets only "method: post" query-string pagination instead of body.
+	require.Empty(t, cfg.ParamLocation)
 	require.Equal(t, paginationModeNone, cfg.Pagination.Mode)
 	require.Equal(t, 10*time.Second, cfg.MinPollInterval)
 	require.Equal(t, 5*time.Minute, cfg.MaxPollInterval)
@@ -1457,6 +1638,130 @@ func TestLoadConfigFromYAML(t *testing.T) {
 	require.Equal(t, authModeAPIKey, restapiCfg.AuthMode)
 	require.Equal(t, configopaque.String("test-key"), restapiCfg.APIKeyConfig.Value)
 	require.Equal(t, "X-API-Key", restapiCfg.APIKeyConfig.HeaderName)
+
+	// The POST request shape must survive the YAML -> confmap -> map[string]any
+	// round trip with key case and nesting preserved, and with non-string
+	// scalars kept as their own types rather than stringified.
+	require.Equal(t, methodPOST, restapiCfg.Method)
+	require.Equal(t, paramLocationBody, restapiCfg.ParamLocation)
+	require.Equal(t, "status:'new'", restapiCfg.RequestBody["filter"])
+	require.Equal(t, "created_timestamp|asc", restapiCfg.RequestBody["sort"])
+
+	options, ok := restapiCfg.RequestBody["options"].(map[string]any)
+	require.True(t, ok, "nested request_body value should unmarshal as a map")
+	require.Equal(t, true, options["include_hidden"])
+	require.Equal(t, []any{"a", "b"}, options["tags"])
+}
+
+func TestConfig_MethodAndParamLocationDefaults(t *testing.T) {
+	testCases := []struct {
+		name                  string
+		method                Method
+		paramLocation         ParamLocation
+		expectedMethod        Method
+		expectedParamLocation ParamLocation
+	}{
+		{
+			name:                  "unset defaults to get and query",
+			expectedMethod:        methodGET,
+			expectedParamLocation: paramLocationQuery,
+		},
+		{
+			name:                  "post defaults to body",
+			method:                methodPOST,
+			expectedMethod:        methodPOST,
+			expectedParamLocation: paramLocationBody,
+		},
+		{
+			name:                  "explicit get keeps query",
+			method:                methodGET,
+			expectedMethod:        methodGET,
+			expectedParamLocation: paramLocationQuery,
+		},
+		{
+			name:                  "explicit query survives post",
+			method:                methodPOST,
+			paramLocation:         paramLocationQuery,
+			expectedMethod:        methodPOST,
+			expectedParamLocation: paramLocationQuery,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				URL:           "https://api.example.com/data",
+				Method:        tc.method,
+				ParamLocation: tc.paramLocation,
+				AuthMode:      authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			}
+			require.NoError(t, cfg.Validate())
+			require.Equal(t, tc.expectedMethod, cfg.Method)
+			require.Equal(t, tc.expectedParamLocation, cfg.ParamLocation)
+		})
+	}
+}
+
+func TestMethod_UnmarshalText(t *testing.T) {
+	testCases := []struct {
+		input       string
+		expected    Method
+		expectedErr string
+	}{
+		{input: "get", expected: methodGET},
+		{input: "post", expected: methodPOST},
+		{input: "PATCH", expectedErr: "invalid method: PATCH, must be one of: get, post"},
+		{input: "POST", expectedErr: "invalid method: POST, must be one of: get, post"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.input, func(t *testing.T) {
+			var m Method
+			err := m.UnmarshalText([]byte(tc.input))
+			if tc.expectedErr != "" {
+				require.EqualError(t, err, tc.expectedErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, m)
+		})
+	}
+}
+
+func TestMethod_HTTPMethod(t *testing.T) {
+	require.Equal(t, http.MethodPost, methodPOST.httpMethod())
+	require.Equal(t, http.MethodGet, methodGET.httpMethod())
+	// An unset method must map to GET: the client tests and receiver tests build
+	// Config literals that never run through Validate().
+	require.Equal(t, http.MethodGet, Method("").httpMethod())
+}
+
+func TestParamLocation_UnmarshalText(t *testing.T) {
+	testCases := []struct {
+		input       string
+		expected    ParamLocation
+		expectedErr string
+	}{
+		{input: "query", expected: paramLocationQuery},
+		{input: "body", expected: paramLocationBody},
+		{input: "header", expectedErr: "invalid param_location: header, must be one of: query, body"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.input, func(t *testing.T) {
+			var loc ParamLocation
+			err := loc.UnmarshalText([]byte(tc.input))
+			if tc.expectedErr != "" {
+				require.EqualError(t, err, tc.expectedErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, loc)
+		})
+	}
 }
 
 func TestConfig_DeprecatedTimestampMigration(t *testing.T) {

@@ -15,6 +15,7 @@
 package restapireceiver
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -77,9 +78,13 @@ func newPaginationState(cfg *Config) *paginationState {
 	switch cfg.Pagination.Mode {
 	case paginationModeOffsetLimit:
 		state.CurrentOffset = cfg.Pagination.OffsetLimit.StartingOffset
-		// Use a default limit - this will be sent as a query parameter
-		// The actual page size may differ based on API response
+		// The limit is both the value sent to the API and the threshold for the
+		// "a full page means there may be more" heuristic, so a zero value falls
+		// back to the historical default rather than disabling pagination.
 		state.Limit = 10
+		if cfg.Pagination.OffsetLimit.Limit > 0 {
+			state.Limit = cfg.Pagination.OffsetLimit.Limit
+		}
 
 	case paginationModePageSize:
 		if cfg.Pagination.ZeroBasedIndex {
@@ -125,12 +130,6 @@ func newPaginationState(cfg *Config) *paginationState {
 		}
 	}
 
-	// Set limit if configured for offset/limit pagination
-	if cfg.Pagination.Mode == paginationModeOffsetLimit &&
-		cfg.Pagination.OffsetLimit.LimitFieldName != "" {
-		state.Limit = 10 // reasonable default
-	}
-
 	// Resolve "now" once so all pages in a pagination run share the same value.
 	if cfg.StartTimeParamName != "" && cfg.StartTimeValue != "" {
 		state.ResolvedStartTime = formatTimeBoundValue(cfg.StartTimeValue, cfg.TimestampFormat)
@@ -146,36 +145,115 @@ func newPaginationState(cfg *Config) *paginationState {
 	return state
 }
 
-// buildPaginationParams builds query parameters for pagination based on the current state.
-func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
-	params := url.Values{}
+// generatedParamNames returns the request parameter names the receiver sets on
+// each request, mapped to the config field that owns each one. It must mirror
+// the keys produced by buildPaginationValues.
+func (c *Config) generatedParamNames() map[string]string {
+	names := map[string]string{}
+	add := func(name, owner string) {
+		if name != "" {
+			names[name] = owner
+		}
+	}
+
+	switch c.Pagination.Mode {
+	case paginationModeOffsetLimit:
+		add(c.Pagination.OffsetLimit.OffsetFieldName, "pagination.offset_limit.offset_field_name")
+		add(c.Pagination.OffsetLimit.LimitFieldName, "pagination.offset_limit.limit_field_name")
+
+	case paginationModePageSize:
+		add(c.Pagination.PageSize.PageNumFieldName, "pagination.page_size.page_num_field_name")
+		add(c.Pagination.PageSize.PageSizeFieldName, "pagination.page_size.page_size_field_name")
+
+	case paginationModeTimestamp:
+		add(c.Pagination.Timestamp.PageSizeFieldName, "pagination.timestamp.page_size_field_name")
+	}
+
+	add(c.StartTimeParamName, "start_time_param_name")
+	add(c.EndTimeParamName, "end_time_param_name")
+
+	return names
+}
+
+// paramValueToString renders a value produced by buildPaginationValues as a
+// query-string parameter.
+func paramValueToString(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case json.Number:
+		return string(t)
+	case int:
+		return strconv.Itoa(t)
+	default:
+		return fmt.Sprintf("%v", t)
+	}
+}
+
+// epochValue wraps an already-formatted epoch timestamp string so that it
+// serializes into a JSON request body as a bare number. json.Number is used
+// rather than a float64 because epoch_ns exceeds the range float64 can
+// represent exactly, and epoch_s_frac would lose fractional digits.
+func epochValue(formatted string) json.Number {
+	return json.Number(formatted)
+}
+
+// buildPaginationValues is the single producer of the per-page varying request
+// values: pagination cursors, offsets, page numbers, page sizes, and the
+// start/end time bounds.
+//
+// Values carry their JSON-native type so they can be written into a JSON
+// request body without stringifying numbers — an API that expects
+// {"limit": 100} will reject {"limit": "100"}. Numeric offsets, page numbers,
+// limits, and page sizes are int; cursor tokens and layout-formatted timestamps
+// are string (a token is never coerced to a number, even when it is all
+// digits); epoch timestamps are json.Number.
+//
+// Keep the set of keys produced here in sync with (*Config).generatedParamNames.
+func buildPaginationValues(cfg *Config, state *paginationState) map[string]any {
+	values := map[string]any{}
 
 	switch cfg.Pagination.Mode {
 	case paginationModeOffsetLimit:
 		if cfg.Pagination.OffsetLimit.OffsetFieldName != "" {
-			if state.CurrentOffsetToken != "" {
-				// Use token-based offset when available
-				params.Set(cfg.Pagination.OffsetLimit.OffsetFieldName, state.CurrentOffsetToken)
-			} else {
-				params.Set(cfg.Pagination.OffsetLimit.OffsetFieldName, fmt.Sprintf("%d", state.CurrentOffset))
+			switch {
+			case state.CurrentOffsetToken != "":
+				// Use token-based offset when available. The token is opaque, so
+				// it stays a string even when it looks numeric.
+				values[cfg.Pagination.OffsetLimit.OffsetFieldName] = state.CurrentOffsetToken
+
+			case cfg.Pagination.OffsetLimit.NextOffsetFieldName != "" && state.CurrentOffset == 0:
+				// Token-based pagination with no token yet and nothing to resume
+				// from: this is the first page of the run, so send no cursor at
+				// all. The field holds an opaque cursor in this mode, and a
+				// numeric 0 is not a cursor any API would accept — a JSON body
+				// carrying {"after": 0} is rejected outright by APIs that expect
+				// a string token there.
+				//
+				// A non-zero offset still falls through to the numeric value
+				// below, so a checkpoint written before token-based pagination
+				// was configured can still resume.
+
+			default:
+				values[cfg.Pagination.OffsetLimit.OffsetFieldName] = state.CurrentOffset
 			}
 		}
 		if cfg.Pagination.OffsetLimit.LimitFieldName != "" {
-			params.Set(cfg.Pagination.OffsetLimit.LimitFieldName, fmt.Sprintf("%d", state.Limit))
+			values[cfg.Pagination.OffsetLimit.LimitFieldName] = state.Limit
 		}
 
 	case paginationModePageSize:
 		if cfg.Pagination.PageSize.PageNumFieldName != "" {
-			params.Set(cfg.Pagination.PageSize.PageNumFieldName, fmt.Sprintf("%d", state.CurrentPage))
+			values[cfg.Pagination.PageSize.PageNumFieldName] = state.CurrentPage
 		}
 		if cfg.Pagination.PageSize.PageSizeFieldName != "" {
-			params.Set(cfg.Pagination.PageSize.PageSizeFieldName, fmt.Sprintf("%d", state.PageSize))
+			values[cfg.Pagination.PageSize.PageSizeFieldName] = state.PageSize
 		}
 
 	case paginationModeTimestamp:
 		// Add page size parameter
 		if cfg.Pagination.Timestamp.PageSizeFieldName != "" {
-			params.Set(cfg.Pagination.Timestamp.PageSizeFieldName, fmt.Sprintf("%d", state.PageSize))
+			values[cfg.Pagination.Timestamp.PageSizeFieldName] = state.PageSize
 		}
 		// For timestamp pagination, the start time advances through response data.
 		// The start_time_param_name and advancing logic are handled below in the
@@ -211,12 +289,12 @@ func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
 			// Use configured format or default to RFC3339
 			format := cfg.TimestampFormat
 			if isEpochFormat(format) {
-				params.Set(cfg.StartTimeParamName, formatTimestampEpoch(timestampForRequest, format))
+				values[cfg.StartTimeParamName] = epochValue(formatTimestampEpoch(timestampForRequest, format))
 			} else {
 				if format == "" {
 					format = time.RFC3339
 				}
-				params.Set(cfg.StartTimeParamName, timestampForRequest.Format(format))
+				values[cfg.StartTimeParamName] = timestampForRequest.Format(format)
 			}
 		}
 
@@ -226,18 +304,42 @@ func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
 
 	// Add time-bound parameters for non-timestamp pagination modes.
 	// For timestamp pagination, start time is handled above (it advances through data).
+	//
+	// The resolved bounds are stored on the state as strings so the checkpoint
+	// schema stays unchanged; they are typed here instead. Validate() guarantees
+	// the value is numeric whenever the format is an epoch format, so the
+	// json.Number is always a valid JSON literal.
 	if cfg.Pagination.Mode != paginationModeTimestamp {
 		if cfg.StartTimeParamName != "" && state.ResolvedStartTime != "" {
-			params.Set(cfg.StartTimeParamName, state.ResolvedStartTime)
+			values[cfg.StartTimeParamName] = timeBoundValue(state.ResolvedStartTime, cfg.TimestampFormat)
 		}
 	}
 
 	// End time is always applied as a static value regardless of pagination mode.
 	// Uses the value resolved once in newPaginationState so all pages share the same time.
 	if cfg.EndTimeParamName != "" && state.ResolvedEndTime != "" {
-		params.Set(cfg.EndTimeParamName, state.ResolvedEndTime)
+		values[cfg.EndTimeParamName] = timeBoundValue(state.ResolvedEndTime, cfg.TimestampFormat)
 	}
 
+	return values
+}
+
+// timeBoundValue types a resolved time-bound value for the request: a bare JSON
+// number for epoch formats, a string otherwise.
+func timeBoundValue(resolved, format string) any {
+	if isEpochFormat(format) {
+		return epochValue(resolved)
+	}
+	return resolved
+}
+
+// buildPaginationParams renders the values from buildPaginationValues as query
+// parameters.
+func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
+	params := url.Values{}
+	for key, value := range buildPaginationValues(cfg, state) {
+		params.Set(key, paramValueToString(value))
+	}
 	return params
 }
 
