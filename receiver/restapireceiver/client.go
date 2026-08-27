@@ -40,8 +40,8 @@ type apiRequest struct {
 	URL string
 	// Query holds parameters merged into the URL's existing query string.
 	Query url.Values
-	// Body holds the top-level keys of the JSON request body. It is ignored when
-	// the configured method does not take a body.
+	// Body holds the top-level keys of the JSON request body, ignored when the
+	// configured method takes no body.
 	Body map[string]any
 }
 
@@ -106,9 +106,9 @@ func (c *defaultRESTAPIClient) Shutdown() error {
 	return nil
 }
 
-// marshalJSONBody encodes a request body as JSON. Map keys are sorted so the encoding is
-// deterministic, and HTML escaping is disabled so that values such as query
-// filters containing <, > or & are transmitted literally.
+// marshalJSONBody encodes a request body as JSON. Map keys are sorted so the
+// encoding is deterministic, and HTML escaping is off so filters containing
+// <, > or & are transmitted literally.
 func marshalJSONBody(body map[string]any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -120,15 +120,13 @@ func marshalJSONBody(body map[string]any) ([]byte, error) {
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
-// buildRequest constructs the outgoing HTTP request: the URL with merged query
-// parameters, the JSON body when the configured method takes one, authentication,
-// and headers.
+// buildRequest constructs the outgoing request: URL with merged query
+// parameters, JSON body when the method takes one, auth, and headers.
 //
-// The body is attached before applyAuth because Akamai EdgeGrid includes a hash
-// of the POST body in its signing string. A *bytes.Reader is used so that
-// http.NewRequestWithContext populates ContentLength and GetBody, keeping the
-// request replayable across redirects and transport retries; EdgeGrid signing
-// swaps req.Body for a NopCloser but leaves GetBody and ContentLength intact.
+// The body is attached before applyAuth because Akamai EdgeGrid hashes the POST
+// body into its signing string. A *bytes.Reader gives ContentLength and GetBody,
+// keeping the request replayable across redirects and retries; EdgeGrid swaps
+// req.Body for a NopCloser but leaves both intact.
 func (c *defaultRESTAPIClient) buildRequest(ctx context.Context, r apiRequest) (*http.Request, error) {
 	u, err := url.Parse(r.URL)
 	if err != nil {
@@ -212,12 +210,11 @@ func (c *defaultRESTAPIClient) do(ctx context.Context, r apiRequest) ([]byte, ht
 	return body, resp.Header, nil
 }
 
-// GetJSON fetches JSON data for the given request and extracts the array of
-// items from it.
+// GetJSON fetches JSON data and extracts the array of items from it.
 //
-// This is not part of restAPIClient and is not used by the receiver, which goes
-// through FetchFullResponse and extractDataFromResponse instead. It is retained
-// as the vehicle for the client's authentication-mode test coverage.
+// Not part of restAPIClient and unused by the receiver, which goes through
+// FetchFullResponse and extractDataFromResponse. Retained as the vehicle for
+// the client's authentication-mode test coverage.
 func (c *defaultRESTAPIClient) GetJSON(ctx context.Context, r apiRequest) ([]map[string]any, error) {
 	body, _, err := c.do(ctx, r)
 	if err != nil {

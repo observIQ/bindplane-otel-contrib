@@ -1637,9 +1637,8 @@ func TestConfig_DefaultValues(t *testing.T) {
 
 	require.Equal(t, authModeNone, cfg.AuthMode)
 	require.Equal(t, methodGET, cfg.Method)
-	// ParamLocation must stay empty in the default config so that Validate() can
-	// derive it from the method. Seeding it here would silently give a config
-	// that sets only "method: post" query-string pagination instead of body.
+	// Must stay empty so Validate() can derive it from the method; seeding it
+	// would silently give a "method: post" config query-string pagination.
 	require.Empty(t, cfg.ParamLocation)
 	require.Equal(t, paginationModeNone, cfg.Pagination.Mode)
 	require.Equal(t, 10*time.Second, cfg.MinPollInterval)
@@ -1681,9 +1680,8 @@ func TestLoadConfigFromYAML(t *testing.T) {
 	require.Equal(t, configopaque.String("test-key"), restapiCfg.APIKeyConfig.Value)
 	require.Equal(t, "X-API-Key", restapiCfg.APIKeyConfig.HeaderName)
 
-	// The POST request shape must survive the YAML -> confmap -> map[string]any
-	// round trip with key case and nesting preserved, and with non-string
-	// scalars kept as their own types rather than stringified.
+	// The POST shape must survive the YAML -> confmap -> map[string]any round
+	// trip with key case, nesting, and non-string scalar types preserved.
 	require.Equal(t, methodPOST, restapiCfg.Method)
 	require.Equal(t, paramLocationBody, restapiCfg.ParamLocation)
 	require.Equal(t, "status:'new'", restapiCfg.RequestBody["filter"])
@@ -1931,9 +1929,9 @@ func TestIsValidJSONNumber(t *testing.T) {
 	}
 }
 
-// TestEpochTimeBoundsMarshalIntoRequestBody is the end-to-end guard for the
-// class of bug the isValidJSONNumber check closes: every epoch format, once
-// accepted by Validate(), must produce a request body that actually marshals.
+// TestEpochTimeBoundsMarshalIntoRequestBody guards the bug isValidJSONNumber
+// closes: any epoch format accepted by Validate() must produce a body that
+// actually marshals.
 func TestEpochTimeBoundsMarshalIntoRequestBody(t *testing.T) {
 	formats := map[string]string{
 		epochSeconds:           "1704067200",

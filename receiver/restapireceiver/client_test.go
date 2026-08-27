@@ -33,10 +33,9 @@ import (
 	"go.opentelemetry.io/collector/config/configopaque"
 )
 
-// getJSON calls defaultRESTAPIClient.GetJSON, which is deliberately not part of
-// the restAPIClient interface — the receiver uses FetchFullResponse plus
-// extractDataFromResponse. GetJSON remains the vehicle for the client's
-// authentication-mode coverage below.
+// getJSON calls defaultRESTAPIClient.GetJSON, which is deliberately off the
+// restAPIClient interface but remains the vehicle for the auth-mode coverage
+// below.
 func getJSON(ctx context.Context, c restAPIClient, requestURL string, params url.Values) ([]map[string]any, error) {
 	return c.(*defaultRESTAPIClient).GetJSON(ctx, apiRequest{URL: requestURL, Query: params})
 }
@@ -1425,8 +1424,7 @@ func TestRESTAPIClient_Get_UnsetMethodSendsNoBody(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	// Method is deliberately unset, as it is in every Config literal built by a
-	// test that bypasses Validate().
+	// Method is unset, as in every Config literal that bypasses Validate().
 	cfg := &Config{
 		URL:          server.URL,
 		AuthMode:     authModeNone,
@@ -1510,8 +1508,7 @@ func TestRESTAPIClient_Post_NoHTMLEscaping(t *testing.T) {
 	}
 	client := newTestClient(ctx, t, cfg)
 
-	// CrowdStrike FQL filters contain comparison operators; they must be sent
-	// literally rather than as > / < escapes.
+	// FQL filters contain comparison operators; they must not be escaped.
 	_, _, err := client.FetchFullResponse(ctx, apiRequest{
 		URL:  server.URL,
 		Body: map[string]any{"filter": "created_timestamp:>'2025-01-01'+severity:<50"},
@@ -1615,8 +1612,8 @@ func TestRESTAPIClient_Post_Redirect(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The body must survive the redirect, which requires GetBody to be set —
-	// it is, because buildRequest passes a *bytes.Reader.
+	// The body survives the redirect only because buildRequest's *bytes.Reader
+	// gives the request a GetBody.
 	require.Equal(t, 2, hops)
 	require.JSONEq(t, `{"filter": "status:'new'"}`, string(gotBody))
 }
@@ -1661,12 +1658,11 @@ func TestRESTAPIClient_Post_AkamaiEdgeGridSignsBody(t *testing.T) {
 
 	require.Len(t, authHeaders, 2)
 	require.NotEmpty(t, authHeaders[0])
-	// EdgeGrid hashes the request body into its signing string, so two POSTs
-	// with different bodies must not produce the same signature. This is what
-	// requires the body to be attached before applyAuth runs.
+	// EdgeGrid hashes the body into its signing string, so two POSTs with
+	// different bodies must not share a signature. This is why the body must be
+	// attached before applyAuth runs.
 	require.NotEqual(t, authHeaders[0], authHeaders[1])
 
-	// EdgeGrid signing consumes and replaces req.Body; the server must still
-	// receive the full payload.
+	// EdgeGrid consumes and replaces req.Body; the server must still get it all.
 	require.Equal(t, []string{`{"filter":"a"}`, `{"filter":"b"}`}, bodies)
 }

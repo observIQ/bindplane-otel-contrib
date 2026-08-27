@@ -1587,14 +1587,12 @@ func logRecordCount(sink *consumertest.LogsSink) int {
 	return total
 }
 
-// TestConfigFingerprint_UnchangedByPOSTFieldsWhenUnused is the tripwire that
-// stops a future edit to configFingerprint from silently invalidating every
-// checkpoint already stored in the field. A config written before method,
-// param_location and request_body existed must hash to exactly this value.
+// TestConfigFingerprint_UnchangedByPOSTFieldsWhenUnused stops a future edit to
+// configFingerprint from silently invalidating every checkpoint in the field.
 //
-// Changing the expected digest is a deliberate decision to discard every
-// deployed checkpoint — which makes every receiver re-fetch from its configured
-// start and emit duplicate data. Do not update it to make a test pass.
+// Changing the expected digest discards every deployed checkpoint, making each
+// receiver re-fetch from its configured start and emit duplicate data. Do not
+// update it to make a test pass.
 func TestConfigFingerprint_UnchangedByPOSTFieldsWhenUnused(t *testing.T) {
 	cfg := &Config{
 		URL:                "https://api.example.com/events",
@@ -1800,11 +1798,10 @@ func TestBuildAPIRequest(t *testing.T) {
 	})
 }
 
-// TestReconcileCheckpointWithConfig_AppliesConfiguredLimit covers the fact that
-// offset_limit.limit is excluded from configFingerprint (it is a throughput knob,
-// so changing it must not discard a checkpoint) while loadCheckpoint restores the
-// whole paginationState. Without reconciliation a limit change would never take
-// effect on a receiver that has ever checkpointed.
+// TestReconcileCheckpointWithConfig_AppliesConfiguredLimit covers limit being
+// excluded from configFingerprint while loadCheckpoint restores the whole state:
+// without reconciliation a limit change would never take effect once the
+// receiver has checkpointed.
 func TestReconcileCheckpointWithConfig_AppliesConfiguredLimit(t *testing.T) {
 	testCases := []struct {
 		name            string
@@ -1850,8 +1847,8 @@ func TestReconcileCheckpointWithConfig_AppliesConfiguredLimit(t *testing.T) {
 }
 
 // TestInitializePagination_ChangedLimitSurvivesCheckpointLoad walks the real
-// path: a checkpoint is written with one limit, the config is then changed, and
-// the reloaded receiver must use the new value.
+// path: checkpoint written with one limit, config changed, reload must use the
+// new value.
 func TestInitializePagination_ChangedLimitSurvivesCheckpointLoad(t *testing.T) {
 	cfg := &Config{
 		URL: "https://api.example.com/alerts",

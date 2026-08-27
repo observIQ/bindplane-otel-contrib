@@ -126,12 +126,10 @@ func (b *baseReceiver) initializePagination() {
 // For checkpoints from a *different* config, fingerprint-based invalidation in loadCheckpoint
 // handles discarding them before we reach this point.
 func (b *baseReceiver) reconcileCheckpointWithConfig() {
-	// The offset/limit page size is a config-owned throughput knob, not polling
-	// progress, so it is excluded from configFingerprint — changing it must not
-	// discard a checkpoint. But loadCheckpoint restores the whole
-	// paginationState, Limit included, so the stored value has to be replaced
-	// with the configured one or a limit change would never take effect on a
-	// receiver that has ever checkpointed.
+	// Limit is a throughput knob, not polling progress, so it is excluded from
+	// configFingerprint — changing it must not discard a checkpoint. But
+	// loadCheckpoint restores the whole state, Limit included, so the configured
+	// value has to be re-applied or a limit change would never take effect.
 	if b.cfg.Pagination.Mode == paginationModeOffsetLimit {
 		configuredLimit := newPaginationState(b.cfg).Limit
 		if b.paginationState.Limit != configuredLimit {
@@ -232,12 +230,11 @@ func (b *baseReceiver) adjustPollInterval(result pollResult) {
 //   - page_size, page_limit — throughput knobs, not query-defining.
 //   - response_source, field names for reading responses — how to parse, not what to fetch.
 //   - Auth, headers, poll intervals, storage ID, response format, metrics config.
-//   - method and param_location — these change how the same parameter values are
-//     transmitted, not which data is fetched; same rationale as the param names.
-//   - pagination.offset_limit.limit — a throughput knob, like page_size and page_limit.
+//   - method and param_location — these change how the same values are
+//     transmitted, not what is fetched; same rationale as the param names.
+//   - pagination.offset_limit.limit — a throughput knob, like page_size.
 //
-// It DOES include request_body, which is query-defining: a filter or sort change
-// alters which records the API returns.
+// It DOES include request_body, which is query-defining.
 func configFingerprint(cfg *Config) string {
 	h := sha256.New()
 	h.Write([]byte(cfg.URL))
@@ -252,15 +249,14 @@ func configFingerprint(cfg *Config) string {
 	h.Write([]byte{0})
 	h.Write([]byte(fmt.Sprintf("%d", cfg.Pagination.PageSize.StartingPage)))
 
-	// request_body is query-defining: a change to a filter, a sort, or any other
-	// body value changes which records the API returns, so a stored opaque cursor
-	// obtained under a previous body must not be reused. Encoded with
-	// encoding/json, which sorts map keys at every level, so the hash is stable
-	// regardless of Go map iteration order.
+	// request_body is query-defining: changing a filter or sort changes which
+	// records come back, so a cursor obtained under a previous body must not be
+	// reused. encoding/json sorts map keys at every level, so the hash does not
+	// depend on Go map iteration order.
 	//
-	// This contributes to the hash — separator included — only when request_body
-	// is set, so that a config written before request_body existed hashes to
-	// exactly the same value and its stored checkpoint survives the upgrade.
+	// Contributes to the hash — separator included — only when set, so a config
+	// written before request_body existed hashes identically and keeps its
+	// stored checkpoint across the upgrade.
 	if len(cfg.RequestBody) > 0 {
 		h.Write([]byte{0})
 		// Validate() has already rejected an unencodable request_body.
@@ -451,22 +447,20 @@ func (b *baseReceiver) handlePagination(fullResponse map[string]any, data []map[
 }
 
 // buildAPIRequest assembles the request descriptor for the current pagination
-// state. It is the only place that decides whether the pagination and time-bound
-// values the receiver generates travel in the query string or the JSON request
-// body.
+// state. It is the only place deciding whether the generated values travel in
+// the query string or the JSON request body.
 func (b *baseReceiver) buildAPIRequest() apiRequest {
 	req := apiRequest{URL: b.cfg.URL}
 	values := buildPaginationValues(b.cfg, b.paginationState)
 
 	if b.cfg.ParamLocation == paramLocationBody {
-		// Start from the static request_body and let the generated values win on
-		// collision, so a user-pinned value can never stall pagination. Validate()
-		// rejects such collisions up front; this is belt and braces.
+		// Generated values win on collision so a user-pinned value can never
+		// stall pagination; Validate() already rejects such collisions.
 		//
-		// cfg.RequestBody is shared across every page and every poll cycle, so it
-		// is copied rather than written to — mutating it would leak the previous
-		// page's cursor into the config and corrupt the checkpoint fingerprint.
-		// Only the top level is copied; nested values are never written.
+		// cfg.RequestBody is shared across every page and poll cycle, so it is
+		// copied rather than written to — mutating it would leak the previous
+		// page's cursor into the config and corrupt the fingerprint. Only the top
+		// level is copied; nested values are never written.
 		body := make(map[string]any, len(b.cfg.RequestBody)+len(values))
 		maps.Copy(body, b.cfg.RequestBody)
 		maps.Copy(body, values)
@@ -486,8 +480,8 @@ func (b *baseReceiver) buildAPIRequest() apiRequest {
 }
 
 // requestLogFields returns debug log fields describing an outgoing request.
-// Body values are deliberately not logged: request_body values are not masked
-// (see the RequestBody doc comment), so only the key names are emitted.
+// Only body key names are emitted: request_body values are not masked (see the
+// RequestBody doc comment).
 func requestLogFields(req apiRequest) []zap.Field {
 	return []zap.Field{
 		zap.String("query", req.Query.Encode()),

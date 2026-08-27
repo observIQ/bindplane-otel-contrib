@@ -2055,9 +2055,8 @@ func TestNewPaginationState_OffsetLimit_ConfiguredLimit(t *testing.T) {
 }
 
 // TestBuildPaginationValues_TokenModeOmitsCursorOnFirstPage covers the
-// first-page contract for opaque-cursor pagination in body mode: the offset
-// field carries a cursor, so no cursor must be sent before one has been
-// obtained. A numeric 0 in a JSON request body is rejected by APIs that expect a
+// first-page contract in body mode: the offset field carries a cursor, so
+// nothing is sent before one exists. A numeric 0 is rejected by APIs expecting a
 // string token there (e.g. CrowdStrike's "after").
 func TestBuildPaginationValues_TokenModeOmitsCursorOnFirstPage(t *testing.T) {
 	cfg := &Config{
@@ -2104,10 +2103,9 @@ func TestBuildPaginationValues_TokenModeOmitsCursorOnFirstPage(t *testing.T) {
 		require.Equal(t, 0, values["offset"])
 	})
 
-	// The omission is scoped to body mode. Query-mode cursor configs keep the
-	// historical behavior of sending offset=0 on the first request, because some
-	// APIs require the parameter to be present — and response_source: header
-	// always implies a cursor config, so every header-cursor user is affected.
+	// The omission is scoped to body mode: query-mode cursor configs keep sending
+	// offset=0 on the first request, since some APIs require the parameter and
+	// response_source: header always implies a cursor config.
 	t.Run("query mode still sends offset zero on the first page", func(t *testing.T) {
 		for _, loc := range []ParamLocation{paramLocationQuery, ""} {
 			queryCfg := &Config{
@@ -2129,8 +2127,7 @@ func TestBuildPaginationValues_TokenModeOmitsCursorOnFirstPage(t *testing.T) {
 }
 
 // TestParseOffsetLimitResponse_TokenTypeIsPreserved covers sending a next-offset
-// token back with the JSON type the API used for it. A numeric token quoted into
-// a JSON body is the mirror image of the problem typed values exist to avoid.
+// token back with the JSON type the API used for it.
 func TestParseOffsetLimitResponse_TokenTypeIsPreserved(t *testing.T) {
 	cfg := &Config{
 		ParamLocation: paramLocationBody,

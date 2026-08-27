@@ -158,11 +158,10 @@ func (m *Method) UnmarshalText(text []byte) error {
 	}
 }
 
-// httpMethod returns the wire-format HTTP method token. HTTP methods are
-// case-sensitive and http.NewRequestWithContext does not normalize them, so the
-// lowercase config value must never be passed to the transport directly. Akamai
-// EdgeGrid signing also only hashes a request body when the method is exactly
-// http.MethodPost. An unset method means GET.
+// httpMethod returns the wire-format method token. Methods are case-sensitive
+// and http.NewRequestWithContext does not normalize them, so the lowercase
+// config value must never reach the transport; EdgeGrid also only hashes a body
+// when the method is exactly http.MethodPost. An unset method means GET.
 func (m Method) httpMethod() string {
 	if m == methodPOST {
 		return http.MethodPost
@@ -199,24 +198,19 @@ type Config struct {
 	// Method is the HTTP method used for polling requests: "get" (default) or "post".
 	Method Method `mapstructure:"method"`
 
-	// ParamLocation controls where the pagination and time-bound values the
-	// receiver generates are sent.
-	// "query": appended to the query string.
-	// "body": set as top-level keys in the JSON request body.
-	// Defaults to "body" when method is "post" and "query" otherwise. Must be
-	// "query" when method is "get".
+	// ParamLocation controls where the generated pagination and time-bound values
+	// are sent: "query" (query string) or "body" (top-level keys in the JSON
+	// request body). Defaults to "body" when method is "post" and "query"
+	// otherwise. Must be "query" when method is "get".
 	ParamLocation ParamLocation `mapstructure:"param_location"`
 
 	// RequestBody is a static JSON request body sent with each request, expressed
-	// as a nested map. Only valid when method is "post".
+	// as a nested map. Only valid when method is "post". When param_location is
+	// "body", the generated values are merged over its top-level keys; a key the
+	// receiver manages must not appear here (Validate rejects the collision).
 	//
-	// When param_location is "body", the pagination and time-bound values the
-	// receiver generates are merged over the top-level keys of this map on each
-	// request. A key the receiver manages must not appear here; Validate rejects
-	// the collision.
-	//
-	// Values are NOT masked in logs or configuration dumps. Do not put
-	// credentials here; use auth_mode or sensitive_headers instead.
+	// Values are NOT masked in logs or config dumps. Do not put credentials here;
+	// use auth_mode or sensitive_headers instead.
 	RequestBody map[string]any `mapstructure:"request_body"`
 
 	// ResponseFormat defines the format of the API response body.
@@ -441,12 +435,11 @@ type OffsetLimitPagination struct {
 	// is set (token-based pagination), since page advance is driven by the token.
 	LimitFieldName string `mapstructure:"limit_field_name"`
 
-	// Limit is the value sent for LimitFieldName on each request. It is also the
-	// expected page size for the "a full page means there may be more" heuristic
-	// in parseOffsetLimitResponse, so it should match the page size the API
-	// actually returns. When LimitFieldName is unset (token-based pagination) it
-	// is used only as that heuristic threshold and should be set to the API's own
-	// page size. Defaults to 10.
+	// Limit is the value sent for LimitFieldName, and the expected page size for
+	// the "a full page means there may be more" heuristic in
+	// parseOffsetLimitResponse — so it should match what the API actually
+	// returns. With LimitFieldName unset (token-based pagination) it is only that
+	// threshold. Defaults to 10.
 	Limit int `mapstructure:"limit"`
 
 	// NextOffsetFieldName is the name of the field or header that contains the next offset token.
@@ -573,8 +566,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid method: %s, must be one of: get, post", c.Method)
 	}
 
-	// Apply default param location. A POST carries the generated values in its
-	// body by default; a GET can only ever use the query string.
+	// A POST carries the generated values in its body by default; a GET can only
+	// ever use the query string.
 	if c.ParamLocation == "" {
 		if c.Method == methodPOST {
 			c.ParamLocation = paramLocationBody
@@ -592,8 +585,8 @@ func (c *Config) Validate() error {
 	}
 
 	// A GET with a body has undefined semantics and is dropped or rejected by
-	// many servers, caches, and proxies, so reject the combination outright
-	// rather than let it fail as a silent empty poll.
+	// many servers, caches, and proxies. Reject it rather than let it surface as
+	// a silent empty poll.
 	if c.Method == methodGET && c.ParamLocation != paramLocationQuery {
 		return fmt.Errorf("param_location must be query when method is get")
 	}
@@ -602,8 +595,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("request_body is not supported when method is get")
 	}
 
-	// The request body is JSON-encoded on every request, so reject a body that
-	// cannot be encoded at startup rather than on every poll.
+	// The body is JSON-encoded on every request; fail at startup, not every poll.
 	if len(c.RequestBody) > 0 {
 		if _, err := json.Marshal(c.RequestBody); err != nil {
 			return fmt.Errorf("request_body cannot be encoded as JSON: %w", err)
@@ -776,10 +768,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("limit must be greater than or equal to 0")
 	}
 
-	// The receiver derives its pagination and time-bound values from its own
-	// state and sets them on every request, so a static request_body must not
-	// also set them. Rejecting the collision here means the value the server
-	// sees can never disagree with the value the pagination heuristics assume.
+	// The receiver sets its generated values on every request, so request_body
+	// must not also set them: rejecting the collision here keeps the value the
+	// server sees from disagreeing with what the pagination heuristics assume.
 	if c.ParamLocation == paramLocationBody {
 		for name, owner := range c.generatedParamNames() {
 			if _, ok := c.RequestBody[name]; !ok {
@@ -864,11 +855,10 @@ func (c *Config) validateTimestampValue(value, fieldName string) error {
 		return fmt.Errorf("%s %q could not be parsed; must be \"now\" or match %s", fieldName, value, formatHint)
 	}
 
-	// An epoch value is sent as a bare JSON number when param_location is
-	// "body", so it must be legal JSON as well as parseable. parseConfigTimestamp
-	// accepts forms JSON does not (a leading "+", a trailing "."), and those
-	// would otherwise be accepted here and then fail on every single poll when
-	// the request body is marshaled.
+	// An epoch value is sent as a bare JSON number in body mode, so it must be
+	// legal JSON as well as parseable: parseConfigTimestamp accepts forms JSON
+	// does not (leading "+", trailing "."), which would otherwise pass here and
+	// then fail on every poll when the body is marshaled.
 	if isEpochFormat(c.TimestampFormat) && !isValidJSONNumber(value) {
 		return fmt.Errorf("%s %q is not a valid JSON number; an epoch timestamp must be plain digits with no leading \"+\" and no trailing \".\"", fieldName, value)
 	}
@@ -877,14 +867,13 @@ func (c *Config) validateTimestampValue(value, fieldName string) error {
 }
 
 // isValidJSONNumber reports whether s can be emitted as a bare JSON number.
-// json.Number carries its contents verbatim without validating them, so a value
-// that is not legal JSON fails at marshal time rather than at config time.
+// json.Number carries its contents verbatim without validating them, so an
+// illegal value would otherwise fail at marshal time rather than config time.
 func isValidJSONNumber(s string) bool {
 	if s == "" {
 		return false
 	}
-	// Reject anything that is not the start of a JSON number, so that a quoted
-	// string or a literal such as "true" cannot pass json.Valid below.
+	// Reject non-number starts so a quoted string or "true" cannot pass json.Valid.
 	if c := s[0]; c != '-' && (c < '0' || c > '9') {
 		return false
 	}

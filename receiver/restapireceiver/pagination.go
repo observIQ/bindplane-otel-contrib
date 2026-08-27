@@ -47,10 +47,8 @@ type paginationState struct {
 	// For offset/limit pagination
 	CurrentOffset      int    `json:"current_offset,omitempty"`
 	CurrentOffsetToken string `json:"current_offset_token,omitempty"` // token-based (cursor) offset
-	// CurrentOffsetTokenNumeric records that the token was a JSON number in the
-	// response, so it is sent back as a number rather than a quoted string.
-	// Absent from older checkpoints, which decode to false — i.e. the previous
-	// string behavior, which is the safe default for an opaque cursor.
+	// CurrentOffsetTokenNumeric sends the token back as a JSON number rather than
+	// a string. Older checkpoints decode to false, keeping the safe default.
 	CurrentOffsetTokenNumeric bool `json:"current_offset_token_numeric,omitempty"`
 	Limit                     int  `json:"limit,omitempty"`
 
@@ -83,9 +81,7 @@ func newPaginationState(cfg *Config) *paginationState {
 	switch cfg.Pagination.Mode {
 	case paginationModeOffsetLimit:
 		state.CurrentOffset = cfg.Pagination.OffsetLimit.StartingOffset
-		// The limit is both the value sent to the API and the threshold for the
-		// "a full page means there may be more" heuristic, so a zero value falls
-		// back to the historical default rather than disabling pagination.
+		// Zero means unset: fall back to the default rather than disable paging.
 		state.Limit = 10
 		if cfg.Pagination.OffsetLimit.Limit > 0 {
 			state.Limit = cfg.Pagination.OffsetLimit.Limit
@@ -150,9 +146,8 @@ func newPaginationState(cfg *Config) *paginationState {
 	return state
 }
 
-// generatedParamNames returns the request parameter names the receiver sets on
-// each request, mapped to the config field that owns each one. It must mirror
-// the keys produced by buildPaginationValues.
+// generatedParamNames maps each request parameter name the receiver sets to the
+// config field owning it. Must mirror the keys buildPaginationValues produces.
 func (c *Config) generatedParamNames() map[string]string {
 	names := map[string]string{}
 	add := func(name, owner string) {
@@ -180,8 +175,7 @@ func (c *Config) generatedParamNames() map[string]string {
 	return names
 }
 
-// paramValueToString renders a value produced by buildPaginationValues as a
-// query-string parameter.
+// paramValueToString renders a buildPaginationValues value as a query parameter.
 func paramValueToString(v any) string {
 	switch t := v.(type) {
 	case string:
@@ -195,26 +189,22 @@ func paramValueToString(v any) string {
 	}
 }
 
-// epochValue wraps an already-formatted epoch timestamp string so that it
-// serializes into a JSON request body as a bare number. json.Number is used
-// rather than a float64 because epoch_ns exceeds the range float64 can
-// represent exactly, and epoch_s_frac would lose fractional digits.
+// epochValue wraps a formatted epoch timestamp so it serializes as a bare JSON
+// number. json.Number, not float64: epoch_ns exceeds float64's exact range and
+// epoch_s_frac would lose digits.
 func epochValue(formatted string) json.Number {
 	return json.Number(formatted)
 }
 
 // buildPaginationValues is the single producer of the per-page varying request
-// values: pagination cursors, offsets, page numbers, page sizes, and the
-// start/end time bounds.
+// values: cursors, offsets, page numbers, page sizes, and time bounds.
 //
-// Values carry their JSON-native type so they can be written into a JSON
-// request body without stringifying numbers — an API that expects
-// {"limit": 100} will reject {"limit": "100"}. Numeric offsets, page numbers,
-// limits, and page sizes are int; cursor tokens and layout-formatted timestamps
-// are string (a token is never coerced to a number, even when it is all
-// digits); epoch timestamps are json.Number.
+// Values keep their JSON-native type so a body can carry {"limit": 100} rather
+// than {"limit": "100"}: int for offsets, pages, limits and page sizes; string
+// for cursor tokens and layout timestamps (a token is never coerced, even an
+// all-digit one); json.Number for epoch timestamps.
 //
-// Keep the set of keys produced here in sync with (*Config).generatedParamNames.
+// Keep the keys in sync with (*Config).generatedParamNames.
 func buildPaginationValues(cfg *Config, state *paginationState) map[string]any {
 	values := map[string]any{}
 
@@ -223,10 +213,8 @@ func buildPaginationValues(cfg *Config, state *paginationState) map[string]any {
 		if cfg.Pagination.OffsetLimit.OffsetFieldName != "" {
 			switch {
 			case state.CurrentOffsetToken != "":
-				// Use token-based offset when available. A token the API returned
-				// as a JSON number goes back as a number; anything else stays a
-				// string, so an opaque cursor is never coerced even when it looks
-				// numeric.
+				// A token returned as a JSON number goes back as one; anything
+				// else stays a string, an opaque cursor is never coerced.
 				if state.CurrentOffsetTokenNumeric {
 					values[cfg.Pagination.OffsetLimit.OffsetFieldName] = json.Number(state.CurrentOffsetToken)
 				} else {
@@ -236,20 +224,12 @@ func buildPaginationValues(cfg *Config, state *paginationState) map[string]any {
 			case cfg.Pagination.OffsetLimit.NextOffsetFieldName != "" &&
 				cfg.ParamLocation == paramLocationBody &&
 				state.CurrentOffset == 0:
-				// Token-based pagination in body mode with no token yet and
-				// nothing to resume from: this is the first page of the run, so
-				// send no cursor at all. The field holds an opaque cursor here,
-				// and a JSON body carrying {"after": 0} is rejected outright by
-				// APIs that expect a string token there.
-				//
-				// Deliberately scoped to body mode: in query mode the historical
-				// behavior of sending offset=0 on the first request is preserved,
-				// because some APIs require the parameter to be present and
-				// response_source: header always implies a cursor config.
-				//
-				// A non-zero offset still falls through to the numeric value
-				// below, so a checkpoint written before token-based pagination
-				// was configured can still resume.
+				// First page in body mode: no cursor yet, and {"after": 0} is
+				// rejected by APIs expecting a string token. Query mode still
+				// sends offset=0 — some APIs require the parameter, and
+				// response_source: header always implies a cursor config. A
+				// non-zero offset falls through so a pre-token checkpoint can
+				// still resume.
 
 			default:
 				values[cfg.Pagination.OffsetLimit.OffsetFieldName] = state.CurrentOffset
@@ -322,10 +302,9 @@ func buildPaginationValues(cfg *Config, state *paginationState) map[string]any {
 	// Add time-bound parameters for non-timestamp pagination modes.
 	// For timestamp pagination, start time is handled above (it advances through data).
 	//
-	// The resolved bounds are stored on the state as strings so the checkpoint
-	// schema stays unchanged; they are typed here instead. Validate() rejects an
-	// epoch value that is not a legal JSON number (see isValidJSONNumber), which
-	// is what makes the json.Number below safe to marshal.
+	// Bounds are stored as strings to keep the checkpoint schema stable and typed
+	// here instead. Validate() rejects epoch values that are not legal JSON
+	// numbers (see isValidJSONNumber), which makes json.Number safe to marshal.
 	if cfg.Pagination.Mode != paginationModeTimestamp {
 		if cfg.StartTimeParamName != "" && state.ResolvedStartTime != "" {
 			values[cfg.StartTimeParamName] = timeBoundValue(state.ResolvedStartTime, cfg.TimestampFormat)
@@ -341,8 +320,8 @@ func buildPaginationValues(cfg *Config, state *paginationState) map[string]any {
 	return values
 }
 
-// timeBoundValue types a resolved time-bound value for the request: a bare JSON
-// number for epoch formats, a string otherwise.
+// timeBoundValue types a resolved bound: a JSON number for epoch formats, else
+// a string.
 func timeBoundValue(resolved, format string) any {
 	if isEpochFormat(format) {
 		return epochValue(resolved)
@@ -350,8 +329,7 @@ func timeBoundValue(resolved, format string) any {
 	return resolved
 }
 
-// buildPaginationParams renders the values from buildPaginationValues as query
-// parameters.
+// buildPaginationParams renders buildPaginationValues as query parameters.
 func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
 	params := url.Values{}
 	for key, value := range buildPaginationValues(cfg, state) {
@@ -405,8 +383,8 @@ func parseOffsetLimitResponse(cfg *Config, response any, extractedData []map[str
 			// Includes header-sourced values, which carry no JSON type.
 			tokenStr = v
 		case float64:
-			// JSON numbers decode to float64. Format without an exponent so a
-			// value such as 1000000 stays "1000000" rather than becoming "1e+06".
+			// JSON numbers decode to float64. Format without an exponent so
+			// 1000000 stays "1000000" rather than "1e+06".
 			tokenStr = strconv.FormatFloat(v, 'f', -1, 64)
 			tokenNumeric = true
 		case int:
@@ -423,8 +401,8 @@ func parseOffsetLimitResponse(cfg *Config, response any, extractedData []map[str
 		}
 
 		state.CurrentOffsetToken = tokenStr
-		// Only trust the numeric form if it round-trips as legal JSON; otherwise
-		// fall back to sending a string rather than an unmarshalable body.
+		// Only trust the numeric form if it is legal JSON; otherwise send a
+		// string rather than an unmarshalable body.
 		state.CurrentOffsetTokenNumeric = tokenNumeric && isValidJSONNumber(tokenStr)
 		state.PagesFetched++
 
