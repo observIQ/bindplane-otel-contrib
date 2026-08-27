@@ -17,7 +17,6 @@ package restapireceiver
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -40,9 +39,9 @@ type apiRequest struct {
 	URL string
 	// Query holds parameters merged into the URL's existing query string.
 	Query url.Values
-	// Body holds the top-level keys of the JSON request body, ignored when the
-	// configured method takes no body.
-	Body map[string]any
+	// Body is the rendered JSON request body, ignored when the configured method
+	// takes no body.
+	Body []byte
 }
 
 // restAPIClient is an interface for making REST API requests.
@@ -106,20 +105,6 @@ func (c *defaultRESTAPIClient) Shutdown() error {
 	return nil
 }
 
-// marshalJSONBody encodes a request body as JSON. Map keys are sorted so the
-// encoding is deterministic, and HTML escaping is off so filters containing
-// <, > or & are transmitted literally.
-func marshalJSONBody(body map[string]any) ([]byte, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(body); err != nil {
-		return nil, err
-	}
-	// Encode appends a trailing newline; drop it so the body is byte-exact.
-	return bytes.TrimRight(buf.Bytes(), "\n"), nil
-}
-
 // buildRequest constructs the outgoing request: URL with merged query
 // parameters, JSON body when the method takes one, auth, and headers.
 //
@@ -148,15 +133,12 @@ func (c *defaultRESTAPIClient) buildRequest(ctx context.Context, r apiRequest) (
 	hasBody := false
 	if c.cfg.Method == methodPOST {
 		body := r.Body
-		if body == nil {
-			// A nil map would encode as "null"; send an empty object instead.
-			body = map[string]any{}
+		if len(body) == 0 {
+			// A POST always carries a body; send an empty object when the config
+			// supplies no request_body template.
+			body = []byte("{}")
 		}
-		raw, err := marshalJSONBody(body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request body: %w", err)
-		}
-		bodyReader = bytes.NewReader(raw)
+		bodyReader = bytes.NewReader(body)
 		hasBody = true
 	}
 

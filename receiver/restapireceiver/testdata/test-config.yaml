@@ -5,13 +5,12 @@ receivers:
     min_poll_interval: 10s
     max_poll_interval: 5m
     method: post
-    param_location: body
-    request_body:
-      filter: "status:'new'"
-      sort: "created_timestamp|asc"
-      options:
-        include_hidden: true
-        tags: ["a", "b"]
+    request_body: |
+      {
+        "filter": "status:'new'",
+        "sort": "created_timestamp|asc",
+        "page": {"size": {{ .PageSize }}, "number": {{ .Page }}}
+      }
     auth_mode: apikey
     apikey:
       header_name: X-API-Key

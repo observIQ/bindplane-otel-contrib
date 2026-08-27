@@ -1351,7 +1351,6 @@ func TestRESTAPIClient_Post_Body(t *testing.T) {
 	cfg := &Config{
 		URL:           server.URL,
 		Method:        methodPOST,
-		ParamLocation: paramLocationBody,
 		AuthMode:      authModeNone,
 		ResponseField: "resources",
 		ClientConfig:  confighttp.ClientConfig{},
@@ -1359,13 +1358,8 @@ func TestRESTAPIClient_Post_Body(t *testing.T) {
 	client := newTestClient(ctx, t, cfg)
 
 	resp, _, err := client.FetchFullResponse(ctx, apiRequest{
-		URL: server.URL,
-		Body: map[string]any{
-			"filter": "status:'new'",
-			"limit":  100,
-			// An opaque cursor that looks numeric must stay a JSON string.
-			"after": "0012345",
-		},
+		URL:  server.URL,
+		Body: []byte(`{"filter":"status:'new'","limit":100,"after":"0012345"}`),
 	})
 	require.NoError(t, err)
 	require.Contains(t, resp, "resources")
@@ -1511,7 +1505,7 @@ func TestRESTAPIClient_Post_NoHTMLEscaping(t *testing.T) {
 	// FQL filters contain comparison operators; they must not be escaped.
 	_, _, err := client.FetchFullResponse(ctx, apiRequest{
 		URL:  server.URL,
-		Body: map[string]any{"filter": "created_timestamp:>'2025-01-01'+severity:<50"},
+		Body: []byte(`{"filter":"created_timestamp:>'2025-01-01'+severity:<50"}`),
 	})
 	require.NoError(t, err)
 
@@ -1539,7 +1533,7 @@ func TestRESTAPIClient_Post_EpochBodyValueIsExact(t *testing.T) {
 
 	_, _, err := client.FetchFullResponse(ctx, apiRequest{
 		URL:  server.URL,
-		Body: map[string]any{"since": json.Number("1704067200123456789")},
+		Body: []byte(`{"since":1704067200123456789}`),
 	})
 	require.NoError(t, err)
 
@@ -1561,18 +1555,17 @@ func TestRESTAPIClient_Post_QueryAndBody(t *testing.T) {
 
 	ctx := context.Background()
 	cfg := &Config{
-		URL:           server.URL,
-		Method:        methodPOST,
-		ParamLocation: paramLocationQuery,
-		AuthMode:      authModeNone,
-		ClientConfig:  confighttp.ClientConfig{},
+		URL:          server.URL,
+		Method:       methodPOST,
+		AuthMode:     authModeNone,
+		ClientConfig: confighttp.ClientConfig{},
 	}
 	client := newTestClient(ctx, t, cfg)
 
 	_, _, err := client.FetchFullResponse(ctx, apiRequest{
 		URL:   server.URL,
 		Query: url.Values{"offset": []string{"20"}, "limit": []string{"10"}},
-		Body:  map[string]any{"filter": "status:'new'"},
+		Body:  []byte(`{"filter":"status:'new'"}`),
 	})
 	require.NoError(t, err)
 
@@ -1608,7 +1601,7 @@ func TestRESTAPIClient_Post_Redirect(t *testing.T) {
 
 	_, _, err := client.FetchFullResponse(ctx, apiRequest{
 		URL:  server.URL,
-		Body: map[string]any{"filter": "status:'new'"},
+		Body: []byte(`{"filter":"status:'new'"}`),
 	})
 	require.NoError(t, err)
 
@@ -1646,13 +1639,13 @@ func TestRESTAPIClient_Post_AkamaiEdgeGridSignsBody(t *testing.T) {
 
 	_, _, err := client.FetchFullResponse(ctx, apiRequest{
 		URL:  server.URL,
-		Body: map[string]any{"filter": "a"},
+		Body: []byte(`{"filter":"a"}`),
 	})
 	require.NoError(t, err)
 
 	_, _, err = client.FetchFullResponse(ctx, apiRequest{
 		URL:  server.URL,
-		Body: map[string]any{"filter": "b"},
+		Body: []byte(`{"filter":"b"}`),
 	})
 	require.NoError(t, err)
 

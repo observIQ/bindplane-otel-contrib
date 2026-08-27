@@ -169,27 +169,6 @@ func (m Method) httpMethod() string {
 	return http.MethodGet
 }
 
-// ParamLocation defines where the receiver sends the pagination and time-bound
-// values it generates for each request.
-type ParamLocation string
-
-const (
-	paramLocationQuery ParamLocation = "query"
-	paramLocationBody  ParamLocation = "body"
-)
-
-// UnmarshalText implements the encoding.TextUnmarshaler interface
-func (p *ParamLocation) UnmarshalText(text []byte) error {
-	loc := ParamLocation(text)
-	switch loc {
-	case paramLocationQuery, paramLocationBody:
-		*p = loc
-		return nil
-	default:
-		return fmt.Errorf("invalid param_location: %s, must be one of: query, body", text)
-	}
-}
-
 // Config defines configuration for the REST API receiver.
 type Config struct {
 	// URL is the base URL for the REST API endpoint (required).
@@ -198,20 +177,19 @@ type Config struct {
 	// Method is the HTTP method used for polling requests: "get" (default) or "post".
 	Method Method `mapstructure:"method"`
 
-	// ParamLocation controls where the generated pagination and time-bound values
-	// are sent: "query" (query string) or "body" (top-level keys in the JSON
-	// request body). Defaults to "body" when method is "post" and "query"
-	// otherwise. Must be "query" when method is "get".
-	ParamLocation ParamLocation `mapstructure:"param_location"`
-
-	// RequestBody is a static JSON request body sent with each request, expressed
-	// as a nested map. Only valid when method is "post". When param_location is
-	// "body", the generated values are merged over its top-level keys; a key the
-	// receiver manages must not appear here (Validate rejects the collision).
+	// RequestBody is a Go text/template rendering to the JSON request body sent
+	// with each request. Only valid when method is "post".
 	//
-	// Values are NOT masked in logs or config dumps. Do not put credentials here;
-	// use auth_mode or sensitive_headers instead.
-	RequestBody map[string]any `mapstructure:"request_body"`
+	// Receiver-owned values are available as template fields (.Cursor, .Limit,
+	// .PageSize, .StartTime, ...) and may be placed anywhere in the JSON at any
+	// nesting depth, which is what lets one config shape match APIs whose bodies
+	// differ structurally. Quote a field to emit a JSON string, leave it unquoted
+	// to emit a bare number. Validate renders the template to check it produces
+	// valid JSON on both the first and continuation requests.
+	//
+	// The template is NOT masked in logs or config dumps. Do not put credentials
+	// here; use auth_mode or sensitive_headers instead.
+	RequestBody string `mapstructure:"request_body"`
 
 	// ResponseFormat defines the format of the API response body.
 	// "json" (default): standard JSON array or object with a data field.
@@ -566,40 +544,11 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid method: %s, must be one of: get, post", c.Method)
 	}
 
-	// A POST carries the generated values in its body by default; a GET can only
-	// ever use the query string.
-	if c.ParamLocation == "" {
-		if c.Method == methodPOST {
-			c.ParamLocation = paramLocationBody
-		} else {
-			c.ParamLocation = paramLocationQuery
-		}
-	}
-
-	// Validate param location
-	switch c.ParamLocation {
-	case paramLocationQuery, paramLocationBody:
-		// Valid locations
-	default:
-		return fmt.Errorf("invalid param_location: %s, must be one of: query, body", c.ParamLocation)
-	}
-
 	// A GET with a body has undefined semantics and is dropped or rejected by
 	// many servers, caches, and proxies. Reject it rather than let it surface as
 	// a silent empty poll.
-	if c.Method == methodGET && c.ParamLocation != paramLocationQuery {
-		return fmt.Errorf("param_location must be query when method is get")
-	}
-
-	if c.Method == methodGET && len(c.RequestBody) > 0 {
+	if c.Method == methodGET && c.RequestBody != "" {
 		return fmt.Errorf("request_body is not supported when method is get")
-	}
-
-	// The body is JSON-encoded on every request; fail at startup, not every poll.
-	if len(c.RequestBody) > 0 {
-		if _, err := json.Marshal(c.RequestBody); err != nil {
-			return fmt.Errorf("request_body cannot be encoded as JSON: %w", err)
-		}
 	}
 
 	// Validate auth
@@ -731,34 +680,42 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid response_source: %s, must be one of: body, header", c.Pagination.ResponseSource)
 	}
 
+	// The *_param_name / *_field_name settings name query-string parameters. A
+	// request_body template carries its own values, so when one is configured
+	// they become optional — the template may be the only place the receiver's
+	// values appear.
+	requiresQueryParams := c.RequestBody == ""
+
 	// Validate pagination mode specific requirements
 	switch c.Pagination.Mode {
 	case paginationModeOffsetLimit:
-		if c.Pagination.OffsetLimit.OffsetFieldName == "" {
+		if requiresQueryParams && c.Pagination.OffsetLimit.OffsetFieldName == "" {
 			return fmt.Errorf("offset_field_name is required when pagination.mode is offset_limit")
 		}
 		// limit_field_name is required for numeric offset pagination so the
 		// server's page size matches the internal offset advance. With
 		// token-based pagination (next_offset_field_name set), advance is
 		// driven by the token so limit_field_name is optional.
-		if c.Pagination.OffsetLimit.NextOffsetFieldName == "" && c.Pagination.OffsetLimit.LimitFieldName == "" {
+		if requiresQueryParams && c.Pagination.OffsetLimit.NextOffsetFieldName == "" && c.Pagination.OffsetLimit.LimitFieldName == "" {
 			return fmt.Errorf("limit_field_name is required when pagination.mode is offset_limit and next_offset_field_name is not set for token-based pagination")
 		}
-		// next_offset_field_name is required when response_source is header
+		// next_offset_field_name names a response field, so it is required
+		// regardless of where the request carries its values.
 		if c.Pagination.ResponseSource == responseSourceHeader && c.Pagination.OffsetLimit.NextOffsetFieldName == "" {
 			return fmt.Errorf("next_offset_field_name is required when response_source is header")
 		}
 	case paginationModePageSize:
-		if c.Pagination.PageSize.PageNumFieldName == "" {
+		if requiresQueryParams && c.Pagination.PageSize.PageNumFieldName == "" {
 			return fmt.Errorf("page_num_field_name is required when pagination.mode is page_size")
 		}
-		if c.Pagination.PageSize.PageSizeFieldName == "" {
+		if requiresQueryParams && c.Pagination.PageSize.PageSizeFieldName == "" {
 			return fmt.Errorf("page_size_field_name is required when pagination.mode is page_size")
 		}
 	case paginationModeTimestamp:
-		if c.StartTimeParamName == "" {
+		if requiresQueryParams && c.StartTimeParamName == "" {
 			return fmt.Errorf("start_time_param_name is required when pagination.mode is timestamp")
 		}
+		// timestamp_field_name names a response field and is always required.
 		if c.Pagination.Timestamp.TimestampFieldName == "" {
 			return fmt.Errorf("timestamp_field_name is required when pagination.mode is timestamp")
 		}
@@ -766,21 +723,6 @@ func (c *Config) Validate() error {
 
 	if c.Pagination.OffsetLimit.Limit < 0 {
 		return fmt.Errorf("limit must be greater than or equal to 0")
-	}
-
-	// The receiver sets its generated values on every request, so request_body
-	// must not also set them: rejecting the collision here keeps the value the
-	// server sees from disagreeing with what the pagination heuristics assume.
-	if c.ParamLocation == paramLocationBody {
-		for name, owner := range c.generatedParamNames() {
-			if _, ok := c.RequestBody[name]; !ok {
-				continue
-			}
-			if owner == "pagination.offset_limit.limit_field_name" {
-				return fmt.Errorf("request_body key %q conflicts with %s; set pagination.offset_limit.limit instead", name, owner)
-			}
-			return fmt.Errorf("request_body key %q conflicts with %s; the receiver sets this value on each request, so it must not be set in request_body", name, owner)
-		}
 	}
 
 	// Validate start_time_value format if provided
@@ -834,7 +776,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("backoff_multiplier must be greater than 1.0")
 	}
 
-	return nil
+	// Runs last: rendering the template needs the pagination mode and the time
+	// bounds already defaulted and validated.
+	return validateRequestBodyTemplate(c)
 }
 
 // validateTimestampValue validates that a timestamp value string can be parsed

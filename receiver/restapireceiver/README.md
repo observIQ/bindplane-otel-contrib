@@ -32,8 +32,7 @@ Beta:
 | -------------------- | --------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `url`                | string    |         | `true`   | The base URL for the REST API endpoint                                                                                                                                                                                                                      |
 | `method`             | string    | `get`   | `false`  | HTTP method for polling requests: `get` or `post`. See [POST Requests](#post-requests).                                                                                                                                                                     |
-| `param_location`     | string    | `body` when `method` is `post`, otherwise `query` | `false`  | Where the pagination and time-bound values the receiver generates are sent: `query` (query string) or `body` (top-level keys in the JSON request body). Must be `query` when `method` is `get`.                                        |
-| `request_body`       | map       |         | `false`  | A static JSON request body sent with each request, expressed as a nested map. Only valid when `method` is `post`. When `param_location` is `body`, the receiver's generated pagination values are merged over the top-level keys, and a key the receiver manages must not appear here. **Values are not masked in logs or configuration dumps — do not put credentials here; use `auth_mode` or `sensitive_headers`.** |
+| `request_body`       | string    |         | `false`  | A Go template rendering to the JSON request body sent with each request. Only valid when `method` is `post`. See [Request Body Templating](#request-body-templating). **Not masked in logs or configuration dumps — do not put credentials here; use `auth_mode` or `sensitive_headers`.** |
 | `response_format`    | string    | `json`  | `false`  | Response body format: `json` (standard JSON array/object) or `ndjson` (newline-delimited JSON). In NDJSON mode, each line is a separate JSON object; the last line is treated as metadata (e.g., containing pagination cursors) and is not emitted as data. |
 | `response_field`     | string    |         | `false`  | The name of the field in the response that contains the array of items. If empty, the response is assumed to be a top-level array. For nested fields, use dot notation (e.g., `response.data`). Array elements can be selected by non-negative index (e.g., `intervals[0].readings`, `matrix[0][1]`). Not used when `response_format` is `ndjson`.                |
 | `metrics`            | object    |         | `false`  | Metrics configuration (see below)                                                                                                                                                                                                                           |
@@ -127,52 +126,62 @@ These top-level fields add start and/or end time query parameters to every reque
 | `start_time_value`      | string |         | `false`  | Value for the start time: `"now"` resolves to the current time at receiver start (not dynamically updated), or a fixed timestamp in the configured format (e.g., `"2025-01-01T00:00:00Z"` or `"1704067200"` for epoch). For timestamp pagination, this is the initial start value |
 | `end_time_param_name`   | string |         | `false`  | Request parameter name for end time (e.g., "until", "to", "end_time"). If set, sends an end time on every request                                                                                                                                                                   |
 | `end_time_value`        | string | `now`   | `false`  | Value for the end time: `"now"` (default) resolves to the current time at receiver start (not dynamically updated), or a fixed timestamp in the configured format                                                                                                                 |
-| `timestamp_format`      | string | RFC3339 | `false`  | Format for both start and end time request parameters. Accepts Go time format strings or epoch formats (see below). With an epoch format, `start_time_value` and `end_time_value` must be plain JSON numbers — no leading `+` and no trailing `.` — because they are sent as bare numbers when `param_location` is `body`                                                                                                                                                                  |
+| `timestamp_format`      | string | RFC3339 | `false`  | Format for both start and end time request parameters. Accepts Go time format strings or epoch formats (see below). With an epoch format, `start_time_value` and `end_time_value` must be plain JSON numbers — no leading `+` and no trailing `.` — so a `request_body` template can emit them unquoted                                                                                                                                                                  |
 
-### POST Requests
+### Request Body Templating
 
-Some APIs have no GET endpoint for retrieving records and require a POST with a JSON body.
-Set `method: post` and describe the body with `request_body`:
+Some APIs have no GET endpoint and require a POST carrying the query in a JSON body. Set
+`method: post` and describe the body with `request_body`, a Go template that renders to JSON:
 
 ```yaml
 method: post
-request_body:
-  filter: "status:'new'"
-  sort: "created_timestamp|asc"
+request_body: |
+  {
+    "filter": "status:'new'",
+    "limit": {{ .Limit }}{{ if .Cursor }},
+    "after": "{{ .Cursor }}"{{ end }}
+  }
 ```
 
-**Where pagination values go.** `param_location` controls whether the pagination and
-time-bound values the receiver generates (cursors, offsets, page numbers, page sizes,
-start/end times) are appended to the query string or set as top-level keys in the JSON
-request body. It defaults to `body` when `method` is `post` and `query` otherwise, and must
-be `query` when `method` is `get` — a GET with a body has undefined semantics and is dropped
-or rejected by many servers, caches, and proxies.
+Real APIs differ in the *shape* of the body, not just in field names — one nests its cursor
+under `page`, another under `meta.pagination`, another wraps the query in an array. A template
+lets you place each value exactly where the API expects it, at any depth.
 
-With `param_location: body`, the pagination field names configured below become top-level
-JSON body keys. Values keep their JSON type: offsets, limits, page numbers, and page sizes
-are sent as numbers, cursor tokens as strings (never coerced to a number, even when the token
-is all digits), and epoch timestamps as exact JSON numbers.
+#### Available fields
 
-**Reserved keys.** Because the receiver sets its generated values on every request, a key it
-manages must not also appear in `request_body`. Doing so is rejected at startup rather than
-silently overwritten — otherwise the value the server sees could disagree with the value the
-pagination heuristics assume. To change the page size, set `pagination.offset_limit.limit`
-rather than putting `limit` in `request_body`.
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `.Cursor`    | string | The opaque next-offset token from the previous response. **Empty on the first request of a run**, so guard it with `{{ if .Cursor }}`. |
+| `.Offset`    | number | The numeric offset for `offset_limit` pagination. |
+| `.Limit`     | number | `pagination.offset_limit.limit`. |
+| `.Page`      | number | The current page number for `page_size` pagination. |
+| `.PageSize`  | number | The page size for `page_size` and `timestamp` pagination. |
+| `.StartTime` | string | The start time bound, formatted per `timestamp_format`. |
+| `.EndTime`   | string | The end time bound, formatted per `timestamp_format`. |
 
-**Headers.** `Content-Type: application/json` is set automatically for POST requests and can
-be overridden through `headers` or `sensitive_headers`, exactly like `Accept`. A POST always
-sends a body; when `request_body` is empty and no values are destined for the body, it sends
-`{}`.
+**Quoting decides the JSON type.** `"{{ .Cursor }}"` emits a JSON string; `{{ .Limit }}` emits a
+bare number. String values are escaped, so a cursor containing a quote or backslash still
+produces valid JSON. With an epoch `timestamp_format`, `{{ .StartTime }}` can be used unquoted
+to send a numeric timestamp.
 
-**Nesting.** Generated values are always written at the top level of the body. Dot notation
-is not supported for request parameter names — it applies only to `next_offset_field_name`,
-which reads from the *response*. `request_body` itself may be nested freely.
+**The template is validated at startup.** The receiver renders it twice — once as the first
+request of a run and once as a continuation request — and rejects the config unless both render
+to valid JSON. That catches a comma left dangling outside an `{{ if .Cursor }}` guard, a value
+left unquoted that isn't a legal JSON number, and a misspelled field such as `{{ .Cursr }}`,
+rather than letting them fail on every poll.
+
+**Query parameters are independent.** Values also reach the query string through the
+`*_param_name` and `*_field_name` settings, exactly as they do for GET. When a `request_body`
+template is configured those names become optional, since the template may be the only place
+the receiver's values appear.
+
+`Content-Type: application/json` is set automatically for POST and can be overridden through
+`headers` or `sensitive_headers`. A POST with no `request_body` sends `{}`.
 
 ### Pagination Configuration
 
-When `param_location` is `body` (the default for `method: post`), the field names below are
-top-level keys in the JSON request body rather than query parameters. See
-[POST Requests](#post-requests).
+These name **query-string** parameters. To carry a value in a POST body instead, reference it
+from a `request_body` template — see [Request Body Templating](#request-body-templating).
 
 | Field                                 | Type   | Default | Required | Description                                                                                                                                                                                                                              |
 | ------------------------------------- | ------ | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -391,17 +400,16 @@ receivers:
         next_offset_field_name: "offset"
 ```
 
-### CrowdStrike Falcon Alerts (POST + Cursor in Request Body)
+### CrowdStrike Falcon Alerts (POST, flat body)
 
-CrowdStrike's alerts API has no GET endpoint for retrieving alert records — it requires a POST
-whose JSON body carries the query and the pagination cursor.
+The alerts API has no GET equivalent. The cursor sits at the top level and must be absent on
+the first request.
 
 ```yaml
 receivers:
   restapi:
     url: "https://api.crowdstrike.com/alerts/combined/alerts/v1"
     method: post
-    param_location: body
     response_field: "resources"
     min_poll_interval: 1m
     max_poll_interval: 10m
@@ -410,43 +418,56 @@ receivers:
       client_id: "${env:FALCON_CLIENT_ID}"
       client_secret: "${env:FALCON_CLIENT_SECRET}"
       token_url: "https://api.crowdstrike.com/oauth2/token"
-    request_body:
-      filter: "product:'epp'+status:'new'"
-      sort: "created_timestamp|asc"
+    request_body: |
+      {
+        "filter": "product:'epp'+status:'new'",
+        "sort": "created_timestamp|asc",
+        "limit": {{ .Limit }}{{ if .Cursor }},
+        "after": "{{ .Cursor }}"{{ end }}
+      }
     pagination:
       mode: offset_limit
       offset_limit:
-        offset_field_name: "after"
-        limit_field_name: "limit"
         limit: 100
         next_offset_field_name: "meta.pagination.after"
     storage: file_storage
 ```
 
-The first request of a run posts:
+`limit` should match the page size the API actually returns — it doubles as the "a full page
+means there may be more" threshold. Changing `request_body` invalidates the stored checkpoint
+by design, since a cursor obtained under a different filter is meaningless.
 
-```json
-{ "filter": "product:'epp'+status:'new'", "sort": "created_timestamp|asc", "limit": 100 }
+### Datadog Logs Search (POST, nested body)
+
+The cursor and page size live under `page`, the query under `filter`.
+
+```yaml
+receivers:
+  restapi:
+    url: "https://api.datadoghq.com/api/v2/logs/events/search"
+    method: post
+    response_field: "data"
+    auth_mode: none
+    headers:
+      DD-API-KEY: "${env:DD_API_KEY}"
+    sensitive_headers:
+      DD-APPLICATION-KEY: "${env:DD_APP_KEY}"
+    request_body: |
+      {
+        "filter": {"query": "env:prod status:error", "from": "now-15m", "to": "now"},
+        "sort": "timestamp",
+        "page": {
+          "limit": {{ .Limit }}{{ if .Cursor }},
+          "cursor": "{{ .Cursor }}"{{ end }}
+        }
+      }
+    pagination:
+      mode: offset_limit
+      offset_limit:
+        limit: 100
+        next_offset_field_name: "meta.page.after"
+    storage: file_storage
 ```
-
-and subsequent requests add the opaque cursor read from `meta.pagination.after`:
-
-```json
-{ "filter": "product:'epp'+status:'new'", "sort": "created_timestamp|asc", "limit": 100, "after": "eyJ..." }
-```
-
-Notes:
-
-- `limit` is sent as a JSON number, and `after` as a JSON string — CrowdStrike rejects a
-  stringified limit or a numeric cursor.
-- `after` is omitted on the first request rather than sent as `0`.
-- `limit` should match the page size the API actually returns. It doubles as the "a full page
-  means there may be more" threshold, so a mismatch makes pagination stop early or make one
-  extra request per cycle.
-- `storage` is strongly recommended so the cursor survives collector restarts.
-- Changing `filter` or `sort` invalidates the stored checkpoint **by design** — a cursor
-  obtained under the old query is meaningless against the new one, so the next poll restarts
-  from the beginning of the new result set.
 
 ### Token-Based (Cursor) Offset Pagination
 
@@ -484,18 +505,13 @@ This configuration would work with an API that returns responses like:
 
 When `next_cursor` is empty, null, or missing, the receiver treats it as the end of available data.
 
-When `param_location` is `body`, the first request of a run omits `offset_field_name`
-entirely rather than sending it as `0` — the field carries an opaque cursor in this mode, and
-`{"after": 0}` is rejected by APIs that expect a string token there. In `query` mode the
-parameter is still sent as `offset=0` on the first request, since some APIs require it to be
-present. (If a checkpoint carries a non-zero numeric offset from before
-`next_offset_field_name` was configured, that offset is sent in either mode so the run can
-resume.)
+On the first request of a run there is no cursor yet, so `offset_field_name` is sent as the
+starting offset (`0` by default). In a `request_body` template, guard the cursor with
+`{{ if .Cursor }}` to omit it entirely on that first request — APIs that expect an opaque
+string token there reject `{"after": 0}`.
 
-If the API returns the next offset as a JSON **number** rather than a string, it is sent back
-as a number in `body` mode and rendered as plain digits in `query` mode. A token the API
-returns as a string is always sent back as a string, so an opaque cursor is never coerced —
-even one that is all digits or has a leading zero.
+A next offset the API returns as a JSON number is rendered as plain digits, so a token of
+`1000000` is sent as `1000000` rather than `1e+06`.
 
 ### Header-Based Cursor Pagination
 

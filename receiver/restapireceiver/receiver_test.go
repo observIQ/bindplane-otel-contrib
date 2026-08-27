@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1613,7 +1614,6 @@ func TestConfigFingerprint_UnchangedByPOSTFieldsWhenUnused(t *testing.T) {
 	// sets Method to "get" on every config, including ones that predate it.
 	withDefaults := *cfg
 	withDefaults.Method = methodGET
-	withDefaults.ParamLocation = paramLocationQuery
 	require.Equal(t, expected, configFingerprint(&withDefaults))
 }
 
@@ -1629,10 +1629,7 @@ func TestConfigFingerprint_POSTFields(t *testing.T) {
 				NextOffsetFieldName: "meta.pagination.after",
 			},
 		},
-		RequestBody: map[string]any{
-			"filter": "status:'new'",
-			"sort":   "created_timestamp|asc",
-		},
+		RequestBody: `{"filter":"status:'new'","sort":"created_timestamp|asc"}`,
 	}
 	baseFingerprint := configFingerprint(baseCfg)
 	require.Equal(t, baseFingerprint, configFingerprint(baseCfg))
@@ -1640,19 +1637,9 @@ func TestConfigFingerprint_POSTFields(t *testing.T) {
 	// request_body IS query-defining: a different filter selects different
 	// records, so a cursor from the old filter must not be replayed.
 	differentFilter := *baseCfg
-	differentFilter.RequestBody = map[string]any{
-		"filter": "status:'closed'",
-		"sort":   "created_timestamp|asc",
-	}
+	differentFilter.RequestBody = `{"filter":"status:'closed'","sort":"created_timestamp|asc"}`
 	require.NotEqual(t, baseFingerprint, configFingerprint(&differentFilter),
 		"different request_body should produce different fingerprint")
-
-	// param_location is NOT query-defining: it changes where the same values are
-	// sent, not which records come back.
-	differentLocation := *baseCfg
-	differentLocation.ParamLocation = paramLocationQuery
-	require.Equal(t, baseFingerprint, configFingerprint(&differentLocation),
-		"param_location should not affect the fingerprint")
 
 	// offset_limit.limit is a throughput knob, like page_size and page_limit.
 	differentLimit := *baseCfg
@@ -1661,76 +1648,58 @@ func TestConfigFingerprint_POSTFields(t *testing.T) {
 		"offset_limit.limit should not affect the fingerprint")
 }
 
-// TestConfigFingerprint_RequestBodyKeyOrderStable documents the requirement that
-// the hash not depend on Go map iteration order.
-func TestConfigFingerprint_RequestBodyKeyOrderStable(t *testing.T) {
-	first := &Config{
-		URL:    "https://api.example.com/events",
-		Method: methodPOST,
-		RequestBody: map[string]any{
-			"alpha":   1,
-			"bravo":   2,
-			"charlie": map[string]any{"x": true, "y": false},
-		},
-	}
-	second := &Config{
-		URL:    "https://api.example.com/events",
-		Method: methodPOST,
-		RequestBody: map[string]any{
-			"charlie": map[string]any{"y": false, "x": true},
-			"bravo":   2,
-			"alpha":   1,
-		},
-	}
-
-	for range 20 {
-		require.Equal(t, configFingerprint(first), configFingerprint(second))
-	}
-}
-
 func TestBuildAPIRequest(t *testing.T) {
-	newReceiver := func(cfg *Config) *baseReceiver {
-		return &baseReceiver{
+	newReceiver := func(t *testing.T, cfg *Config) *baseReceiver {
+		t.Helper()
+		b := &baseReceiver{
 			cfg:             cfg,
 			logger:          zap.NewNop(),
 			paginationState: newPaginationState(cfg),
 		}
+		require.NoError(t, b.initializeRequestBody())
+		return b
 	}
 
-	t.Run("body location merges static body with generated values", func(t *testing.T) {
+	t.Run("renders the body from the template", func(t *testing.T) {
 		cfg := &Config{
-			URL:           "https://api.example.com/alerts",
-			Method:        methodPOST,
-			ParamLocation: paramLocationBody,
-			RequestBody:   map[string]any{"filter": "status:'new'"},
+			URL:         "https://api.example.com/alerts",
+			Method:      methodPOST,
+			RequestBody: `{"filter":"status:'new'","limit":{{ .Limit }}{{ if .Cursor }},"after":"{{ .Cursor }}"{{ end }}}`,
 			Pagination: PaginationConfig{
-				Mode: paginationModeOffsetLimit,
-				OffsetLimit: OffsetLimitPagination{
-					OffsetFieldName: "after",
-					LimitFieldName:  "limit",
-					Limit:           100,
-				},
+				Mode:        paginationModeOffsetLimit,
+				OffsetLimit: OffsetLimitPagination{Limit: 100, NextOffsetFieldName: "meta.after"},
 			},
 		}
-		r := newReceiver(cfg)
-		r.paginationState.CurrentOffsetToken = "cursor-1"
+		r := newReceiver(t, cfg)
 
-		req := r.buildAPIRequest()
+		// First page: the cursor guard suppresses the field entirely.
+		req, err := r.buildAPIRequest()
+		require.NoError(t, err)
 		require.Equal(t, cfg.URL, req.URL)
-		require.Empty(t, req.Query)
-		require.Equal(t, map[string]any{
-			"filter": "status:'new'",
-			"after":  "cursor-1",
-			"limit":  100,
-		}, req.Body)
+		require.JSONEq(t, `{"filter":"status:'new'","limit":100}`, string(req.Body))
+
+		// Continuation: the cursor appears.
+		r.paginationState.CurrentOffsetToken = "cursor-1"
+		req, err = r.buildAPIRequest()
+		require.NoError(t, err)
+		require.JSONEq(t, `{"filter":"status:'new'","limit":100,"after":"cursor-1"}`, string(req.Body))
 	})
 
-	t.Run("query location keeps the static body separate", func(t *testing.T) {
+	t.Run("no template means no body", func(t *testing.T) {
 		cfg := &Config{
-			URL:           "https://api.example.com/alerts",
-			Method:        methodPOST,
-			ParamLocation: paramLocationQuery,
-			RequestBody:   map[string]any{"filter": "status:'new'"},
+			URL:        "https://api.example.com/data",
+			Pagination: PaginationConfig{Mode: paginationModeNone},
+		}
+		req, err := newReceiver(t, cfg).buildAPIRequest()
+		require.NoError(t, err)
+		require.Empty(t, req.Body)
+	})
+
+	t.Run("query parameters are unaffected by the body", func(t *testing.T) {
+		cfg := &Config{
+			URL:         "https://api.example.com/data",
+			Method:      methodPOST,
+			RequestBody: `{"filter":"status:'new'"}`,
 			Pagination: PaginationConfig{
 				Mode: paginationModeOffsetLimit,
 				OffsetLimit: OffsetLimitPagination{
@@ -1740,61 +1709,34 @@ func TestBuildAPIRequest(t *testing.T) {
 				},
 			},
 		}
-		r := newReceiver(cfg)
-
-		req := r.buildAPIRequest()
+		req, err := newReceiver(t, cfg).buildAPIRequest()
+		require.NoError(t, err)
 		require.Equal(t, "0", req.Query.Get("offset"))
 		require.Equal(t, "25", req.Query.Get("limit"))
-		require.Equal(t, map[string]any{"filter": "status:'new'"}, req.Body)
+		require.JSONEq(t, `{"filter":"status:'new'"}`, string(req.Body))
 	})
 
-	t.Run("does not mutate the shared config request body", func(t *testing.T) {
+	t.Run("each request gets its own body", func(t *testing.T) {
 		cfg := &Config{
-			URL:           "https://api.example.com/alerts",
-			Method:        methodPOST,
-			ParamLocation: paramLocationBody,
-			RequestBody:   map[string]any{"filter": "status:'new'"},
+			URL:         "https://api.example.com/alerts",
+			Method:      methodPOST,
+			RequestBody: `{"after":"{{ .Cursor }}"}`,
 			Pagination: PaginationConfig{
-				Mode: paginationModeOffsetLimit,
-				OffsetLimit: OffsetLimitPagination{
-					OffsetFieldName: "after",
-					LimitFieldName:  "limit",
-				},
+				Mode:        paginationModeOffsetLimit,
+				OffsetLimit: OffsetLimitPagination{NextOffsetFieldName: "meta.after"},
 			},
 		}
-		r := newReceiver(cfg)
+		r := newReceiver(t, cfg)
 
 		r.paginationState.CurrentOffsetToken = "cursor-1"
-		_ = r.buildAPIRequest()
+		first, err := r.buildAPIRequest()
+		require.NoError(t, err)
 		r.paginationState.CurrentOffsetToken = "cursor-2"
-		second := r.buildAPIRequest()
+		second, err := r.buildAPIRequest()
+		require.NoError(t, err)
 
-		// The cursor must never leak into the config: cfg is shared across every
-		// page and every poll cycle, and it feeds configFingerprint.
-		require.Equal(t, map[string]any{"filter": "status:'new'"}, cfg.RequestBody)
-		require.Equal(t, "cursor-2", second.Body["after"])
-	})
-
-	t.Run("generated values win over a colliding static body key", func(t *testing.T) {
-		// Validate() rejects this config; the runtime rule is belt and braces so
-		// a user-pinned cursor can never deadlock pagination.
-		cfg := &Config{
-			URL:           "https://api.example.com/alerts",
-			Method:        methodPOST,
-			ParamLocation: paramLocationBody,
-			RequestBody:   map[string]any{"after": "pinned"},
-			Pagination: PaginationConfig{
-				Mode: paginationModeOffsetLimit,
-				OffsetLimit: OffsetLimitPagination{
-					OffsetFieldName: "after",
-					LimitFieldName:  "limit",
-				},
-			},
-		}
-		r := newReceiver(cfg)
-		r.paginationState.CurrentOffsetToken = "cursor-1"
-
-		require.Equal(t, "cursor-1", r.buildAPIRequest().Body["after"])
+		require.JSONEq(t, `{"after":"cursor-1"}`, string(first.Body))
+		require.JSONEq(t, `{"after":"cursor-2"}`, string(second.Body))
 	})
 }
 
@@ -1841,7 +1783,7 @@ func TestReconcileCheckpointWithConfig_AppliesConfiguredLimit(t *testing.T) {
 			// Polling progress must survive reconciliation untouched.
 			require.Equal(t, 30, b.paginationState.CurrentOffset)
 			// The value sent and the full-page threshold stay the same variable.
-			require.Equal(t, tc.expected, buildPaginationValues(cfg, b.paginationState)["limit"])
+			require.Equal(t, strconv.Itoa(tc.expected), buildPaginationParams(cfg, b.paginationState).Get("limit"))
 		})
 	}
 }

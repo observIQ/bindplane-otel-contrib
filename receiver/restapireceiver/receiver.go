@@ -17,15 +17,12 @@ package restapireceiver
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
-	"maps"
 	"net/http"
-	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
@@ -67,6 +64,27 @@ type baseReceiver struct {
 	currentPollInterval time.Duration // current adaptive poll interval
 	cancel              context.CancelFunc
 	paginationState     *paginationState
+
+	// bodyTemplate is the parsed request_body template, nil when unconfigured.
+	// Parsed once at Start rather than per request.
+	bodyTemplate *template.Template
+}
+
+// initializeRequestBody parses the configured request_body template. Validate
+// has already proved it parses and renders to valid JSON, so a failure here
+// means the config was never validated.
+func (b *baseReceiver) initializeRequestBody() error {
+	if b.cfg.RequestBody == "" {
+		return nil
+	}
+
+	tmpl, err := parseRequestBodyTemplate(b.cfg.RequestBody)
+	if err != nil {
+		return fmt.Errorf("failed to parse request_body template: %w", err)
+	}
+	b.bodyTemplate = tmpl
+
+	return nil
 }
 
 // logDeprecationWarnings emits warnings for any deprecated config fields that were migrated.
@@ -251,18 +269,14 @@ func configFingerprint(cfg *Config) string {
 
 	// request_body is query-defining: changing a filter or sort changes which
 	// records come back, so a cursor obtained under a previous body must not be
-	// reused. encoding/json sorts map keys at every level, so the hash does not
-	// depend on Go map iteration order.
+	// reused.
 	//
 	// Contributes to the hash — separator included — only when set, so a config
 	// written before request_body existed hashes identically and keeps its
 	// stored checkpoint across the upgrade.
-	if len(cfg.RequestBody) > 0 {
+	if cfg.RequestBody != "" {
 		h.Write([]byte{0})
-		// Validate() has already rejected an unencodable request_body.
-		if encoded, err := json.Marshal(cfg.RequestBody); err == nil {
-			h.Write(encoded)
-		}
+		h.Write([]byte(cfg.RequestBody))
 	}
 
 	return fmt.Sprintf("%x", h.Sum(nil))
@@ -443,49 +457,43 @@ func (b *baseReceiver) handlePagination(fullResponse map[string]any, data []map[
 	}
 
 	// Rebuild the request from the advanced pagination state
-	return true, b.buildAPIRequest()
+	nextReq, err := b.buildAPIRequest()
+	if err != nil {
+		b.logger.Error("failed to build the next request", zap.Error(err))
+		return false, apiRequest{}
+	}
+	return true, nextReq
 }
 
 // buildAPIRequest assembles the request descriptor for the current pagination
-// state. It is the only place deciding whether the generated values travel in
-// the query string or the JSON request body.
-func (b *baseReceiver) buildAPIRequest() apiRequest {
-	req := apiRequest{URL: b.cfg.URL}
-	values := buildPaginationValues(b.cfg, b.paginationState)
-
-	if b.cfg.ParamLocation == paramLocationBody {
-		// Generated values win on collision so a user-pinned value can never
-		// stall pagination; Validate() already rejects such collisions.
-		//
-		// cfg.RequestBody is shared across every page and poll cycle, so it is
-		// copied rather than written to — mutating it would leak the previous
-		// page's cursor into the config and corrupt the fingerprint. Only the top
-		// level is copied; nested values are never written.
-		body := make(map[string]any, len(b.cfg.RequestBody)+len(values))
-		maps.Copy(body, b.cfg.RequestBody)
-		maps.Copy(body, values)
-		req.Body = body
-		return req
+// state: query parameters from the configured parameter names, and the request
+// body rendered from the configured template.
+func (b *baseReceiver) buildAPIRequest() (apiRequest, error) {
+	req := apiRequest{
+		URL:   b.cfg.URL,
+		Query: buildPaginationParams(b.cfg, b.paginationState),
 	}
 
-	req.Query = url.Values{}
-	for key, value := range values {
-		req.Query.Set(key, paramValueToString(value))
+	if b.bodyTemplate == nil {
+		return req, nil
 	}
-	if len(b.cfg.RequestBody) > 0 {
-		// A static body with query-string pagination.
-		req.Body = maps.Clone(b.cfg.RequestBody)
+
+	body, err := renderRequestBody(b.bodyTemplate, newRequestBodyData(b.cfg, b.paginationState))
+	if err != nil {
+		return apiRequest{}, fmt.Errorf("failed to render request_body template: %w", err)
 	}
-	return req
+	req.Body = body
+
+	return req, nil
 }
 
 // requestLogFields returns debug log fields describing an outgoing request.
-// Only body key names are emitted: request_body values are not masked (see the
-// RequestBody doc comment).
+// The body's size is logged but never its content: the template is not masked
+// (see the RequestBody doc comment), and its shape is already visible in config.
 func requestLogFields(req apiRequest) []zap.Field {
 	return []zap.Field{
 		zap.String("query", req.Query.Encode()),
-		zap.Strings("body_keys", slices.Sorted(maps.Keys(req.Body))),
+		zap.Int("body_bytes", len(req.Body)),
 	}
 }
 
@@ -530,6 +538,9 @@ func newRESTAPILogsReceiver(
 func (r *restAPILogsReceiver) Start(ctx context.Context, host component.Host) error {
 	r.logDeprecationWarnings()
 	if err := r.initializeClient(ctx, host); err != nil {
+		return err
+	}
+	if err := r.initializeRequestBody(); err != nil {
 		return err
 	}
 	if err := r.initializeStorage(ctx, host); err != nil {
@@ -594,7 +605,10 @@ func (r *restAPILogsReceiver) poll(ctx context.Context) (pollResult, error) {
 	result := pollResult{}
 
 	// Build the initial request from the current pagination state
-	req := r.buildAPIRequest()
+	req, err := r.buildAPIRequest()
+	if err != nil {
+		return result, err
+	}
 
 	r.logger.Debug("starting poll cycle",
 		append([]zap.Field{
@@ -849,6 +863,9 @@ func (r *restAPIMetricsReceiver) Start(ctx context.Context, host component.Host)
 	if err := r.initializeClient(ctx, host); err != nil {
 		return err
 	}
+	if err := r.initializeRequestBody(); err != nil {
+		return err
+	}
 	if err := r.initializeStorage(ctx, host); err != nil {
 		return err
 	}
@@ -911,7 +928,10 @@ func (r *restAPIMetricsReceiver) poll(ctx context.Context) (pollResult, error) {
 	result := pollResult{}
 
 	// Build the initial request from the current pagination state
-	req := r.buildAPIRequest()
+	req, err := r.buildAPIRequest()
+	if err != nil {
+		return result, err
+	}
 
 	r.logger.Debug("starting poll cycle",
 		append([]zap.Field{
