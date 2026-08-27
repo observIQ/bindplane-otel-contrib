@@ -164,7 +164,7 @@ func (s *networkStatScraper) scrape(ctx context.Context) (pmetric.Metrics, error
 				}
 				s.mb.RecordNetworkTracerouteHopLatencyDataPoint(
 					now,
-					float64(hop.RTT.Milliseconds()),
+					msFloat(hop.RTT),
 					int64(hop.Index),
 					hop.Address,
 					ts.dnsServer,
@@ -222,7 +222,7 @@ func (s *networkStatScraper) recordMetrics(now pcommon.Timestamp, ts *targetStat
 		if !r.QuerySuccess {
 			return
 		}
-		s.mb.RecordNetworkDNSLookupDurationDataPoint(now, float64(r.QueryDuration.Milliseconds()), r.QueryName)
+		s.mb.RecordNetworkDNSLookupDurationDataPoint(now, msFloat(r.QueryDuration), r.QueryName)
 	case MethodICMP:
 		m := metadata.AttributePingMethodIcmp
 		s.mb.RecordNetworkPingPacketLossDataPoint(now, r.PacketLoss, m, dns)
@@ -231,9 +231,9 @@ func (s *networkStatScraper) recordMetrics(now pcommon.Timestamp, ts *targetStat
 			// round-trip times. Packet loss of 1.0 is the failure signal.
 			return
 		}
-		s.mb.RecordNetworkPingLatencyMinDataPoint(now, float64(r.MinRTT.Milliseconds()), m, dns)
-		s.mb.RecordNetworkPingLatencyAvgDataPoint(now, float64(r.AvgRTT.Milliseconds()), m, dns)
-		s.mb.RecordNetworkPingLatencyMaxDataPoint(now, float64(r.MaxRTT.Milliseconds()), m, dns)
+		s.mb.RecordNetworkPingLatencyMinDataPoint(now, msFloat(r.MinRTT), m, dns)
+		s.mb.RecordNetworkPingLatencyAvgDataPoint(now, msFloat(r.AvgRTT), m, dns)
+		s.mb.RecordNetworkPingLatencyMaxDataPoint(now, msFloat(r.MaxRTT), m, dns)
 	case MethodHTTP:
 		code := int64(r.StatusCode)
 		up := int64(0)
@@ -244,13 +244,19 @@ func (s *networkStatScraper) recordMetrics(now pcommon.Timestamp, ts *targetStat
 		if up == 0 {
 			return
 		}
-		s.mb.RecordNetworkHTTPDurationDataPoint(now, float64(r.TotalDuration.Milliseconds()), code, dns)
-		s.mb.RecordNetworkHTTPDNSLookupDurationDataPoint(now, float64(r.DNSLookup.Milliseconds()), dns)
-		s.mb.RecordNetworkHTTPClientConnectionDurationDataPoint(now, float64(r.TCPConnect.Milliseconds()), dns)
-		s.mb.RecordNetworkHTTPTLSHandshakeDurationDataPoint(now, float64(r.TLSHandshake.Milliseconds()), dns)
-		s.mb.RecordNetworkHTTPRequestDurationDataPoint(now, float64(r.RequestWrite.Milliseconds()), dns)
-		s.mb.RecordNetworkHTTPResponseDurationDataPoint(now, float64(r.ResponseRead.Milliseconds()), dns)
+		s.mb.RecordNetworkHTTPDurationDataPoint(now, msFloat(r.TotalDuration), code, dns)
+		s.mb.RecordNetworkHTTPDNSLookupDurationDataPoint(now, msFloat(r.DNSLookup), dns)
+		s.mb.RecordNetworkHTTPClientConnectionDurationDataPoint(now, msFloat(r.TCPConnect), dns)
+		s.mb.RecordNetworkHTTPTLSHandshakeDurationDataPoint(now, msFloat(r.TLSHandshake), dns)
+		s.mb.RecordNetworkHTTPRequestDurationDataPoint(now, msFloat(r.RequestWrite), dns)
+		s.mb.RecordNetworkHTTPResponseDurationDataPoint(now, msFloat(r.ResponseRead), dns)
 	}
+}
+
+// msFloat converts a duration to fractional milliseconds, preserving sub-ms
+// precision that time.Duration.Milliseconds() truncates to zero.
+func msFloat(d time.Duration) float64 {
+	return float64(d.Nanoseconds()) / 1e6
 }
 
 // detectSystemDNS is implemented per platform: see systemdns_other.go and
