@@ -3,7 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/receiver/gcspubsubeventreceive
 go 1.26.4
 
 require (
-	cloud.google.com/go/pubsub v1.51.0
+	cloud.google.com/go/pubsub v1.51.1
 	cloud.google.com/go/storage v1.64.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/google/go-cmp v0.7.0
