@@ -47,7 +47,12 @@ type paginationState struct {
 	// For offset/limit pagination
 	CurrentOffset      int    `json:"current_offset,omitempty"`
 	CurrentOffsetToken string `json:"current_offset_token,omitempty"` // token-based (cursor) offset
-	Limit              int    `json:"limit,omitempty"`
+	// CurrentOffsetTokenNumeric records that the token was a JSON number in the
+	// response, so it is sent back as a number rather than a quoted string.
+	// Absent from older checkpoints, which decode to false — i.e. the previous
+	// string behavior, which is the safe default for an opaque cursor.
+	CurrentOffsetTokenNumeric bool `json:"current_offset_token_numeric,omitempty"`
+	Limit                     int  `json:"limit,omitempty"`
 
 	// For page/size pagination
 	CurrentPage int `json:"current_page,omitempty"`
@@ -218,17 +223,29 @@ func buildPaginationValues(cfg *Config, state *paginationState) map[string]any {
 		if cfg.Pagination.OffsetLimit.OffsetFieldName != "" {
 			switch {
 			case state.CurrentOffsetToken != "":
-				// Use token-based offset when available. The token is opaque, so
-				// it stays a string even when it looks numeric.
-				values[cfg.Pagination.OffsetLimit.OffsetFieldName] = state.CurrentOffsetToken
+				// Use token-based offset when available. A token the API returned
+				// as a JSON number goes back as a number; anything else stays a
+				// string, so an opaque cursor is never coerced even when it looks
+				// numeric.
+				if state.CurrentOffsetTokenNumeric {
+					values[cfg.Pagination.OffsetLimit.OffsetFieldName] = json.Number(state.CurrentOffsetToken)
+				} else {
+					values[cfg.Pagination.OffsetLimit.OffsetFieldName] = state.CurrentOffsetToken
+				}
 
-			case cfg.Pagination.OffsetLimit.NextOffsetFieldName != "" && state.CurrentOffset == 0:
-				// Token-based pagination with no token yet and nothing to resume
-				// from: this is the first page of the run, so send no cursor at
-				// all. The field holds an opaque cursor in this mode, and a
-				// numeric 0 is not a cursor any API would accept — a JSON body
-				// carrying {"after": 0} is rejected outright by APIs that expect
-				// a string token there.
+			case cfg.Pagination.OffsetLimit.NextOffsetFieldName != "" &&
+				cfg.ParamLocation == paramLocationBody &&
+				state.CurrentOffset == 0:
+				// Token-based pagination in body mode with no token yet and
+				// nothing to resume from: this is the first page of the run, so
+				// send no cursor at all. The field holds an opaque cursor here,
+				// and a JSON body carrying {"after": 0} is rejected outright by
+				// APIs that expect a string token there.
+				//
+				// Deliberately scoped to body mode: in query mode the historical
+				// behavior of sending offset=0 on the first request is preserved,
+				// because some APIs require the parameter to be present and
+				// response_source: header always implies a cursor config.
 				//
 				// A non-zero offset still falls through to the numeric value
 				// below, so a checkpoint written before token-based pagination
@@ -306,9 +323,9 @@ func buildPaginationValues(cfg *Config, state *paginationState) map[string]any {
 	// For timestamp pagination, start time is handled above (it advances through data).
 	//
 	// The resolved bounds are stored on the state as strings so the checkpoint
-	// schema stays unchanged; they are typed here instead. Validate() guarantees
-	// the value is numeric whenever the format is an epoch format, so the
-	// json.Number is always a valid JSON literal.
+	// schema stays unchanged; they are typed here instead. Validate() rejects an
+	// epoch value that is not a legal JSON number (see isValidJSONNumber), which
+	// is what makes the json.Number below safe to marshal.
 	if cfg.Pagination.Mode != paginationModeTimestamp {
 		if cfg.StartTimeParamName != "" && state.ResolvedStartTime != "" {
 			values[cfg.StartTimeParamName] = timeBoundValue(state.ResolvedStartTime, cfg.TimestampFormat)
@@ -382,23 +399,33 @@ func parseOffsetLimitResponse(cfg *Config, response any, extractedData []map[str
 		}
 
 		var tokenStr string
+		var tokenNumeric bool
 		switch v := tokenVal.(type) {
 		case string:
+			// Includes header-sourced values, which carry no JSON type.
 			tokenStr = v
 		case float64:
-			tokenStr = fmt.Sprintf("%v", v)
+			// JSON numbers decode to float64. Format without an exponent so a
+			// value such as 1000000 stays "1000000" rather than becoming "1e+06".
+			tokenStr = strconv.FormatFloat(v, 'f', -1, 64)
+			tokenNumeric = true
 		case int:
-			tokenStr = fmt.Sprintf("%d", v)
+			tokenStr = strconv.Itoa(v)
+			tokenNumeric = true
 		default:
 			tokenStr = fmt.Sprintf("%v", v)
 		}
 
 		if tokenStr == "" {
 			state.CurrentOffsetToken = ""
+			state.CurrentOffsetTokenNumeric = false
 			return false, nil
 		}
 
 		state.CurrentOffsetToken = tokenStr
+		// Only trust the numeric form if it round-trips as legal JSON; otherwise
+		// fall back to sending a string rather than an unmarshalable body.
+		state.CurrentOffsetTokenNumeric = tokenNumeric && isValidJSONNumber(tokenStr)
 		state.PagesFetched++
 
 		// The token is a bookmark for resuming — always save it.

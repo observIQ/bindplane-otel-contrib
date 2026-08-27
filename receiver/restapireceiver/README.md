@@ -127,7 +127,7 @@ These top-level fields add start and/or end time query parameters to every reque
 | `start_time_value`      | string |         | `false`  | Value for the start time: `"now"` resolves to the current time at receiver start (not dynamically updated), or a fixed timestamp in the configured format (e.g., `"2025-01-01T00:00:00Z"` or `"1704067200"` for epoch). For timestamp pagination, this is the initial start value |
 | `end_time_param_name`   | string |         | `false`  | Request parameter name for end time (e.g., "until", "to", "end_time"). If set, sends an end time on every request                                                                                                                                                                   |
 | `end_time_value`        | string | `now`   | `false`  | Value for the end time: `"now"` (default) resolves to the current time at receiver start (not dynamically updated), or a fixed timestamp in the configured format                                                                                                                 |
-| `timestamp_format`      | string | RFC3339 | `false`  | Format for both start and end time query parameters. Accepts Go time format strings or epoch formats (see below)                                                                                                                                                                  |
+| `timestamp_format`      | string | RFC3339 | `false`  | Format for both start and end time request parameters. Accepts Go time format strings or epoch formats (see below). With an epoch format, `start_time_value` and `end_time_value` must be plain JSON numbers — no leading `+` and no trailing `.` — because they are sent as bare numbers when `param_location` is `body`                                                                                                                                                                  |
 
 ### POST Requests
 
@@ -484,10 +484,18 @@ This configuration would work with an API that returns responses like:
 
 When `next_cursor` is empty, null, or missing, the receiver treats it as the end of available data.
 
-On the first request of a run there is no cursor yet, so `offset_field_name` is omitted
-entirely rather than sent as `0` — the field carries an opaque cursor in this mode. (If a
-checkpoint carries a non-zero numeric offset from before `next_offset_field_name` was
-configured, that offset is still sent so the run can resume.)
+When `param_location` is `body`, the first request of a run omits `offset_field_name`
+entirely rather than sending it as `0` — the field carries an opaque cursor in this mode, and
+`{"after": 0}` is rejected by APIs that expect a string token there. In `query` mode the
+parameter is still sent as `offset=0` on the first request, since some APIs require it to be
+present. (If a checkpoint carries a non-zero numeric offset from before
+`next_offset_field_name` was configured, that offset is sent in either mode so the run can
+resume.)
+
+If the API returns the next offset as a JSON **number** rather than a string, it is sent back
+as a number in `body` mode and rendered as plain digits in `query` mode. A token the API
+returns as a string is always sent back as a string, so an opaque cursor is never coerced —
+even one that is all digits or has a leading zero.
 
 ### Header-Based Cursor Pagination
 
@@ -709,6 +717,13 @@ The checkpoint includes:
 
 - Current pagination state (offset/page number/timestamp depending on mode)
 - A config fingerprint used to detect when the receiver configuration has changed
+
+### Pagination limit and checkpoints
+
+`pagination.offset_limit.limit` is a throughput knob rather than part of the query, so
+changing it does **not** discard a stored checkpoint. The configured value is re-applied over
+the one in the checkpoint on startup, so a limit change takes effect on the next poll while
+the cursor or offset already reached is preserved.
 
 ### Config change detection
 

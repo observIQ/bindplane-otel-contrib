@@ -126,6 +126,22 @@ func (b *baseReceiver) initializePagination() {
 // For checkpoints from a *different* config, fingerprint-based invalidation in loadCheckpoint
 // handles discarding them before we reach this point.
 func (b *baseReceiver) reconcileCheckpointWithConfig() {
+	// The offset/limit page size is a config-owned throughput knob, not polling
+	// progress, so it is excluded from configFingerprint — changing it must not
+	// discard a checkpoint. But loadCheckpoint restores the whole
+	// paginationState, Limit included, so the stored value has to be replaced
+	// with the configured one or a limit change would never take effect on a
+	// receiver that has ever checkpointed.
+	if b.cfg.Pagination.Mode == paginationModeOffsetLimit {
+		configuredLimit := newPaginationState(b.cfg).Limit
+		if b.paginationState.Limit != configuredLimit {
+			b.logger.Info("applying configured pagination limit over the value in the stored checkpoint",
+				zap.Int("checkpoint_limit", b.paginationState.Limit),
+				zap.Int("configured_limit", configuredLimit))
+			b.paginationState.Limit = configuredLimit
+		}
+	}
+
 	if b.cfg.Pagination.Mode == paginationModeTimestamp {
 		configState := newPaginationState(b.cfg)
 

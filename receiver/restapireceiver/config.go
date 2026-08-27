@@ -863,7 +863,32 @@ func (c *Config) validateTimestampValue(value, fieldName string) error {
 		}
 		return fmt.Errorf("%s %q could not be parsed; must be \"now\" or match %s", fieldName, value, formatHint)
 	}
+
+	// An epoch value is sent as a bare JSON number when param_location is
+	// "body", so it must be legal JSON as well as parseable. parseConfigTimestamp
+	// accepts forms JSON does not (a leading "+", a trailing "."), and those
+	// would otherwise be accepted here and then fail on every single poll when
+	// the request body is marshaled.
+	if isEpochFormat(c.TimestampFormat) && !isValidJSONNumber(value) {
+		return fmt.Errorf("%s %q is not a valid JSON number; an epoch timestamp must be plain digits with no leading \"+\" and no trailing \".\"", fieldName, value)
+	}
+
 	return nil
+}
+
+// isValidJSONNumber reports whether s can be emitted as a bare JSON number.
+// json.Number carries its contents verbatim without validating them, so a value
+// that is not legal JSON fails at marshal time rather than at config time.
+func isValidJSONNumber(s string) bool {
+	if s == "" {
+		return false
+	}
+	// Reject anything that is not the start of a JSON number, so that a quoted
+	// string or a literal such as "true" cannot pass json.Valid below.
+	if c := s[0]; c != '-' && (c < '0' || c > '9') {
+		return false
+	}
+	return json.Valid([]byte(s))
 }
 
 // parseConfigTimestamp parses a user-configured timestamp value into a time.Time

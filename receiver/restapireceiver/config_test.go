@@ -1574,6 +1574,48 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectedErr: "limit must be greater than or equal to 0",
 		},
+		{
+			name: "epoch start_time_value with a leading plus",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeNone,
+				StartTimeParamName: "since",
+				StartTimeValue:     "+1704067200",
+				TimestampFormat:    epochSeconds,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: `start_time_value "+1704067200" is not a valid JSON number`,
+		},
+		{
+			name: "epoch end_time_value with a trailing dot",
+			config: &Config{
+				URL:              "https://api.example.com/data",
+				AuthMode:         authModeNone,
+				EndTimeParamName: "until",
+				EndTimeValue:     "1704067200.",
+				TimestampFormat:  epochSecondsFractional,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: `end_time_value "1704067200." is not a valid JSON number`,
+		},
+		{
+			name: "valid epoch fractional start_time_value",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeNone,
+				StartTimeParamName: "since",
+				StartTimeValue:     "1704067200.123456",
+				TimestampFormat:    epochSecondsFractional,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1873,6 +1915,54 @@ func TestConfig_DeprecatedTimestampMigration(t *testing.T) {
 				}
 				assert.True(t, found, "expected warning containing %q, got %v", tc.warnContains, cfg.deprecationWarnings)
 			}
+		})
+	}
+}
+
+func TestIsValidJSONNumber(t *testing.T) {
+	valid := []string{"0", "123", "-123", "1704067200123456789", "1704067200.123456", "1.5e3"}
+	for _, v := range valid {
+		require.True(t, isValidJSONNumber(v), "%q should be a valid JSON number", v)
+	}
+
+	invalid := []string{"", "+1704067200", "1704067200.", ".5", "0x10", "abc", `"123"`, "true", "1 2", "--1"}
+	for _, v := range invalid {
+		require.False(t, isValidJSONNumber(v), "%q should not be a valid JSON number", v)
+	}
+}
+
+// TestEpochTimeBoundsMarshalIntoRequestBody is the end-to-end guard for the
+// class of bug the isValidJSONNumber check closes: every epoch format, once
+// accepted by Validate(), must produce a request body that actually marshals.
+func TestEpochTimeBoundsMarshalIntoRequestBody(t *testing.T) {
+	formats := map[string]string{
+		epochSeconds:           "1704067200",
+		epochMilliseconds:      "1704067200000",
+		epochMicroseconds:      "1704067200000000",
+		epochNanoseconds:       "1704067200000000000",
+		epochSecondsFractional: "1704067200.123456",
+	}
+
+	for format, value := range formats {
+		t.Run(format, func(t *testing.T) {
+			cfg := &Config{
+				URL:                "https://api.example.com/data",
+				Method:             methodPOST,
+				AuthMode:           authModeNone,
+				StartTimeParamName: "since",
+				StartTimeValue:     value,
+				EndTimeParamName:   "until",
+				EndTimeValue:       "now",
+				TimestampFormat:    format,
+				Pagination:         PaginationConfig{Mode: paginationModeNone},
+			}
+			require.NoError(t, cfg.Validate())
+
+			body, err := marshalJSONBody(buildPaginationValues(cfg, newPaginationState(cfg)))
+			require.NoError(t, err)
+			// The bound must land as a bare JSON number, not a quoted string.
+			require.Contains(t, string(body), `"since":`+value)
+			require.NotContains(t, string(body), `"since":"`)
 		})
 	}
 }

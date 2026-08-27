@@ -2055,12 +2055,13 @@ func TestNewPaginationState_OffsetLimit_ConfiguredLimit(t *testing.T) {
 }
 
 // TestBuildPaginationValues_TokenModeOmitsCursorOnFirstPage covers the
-// first-page contract for opaque-cursor pagination: the offset field carries a
-// cursor in this mode, so no cursor must be sent before one has been obtained.
-// A numeric 0 in a JSON request body is rejected by APIs that expect a string
-// token there (e.g. CrowdStrike's "after").
+// first-page contract for opaque-cursor pagination in body mode: the offset
+// field carries a cursor, so no cursor must be sent before one has been
+// obtained. A numeric 0 in a JSON request body is rejected by APIs that expect a
+// string token there (e.g. CrowdStrike's "after").
 func TestBuildPaginationValues_TokenModeOmitsCursorOnFirstPage(t *testing.T) {
 	cfg := &Config{
+		ParamLocation: paramLocationBody,
 		Pagination: PaginationConfig{
 			Mode: paginationModeOffsetLimit,
 			OffsetLimit: OffsetLimitPagination{
@@ -2090,6 +2091,7 @@ func TestBuildPaginationValues_TokenModeOmitsCursorOnFirstPage(t *testing.T) {
 
 	t.Run("numeric offset mode always sends the offset", func(t *testing.T) {
 		numericCfg := &Config{
+			ParamLocation: paramLocationBody,
 			Pagination: PaginationConfig{
 				Mode: paginationModeOffsetLimit,
 				OffsetLimit: OffsetLimitPagination{
@@ -2101,4 +2103,98 @@ func TestBuildPaginationValues_TokenModeOmitsCursorOnFirstPage(t *testing.T) {
 		values := buildPaginationValues(numericCfg, &paginationState{Limit: 10})
 		require.Equal(t, 0, values["offset"])
 	})
+
+	// The omission is scoped to body mode. Query-mode cursor configs keep the
+	// historical behavior of sending offset=0 on the first request, because some
+	// APIs require the parameter to be present — and response_source: header
+	// always implies a cursor config, so every header-cursor user is affected.
+	t.Run("query mode still sends offset zero on the first page", func(t *testing.T) {
+		for _, loc := range []ParamLocation{paramLocationQuery, ""} {
+			queryCfg := &Config{
+				ParamLocation: loc,
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName:     "cursor",
+						LimitFieldName:      "limit",
+						NextOffsetFieldName: "next_cursor",
+					},
+				},
+			}
+			values := buildPaginationValues(queryCfg, &paginationState{Limit: 10})
+			require.Equal(t, 0, values["cursor"], "param_location %q", loc)
+			require.Equal(t, "0", buildPaginationParams(queryCfg, &paginationState{Limit: 10}).Get("cursor"))
+		}
+	})
+}
+
+// TestParseOffsetLimitResponse_TokenTypeIsPreserved covers sending a next-offset
+// token back with the JSON type the API used for it. A numeric token quoted into
+// a JSON body is the mirror image of the problem typed values exist to avoid.
+func TestParseOffsetLimitResponse_TokenTypeIsPreserved(t *testing.T) {
+	cfg := &Config{
+		ParamLocation: paramLocationBody,
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "offset",
+				LimitFieldName:      "limit",
+				NextOffsetFieldName: "next_offset",
+			},
+		},
+	}
+
+	testCases := []struct {
+		name          string
+		tokenVal      any
+		expectedToken string
+		expectedBody  any
+	}{
+		{
+			name:          "numeric token goes back as a number",
+			tokenVal:      float64(50),
+			expectedToken: "50",
+			expectedBody:  json.Number("50"),
+		},
+		{
+			name: "large numeric token keeps its digits",
+			// %v would render this as "1e+06".
+			tokenVal:      float64(1000000),
+			expectedToken: "1000000",
+			expectedBody:  json.Number("1000000"),
+		},
+		{
+			name:          "opaque string token stays a string",
+			tokenVal:      "eyJvZmZzZXQiOjEwfQ==",
+			expectedToken: "eyJvZmZzZXQiOjEwfQ==",
+			expectedBody:  "eyJvZmZzZXQiOjEwfQ==",
+		},
+		{
+			name: "digit-only string token stays a string",
+			// A header-sourced cursor arrives as a string and has no JSON type.
+			tokenVal:      "0012345",
+			expectedToken: "0012345",
+			expectedBody:  "0012345",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			state := &paginationState{Limit: 10}
+			_, err := parseOffsetLimitResponse(cfg, map[string]any{"next_offset": tc.tokenVal}, []map[string]any{}, state)
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedToken, state.CurrentOffsetToken)
+
+			values := buildPaginationValues(cfg, state)
+			require.Equal(t, tc.expectedBody, values["offset"])
+
+			// Whatever the type, the body must marshal.
+			body, err := marshalJSONBody(values)
+			require.NoError(t, err)
+			require.NotEmpty(t, body)
+
+			// Query mode renders the same token as a plain string either way.
+			require.Equal(t, tc.expectedToken, paramValueToString(values["offset"]))
+		})
+	}
 }

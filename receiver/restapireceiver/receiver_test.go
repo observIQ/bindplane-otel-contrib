@@ -1799,3 +1799,81 @@ func TestBuildAPIRequest(t *testing.T) {
 		require.Equal(t, "cursor-1", r.buildAPIRequest().Body["after"])
 	})
 }
+
+// TestReconcileCheckpointWithConfig_AppliesConfiguredLimit covers the fact that
+// offset_limit.limit is excluded from configFingerprint (it is a throughput knob,
+// so changing it must not discard a checkpoint) while loadCheckpoint restores the
+// whole paginationState. Without reconciliation a limit change would never take
+// effect on a receiver that has ever checkpointed.
+func TestReconcileCheckpointWithConfig_AppliesConfiguredLimit(t *testing.T) {
+	testCases := []struct {
+		name            string
+		configuredLimit int
+		checkpointLimit int
+		expected        int
+	}{
+		{name: "raised limit takes effect", configuredLimit: 100, checkpointLimit: 10, expected: 100},
+		{name: "lowered limit takes effect", configuredLimit: 5, checkpointLimit: 10, expected: 5},
+		{name: "unset limit falls back to the default", configuredLimit: 0, checkpointLimit: 250, expected: 10},
+		{name: "matching limit is left alone", configuredLimit: 25, checkpointLimit: 25, expected: 25},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				URL: "https://api.example.com/alerts",
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "after",
+						LimitFieldName:  "limit",
+						Limit:           tc.configuredLimit,
+					},
+				},
+			}
+			b := &baseReceiver{
+				cfg:    cfg,
+				logger: zap.NewNop(),
+				// A checkpoint restored by loadCheckpoint, carrying real progress.
+				paginationState: &paginationState{Limit: tc.checkpointLimit, CurrentOffset: 30},
+			}
+
+			b.reconcileCheckpointWithConfig()
+
+			require.Equal(t, tc.expected, b.paginationState.Limit)
+			// Polling progress must survive reconciliation untouched.
+			require.Equal(t, 30, b.paginationState.CurrentOffset)
+			// The value sent and the full-page threshold stay the same variable.
+			require.Equal(t, tc.expected, buildPaginationValues(cfg, b.paginationState)["limit"])
+		})
+	}
+}
+
+// TestInitializePagination_ChangedLimitSurvivesCheckpointLoad walks the real
+// path: a checkpoint is written with one limit, the config is then changed, and
+// the reloaded receiver must use the new value.
+func TestInitializePagination_ChangedLimitSurvivesCheckpointLoad(t *testing.T) {
+	cfg := &Config{
+		URL: "https://api.example.com/alerts",
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName: "after",
+				LimitFieldName:  "limit",
+				Limit:           100,
+			},
+		},
+	}
+
+	// Simulate loadCheckpoint having restored a state persisted when limit was unset.
+	b := &baseReceiver{
+		cfg:             cfg,
+		logger:          zap.NewNop(),
+		paginationState: &paginationState{Limit: 10, CurrentOffsetToken: "cursor-7"},
+	}
+	b.initializePagination()
+
+	require.Equal(t, 100, b.paginationState.Limit)
+	require.Equal(t, "cursor-7", b.paginationState.CurrentOffsetToken,
+		"the stored cursor must be preserved")
+}
