@@ -44,7 +44,7 @@ require (
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/linkedin/goavro/v2 v2.15.0 // indirect
 	github.com/nwaples/rardecode/v2 v2.3.0 // indirect
-	github.com/pierrec/lz4/v4 v4.1.28 // indirect
+	github.com/pierrec/lz4/v4 v4.1.29 // indirect
 	github.com/sorairolake/lzip-go v0.3.8 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/stangelandcl/ppmd v0.1.1 // indirect
