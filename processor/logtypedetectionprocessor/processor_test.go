@@ -195,7 +195,7 @@ func TestUnknownLogType(t *testing.T) {
 	p, err := newLogTypeDetectionProcessor(cfg, tb)
 	require.NoError(t, err)
 
-	out, err := p.processLogs(context.Background(), logsFromBodies(`{"a":1}`, `{"z":1}`, "plain text line"))
+	out, err := p.processLogs(context.Background(), logsFromBodies(`{"a":1,"b":2}`, `{"z":1,"y":2}`, "plain text line"))
 	require.NoError(t, err)
 
 	records := out.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()

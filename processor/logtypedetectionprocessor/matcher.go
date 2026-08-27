@@ -20,8 +20,10 @@ import (
 	"strings"
 )
 
+// MatcherType identifies how a matcher tests a log body.
 type MatcherType string
 
+// Supported matcher methods.
 const (
 	MatcherTypeRegex      MatcherType = "regex"
 	MatcherTypeStartsWith MatcherType = "starts_with"
@@ -41,6 +43,7 @@ type Matcher interface {
 	Name() string
 }
 
+// Validate validates the matcher configuration.
 func (c MatcherConfig) Validate() error {
 	if c.Name == "" {
 		return fmt.Errorf("name is required")
