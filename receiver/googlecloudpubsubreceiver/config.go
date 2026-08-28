@@ -15,6 +15,14 @@ import (
 
 var subscriptionMatcher = regexp.MustCompile(`projects/[a-z][a-z0-9\-]*(:[a-z0-9\-]+)?/subscriptions/`)
 
+// Values for the on_decode_error and on_pipeline_error policies.
+const (
+	onErrorPropagate = "propagate"
+	onErrorIgnore    = "ignore"
+	onErrorAck       = "ack"
+	onErrorNack      = "nack"
+)
+
 type Config struct {
 	// Google Cloud Project ID where the Pubsub client will connect to
 	ProjectID string `mapstructure:"project"`
@@ -38,8 +46,22 @@ type Config struct {
 	// Lock down the compression of the payload, leave empty for attribute based detection
 	Compression string `mapstructure:"compression"`
 
-	// Ignore errors when the configured encoder fails to decoding a PubSub messages
+	// Ignore errors when the configured encoder fails to decoding a PubSub messages.
+	// Deprecated: use OnDecodeError set to "ignore" instead.
 	IgnoreEncodingError bool `mapstructure:"ignore_encoding_error"`
+
+	// OnDecodeError sets how a message that the configured encoding fails to decode is
+	// handled. "propagate" (the default) leaves the message unacknowledged, so it is
+	// redelivered after the ack deadline expires. "ignore" acknowledges and drops the
+	// message. "nack" negatively acknowledges the message (a modify ack deadline of 0),
+	// so the subscription retry policy or dead letter policy applies.
+	OnDecodeError string `mapstructure:"on_decode_error"`
+
+	// OnPipelineError sets how a message that the downstream pipeline rejects is handled.
+	// "ack" (the default) acknowledges and drops the message. "nack" negatively
+	// acknowledges the message, so the subscription retry policy or dead letter policy
+	// applies.
+	OnPipelineError string `mapstructure:"on_pipeline_error"`
 
 	// The client id that will be used by Pubsub to make load balancing decisions
 	ClientID string `mapstructure:"client_id"`
@@ -55,6 +77,11 @@ type FlowControlConfig struct {
 	// The maximum duration the acknowledgement loop waits before sending the acknowledgements.
 	TriggerAckBatchDuration time.Duration `mapstructure:"trigger_ack_batch_duration"`
 
+	// The number of pending acknowledgements (acks and nacks combined) that triggers an
+	// immediate flush, without waiting for trigger_ack_batch_duration. 0 (the default)
+	// disables the size trigger.
+	TriggerAckBatchSize int `mapstructure:"trigger_ack_batch_size"`
+
 	// The ack deadline to use for the Pub/Sub stream.
 	StreamAckDeadline time.Duration `mapstructure:"stream_ack_deadline"`
 	// Pub/Sub flow control settings for the maximum number of outstanding messages.
@@ -66,10 +93,23 @@ type FlowControlConfig struct {
 func (fcc *FlowControlConfig) getInternalConfig() *internal.FlowControlConfig {
 	return &internal.FlowControlConfig{
 		TriggerAckBatchDuration: fcc.TriggerAckBatchDuration,
+		TriggerAckBatchSize:     fcc.TriggerAckBatchSize,
 		StreamAckDeadline:       fcc.StreamAckDeadline,
 		MaxOutstandingMessages:  fcc.MaxOutstandingMessages,
 		MaxOutstandingBytes:     fcc.MaxOutstandingBytes,
 	}
+}
+
+// decodeErrorPolicy resolves the effective on_decode_error policy, mapping the
+// deprecated ignore_encoding_error flag when on_decode_error is unset.
+func (config *Config) decodeErrorPolicy() string {
+	if config.OnDecodeError != "" {
+		return config.OnDecodeError
+	}
+	if config.IgnoreEncodingError {
+		return onErrorIgnore
+	}
+	return onErrorPropagate
 }
 
 func (config *Config) validate() error {
@@ -81,6 +121,22 @@ func (config *Config) validate() error {
 	case "gzip":
 	default:
 		return fmt.Errorf("compression %v is not supported.  supported compression formats include [gzip]", config.Compression)
+	}
+	switch config.OnDecodeError {
+	case "", onErrorPropagate, onErrorIgnore, onErrorNack:
+	default:
+		return fmt.Errorf("on_decode_error %q is not supported. supported values: [propagate, ignore, nack]", config.OnDecodeError)
+	}
+	if config.IgnoreEncodingError && config.OnDecodeError != "" && config.OnDecodeError != onErrorIgnore {
+		return fmt.Errorf("ignore_encoding_error conflicts with on_decode_error %q. remove the deprecated ignore_encoding_error, or set on_decode_error to \"ignore\"", config.OnDecodeError)
+	}
+	switch config.OnPipelineError {
+	case "", onErrorAck, onErrorNack:
+	default:
+		return fmt.Errorf("on_pipeline_error %q is not supported. supported values: [ack, nack]", config.OnPipelineError)
+	}
+	if config.FlowControlConfig.TriggerAckBatchSize < 0 {
+		return fmt.Errorf("trigger_ack_batch_size %d is not supported. use a positive value, or 0 to disable the size trigger", config.FlowControlConfig.TriggerAckBatchSize)
 	}
 	return nil
 }

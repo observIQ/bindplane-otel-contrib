@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -26,6 +28,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
+	"github.com/observiq/bindplane-otel-contrib/receiver/googlecloudpubsubreceiver/internal"
 	"github.com/observiq/bindplane-otel-contrib/receiver/googlecloudpubsubreceiver/internal/metadata"
 )
 
@@ -444,10 +447,75 @@ func TestEncodingWithCompressionConfig(t *testing.T) {
 	}, 30*time.Second, 10*time.Millisecond)
 }
 
-// TestHandleLogEncodingErrorDebugLog verifies that a debug log containing the
-// pubsub message context (message_id, attributes, and error) is emitted when the
-// logs unmarshaler returns an error.
-func TestHandleLogEncodingErrorDebugLog(t *testing.T) {
+func invalidMessage(messageID string) *pb.ReceivedMessage {
+	return &pb.ReceivedMessage{
+		AckId: "ack-" + messageID,
+		Message: &pb.PubsubMessage{
+			MessageId:  messageID,
+			Data:       []byte("this is not valid protobuf"),
+			Attributes: map[string]string{"env": "test"},
+		},
+	}
+}
+
+// TestHandleEncodingErrorWarnLog verifies that a warning containing the pubsub
+// message context (signal, message_id, total count, and error) is emitted when
+// an unmarshaler returns an error, for each signal.
+func TestHandleEncodingErrorWarnLog(t *testing.T) {
+	tests := []struct {
+		signal string
+		handle func(recv *pubsubReceiver, ctx context.Context, msg *pb.ReceivedMessage) error
+	}{
+		{
+			signal: "logs",
+			handle: func(recv *pubsubReceiver, ctx context.Context, msg *pb.ReceivedMessage) error {
+				recv.logsConsumer = consumertest.NewNop()
+				recv.logsUnmarshaler = &plog.ProtoUnmarshaler{}
+				return recv.handleLog(ctx, msg, uncompressed)
+			},
+		},
+		{
+			signal: "traces",
+			handle: func(recv *pubsubReceiver, ctx context.Context, msg *pb.ReceivedMessage) error {
+				recv.tracesConsumer = consumertest.NewNop()
+				recv.tracesUnmarshaler = &ptrace.ProtoUnmarshaler{}
+				return recv.handleTrace(ctx, msg, uncompressed)
+			},
+		},
+		{
+			signal: "metrics",
+			handle: func(recv *pubsubReceiver, ctx context.Context, msg *pb.ReceivedMessage) error {
+				recv.metricsConsumer = consumertest.NewNop()
+				recv.metricsUnmarshaler = &pmetric.ProtoUnmarshaler{}
+				return recv.handleMetric(ctx, msg, uncompressed)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.signal, func(t *testing.T) {
+			srv := pstest.NewServer()
+			defer srv.Close()
+
+			recv, logs := createObservedReceiver(t, srv)
+			msg := invalidMessage("msg-" + tt.signal + "-001")
+
+			// Error should be returned (the default policy is propagate)
+			assert.Error(t, tt.handle(recv, t.Context(), msg))
+
+			warnLogs := logs.FilterLevelExact(zapcore.WarnLevel)
+			require.Equal(t, 1, warnLogs.Len(), "expected exactly one warn log entry on encoding error")
+			entry := warnLogs.All()[0]
+			assert.Equal(t, "failed to decode pubsub message", entry.Message)
+			assert.Equal(t, tt.signal, entry.ContextMap()["signal"])
+			assert.Equal(t, "msg-"+tt.signal+"-001", entry.ContextMap()["message_id"])
+			assert.Equal(t, int64(1), entry.ContextMap()["total_failed"])
+		})
+	}
+}
+
+// TestHandleEncodingErrorWarnRateLimited verifies that a burst of decode
+// failures emits a single warning, and that the failures keep being counted.
+func TestHandleEncodingErrorWarnRateLimited(t *testing.T) {
 	ctx := t.Context()
 	srv := pstest.NewServer()
 	defer srv.Close()
@@ -456,88 +524,18 @@ func TestHandleLogEncodingErrorDebugLog(t *testing.T) {
 	recv.logsConsumer = consumertest.NewNop()
 	recv.logsUnmarshaler = &plog.ProtoUnmarshaler{}
 
-	msg := &pb.ReceivedMessage{
-		AckId: "ack-1",
-		Message: &pb.PubsubMessage{
-			MessageId:  "msg-logs-001",
-			Data:       []byte("this is not valid protobuf"),
-			Attributes: map[string]string{"env": "test"},
-		},
+	for i := range 10 {
+		assert.Error(t, recv.handleLog(ctx, invalidMessage(fmt.Sprintf("msg-%d", i)), uncompressed))
 	}
 
-	err := recv.handleLog(ctx, msg, uncompressed)
-	// Error should be returned (IgnoreEncodingError is false by default)
-	assert.Error(t, err)
-
-	// Exactly one debug log should have been emitted
-	debugLogs := logs.FilterLevelExact(zapcore.DebugLevel)
-	require.Equal(t, 1, debugLogs.Len(), "expected exactly one debug log entry on encoding error")
-
-	entry := debugLogs.All()[0]
-	assert.Equal(t, "failed to decode pubsub message for logs", entry.Message)
-	assert.Equal(t, "msg-logs-001", entry.ContextMap()["message_id"])
-}
-
-// TestHandleTraceEncodingErrorDebugLog verifies debug logging for traces.
-func TestHandleTraceEncodingErrorDebugLog(t *testing.T) {
-	ctx := t.Context()
-	srv := pstest.NewServer()
-	defer srv.Close()
-
-	recv, logs := createObservedReceiver(t, srv)
-	recv.tracesConsumer = consumertest.NewNop()
-	recv.tracesUnmarshaler = &ptrace.ProtoUnmarshaler{}
-
-	msg := &pb.ReceivedMessage{
-		AckId: "ack-2",
-		Message: &pb.PubsubMessage{
-			MessageId:  "msg-traces-001",
-			Data:       []byte("not valid protobuf"),
-			Attributes: map[string]string{"env": "test"},
-		},
-	}
-
-	err := recv.handleTrace(ctx, msg, uncompressed)
-	assert.Error(t, err)
-
-	debugLogs := logs.FilterLevelExact(zapcore.DebugLevel)
-	require.Equal(t, 1, debugLogs.Len())
-	entry := debugLogs.All()[0]
-	assert.Equal(t, "failed to decode pubsub message for traces", entry.Message)
-	assert.Equal(t, "msg-traces-001", entry.ContextMap()["message_id"])
-}
-
-// TestHandleMetricEncodingErrorDebugLog verifies debug logging for metrics.
-func TestHandleMetricEncodingErrorDebugLog(t *testing.T) {
-	ctx := t.Context()
-	srv := pstest.NewServer()
-	defer srv.Close()
-
-	recv, logs := createObservedReceiver(t, srv)
-	recv.metricsConsumer = consumertest.NewNop()
-	recv.metricsUnmarshaler = &pmetric.ProtoUnmarshaler{}
-
-	msg := &pb.ReceivedMessage{
-		AckId: "ack-3",
-		Message: &pb.PubsubMessage{
-			MessageId:  "msg-metrics-001",
-			Data:       []byte("not valid protobuf"),
-			Attributes: map[string]string{"env": "test"},
-		},
-	}
-
-	err := recv.handleMetric(ctx, msg, uncompressed)
-	assert.Error(t, err)
-
-	debugLogs := logs.FilterLevelExact(zapcore.DebugLevel)
-	require.Equal(t, 1, debugLogs.Len())
-	entry := debugLogs.All()[0]
-	assert.Equal(t, "failed to decode pubsub message for metrics", entry.Message)
-	assert.Equal(t, "msg-metrics-001", entry.ContextMap()["message_id"])
+	warnLogs := logs.FilterLevelExact(zapcore.WarnLevel)
+	require.Equal(t, 1, warnLogs.Len(), "expected the decode warning to be rate limited to one entry")
+	assert.Equal(t, "msg-0", warnLogs.All()[0].ContextMap()["message_id"])
+	assert.Equal(t, int64(10), recv.decodeFailures.Load())
 }
 
 // TestHandleLogEncodingErrorIgnored verifies that when IgnoreEncodingError is
-// true, the error is silently dropped AND the debug log is still emitted.
+// true, the error is silently dropped AND the warning is still emitted.
 func TestHandleLogEncodingErrorIgnored(t *testing.T) {
 	ctx := t.Context()
 	srv := pstest.NewServer()
@@ -548,23 +546,107 @@ func TestHandleLogEncodingErrorIgnored(t *testing.T) {
 	recv.logsUnmarshaler = &plog.ProtoUnmarshaler{}
 	recv.config.IgnoreEncodingError = true
 
-	msg := &pb.ReceivedMessage{
-		AckId: "ack-4",
-		Message: &pb.PubsubMessage{
-			MessageId:  "msg-ignored-001",
-			Data:       []byte("not valid protobuf"),
-			Attributes: map[string]string{"env": "test"},
-		},
-	}
-
 	// No error returned when IgnoreEncodingError is true
-	err := recv.handleLog(ctx, msg, uncompressed)
-	assert.NoError(t, err)
+	assert.NoError(t, recv.handleLog(ctx, invalidMessage("msg-ignored-001"), uncompressed))
 
-	// But the debug log should still have been emitted
-	debugLogs := logs.FilterLevelExact(zapcore.DebugLevel)
-	require.Equal(t, 1, debugLogs.Len(), "expected debug log even when error is ignored")
-	entry := debugLogs.All()[0]
-	assert.Equal(t, "failed to decode pubsub message for logs", entry.Message)
+	// But the warning should still have been emitted
+	warnLogs := logs.FilterLevelExact(zapcore.WarnLevel)
+	require.Equal(t, 1, warnLogs.Len(), "expected warn log even when error is ignored")
+	entry := warnLogs.All()[0]
+	assert.Equal(t, "failed to decode pubsub message", entry.Message)
 	assert.Equal(t, "msg-ignored-001", entry.ContextMap()["message_id"])
+}
+
+// TestDecodeErrorPolicies verifies the on_decode_error policies, including the
+// backwards compatible mapping of ignore_encoding_error.
+func TestDecodeErrorPolicies(t *testing.T) {
+	tests := []struct {
+		name                string
+		onDecodeError       string
+		ignoreEncodingError bool
+		wantErr             error
+	}{
+		{name: "default propagates", wantErr: assert.AnError},
+		{name: "propagate", onDecodeError: "propagate", wantErr: assert.AnError},
+		{name: "ignore", onDecodeError: "ignore", wantErr: nil},
+		{name: "nack", onDecodeError: "nack", wantErr: internal.ErrNack},
+		{name: "legacy ignore_encoding_error maps to ignore", ignoreEncodingError: true, wantErr: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := pstest.NewServer()
+			defer srv.Close()
+
+			recv, _ := createObservedReceiver(t, srv)
+			recv.logsConsumer = consumertest.NewNop()
+			recv.logsUnmarshaler = &plog.ProtoUnmarshaler{}
+			recv.config.OnDecodeError = tt.onDecodeError
+			recv.config.IgnoreEncodingError = tt.ignoreEncodingError
+
+			err := recv.handleLog(t.Context(), invalidMessage("msg-policy-001"), uncompressed)
+			switch {
+			case tt.wantErr == nil:
+				assert.NoError(t, err)
+			case errors.Is(tt.wantErr, internal.ErrNack):
+				assert.ErrorIs(t, err, internal.ErrNack)
+			default:
+				assert.Error(t, err)
+				assert.NotErrorIs(t, err, internal.ErrNack)
+			}
+		})
+	}
+}
+
+// TestPipelineErrorPolicies verifies the on_pipeline_error policies.
+func TestPipelineErrorPolicies(t *testing.T) {
+	tests := []struct {
+		name            string
+		onPipelineError string
+		consumerErr     error
+		wantNack        bool
+		wantErr         bool
+	}{
+		{name: "default acks on pipeline error", consumerErr: assert.AnError},
+		{name: "ack acks on pipeline error", onPipelineError: "ack", consumerErr: assert.AnError},
+		{name: "nack nacks on pipeline error", onPipelineError: "nack", consumerErr: assert.AnError, wantNack: true},
+		{name: "nack never nacks on context cancellation", onPipelineError: "nack", consumerErr: context.Canceled, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := pstest.NewServer()
+			defer srv.Close()
+
+			recv, _ := createObservedReceiver(t, srv)
+			recv.logsConsumer = consumertest.NewErr(tt.consumerErr)
+			recv.logsUnmarshaler = &plog.ProtoUnmarshaler{}
+			recv.config.OnPipelineError = tt.onPipelineError
+
+			obsrecv, err := receiverhelper.NewObsReport(receiverhelper.ObsReportSettings{
+				ReceiverID:             component.NewID(metadata.Type),
+				Transport:              reportTransport,
+				LongLivedCtx:           false,
+				ReceiverCreateSettings: recv.settings,
+			})
+			require.NoError(t, err)
+			recv.obsrecv = obsrecv
+
+			msg := &pb.ReceivedMessage{
+				AckId: "ack-pipeline",
+				Message: &pb.PubsubMessage{
+					MessageId: "msg-pipeline-001",
+					Data:      createLogExport(),
+				},
+			}
+			err = recv.handleLog(t.Context(), msg, uncompressed)
+			switch {
+			case tt.wantNack:
+				assert.ErrorIs(t, err, internal.ErrNack)
+			case tt.wantErr:
+				assert.Error(t, err)
+				assert.NotErrorIs(t, err, internal.ErrNack)
+			default:
+				assert.NoError(t, err)
+			}
+		})
+	}
 }

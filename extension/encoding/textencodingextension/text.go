@@ -6,6 +6,7 @@ package textencodingextension // import "github.com/observiq/bindplane-otel-cont
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"io"
 	"regexp"
 	"time"
@@ -14,8 +15,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 	txt "golang.org/x/text/encoding"
 
-	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/encoding"
 	"github.com/observiq/bindplane-otel-contrib/extension/encoding/textencodingextension/internal/textutils"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/encoding"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/xstreamencoding"
 )
 
@@ -33,6 +34,11 @@ func (r *textLogCodec) UnmarshalLogs(buf []byte) (plog.Logs, error) {
 	}
 
 	logs, err := decoder.DecodeLogs()
+	if errors.Is(err, io.EOF) {
+		// The streaming decoder signals an exhausted stream with io.EOF, which for a
+		// one-shot unmarshal simply means the payload contained no records.
+		return plog.NewLogs(), nil
+	}
 	if err != nil {
 		return plog.Logs{}, err
 	}

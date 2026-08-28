@@ -11,8 +11,8 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/plog"
 
-	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/encoding"
 	"github.com/observiq/bindplane-otel-contrib/extension/encoding/textencodingextension/internal/textutils"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/encoding"
 )
 
 var (
