@@ -84,7 +84,10 @@ func (s *networkStatScraper) scrape(ctx context.Context) (pmetric.Metrics, error
 			continue
 		}
 
-		s.rb.SetTargetEndpoint(ts.cfg.Endpoint)
+		// Redacted unconditionally: the resource attribute is attached to every
+		// data point, and a target may be configured as https://user:pass@host.
+		// The error strings above redact for the same reason.
+		s.rb.SetTargetEndpoint(redactEndpoint(ts.cfg.Endpoint))
 		s.recordMetrics(now, ts, res.ping)
 
 		if res.traceErr != nil {

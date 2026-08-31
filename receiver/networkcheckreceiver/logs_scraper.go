@@ -76,7 +76,13 @@ func (s *networkStatLogsScraper) scrape(ctx context.Context) (plog.Logs, error) 
 			continue
 		}
 
-		s.rb.SetTargetEndpoint(ts.cfg.Endpoint)
+		// The record builders redact the endpoint they embed; the resource
+		// attribute has to match, or the credential simply moves one level up.
+		endpoint := ts.cfg.Endpoint
+		if s.cfg.Logs.RedactURLUserinfo {
+			endpoint = redactEndpoint(endpoint)
+		}
+		s.rb.SetTargetEndpoint(endpoint)
 
 		if res.ping.Method == MethodHTTP {
 			rec := plog.NewLogRecord()

@@ -336,12 +336,12 @@ func newHTTPPinger(target TargetConfig, dnsServer string) (*httpPinger, error) {
 
 func (p *httpPinger) ping(ctx context.Context) (PingResult, error) {
 	var (
-		dnsStart, dnsDone    time.Time
-		connectDone          time.Time
-		tlsStart, tlsDone    time.Time
-		wroteRequest         time.Time
-		gotFirstResponseByte time.Time
-		requestStart         time.Time
+		dnsStart, dnsDone         time.Time
+		connectStart, connectDone time.Time
+		tlsStart, tlsDone         time.Time
+		wroteRequest              time.Time
+		gotFirstResponseByte      time.Time
+		requestStart              time.Time
 	)
 
 	var (
@@ -363,6 +363,7 @@ func (p *httpPinger) ping(ctx context.Context) (PingResult, error) {
 				resolvedIP = info.Addrs[0].IP.String()
 			}
 		},
+		ConnectStart: func(_, _ string) { connectStart = time.Now() },
 		ConnectDone: func(_, addr string, err error) {
 			connectDone = time.Now()
 			connectErr = err
@@ -418,8 +419,8 @@ func (p *httpPinger) ping(ctx context.Context) (PingResult, error) {
 			ErrMessage:    err.Error(),
 			ErrPhase: failurePhase(phaseTimings{
 				dnsStart: dnsStart, dnsDone: dnsDone,
-				connectDone: connectDone,
-				tlsStart:    tlsStart, tlsDone: tlsDone,
+				connectStart: connectStart, connectDone: connectDone,
+				tlsStart: tlsStart, tlsDone: tlsDone,
 				wroteRequest: wroteRequest, gotFirstByte: gotFirstResponseByte,
 				dnsErr: dnsErr, connectErr: connectErr, tlsErr: tlsErr, writeErr: writeErr,
 			}),
@@ -471,7 +472,7 @@ func (p *httpPinger) ping(ctx context.Context) (PingResult, error) {
 // phaseTimings carries what the trace hooks observed about one request.
 type phaseTimings struct {
 	dnsStart, dnsDone                    time.Time
-	connectDone                          time.Time
+	connectStart, connectDone            time.Time
 	tlsStart, tlsDone                    time.Time
 	wroteRequest, gotFirstByte           time.Time
 	dnsErr, connectErr, tlsErr, writeErr error
@@ -499,6 +500,10 @@ func failurePhase(t phaseTimings) string {
 	// and never finished.
 	case !t.dnsStart.IsZero() && t.dnsDone.IsZero():
 		return "dns"
+	case !t.connectStart.IsZero() && t.connectDone.IsZero():
+		// Covers an IP-literal endpoint, where no DNS lookup runs and the dial
+		// is the first thing to happen.
+		return "connect"
 	case !t.dnsDone.IsZero() && t.connectDone.IsZero():
 		return "connect"
 	case !t.tlsStart.IsZero() && t.tlsDone.IsZero():

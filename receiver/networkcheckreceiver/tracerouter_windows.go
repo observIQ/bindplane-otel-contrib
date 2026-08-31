@@ -147,6 +147,13 @@ func (t *tracerouter) traceNative(ctx context.Context, dest string) (hops []HopR
 			}
 		}
 
+		// A cancelled retry loop leaves n at 0 without the hop having been
+		// given its full chance, so stop rather than recording a silent hop
+		// that was never really probed.
+		if ctx.Err() != nil {
+			break
+		}
+
 		// A zero reply count means no usable answer. The common case is the
 		// hop staying silent, which surfaces as IP_REQ_TIMED_OUT.
 		if n == 0 {
