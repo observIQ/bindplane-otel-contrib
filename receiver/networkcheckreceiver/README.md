@@ -98,7 +98,35 @@ receivers:
       # Failure-based: run a traceroute when ICMP packet loss >= failure_threshold.
       on_failure: false
       failure_threshold: 0.5       # 0.0–1.0. Default 0.5 (50% packet loss).
+
+      # Maximum probes for a single hop. Probing stops at the first reply, so a
+      # hop that answers costs one probe and only a silent hop is retried.
+      probes_per_hop: 3
+
+      # Abandon the trace after this many unanswered hops in a row.
+      # 0 disables the early abort, leaving max_hops as the only bound.
+      max_consecutive_timeouts: 5
 ```
+
+### Probes per hop
+
+Routers rate-limit ICMP time-exceeded generation, so a single probe regularly goes
+unanswered on a hop that is answering perfectly well. With one probe per hop, that
+reads as a missing hop — and a run of them can trip `max_consecutive_timeouts` and
+truncate the trace before it reaches the destination.
+
+Every standard traceroute implementation sends three probes per hop for this reason.
+This receiver sends up to `probes_per_hop` but **stops at the first reply**, so a
+healthy path costs exactly one probe per hop, the same as before, and only silent hops
+pay for retries. That matters when tracing on a schedule: sending three probes to every
+hop on every cycle would worsen the rate limiting causing the gaps.
+
+Each hop in a traceroute log record carries `probes`, and the record carries
+`traceroute.hops_retried`. A hop with `probes > 1` answered only after a retry, which
+distinguishes a router that is rate-limiting from one that is genuinely silent.
+
+Note the trace still records a hop as answered from its first reply, so the reported
+latency is that probe's RTT rather than a best-of-N.
 
 ## Logs
 

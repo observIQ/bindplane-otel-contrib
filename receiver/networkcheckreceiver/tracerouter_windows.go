@@ -109,31 +109,50 @@ func (t *tracerouter) traceNative(ctx context.Context, dest string) (hops []HopR
 			break
 		}
 
-		opts := ipOptionInformation{TTL: uint8(ttl)}
-		sent := time.Now()
-		n, _, sendErr := procIcmpSendEcho.Call(
-			handle,
-			uintptr(destAddr),
-			uintptr(unsafe.Pointer(&payload[0])),
-			uintptr(len(payload)),
-			uintptr(unsafe.Pointer(&opts)),
-			uintptr(unsafe.Pointer(&replyBuf[0])),
-			uintptr(len(replyBuf)),
-			uintptr(hopTimeout.Milliseconds()),
+		// Probe until this hop answers or the attempts are exhausted. Only a
+		// silent hop is retried, so a healthy path costs one probe per hop.
+		var (
+			n       uintptr
+			sendErr error
+			elapsed time.Duration
+			probes  int
 		)
-		elapsed := time.Since(sent)
+		for attempt := 0; attempt < t.probesPerHop(); attempt++ {
+			if ctx.Err() != nil {
+				break
+			}
+			probes++
+
+			opts := ipOptionInformation{TTL: uint8(ttl)}
+			sent := time.Now()
+			n, _, sendErr = procIcmpSendEcho.Call(
+				handle,
+				uintptr(destAddr),
+				uintptr(unsafe.Pointer(&payload[0])),
+				uintptr(len(payload)),
+				uintptr(unsafe.Pointer(&opts)),
+				uintptr(unsafe.Pointer(&replyBuf[0])),
+				uintptr(len(replyBuf)),
+				uintptr(hopTimeout.Milliseconds()),
+			)
+			elapsed = time.Since(sent)
+
+			if n != 0 {
+				break
+			}
+			if errno, ok := sendErr.(windows.Errno); ok && uint32(errno) != ipReqTimedOut && uint32(errno) != 0 {
+				// Anything other than a timeout is a real failure worth
+				// surfacing rather than retried or recorded as a silent hop.
+				return hops, true, fmt.Errorf("IcmpSendEcho (ttl %d): %w", ttl, sendErr)
+			}
+		}
 
 		// A zero reply count means no usable answer. The common case is the
 		// hop staying silent, which surfaces as IP_REQ_TIMED_OUT.
 		if n == 0 {
-			if errno, ok := sendErr.(windows.Errno); ok && uint32(errno) != ipReqTimedOut && uint32(errno) != 0 {
-				// Anything other than a timeout is a real failure worth
-				// surfacing rather than recording as a silent hop.
-				return hops, true, fmt.Errorf("IcmpSendEcho (ttl %d): %w", ttl, sendErr)
-			}
-			hops = append(hops, HopResult{Index: ttl, Address: unansweredHopAddress, TimedOut: true})
+			hops = append(hops, HopResult{Index: ttl, Address: unansweredHopAddress, TimedOut: true, Probes: probes})
 			consecutiveTimeouts++
-			if consecutiveTimeouts >= maxConsecutiveTimeouts {
+			if abort := t.abortAfter(); abort > 0 && consecutiveTimeouts >= abort {
 				break
 			}
 			continue
@@ -143,7 +162,7 @@ func (t *tracerouter) traceNative(ctx context.Context, dest string) (hops []HopR
 		if reply.Status != ipSuccess && reply.Status != ipTTLExpiredTransit {
 			// Unreachable and similar errors identify a real router, but the
 			// path cannot continue past it.
-			hops = append(hops, HopResult{Index: ttl, Address: unansweredHopAddress, TimedOut: true})
+			hops = append(hops, HopResult{Index: ttl, Address: unansweredHopAddress, TimedOut: true, Probes: probes})
 			break
 		}
 		consecutiveTimeouts = 0
@@ -162,6 +181,7 @@ func (t *tracerouter) traceNative(ctx context.Context, dest string) (hops []HopR
 			Index:   ttl,
 			Address: net.IPv4(octets[0], octets[1], octets[2], octets[3]).String(),
 			RTT:     rtt,
+			Probes:  probes,
 		})
 
 		if reply.Status == ipSuccess {
