@@ -16,6 +16,7 @@ package networkcheckreceiver
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -333,4 +334,29 @@ func TestFailurePhase(t *testing.T) {
 			require.Equal(t, tc.want, failurePhase(tc.in))
 		})
 	}
+}
+
+// The record builders redacted the endpoint they embed, but the resource
+// attribute carried the raw one — which put the credential straight back into
+// every emitted record, one level up.
+func TestResourceEndpointIsRedacted(t *testing.T) {
+	raw := "https://admin:hunter2@example.com/health"
+	require.NotContains(t, redactEndpoint(raw), "hunter2")
+
+	// Guard the scraper call sites too, so the resource attribute cannot drift
+	// back to the raw value.
+	for _, src := range []string{"scraper.go", "logs_scraper.go"} {
+		b, err := os.ReadFile(src)
+		require.NoError(t, err)
+		require.NotContains(t, string(b), "SetTargetEndpoint(ts.cfg.Endpoint)",
+			"%s must not pass an unredacted endpoint to the resource builder", src)
+	}
+}
+
+func TestFailurePhase_IPLiteralDialFailure(t *testing.T) {
+	now := time.Now()
+	// An IP-literal target runs no DNS lookup, so dnsDone stays zero. Before
+	// ConnectStart was tracked, a dial that hung was reported as "setup".
+	got := failurePhase(phaseTimings{connectStart: now})
+	require.Equal(t, "connect", got)
 }
