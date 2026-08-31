@@ -96,6 +96,11 @@ func TestMetricsBuilderConfig(t *testing.T) {
 						AggregationStrategy: AggregationStrategyAvg,
 						EnabledAttributes:   []NetworkTracerouteHopLatencyMetricAttributeKey{NetworkTracerouteHopLatencyMetricAttributeKeyTracerouteHopIndex, NetworkTracerouteHopLatencyMetricAttributeKeyTracerouteHopAddress, NetworkTracerouteHopLatencyMetricAttributeKeyDNSServer},
 					},
+					NetworkTracerouteHopStatus: NetworkTracerouteHopStatusMetricConfig{
+						Enabled:             true,
+						AggregationStrategy: AggregationStrategyAvg,
+						EnabledAttributes:   []NetworkTracerouteHopStatusMetricAttributeKey{NetworkTracerouteHopStatusMetricAttributeKeyTracerouteHopIndex, NetworkTracerouteHopStatusMetricAttributeKeyTracerouteHopAddress, NetworkTracerouteHopStatusMetricAttributeKeyDNSServer},
+					},
 				},
 				ResourceAttributes: ResourceAttributesConfig{
 					TargetEndpoint: ResourceAttributeConfig{Enabled: true},
@@ -176,6 +181,11 @@ func TestMetricsBuilderConfig(t *testing.T) {
 						AggregationStrategy: AggregationStrategyAvg,
 						EnabledAttributes:   []NetworkTracerouteHopLatencyMetricAttributeKey{NetworkTracerouteHopLatencyMetricAttributeKeyTracerouteHopIndex, NetworkTracerouteHopLatencyMetricAttributeKeyTracerouteHopAddress, NetworkTracerouteHopLatencyMetricAttributeKeyDNSServer},
 					},
+					NetworkTracerouteHopStatus: NetworkTracerouteHopStatusMetricConfig{
+						Enabled:             false,
+						AggregationStrategy: AggregationStrategyAvg,
+						EnabledAttributes:   []NetworkTracerouteHopStatusMetricAttributeKey{NetworkTracerouteHopStatusMetricAttributeKeyTracerouteHopIndex, NetworkTracerouteHopStatusMetricAttributeKeyTracerouteHopAddress, NetworkTracerouteHopStatusMetricAttributeKeyDNSServer},
+					},
 				},
 				ResourceAttributes: ResourceAttributesConfig{
 					TargetEndpoint: ResourceAttributeConfig{Enabled: false},
@@ -186,7 +196,7 @@ func TestMetricsBuilderConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := loadMetricsBuilderConfig(t, tt.name)
-			diff := cmp.Diff(tt.want, cfg, cmpopts.IgnoreUnexported(NetworkDNSLookupDurationMetricConfig{}, NetworkDNSStatusMetricConfig{}, NetworkHTTPClientConnectionDurationMetricConfig{}, NetworkHTTPDNSLookupDurationMetricConfig{}, NetworkHTTPDurationMetricConfig{}, NetworkHTTPRequestDurationMetricConfig{}, NetworkHTTPResponseDurationMetricConfig{}, NetworkHTTPStatusMetricConfig{}, NetworkHTTPTLSHandshakeDurationMetricConfig{}, NetworkPingLatencyAvgMetricConfig{}, NetworkPingLatencyMaxMetricConfig{}, NetworkPingLatencyMinMetricConfig{}, NetworkPingPacketLossMetricConfig{}, NetworkTracerouteHopLatencyMetricConfig{}, ResourceAttributeConfig{}))
+			diff := cmp.Diff(tt.want, cfg, cmpopts.IgnoreUnexported(NetworkDNSLookupDurationMetricConfig{}, NetworkDNSStatusMetricConfig{}, NetworkHTTPClientConnectionDurationMetricConfig{}, NetworkHTTPDNSLookupDurationMetricConfig{}, NetworkHTTPDurationMetricConfig{}, NetworkHTTPRequestDurationMetricConfig{}, NetworkHTTPResponseDurationMetricConfig{}, NetworkHTTPStatusMetricConfig{}, NetworkHTTPTLSHandshakeDurationMetricConfig{}, NetworkPingLatencyAvgMetricConfig{}, NetworkPingLatencyMaxMetricConfig{}, NetworkPingLatencyMinMetricConfig{}, NetworkPingPacketLossMetricConfig{}, NetworkTracerouteHopLatencyMetricConfig{}, NetworkTracerouteHopStatusMetricConfig{}, ResourceAttributeConfig{}))
 			require.Emptyf(t, diff, "Config mismatch (-expected +actual):\n%s", diff)
 		})
 	}
@@ -355,6 +365,18 @@ func TestNetworkTracerouteHopLatencyMetricsConfig_Validate(t *testing.T) {
 	require.ErrorContains(t, cfg.Validate(), "metric network.traceroute.hop.latency doesn't have an attribute invalid, valid attributes: [traceroute.hop.index, traceroute.hop.address, dns.server]")
 
 	cfg = DefaultMetricsConfig().NetworkTracerouteHopLatency
+	cfg.AggregationStrategy = "invalid"
+	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
+}
+
+func TestNetworkTracerouteHopStatusMetricsConfig_Validate(t *testing.T) {
+	cfg := DefaultMetricsConfig().NetworkTracerouteHopStatus
+	require.NoError(t, cfg.Validate())
+
+	cfg.EnabledAttributes = []NetworkTracerouteHopStatusMetricAttributeKey{"invalid"}
+	require.ErrorContains(t, cfg.Validate(), "metric network.traceroute.hop.status doesn't have an attribute invalid, valid attributes: [traceroute.hop.index, traceroute.hop.address, dns.server]")
+
+	cfg = DefaultMetricsConfig().NetworkTracerouteHopStatus
 	cfg.AggregationStrategy = "invalid"
 	require.ErrorContains(t, cfg.Validate(), "invalid aggregation strategy")
 }

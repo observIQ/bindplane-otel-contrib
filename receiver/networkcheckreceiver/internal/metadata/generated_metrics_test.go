@@ -81,6 +81,7 @@ func TestMetricsBuilder(t *testing.T) {
 			aggMap["network.ping.latency_min"] = mb.metricNetworkPingLatencyMin.config.AggregationStrategy
 			aggMap["network.ping.packet_loss"] = mb.metricNetworkPingPacketLoss.config.AggregationStrategy
 			aggMap["network.traceroute.hop.latency"] = mb.metricNetworkTracerouteHopLatency.config.AggregationStrategy
+			aggMap["network.traceroute.hop.status"] = mb.metricNetworkTracerouteHopStatus.config.AggregationStrategy
 
 			expectedWarnings := 0
 			if tt.metricsSet != testDataSetReag {
@@ -173,6 +174,12 @@ func TestMetricsBuilder(t *testing.T) {
 			if tt.name == "reaggregate_set" {
 				mb.RecordNetworkTracerouteHopLatencyDataPoint(ts, 3, 21, "traceroute.hop.address-val-2", "dns.server-val-2")
 			}
+			defaultMetricsCount++
+			allMetricsCount++
+			mb.RecordNetworkTracerouteHopStatusDataPoint(ts, 1, 20, "traceroute.hop.address-val", "dns.server-val")
+			if tt.name == "reaggregate_set" {
+				mb.RecordNetworkTracerouteHopStatusDataPoint(ts, 3, 21, "traceroute.hop.address-val-2", "dns.server-val-2")
+			}
 
 			rb := mb.NewResourceBuilder()
 			rb.SetTargetEndpoint("target.endpoint-val")
@@ -193,6 +200,7 @@ func TestMetricsBuilder(t *testing.T) {
 				assert.Empty(t, mb.metricNetworkPingLatencyMin.aggDataPoints)
 				assert.Empty(t, mb.metricNetworkPingPacketLoss.aggDataPoints)
 				assert.Empty(t, mb.metricNetworkTracerouteHopLatency.aggDataPoints)
+				assert.Empty(t, mb.metricNetworkTracerouteHopStatus.aggDataPoints)
 			}
 
 			if tt.expectEmpty {
@@ -812,6 +820,56 @@ func TestMetricsBuilder(t *testing.T) {
 							assert.InDelta(t, float64(1), dp.DoubleValue(), 0.01)
 						case "max":
 							assert.InDelta(t, float64(3), dp.DoubleValue(), 0.01)
+						}
+						_, ok := dp.Attributes().Get("traceroute.hop.index")
+						assert.False(t, ok)
+						_, ok = dp.Attributes().Get("traceroute.hop.address")
+						assert.False(t, ok)
+						_, ok = dp.Attributes().Get("dns.server")
+						assert.False(t, ok)
+					}
+				case "network.traceroute.hop.status":
+					if tt.name != "reaggregate_set" {
+						assert.False(t, validatedMetrics["network.traceroute.hop.status"], "Found a duplicate in the metrics slice: network.traceroute.hop.status")
+						validatedMetrics["network.traceroute.hop.status"] = true
+						assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+						assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+						assert.Equal(t, "1 if the traceroute hop answered within the timeout, 0 if it did not.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						dp := mi.Gauge().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						assert.Equal(t, int64(1), dp.IntValue())
+						tracerouteHopIndexAttrVal, ok := dp.Attributes().Get("traceroute.hop.index")
+						assert.True(t, ok)
+						assert.EqualValues(t, 20, tracerouteHopIndexAttrVal.Int())
+						tracerouteHopAddressAttrVal, ok := dp.Attributes().Get("traceroute.hop.address")
+						assert.True(t, ok)
+						assert.Equal(t, "traceroute.hop.address-val", tracerouteHopAddressAttrVal.Str())
+						dnsServerAttrVal, ok := dp.Attributes().Get("dns.server")
+						assert.True(t, ok)
+						assert.Equal(t, "dns.server-val", dnsServerAttrVal.Str())
+					} else {
+						assert.False(t, validatedMetrics["network.traceroute.hop.status"], "Found a duplicate in the metrics slice: network.traceroute.hop.status")
+						validatedMetrics["network.traceroute.hop.status"] = true
+						assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
+						assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
+						assert.Equal(t, "1 if the traceroute hop answered within the timeout, 0 if it did not.", mi.Description())
+						assert.Equal(t, "1", mi.Unit())
+						dp := mi.Gauge().DataPoints().At(0)
+						assert.Equal(t, start, dp.StartTimestamp())
+						assert.Equal(t, ts, dp.Timestamp())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						switch aggMap["network.traceroute.hop.status"] {
+						case "sum":
+							assert.Equal(t, int64(4), dp.IntValue())
+						case "avg":
+							assert.Equal(t, int64(2), dp.IntValue())
+						case "min":
+							assert.Equal(t, int64(1), dp.IntValue())
+						case "max":
+							assert.Equal(t, int64(3), dp.IntValue())
 						}
 						_, ok := dp.Attributes().Get("traceroute.hop.index")
 						assert.False(t, ok)

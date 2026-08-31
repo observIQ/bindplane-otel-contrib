@@ -689,6 +689,56 @@ func (ms *NetworkTracerouteHopLatencyMetricConfig) Validate() error {
 	return nil
 }
 
+// NetworkTracerouteHopStatusMetricAttributeKey specifies the key of an attribute for the network.traceroute.hop.status metric.
+type NetworkTracerouteHopStatusMetricAttributeKey string
+
+const (
+	NetworkTracerouteHopStatusMetricAttributeKeyTracerouteHopIndex   NetworkTracerouteHopStatusMetricAttributeKey = "traceroute.hop.index"
+	NetworkTracerouteHopStatusMetricAttributeKeyTracerouteHopAddress NetworkTracerouteHopStatusMetricAttributeKey = "traceroute.hop.address"
+	NetworkTracerouteHopStatusMetricAttributeKeyDNSServer            NetworkTracerouteHopStatusMetricAttributeKey = "dns.server"
+)
+
+// NetworkTracerouteHopStatusMetricConfig provides config for the network.traceroute.hop.status metric.
+type NetworkTracerouteHopStatusMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+
+	AggregationStrategy string                                         `mapstructure:"aggregation_strategy"`
+	EnabledAttributes   []NetworkTracerouteHopStatusMetricAttributeKey `mapstructure:"attributes"`
+}
+
+func (ms *NetworkTracerouteHopStatusMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
+func (ms *NetworkTracerouteHopStatusMetricConfig) Validate() error {
+	for _, val := range ms.EnabledAttributes {
+		switch val {
+		case NetworkTracerouteHopStatusMetricAttributeKeyTracerouteHopIndex, NetworkTracerouteHopStatusMetricAttributeKeyTracerouteHopAddress, NetworkTracerouteHopStatusMetricAttributeKeyDNSServer:
+		default:
+			return fmt.Errorf("metric network.traceroute.hop.status doesn't have an attribute %v, valid attributes: [traceroute.hop.index, traceroute.hop.address, dns.server]", val)
+		}
+	}
+
+	switch ms.AggregationStrategy {
+	case AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax:
+	default:
+		return fmt.Errorf("invalid aggregation strategy %q, valid strategies: [%s, %s, %s, %s]", ms.AggregationStrategy, AggregationStrategySum, AggregationStrategyAvg, AggregationStrategyMin, AggregationStrategyMax)
+	}
+
+	return nil
+}
+
 // MetricsConfig provides config for networkcheck metrics.
 type MetricsConfig struct {
 	NetworkDNSLookupDuration            NetworkDNSLookupDurationMetricConfig            `mapstructure:"network.dns.lookup_duration"`
@@ -705,6 +755,7 @@ type MetricsConfig struct {
 	NetworkPingLatencyMin               NetworkPingLatencyMinMetricConfig               `mapstructure:"network.ping.latency_min"`
 	NetworkPingPacketLoss               NetworkPingPacketLossMetricConfig               `mapstructure:"network.ping.packet_loss"`
 	NetworkTracerouteHopLatency         NetworkTracerouteHopLatencyMetricConfig         `mapstructure:"network.traceroute.hop.latency"`
+	NetworkTracerouteHopStatus          NetworkTracerouteHopStatusMetricConfig          `mapstructure:"network.traceroute.hop.status"`
 }
 
 func DefaultMetricsConfig() MetricsConfig {
@@ -778,6 +829,11 @@ func DefaultMetricsConfig() MetricsConfig {
 			Enabled:             true,
 			AggregationStrategy: AggregationStrategyAvg,
 			EnabledAttributes:   []NetworkTracerouteHopLatencyMetricAttributeKey{NetworkTracerouteHopLatencyMetricAttributeKeyTracerouteHopIndex, NetworkTracerouteHopLatencyMetricAttributeKeyTracerouteHopAddress, NetworkTracerouteHopLatencyMetricAttributeKeyDNSServer},
+		},
+		NetworkTracerouteHopStatus: NetworkTracerouteHopStatusMetricConfig{
+			Enabled:             true,
+			AggregationStrategy: AggregationStrategyAvg,
+			EnabledAttributes:   []NetworkTracerouteHopStatusMetricAttributeKey{NetworkTracerouteHopStatusMetricAttributeKeyTracerouteHopIndex, NetworkTracerouteHopStatusMetricAttributeKeyTracerouteHopAddress, NetworkTracerouteHopStatusMetricAttributeKeyDNSServer},
 		},
 	}
 }

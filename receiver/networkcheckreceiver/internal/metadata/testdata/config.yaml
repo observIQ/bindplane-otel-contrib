@@ -43,6 +43,9 @@ all_set:
     network.traceroute.hop.latency:
       enabled: true
       attributes: ["traceroute.hop.index","traceroute.hop.address","dns.server"]
+    network.traceroute.hop.status:
+      enabled: true
+      attributes: ["traceroute.hop.index","traceroute.hop.address","dns.server"]
   resource_attributes:
     target.endpoint:
       enabled: true
@@ -90,6 +93,9 @@ reaggregate_set:
     network.traceroute.hop.latency:
       enabled: true
       attributes: []
+    network.traceroute.hop.status:
+      enabled: true
+      attributes: []
   resource_attributes:
     target.endpoint:
       enabled: true
@@ -135,6 +141,9 @@ none_set:
       enabled: false
       attributes: ["ping.method","dns.server"]
     network.traceroute.hop.latency:
+      enabled: false
+      attributes: ["traceroute.hop.index","traceroute.hop.address","dns.server"]
+    network.traceroute.hop.status:
       enabled: false
       attributes: ["traceroute.hop.index","traceroute.hop.address","dns.server"]
   resource_attributes:

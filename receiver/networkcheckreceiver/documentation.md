@@ -216,8 +216,24 @@ Round-trip latency to a single traceroute hop.
 | traceroute.hop.address | The IP address of the traceroute hop. | Any Str | Recommended | - |
 | dns.server | The DNS server used to resolve the target hostname. | Any Str | Recommended | - |
 
+### network.traceroute.hop.status
+
+1 if the traceroute hop answered within the timeout, 0 if it did not.
+
+| Unit | Metric Type | Value Type | Stability |
+| ---- | ----------- | ---------- | --------- |
+| 1 | Gauge | Int | Alpha |
+
+#### Attributes
+
+| Name | Description | Values | Requirement Level | Semantic Convention |
+| ---- | ----------- | ------ | ----------------- | ------------------- |
+| traceroute.hop.index | The traceroute hop index (TTL value). | Any Int | Recommended | - |
+| traceroute.hop.address | The IP address of the traceroute hop. | Any Str | Recommended | - |
+| dns.server | The DNS server used to resolve the target hostname. | Any Str | Recommended | - |
+
 ## Resource Attributes
 
-| Name | Description | Values | Enabled | Semantic Convention |
-| ---- | ----------- | ------ | ------- | ------------------- |
-| target.endpoint | The target endpoint (IP, hostname, or URL) being monitored. | Any Str | true | - |
+| Name | Description | Values | Enabled | Semantic Convention | Stability |
+| ---- | ----------- | ------ | ------- | ------------------- | --------- |
+| target.endpoint | The target endpoint (IP, hostname, or URL) being monitored. | Any Str | true | - | - |
