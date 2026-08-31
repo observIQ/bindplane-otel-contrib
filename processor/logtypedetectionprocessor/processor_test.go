@@ -156,8 +156,6 @@ func TestProcessLogsConcurrentSameStructure(t *testing.T) {
 	require.Equal(t, int64(1), runs, "each fingerprint should only be detected once")
 }
 
-func intPtr(i int) *int { return &i }
-
 func TestPriorityOfMatchers(t *testing.T) {
 	tel := componenttest.NewTelemetry()
 	t.Cleanup(func() { require.NoError(t, tel.Shutdown(context.Background())) })
@@ -168,10 +166,10 @@ func TestPriorityOfMatchers(t *testing.T) {
 	config := createDefaultConfig().(*Config)
 	config.Matchers = []MatcherConfig{
 		{Name: "priority-unset", Value: `{"a"`, Method: MatcherTypeStartsWith},
-		{Name: "priority-10", Priority: intPtr(10), Value: `{"a"`, Method: MatcherTypeStartsWith},
-		{Name: "priority-1", Priority: intPtr(1), Value: `{"a"`, Method: MatcherTypeStartsWith},
-		{Name: "priority-0", Priority: intPtr(0), Value: `{"a"`, Method: MatcherTypeStartsWith},
-		{Name: "priority-2", Priority: intPtr(2), Value: `{"a"`, Method: MatcherTypeStartsWith},
+		{Name: "priority-10", Priority: new(10), Value: `{"a"`, Method: MatcherTypeStartsWith},
+		{Name: "priority-1", Priority: new(1), Value: `{"a"`, Method: MatcherTypeStartsWith},
+		{Name: "priority-0", Priority: new(0), Value: `{"a"`, Method: MatcherTypeStartsWith},
+		{Name: "priority-2", Priority: new(2), Value: `{"a"`, Method: MatcherTypeStartsWith},
 	}
 	p, err := newLogTypeDetectionProcessor(config, tb)
 	require.NoError(t, err)
