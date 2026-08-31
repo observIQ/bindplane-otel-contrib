@@ -15,7 +15,9 @@
 package networkcheckreceiver // import "github.com/observiq/bindplane-otel-contrib/receiver/networkcheckreceiver"
 
 import (
+	"errors"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -43,6 +45,26 @@ func redactEndpoint(endpoint string) string {
 		return endpoint
 	}
 	return u.Redacted()
+}
+
+// userinfoInURL matches the userinfo segment of a URL embedded in free text.
+var userinfoInURL = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.\-]*://)[^/@\s"]+@`)
+
+// redactMessage strips credentials from any URL embedded in free-form text.
+//
+// redactEndpoint must not be used for this: it assumes its input is a URL, so a
+// message containing an unrelated "@" would be truncated to whatever followed
+// it, discarding the failure detail the message exists to carry.
+func redactMessage(msg string) string {
+	return userinfoInURL.ReplaceAllString(msg, "$1")
+}
+
+// redactErr strips credentials from an error's text.
+func redactErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return errors.New(redactMessage(err.Error()))
 }
 
 // buildHTTPLogRecord renders one HTTP probe as a log record. The record is the
@@ -127,7 +149,7 @@ func buildHTTPLogRecord(lr plog.LogRecord, ts *targetState, r PingResult, starte
 			e.PutStr("phase", r.ErrPhase)
 		}
 		if r.ErrMessage != "" {
-			e.PutStr("message", redactEndpoint(r.ErrMessage))
+			e.PutStr("message", redactMessage(r.ErrMessage))
 		}
 	}
 }

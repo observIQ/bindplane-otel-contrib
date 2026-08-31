@@ -367,9 +367,11 @@ func (p *httpPinger) ping(ctx context.Context) (PingResult, error) {
 		ConnectDone: func(_, addr string, err error) {
 			connectDone = time.Now()
 			connectErr = err
-			// Authoritative even when the address was already cached and no DNS
-			// lookup ran, so prefer it over the DNSDone value.
-			if host, _, splitErr := net.SplitHostPort(addr); splitErr == nil {
+			// ConnectDone receives the dial target, which is a hostname when the
+			// transport dials by name. Only take it when it is genuinely an
+			// address, otherwise server.resolved_ip would carry a hostname; the
+			// DNSDone value stands in that case.
+			if host, _, splitErr := net.SplitHostPort(addr); splitErr == nil && net.ParseIP(host) != nil {
 				resolvedIP = host
 			}
 		},
@@ -390,7 +392,9 @@ func (p *httpPinger) ping(ctx context.Context) (PingResult, error) {
 
 	req, err := http.NewRequestWithContext(httptrace.WithClientTrace(ctx, trace), p.httpMethod, p.url, nil)
 	if err != nil {
-		return PingResult{}, fmt.Errorf("building request for %s: %w", p.url, err)
+		// The endpoint may carry credentials, and this error propagates into
+		// scrape errors, so it must not embed the raw URL.
+		return PingResult{}, fmt.Errorf("building request for %s: %w", redactEndpoint(p.url), redactErr(err))
 	}
 
 	requestStart = time.Now()

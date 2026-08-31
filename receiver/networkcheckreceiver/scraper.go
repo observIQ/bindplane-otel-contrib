@@ -80,7 +80,7 @@ func (s *networkStatScraper) scrape(ctx context.Context) (pmetric.Metrics, error
 	for _, res := range cycle.results {
 		ts := res.target
 		if res.pingErr != nil {
-			errs.AddPartial(1, fmt.Errorf("ping %s: %w", redactEndpoint(ts.cfg.Endpoint), res.pingErr))
+			errs.AddPartial(1, fmt.Errorf("ping %s: %w", redactEndpoint(ts.cfg.Endpoint), redactErr(res.pingErr)))
 			continue
 		}
 
@@ -91,14 +91,18 @@ func (s *networkStatScraper) scrape(ctx context.Context) (pmetric.Metrics, error
 		s.recordMetrics(now, ts, res.ping)
 
 		if res.traceErr != nil {
-			errs.AddPartial(1, fmt.Errorf("traceroute %s: %w", redactEndpoint(ts.cfg.Endpoint), res.traceErr))
+			errs.AddPartial(1, fmt.Errorf("traceroute %s: %w", redactEndpoint(ts.cfg.Endpoint), redactErr(res.traceErr)))
 		}
 		if res.traced {
 			for _, hop := range res.trace.Hops {
 				// Status is reported for every probed hop, answered or not, so
 				// that a hop going dark is visible as a 0 rather than as an
 				// absent series indistinguishable from "traceroute never ran".
-				status := int64(1)
+				// Double rather than int: when configured attributes drop
+				// hop.index, several hops reaggregate into one point, and
+				// integer arithmetic would truncate a mixed 1 and 0 to 0 —
+				// making a partly responsive path read as fully dead.
+				status := float64(1)
 				if hop.TimedOut {
 					status = 0
 				}

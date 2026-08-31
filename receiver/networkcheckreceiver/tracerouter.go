@@ -254,10 +254,15 @@ func (t *tracerouter) trace(ctx context.Context) (TraceResult, error) {
 		maxHops = 30
 	}
 
-	// Resolve target to an IP address.
-	addrs, err := net.LookupHost(t.host)
-	if err != nil || len(addrs) == 0 {
+	// Resolve target to an IP address. The context-aware form so a cancelled
+	// scrape does not block on the resolver.
+	addrs, err := net.DefaultResolver.LookupHost(ctx, t.host)
+	if err != nil {
 		return TraceResult{Method: method, MaxHops: maxHops}, fmt.Errorf("resolving %s: %w", t.host, err)
+	}
+	if len(addrs) == 0 {
+		// No error but no address: %w on a nil error renders as "%!w(<nil>)".
+		return TraceResult{Method: method, MaxHops: maxHops}, fmt.Errorf("resolving %s: no addresses returned", t.host)
 	}
 	dest := addrs[0]
 
@@ -329,7 +334,7 @@ func (t *tracerouter) traceUDP(ctx context.Context, dest string) (TraceResult, e
 	if err != nil {
 		return TraceResult{}, fmt.Errorf("opening ICMP listener for traceroute: %w", err)
 	}
-	defer icmpConn.Close()
+	defer func() { _ = icmpConn.Close() }()
 
 	var hops []HopResult
 	maxHops := t.cfg.MaxHops
@@ -449,7 +454,7 @@ func (t *tracerouter) traceICMP(ctx context.Context, dest string) (TraceResult, 
 	if err != nil {
 		return TraceResult{}, fmt.Errorf("opening raw ICMP socket for traceroute: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	destAddr, err := net.ResolveIPAddr("ip4", dest)
 	if err != nil {

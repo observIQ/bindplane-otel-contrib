@@ -91,6 +91,10 @@ func TestTraceUnansweredHopsAreMarkedAndBounded(t *testing.T) {
 		Method:  "udp",
 		MaxHops: 30,
 		Timeout: 50 * time.Millisecond,
+		// Set explicitly: the zero value disables the early abort entirely,
+		// which would leave the assertions below testing nothing.
+		MaxConsecutiveTimeouts: defaultMaxConsecutiveTimeouts,
+		ProbesPerHop:           1,
 	}, blackhole)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -49,7 +49,17 @@ type targetResult struct {
 // the logs path render the same cycle, so the two signals always describe the
 // same observation.
 type probeCycle struct {
-	at      time.Time
+	// at is when probing began, used as the timestamp on emitted telemetry.
+	at time.Time
+
+	// requestedAt is when the cycle was asked for, before any jitter delay.
+	// Freshness is measured from this: charging the jitter wait against the
+	// freshness budget would let a jitter above 10% of the collection interval
+	// make the cached cycle look fresh at the next tick, so no probe would run
+	// and the previous results would be re-emitted under their original
+	// timestamp.
+	requestedAt time.Time
+
 	results []targetResult
 }
 
@@ -135,6 +145,12 @@ func (p *sharedProber) start(_ context.Context, _ component.Host) error {
 		p.logger.Info("ICMP running in datagram (unprivileged) mode")
 	}
 
+	// Built locally and published only on success: a mid-loop failure that left
+	// a partial list on the prober would be appended to a second time when the
+	// other signal calls start, and every target already built would be probed
+	// twice per cycle.
+	var targets []*targetState
+
 	for i, tc := range p.cfg.Targets {
 		method := tc.Method
 		if method == "" {
@@ -173,7 +189,7 @@ func (p *sharedProber) start(_ context.Context, _ component.Host) error {
 			}
 		}
 
-		p.targets = append(p.targets, &targetState{
+		targets = append(targets, &targetState{
 			cfg:       tc,
 			p:         pg,
 			tr:        newTracerouter(p.cfg.Traceroute, tc.Endpoint),
@@ -181,6 +197,7 @@ func (p *sharedProber) start(_ context.Context, _ component.Host) error {
 		})
 	}
 
+	p.targets = targets
 	p.started = true
 	return nil
 }
@@ -193,28 +210,32 @@ func (p *sharedProber) latestCycle(ctx context.Context, maxAge time.Duration) *p
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.last != nil && time.Since(p.last.at) < maxAge {
+	if p.last != nil && time.Since(p.last.requestedAt) < maxAge {
 		return p.last
 	}
 
-	p.last = p.runCycle(ctx)
+	p.last = p.runCycle(ctx, time.Now())
 	p.cycles++
 	return p.last
 }
 
 // runCycle probes the active batch. Caller must hold p.mu.
-func (p *sharedProber) runCycle(ctx context.Context) *probeCycle {
+func (p *sharedProber) runCycle(ctx context.Context, requestedAt time.Time) *probeCycle {
 	if p.cfg.Jitter > 0 {
 		delay := time.Duration(rand.Int64N(int64(p.cfg.Jitter)))
 		select {
 		case <-ctx.Done():
-			return &probeCycle{at: time.Now()}
+			return &probeCycle{at: time.Now(), requestedAt: requestedAt}
 		case <-time.After(delay):
 		}
 	}
 
 	batch := p.activeBatch()
-	cycle := &probeCycle{at: time.Now(), results: make([]targetResult, 0, len(batch))}
+	cycle := &probeCycle{
+		at:          time.Now(),
+		requestedAt: requestedAt,
+		results:     make([]targetResult, 0, len(batch)),
+	}
 
 	for _, ts := range batch {
 		tr := targetResult{target: ts, startedAt: time.Now()}

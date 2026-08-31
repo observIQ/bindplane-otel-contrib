@@ -16,6 +16,7 @@ package networkcheckreceiver
 
 import (
 	"context"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -126,4 +127,55 @@ func TestProberRegistry_RefcountsAcrossSignals(t *testing.T) {
 	_, gone := proberRegistry[id]
 	proberRegistryMu.Unlock()
 	require.False(t, gone, "last release must remove the prober")
+}
+
+// A mid-loop start failure used to leave a partial target list on the shared
+// prober. The second signal then ran the loop again and appended every target
+// a second time, so each was probed twice per cycle — defeating the sharing.
+func TestSharedProber_FailedStartLeavesNoPartialTargets(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	cfg.Targets = []TargetConfig{
+		{Method: MethodHTTP},
+		{Method: MethodHTTP},
+	}
+	cfg.Targets[0].Endpoint = "http://example.com"
+	// A CA file that does not exist makes LoadTLSConfig fail, so the second
+	// target cannot build a pinger and start returns mid-loop.
+	cfg.Targets[1].Endpoint = "https://example.org"
+	cfg.Targets[1].TLS.CAFile = filepath.Join(t.TempDir(), "missing-ca.pem")
+
+	p := &sharedProber{cfg: cfg, logger: zap.NewNop()}
+	err := p.start(context.Background(), nil)
+	require.Error(t, err, "a target with an unreadable CA file must fail start")
+	require.Empty(t, p.targets, "a failed start must publish no targets")
+	require.False(t, p.started)
+
+	// The second signal calling start must not append onto a partial list.
+	_ = p.start(context.Background(), nil)
+	require.LessOrEqual(t, len(p.targets), len(cfg.Targets),
+		"targets must never exceed the configured count")
+}
+
+// Jitter was charged against the freshness budget: cycle age was measured from
+// when probing began after the jitter wait, so a jitter above 10% of the
+// interval made a stale cycle look fresh, skipping a tick and re-emitting the
+// previous results under their original timestamp.
+func TestSharedProber_JitterDoesNotConsumeFreshnessBudget(t *testing.T) {
+	p, cp := newTestProber(t, 200*time.Millisecond)
+	p.cfg.Jitter = 150 * time.Millisecond
+	ctx := context.Background()
+
+	first := p.latestCycle(ctx, p.cycleMaxAge())
+	require.EqualValues(t, 1, cp.calls.Load())
+
+	// Freshness runs from when the cycle was requested, so the jitter spent
+	// inside it must not be credited as elapsed lifetime.
+	require.False(t, first.requestedAt.IsZero())
+	require.True(t, !first.at.Before(first.requestedAt),
+		"probing must start at or after the cycle was requested")
+
+	time.Sleep(p.cycleMaxAge() + 20*time.Millisecond)
+	second := p.latestCycle(ctx, p.cycleMaxAge())
+	require.NotSame(t, first, second, "an expired cycle must be re-probed, not re-emitted")
+	require.EqualValues(t, 2, cp.calls.Load())
 }

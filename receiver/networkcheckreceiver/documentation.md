@@ -218,11 +218,11 @@ Round-trip latency to a single traceroute hop.
 
 ### network.traceroute.hop.status
 
-1 if the traceroute hop answered within the timeout, 0 if it did not.
+1 if the traceroute hop answered within the timeout, 0 if it did not. Averaging gives the fraction of probes a hop answered.
 
 | Unit | Metric Type | Value Type | Stability |
 | ---- | ----------- | ---------- | --------- |
-| 1 | Gauge | Int | Alpha |
+| 1 | Gauge | Double | Alpha |
 
 #### Attributes
 

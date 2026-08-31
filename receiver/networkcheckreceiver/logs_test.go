@@ -360,3 +360,38 @@ func TestFailurePhase_IPLiteralDialFailure(t *testing.T) {
 	got := failurePhase(phaseTimings{connectStart: now})
 	require.Equal(t, "connect", got)
 }
+
+// redactEndpoint assumes a URL. Applied to a free-form error message it
+// truncated everything before the last "@", discarding the failure detail the
+// message exists to carry.
+func TestRedactMessagePreservesText(t *testing.T) {
+	cases := []struct{ name, in, wantContains, wantAbsent string }{
+		{
+			name:         "credential in embedded url is stripped",
+			in:           `Head "https://admin:hunter2@example.com": dial tcp: connection refused`,
+			wantContains: "connection refused",
+			wantAbsent:   "hunter2",
+		},
+		{
+			name:         "unrelated at-sign does not truncate the message",
+			in:           "lookup user@host failed: no such host",
+			wantContains: "no such host",
+			wantAbsent:   "",
+		},
+		{
+			name:         "plain message is untouched",
+			in:           "context deadline exceeded",
+			wantContains: "context deadline exceeded",
+			wantAbsent:   "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := redactMessage(tc.in)
+			require.Contains(t, got, tc.wantContains)
+			if tc.wantAbsent != "" {
+				require.NotContains(t, got, tc.wantAbsent)
+			}
+		})
+	}
+}

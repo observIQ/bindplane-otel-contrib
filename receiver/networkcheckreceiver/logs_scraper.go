@@ -72,7 +72,7 @@ func (s *networkStatLogsScraper) scrape(ctx context.Context) (plog.Logs, error) 
 	for _, res := range cycle.results {
 		ts := res.target
 		if res.pingErr != nil {
-			errs.AddPartial(1, fmt.Errorf("ping %s: %w", redactEndpoint(ts.cfg.Endpoint), res.pingErr))
+			errs.AddPartial(1, fmt.Errorf("ping %s: %w", redactEndpoint(ts.cfg.Endpoint), redactErr(res.pingErr)))
 			continue
 		}
 
@@ -91,7 +91,7 @@ func (s *networkStatLogsScraper) scrape(ctx context.Context) (plog.Logs, error) 
 		}
 
 		if res.traceErr != nil {
-			errs.AddPartial(1, fmt.Errorf("traceroute %s: %w", redactEndpoint(ts.cfg.Endpoint), res.traceErr))
+			errs.AddPartial(1, fmt.Errorf("traceroute %s: %w", redactEndpoint(ts.cfg.Endpoint), redactErr(res.traceErr)))
 		}
 		if res.traced && len(res.trace.Hops) > 0 {
 			rec := plog.NewLogRecord()
