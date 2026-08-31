@@ -18,6 +18,7 @@ package azureblob //import "github.com/observiq/bindplane-otel-contrib/internal/
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -42,6 +43,12 @@ type BlobClient interface {
 	// It will return the count of bytes used in the buffer.
 	DownloadBlob(ctx context.Context, container, blobPath string, buf []byte) (int64, error)
 
+	// DownloadBlobStream downloads the full current contents of the blob and
+	// returns them. Unlike DownloadBlob it does not require a pre-sized buffer,
+	// so it is safe for blobs whose listed size is stale (e.g. Azure flow-log
+	// blobs that are grown in place all hour via PutBlock).
+	DownloadBlobStream(ctx context.Context, container, blobPath string) ([]byte, error)
+
 	// DeleteBlob deletes the blob in the specified container
 	DeleteBlob(ctx context.Context, container, blobPath string) error
 
@@ -57,6 +64,7 @@ type BlobClient interface {
 type blobClient interface {
 	NewListBlobsFlatPager(containerName string, options *azblob.ListBlobsFlatOptions) *runtime.Pager[azblob.ListBlobsFlatResponse]
 	DownloadBuffer(ctx context.Context, containerName string, blobPath string, buffer []byte, options *azblob.DownloadBufferOptions) (int64, error)
+	DownloadStream(ctx context.Context, containerName string, blobPath string, options *azblob.DownloadStreamOptions) (azblob.DownloadStreamResponse, error)
 	DeleteBlob(ctx context.Context, containerName string, blobPath string, options *azblob.DeleteBlobOptions) (azblob.DeleteBlobResponse, error)
 }
 
@@ -171,6 +179,25 @@ func (a *AzureClient) DownloadBlob(ctx context.Context, container, blobPath stri
 	}
 
 	return bytesDownloaded, nil
+}
+
+// DownloadBlobStream downloads the full current contents of the blob by streaming,
+// avoiding the pre-sized buffer used by DownloadBlob. DownloadBuffer sizes its
+// destination from the listing's blob size, which is stale for blobs grown in
+// place (Azure NSG/VNet flow logs write one PT1H.json block blob per hour via
+// per-minute PutBlock), causing the SDK to error "not enough space for all bytes".
+func (a *AzureClient) DownloadBlobStream(ctx context.Context, container, blobPath string) ([]byte, error) {
+	resp, err := a.azClient.DownloadStream(ctx, container, blobPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("download stream: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read blob stream: %w", err)
+	}
+	return data, nil
 }
 
 // DeleteBlob deletes the blob in the specified container

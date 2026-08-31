@@ -15,8 +15,10 @@
 package azureblob
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
@@ -92,6 +94,53 @@ func TestDownloadBlob(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(len(testData)), bytesDownloaded)
 		require.Equal(t, string(testData), string(buf[:len(testData)]))
+	})
+}
+
+func TestDownloadBlobStream(t *testing.T) {
+	ctx := context.Background()
+	container := "testcontainer"
+	blobPath := "flow/PT1H.json"
+	testData := []byte(`{"records":[{"a":1},{"b":2}]}`)
+
+	t.Run("successful stream download", func(t *testing.T) {
+		mockClient := &mockAzureClient{}
+		client := &AzureClient{azClient: mockClient, logger: zap.NewNop()}
+
+		resp := azblob.DownloadStreamResponse{}
+		resp.Body = io.NopCloser(bytes.NewReader(testData))
+		mockClient.On("DownloadStream", mock.Anything, container, blobPath, mock.Anything).Return(resp, nil)
+
+		data, err := client.DownloadBlobStream(ctx, container, blobPath)
+		require.NoError(t, err)
+		require.Equal(t, testData, data)
+	})
+
+	t.Run("download error", func(t *testing.T) {
+		mockClient := &mockAzureClient{}
+		client := &AzureClient{azClient: mockClient, logger: zap.NewNop()}
+
+		mockClient.On("DownloadStream", mock.Anything, container, blobPath, mock.Anything).
+			Return(azblob.DownloadStreamResponse{}, errors.New("network error"))
+
+		data, err := client.DownloadBlobStream(ctx, container, blobPath)
+		require.Error(t, err)
+		require.Nil(t, data)
+		require.Contains(t, err.Error(), "network error")
+	})
+
+	t.Run("read error", func(t *testing.T) {
+		mockClient := &mockAzureClient{}
+		client := &AzureClient{azClient: mockClient, logger: zap.NewNop()}
+
+		resp := azblob.DownloadStreamResponse{}
+		resp.Body = io.NopCloser(errReader{})
+		mockClient.On("DownloadStream", mock.Anything, container, blobPath, mock.Anything).Return(resp, nil)
+
+		data, err := client.DownloadBlobStream(ctx, container, blobPath)
+		require.Error(t, err)
+		require.Nil(t, data)
+		require.Contains(t, err.Error(), "read blob stream")
 	})
 }
 
@@ -239,6 +288,16 @@ func (m *mockAzureClient) DownloadBuffer(ctx context.Context, containerName stri
 	args := m.Called(ctx, containerName, blobPath, buffer, options)
 	return args.Get(0).(int64), args.Error(1)
 }
+
+func (m *mockAzureClient) DownloadStream(ctx context.Context, containerName string, blobPath string, options *azblob.DownloadStreamOptions) (azblob.DownloadStreamResponse, error) {
+	args := m.Called(ctx, containerName, blobPath, options)
+	return args.Get(0).(azblob.DownloadStreamResponse), args.Error(1)
+}
+
+// errReader is an io.Reader that always fails, used to exercise the read-error path.
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errors.New("read failed") }
 
 func (m *mockAzureClient) DeleteBlob(ctx context.Context, containerName string, blobPath string, options *azblob.DeleteBlobOptions) (azblob.DeleteBlobResponse, error) {
 	args := m.Called(ctx, containerName, blobPath, options)
