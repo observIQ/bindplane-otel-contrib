@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata/metricdatatest"
 )
@@ -78,7 +79,8 @@ func TestProcessLogs(t *testing.T) {
 			tb, err := metadata.NewTelemetryBuilder(metadatatest.NewSettings(tel).TelemetrySettings)
 			require.NoError(t, err)
 
-			p := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+			p, err := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+			require.NoError(t, err)
 
 			out, err := p.processLogs(context.Background(), logsFromBodies(tc.bodies...))
 			require.NoError(t, err)
@@ -95,11 +97,11 @@ func TestProcessLogs(t *testing.T) {
 			require.Equal(t, tc.fingerprints, withFingerprint)
 
 			if tc.expectedRuns == 0 {
-				_, err := tel.GetMetric("otelcol_log_type_detection_runs")
+				_, err := tel.GetMetric("otelcol_processor_log_type_detection_attempts")
 				require.Error(t, err)
 				return
 			}
-			metadatatest.AssertEqualLogTypeDetectionRuns(t, tel,
+			metadatatest.AssertEqualProcessorLogTypeDetectionAttempts(t, tel,
 				[]metricdata.DataPoint[int64]{{Value: tc.expectedRuns}},
 				metricdatatest.IgnoreTimestamp())
 		})
@@ -113,14 +115,15 @@ func TestProcessLogsCachesAcrossCalls(t *testing.T) {
 	tb, err := metadata.NewTelemetryBuilder(metadatatest.NewSettings(tel).TelemetrySettings)
 	require.NoError(t, err)
 
-	p := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+	p, err := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+	require.NoError(t, err)
 
 	for range 3 {
 		_, err := p.processLogs(context.Background(), logsFromBodies(`{"alpha":1}`))
 		require.NoError(t, err)
 	}
 
-	metadatatest.AssertEqualLogTypeDetectionRuns(t, tel,
+	metadatatest.AssertEqualProcessorLogTypeDetectionAttempts(t, tel,
 		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
 }
@@ -132,7 +135,8 @@ func TestProcessLogsConcurrentSameStructure(t *testing.T) {
 	tb, err := metadata.NewTelemetryBuilder(metadatatest.NewSettings(tel).TelemetrySettings)
 	require.NoError(t, err)
 
-	p := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+	p, err := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+	require.NoError(t, err)
 
 	start := make(chan struct{})
 	var wg sync.WaitGroup
@@ -146,8 +150,71 @@ func TestProcessLogsConcurrentSameStructure(t *testing.T) {
 	close(start)
 	wg.Wait()
 
-	got, err := tel.GetMetric("otelcol_log_type_detection_runs")
+	got, err := tel.GetMetric("otelcol_processor_log_type_detection_attempts")
 	require.NoError(t, err)
 	runs := got.Data.(metricdata.Sum[int64]).DataPoints[0].Value
 	require.Equal(t, int64(1), runs, "each fingerprint should only be detected once")
+}
+
+func TestPriorityOfMatchers(t *testing.T) {
+	tel := componenttest.NewTelemetry()
+	t.Cleanup(func() { require.NoError(t, tel.Shutdown(context.Background())) })
+
+	tb, err := metadata.NewTelemetryBuilder(metadatatest.NewSettings(tel).TelemetrySettings)
+	require.NoError(t, err)
+
+	config := createDefaultConfig().(*Config)
+	config.Matchers = []MatcherConfig{
+		{Name: "priority-unset", Value: `{"a"`, Method: MatcherTypeStartsWith},
+		{Name: "priority-10", Priority: new(10), Value: `{"a"`, Method: MatcherTypeStartsWith},
+		{Name: "priority-1", Priority: new(1), Value: `{"a"`, Method: MatcherTypeStartsWith},
+		{Name: "priority-0", Priority: new(0), Value: `{"a"`, Method: MatcherTypeStartsWith},
+		{Name: "priority-2", Priority: new(2), Value: `{"a"`, Method: MatcherTypeStartsWith},
+	}
+	p, err := newLogTypeDetectionProcessor(config, tb)
+	require.NoError(t, err)
+
+	out, err := p.processLogs(context.Background(), logsFromBodies(`{"a":1,"b":"x"}`))
+	require.NoError(t, err)
+
+	records := out.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
+	require.Len(t, config.Matchers, len(p.matchers))
+
+	require.Equal(t, 1, records.Len())
+	logType, ok := records.At(0).Attributes().Get(defaultLogTypeField)
+	require.True(t, ok)
+	require.Equal(t, "priority-0", logType.AsString())
+}
+
+func TestUnknownLogType(t *testing.T) {
+	tel := componenttest.NewTelemetry()
+	t.Cleanup(func() { require.NoError(t, tel.Shutdown(context.Background())) })
+
+	tb, err := metadata.NewTelemetryBuilder(metadatatest.NewSettings(tel).TelemetrySettings)
+	require.NoError(t, err)
+
+	cfg := createDefaultConfig().(*Config)
+	cfg.Matchers = []MatcherConfig{{Name: "json_a", Method: MatcherTypeStartsWith, Value: `{"a"`}}
+	p, err := newLogTypeDetectionProcessor(cfg, tb)
+	require.NoError(t, err)
+
+	out, err := p.processLogs(context.Background(), logsFromBodies(`{"a":1,"b":2}`, `{"z":1,"y":2}`, "plain text line"))
+	require.NoError(t, err)
+
+	records := out.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
+	for i, want := range []string{"json_a", unknownLogType, unknownLogType} {
+		got, ok := records.At(i).Attributes().Get(defaultLogTypeField)
+		require.True(t, ok, "record %d has no log type", i)
+		require.Equal(t, want, got.Str())
+	}
+
+	metadatatest.AssertEqualProcessorLogTypeDetectionLogsUnclassified(t, tel,
+		[]metricdata.DataPoint[int64]{{Value: 2}},
+		metricdatatest.IgnoreTimestamp())
+	metadatatest.AssertEqualProcessorLogTypeDetectionLogsClassified(t, tel,
+		[]metricdata.DataPoint[int64]{{
+			Value:      1,
+			Attributes: attribute.NewSet(attribute.String("log_type", "json_a")),
+		}},
+		metricdatatest.IgnoreTimestamp())
 }

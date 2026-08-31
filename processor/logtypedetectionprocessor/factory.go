@@ -45,7 +45,10 @@ func createLogsProcessor(
 	if err != nil {
 		return nil, fmt.Errorf("create telemetry builder: %w", err)
 	}
-	p := newLogTypeDetectionProcessor(oCfg, telemetry)
+	p, err := newLogTypeDetectionProcessor(oCfg, telemetry)
+	if err != nil {
+		return nil, err
+	}
 
 	return processorhelper.NewLogs(
 		ctx,

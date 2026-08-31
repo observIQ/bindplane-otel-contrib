@@ -6,10 +6,40 @@
 
 The following telemetry is emitted by this component.
 
-### otelcol_log_type_detection_runs
+### otelcol_processor_log_type_detection_attempts
 
-Number of log type detections run, one per newly seen log structure.
+Number of log type detections attempted, one per newly seen log structure.
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
 | {detection} | Sum | Int | true | Alpha |
+
+### otelcol_processor_log_type_detection_attempts_matched
+
+Number of log type detection attempts that matched, one per newly seen log structure.
+
+| Unit | Metric Type | Value Type | Monotonic | Stability |
+| ---- | ----------- | ---------- | --------- | --------- |
+| {detection} | Sum | Int | true | Alpha |
+
+### otelcol_processor_log_type_detection_logs_classified
+
+Number of log records assigned a log type.
+
+| Unit | Metric Type | Value Type | Monotonic | Stability |
+| ---- | ----------- | ---------- | --------- | --------- |
+| {log} | Sum | Int | true | Alpha |
+
+#### Attributes
+
+| Name | Description | Values | Semantic Convention |
+| ---- | ----------- | ------ | ------------------- |
+| log_type | The log type that matched. | Any Str | - |
+
+### otelcol_processor_log_type_detection_logs_unclassified
+
+Number of log records with no detected log type.
+
+| Unit | Metric Type | Value Type | Monotonic | Stability |
+| ---- | ----------- | ---------- | --------- | --------- |
+| {log} | Sum | Int | true | Alpha |

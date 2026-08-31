@@ -21,10 +21,10 @@ func NewSettings(tt *componenttest.Telemetry) processor.Settings {
 	return set
 }
 
-func AssertEqualLogTypeDetectionRuns(t *testing.T, tt *componenttest.Telemetry, dps []metricdata.DataPoint[int64], opts ...metricdatatest.Option) {
+func AssertEqualProcessorLogTypeDetectionAttempts(t *testing.T, tt *componenttest.Telemetry, dps []metricdata.DataPoint[int64], opts ...metricdatatest.Option) {
 	want := metricdata.Metrics{
-		Name:        "otelcol_log_type_detection_runs",
-		Description: "Number of log type detections run, one per newly seen log structure. [Alpha]",
+		Name:        "otelcol_processor_log_type_detection_attempts",
+		Description: "Number of log type detections attempted, one per newly seen log structure. [Alpha]",
 		Unit:        "{detection}",
 		Data: metricdata.Sum[int64]{
 			Temporality: metricdata.CumulativeTemporality,
@@ -32,7 +32,55 @@ func AssertEqualLogTypeDetectionRuns(t *testing.T, tt *componenttest.Telemetry, 
 			DataPoints:  dps,
 		},
 	}
-	got, err := tt.GetMetric("otelcol_log_type_detection_runs")
+	got, err := tt.GetMetric("otelcol_processor_log_type_detection_attempts")
+	require.NoError(t, err)
+	metricdatatest.AssertEqual(t, want, got, opts...)
+}
+
+func AssertEqualProcessorLogTypeDetectionAttemptsMatched(t *testing.T, tt *componenttest.Telemetry, dps []metricdata.DataPoint[int64], opts ...metricdatatest.Option) {
+	want := metricdata.Metrics{
+		Name:        "otelcol_processor_log_type_detection_attempts_matched",
+		Description: "Number of log type detection attempts that matched, one per newly seen log structure. [Alpha]",
+		Unit:        "{detection}",
+		Data: metricdata.Sum[int64]{
+			Temporality: metricdata.CumulativeTemporality,
+			IsMonotonic: true,
+			DataPoints:  dps,
+		},
+	}
+	got, err := tt.GetMetric("otelcol_processor_log_type_detection_attempts_matched")
+	require.NoError(t, err)
+	metricdatatest.AssertEqual(t, want, got, opts...)
+}
+
+func AssertEqualProcessorLogTypeDetectionLogsClassified(t *testing.T, tt *componenttest.Telemetry, dps []metricdata.DataPoint[int64], opts ...metricdatatest.Option) {
+	want := metricdata.Metrics{
+		Name:        "otelcol_processor_log_type_detection_logs_classified",
+		Description: "Number of log records assigned a log type. [Alpha]",
+		Unit:        "{log}",
+		Data: metricdata.Sum[int64]{
+			Temporality: metricdata.CumulativeTemporality,
+			IsMonotonic: true,
+			DataPoints:  dps,
+		},
+	}
+	got, err := tt.GetMetric("otelcol_processor_log_type_detection_logs_classified")
+	require.NoError(t, err)
+	metricdatatest.AssertEqual(t, want, got, opts...)
+}
+
+func AssertEqualProcessorLogTypeDetectionLogsUnclassified(t *testing.T, tt *componenttest.Telemetry, dps []metricdata.DataPoint[int64], opts ...metricdatatest.Option) {
+	want := metricdata.Metrics{
+		Name:        "otelcol_processor_log_type_detection_logs_unclassified",
+		Description: "Number of log records with no detected log type. [Alpha]",
+		Unit:        "{log}",
+		Data: metricdata.Sum[int64]{
+			Temporality: metricdata.CumulativeTemporality,
+			IsMonotonic: true,
+			DataPoints:  dps,
+		},
+	}
+	got, err := tt.GetMetric("otelcol_processor_log_type_detection_logs_unclassified")
 	require.NoError(t, err)
 	metricdatatest.AssertEqual(t, want, got, opts...)
 }

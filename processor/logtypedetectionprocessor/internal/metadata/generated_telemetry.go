@@ -23,10 +23,13 @@ func Tracer(settings component.TelemetrySettings) trace.Tracer {
 // TelemetryBuilder provides an interface for components to report telemetry
 // as defined in metadata and user config.
 type TelemetryBuilder struct {
-	meter                metric.Meter
-	mu                   sync.Mutex
-	registrations        []metric.Registration
-	LogTypeDetectionRuns metric.Int64Counter
+	meter                                     metric.Meter
+	mu                                        sync.Mutex
+	registrations                             []metric.Registration
+	ProcessorLogTypeDetectionAttempts         metric.Int64Counter
+	ProcessorLogTypeDetectionAttemptsMatched  metric.Int64Counter
+	ProcessorLogTypeDetectionLogsClassified   metric.Int64Counter
+	ProcessorLogTypeDetectionLogsUnclassified metric.Int64Counter
 }
 
 // TelemetryBuilderOption applies changes to default builder.
@@ -58,10 +61,28 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...Teleme
 	}
 	builder.meter = Meter(settings)
 	var err, errs error
-	builder.LogTypeDetectionRuns, err = builder.meter.Int64Counter(
-		"otelcol_log_type_detection_runs",
-		metric.WithDescription("Number of log type detections run, one per newly seen log structure. [Alpha]"),
+	builder.ProcessorLogTypeDetectionAttempts, err = builder.meter.Int64Counter(
+		"otelcol_processor_log_type_detection_attempts",
+		metric.WithDescription("Number of log type detections attempted, one per newly seen log structure. [Alpha]"),
 		metric.WithUnit("{detection}"),
+	)
+	errs = errors.Join(errs, err)
+	builder.ProcessorLogTypeDetectionAttemptsMatched, err = builder.meter.Int64Counter(
+		"otelcol_processor_log_type_detection_attempts_matched",
+		metric.WithDescription("Number of log type detection attempts that matched, one per newly seen log structure. [Alpha]"),
+		metric.WithUnit("{detection}"),
+	)
+	errs = errors.Join(errs, err)
+	builder.ProcessorLogTypeDetectionLogsClassified, err = builder.meter.Int64Counter(
+		"otelcol_processor_log_type_detection_logs_classified",
+		metric.WithDescription("Number of log records assigned a log type. [Alpha]"),
+		metric.WithUnit("{log}"),
+	)
+	errs = errors.Join(errs, err)
+	builder.ProcessorLogTypeDetectionLogsUnclassified, err = builder.meter.Int64Counter(
+		"otelcol_processor_log_type_detection_logs_unclassified",
+		metric.WithDescription("Number of log records with no detected log type. [Alpha]"),
+		metric.WithUnit("{log}"),
 	)
 	errs = errors.Join(errs, err)
 	return &builder, errs

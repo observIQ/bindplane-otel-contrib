@@ -1,0 +1,9 @@
+processors:
+  log_type_detection:
+    fingerprint_field: fingerprint
+    log_type_field: log_type
+    matchers:
+      - name: win_event_log
+        method: regex
+        priority: 1
+        value: (?s)^\s*(?:<\?xml[^>]*\?>\s*)?<Event\b[^>]*>\s*<System>.*?<Provider\b[^>]*\bGuid=.*?<EventRecordID>

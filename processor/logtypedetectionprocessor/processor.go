@@ -16,6 +16,8 @@ package logtypedetectionprocessor
 
 import (
 	"context"
+	"math"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -23,22 +25,55 @@ import (
 	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/singleflight"
 )
 
 type logTypeDetectionProcessor struct {
-	cfg            *Config
 	logTypes       sync.Map
 	detectionGroup singleflight.Group
+
+	logTypeField     string
+	fingerprintField string
+
+	matchers []Matcher
 
 	telemetry *metadata.TelemetryBuilder
 }
 
-func newLogTypeDetectionProcessor(cfg *Config, telemetry *metadata.TelemetryBuilder) *logTypeDetectionProcessor {
-	return &logTypeDetectionProcessor{
-		cfg:       cfg,
-		telemetry: telemetry,
+func newLogTypeDetectionProcessor(cfg *Config, telemetry *metadata.TelemetryBuilder) (*logTypeDetectionProcessor, error) {
+	p := &logTypeDetectionProcessor{
+		telemetry:        telemetry,
+		logTypeField:     cfg.LogTypeField,
+		fingerprintField: cfg.FingerprintField,
 	}
+
+	if cfg.Matchers != nil {
+		matchers := make([]MatcherConfig, len(cfg.Matchers))
+		copy(matchers, cfg.Matchers)
+		slices.SortStableFunc(matchers, func(i, j MatcherConfig) int {
+			return priorityRank(i.Priority) - priorityRank(j.Priority)
+		})
+
+		for _, m := range matchers {
+			matcher, err := m.Build()
+			if err != nil {
+				return nil, err
+			}
+			p.matchers = append(p.matchers, matcher)
+		}
+	}
+
+	return p, nil
+}
+
+// priorityRank orders unset priority last.
+func priorityRank(priority *int) int {
+	if priority == nil {
+		return math.MaxInt
+	}
+	return *priority
 }
 
 func (p *logTypeDetectionProcessor) start(_ context.Context, _ component.Host) error {
@@ -59,8 +94,13 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 				logRecord := scopeLogs.LogRecords().At(k)
 				body := logRecord.Body().AsString()
 				logFingerprint := fingerprint.HashLog(body)
-				if logFingerprint <= 0 {
+				if logFingerprint == 0 {
+					p.telemetry.ProcessorLogTypeDetectionLogsUnclassified.Add(ctx, 1)
+					logRecord.Attributes().PutStr(p.logTypeField, unknownLogType)
 					continue
+				}
+				if p.fingerprintField != "" {
+					logRecord.Attributes().PutStr(p.fingerprintField, strconv.FormatUint(logFingerprint, 16))
 				}
 				logType, ok := p.logTypes.Load(logFingerprint)
 				if !ok {
@@ -81,17 +121,28 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 					}
 					logType = newLogType.(string)
 				}
-				logRecord.Attributes().PutStr("fingerprint", strconv.FormatUint(logFingerprint, 16))
-				if lt, ok := logType.(string); ok && lt != "" {
-					logRecord.Attributes().PutStr("logType", lt)
+				lt, _ := logType.(string)
+				if lt == "" {
+					lt = unknownLogType
+					p.telemetry.ProcessorLogTypeDetectionLogsUnclassified.Add(ctx, 1)
+				} else {
+					p.telemetry.ProcessorLogTypeDetectionLogsClassified.Add(ctx, 1,
+						metric.WithAttributes(attribute.String("log_type", lt)))
 				}
+				logRecord.Attributes().PutStr(p.logTypeField, lt)
 			}
 		}
 	}
 	return ld, nil
 }
 
-func (p *logTypeDetectionProcessor) logType(ctx context.Context, _ string) string {
-	p.telemetry.LogTypeDetectionRuns.Add(ctx, 1)
+func (p *logTypeDetectionProcessor) logType(ctx context.Context, logData string) string {
+	p.telemetry.ProcessorLogTypeDetectionAttempts.Add(ctx, 1)
+	for _, m := range p.matchers {
+		if m.Test(logData) {
+			p.telemetry.ProcessorLogTypeDetectionAttemptsMatched.Add(ctx, 1)
+			return m.Name()
+		}
+	}
 	return ""
 }

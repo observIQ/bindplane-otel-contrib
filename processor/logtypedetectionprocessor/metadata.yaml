@@ -8,13 +8,43 @@ status:
   codeowners:
     active: [observIQ/ai]
 
+attributes:
+  log_type:
+    description: The log type that matched.
+    type: string
+
 telemetry:
   metrics:
-    log_type_detection_runs:
+    processor_log_type_detection_attempts:
       enabled: true
-      description: "Number of log type detections run, one per newly seen log structure."
+      description: "Number of log type detections attempted, one per newly seen log structure."
       stability: alpha
       unit: "{detection}"
+      sum:
+        value_type: int
+        monotonic: true
+    processor_log_type_detection_attempts_matched:
+      enabled: true
+      description: "Number of log type detection attempts that matched, one per newly seen log structure."
+      stability: alpha
+      unit: "{detection}"
+      sum:
+        value_type: int
+        monotonic: true
+    processor_log_type_detection_logs_classified:
+      enabled: true
+      description: "Number of log records assigned a log type."
+      stability: alpha
+      unit: "{log}"
+      attributes: [log_type]
+      sum:
+        value_type: int
+        monotonic: true
+    processor_log_type_detection_logs_unclassified:
+      enabled: true
+      description: "Number of log records with no detected log type."
+      stability: alpha
+      unit: "{log}"
       sum:
         value_type: int
         monotonic: true
