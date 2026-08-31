@@ -25,15 +25,38 @@ import (
 const requestBodyTemplateName = "request_body"
 
 // sampleCursor stands in for a real pagination token when Validate renders the
-// template to check the continuation request. Its value is arbitrary; only its
-// non-emptiness matters, since that is what a {{ if .Cursor }} guard tests.
-const sampleCursor = "sample-cursor"
+// template to check the continuation request. It is non-empty so a
+// {{ if .Cursor }} guard takes its true branch, and it deliberately contains a
+// quote and a backslash: a template that hand-quotes the cursor as
+// "{{ .Cursor }}" instead of using {{ json .Cursor }} then renders invalid JSON
+// and is rejected at startup, rather than working until the API returns a token
+// containing one of those characters.
+const sampleCursor = `sample"cursor\token`
+
+// requestBodyFuncs are the functions a request_body template may call.
+var requestBodyFuncs = template.FuncMap{
+	// json renders a value as a JSON literal: a quoted, escaped string for a
+	// string, a bare number for a number. Use it for every string field.
+	//
+	// HTML escaping is off so a value containing <, > or & is transmitted
+	// literally rather than as < and friends.
+	"json": func(v any) (string, error) {
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(v); err != nil {
+			return "", err
+		}
+		// Encode appends a newline; drop it so the literal is byte-exact.
+		return string(bytes.TrimRight(buf.Bytes(), "\n")), nil
+	},
+}
 
 // parseRequestBodyTemplate parses a request_body template. The template renders
 // against requestBodyData, so a reference to a field that does not exist fails
 // when it is executed rather than here.
 func parseRequestBodyTemplate(body string) (*template.Template, error) {
-	return template.New(requestBodyTemplateName).Parse(body)
+	return template.New(requestBodyTemplateName).Funcs(requestBodyFuncs).Parse(body)
 }
 
 // renderRequestBody renders the template for one request.
@@ -50,11 +73,13 @@ func renderRequestBody(tmpl *template.Template, data requestBodyData) ([]byte, e
 // request — requiring valid JSON both times.
 //
 // Rendering both cases is what makes templating safe to hand to users: it
-// catches the two mistakes the syntax actually invites, at startup rather than
-// on every poll. A dangling comma inside a {{ if .Cursor }} guard only produces
-// invalid JSON in one of the two cases, and an unquoted value that is not a
-// legal JSON number only shows up once rendered. Because requestBodyData is a
-// struct, a misspelled field such as {{ .Cursr }} also fails here.
+// catches the mistakes the syntax invites, at startup rather than on every poll.
+// A dangling comma inside a {{ if .Cursor }} guard only produces invalid JSON in
+// one of the two cases; an unquoted value that is not a legal JSON number only
+// shows up once rendered; and a hand-quoted "{{ .Cursor }}" only breaks on a
+// token containing a quote, which is why sampleCursor contains one. Because
+// requestBodyData is a struct, a misspelled field such as {{ .Cursr }} also
+// fails here.
 func validateRequestBodyTemplate(cfg *Config) error {
 	if cfg.RequestBody == "" {
 		return nil
@@ -87,7 +112,9 @@ func validateRequestBodyTemplate(cfg *Config) error {
 			return fmt.Errorf("request_body template failed to render the %s request: %w", sample.label, err)
 		}
 		if !json.Valid(rendered) {
-			return fmt.Errorf("request_body must render to valid JSON, but the %s request rendered: %s", sample.label, string(rendered))
+			return fmt.Errorf("request_body must render to valid JSON, but the %s request rendered: %s "+
+				"(emit string fields with {{ json .Cursor }} rather than \"{{ .Cursor }}\")",
+				sample.label, string(rendered))
 		}
 	}
 

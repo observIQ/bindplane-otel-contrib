@@ -501,7 +501,7 @@ func TestIntegration_PostTemplate_CrowdStrike(t *testing.T) {
 		RequestBody: `{
 			"filter": "status:'new'",
 			"limit": {{ .Limit }}{{ if .Cursor }},
-			"after": "{{ .Cursor }}"{{ end }}
+			"after": {{ json .Cursor }}{{ end }}
 		}`,
 		Pagination: PaginationConfig{
 			Mode: paginationModeOffsetLimit,
@@ -574,7 +574,7 @@ func TestIntegration_PostTemplate_Datadog(t *testing.T) {
 			"sort": "-timestamp",
 			"page": {
 				"limit": {{ .Limit }}{{ if .Cursor }},
-				"cursor": "{{ .Cursor }}"{{ end }}
+				"cursor": {{ json .Cursor }}{{ end }}
 			}
 		}`,
 		Pagination: PaginationConfig{
@@ -650,9 +650,9 @@ func TestIntegration_PostTemplate_Mimecast(t *testing.T) {
 		RequestBody: `{
 			"meta": {"pagination": {
 				"pageSize": {{ .Limit }}{{ if .Cursor }},
-				"pageToken": "{{ .Cursor }}"{{ end }}
+				"pageToken": {{ json .Cursor }}{{ end }}
 			}},
-			"data": [{"start": "{{ .StartTime }}", "query": "attachment"}]
+			"data": [{"start": {{ json .StartTime }}, "query": "attachment"}]
 		}`,
 		Pagination: PaginationConfig{
 			Mode: paginationModeOffsetLimit,
@@ -711,7 +711,7 @@ func TestIntegration_PostTemplate_Metrics(t *testing.T) {
 		ResponseField: "resources",
 		AuthMode:      authModeNone,
 		RequestBody: `{"metric_filter": "cpu", "limit": {{ .Limit }}` +
-			`{{ if .Cursor }}, "after": "{{ .Cursor }}"{{ end }}}`,
+			`{{ if .Cursor }}, "after": {{ json .Cursor }}{{ end }}}`,
 		Pagination: PaginationConfig{
 			Mode: paginationModeOffsetLimit,
 			OffsetLimit: OffsetLimitPagination{

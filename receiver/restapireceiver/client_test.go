@@ -31,13 +31,18 @@ import (
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/confighttp"
 	"go.opentelemetry.io/collector/config/configopaque"
+	"go.uber.org/zap"
 )
 
-// getJSON calls defaultRESTAPIClient.GetJSON, which is deliberately off the
-// restAPIClient interface but remains the vehicle for the auth-mode coverage
-// below.
-func getJSON(ctx context.Context, c restAPIClient, requestURL string, params url.Values) ([]map[string]any, error) {
-	return c.(*defaultRESTAPIClient).GetJSON(ctx, apiRequest{URL: requestURL, Query: params})
+// fetchDataArray issues a request and extracts the array of items from the
+// response the same way the receiver does, so the auth-mode tests below cover
+// the production request path.
+func fetchDataArray(ctx context.Context, c restAPIClient, requestURL string, params url.Values) ([]map[string]any, error) {
+	resp, _, err := c.FetchFullResponse(ctx, apiRequest{URL: requestURL, Query: params})
+	if err != nil {
+		return nil, err
+	}
+	return extractDataFromResponse(resp, c.(*defaultRESTAPIClient).cfg.ResponseField, zap.NewNop()), nil
 }
 
 func TestNewRESTAPIClient(t *testing.T) {
@@ -79,7 +84,7 @@ func TestNewRESTAPIClient(t *testing.T) {
 	}
 }
 
-func TestRESTAPIClient_GetJSON_NoAuth(t *testing.T) {
+func TestRESTAPIClient_NoAuth(t *testing.T) {
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify API key header is set
@@ -113,7 +118,7 @@ func TestRESTAPIClient_GetJSON_NoAuth(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := getJSON(ctx, client, server.URL, params)
+	data, err := fetchDataArray(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 2)
 	require.Equal(t, "1", data[0]["id"])
@@ -122,7 +127,7 @@ func TestRESTAPIClient_GetJSON_NoAuth(t *testing.T) {
 	require.Equal(t, "test2", data[1]["name"])
 }
 
-func TestRESTAPIClient_GetJSON_NoAuthMode(t *testing.T) {
+func TestRESTAPIClient_NoAuthMode(t *testing.T) {
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify no Authorization header is set
@@ -151,14 +156,14 @@ func TestRESTAPIClient_GetJSON_NoAuthMode(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := getJSON(ctx, client, server.URL, params)
+	data, err := fetchDataArray(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 	require.Equal(t, "1", data[0]["id"])
 	require.Equal(t, "public-data", data[0]["name"])
 }
 
-func TestRESTAPIClient_GetJSON_APIKeyAuth(t *testing.T) {
+func TestRESTAPIClient_APIKeyAuth(t *testing.T) {
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify API key header
@@ -190,12 +195,12 @@ func TestRESTAPIClient_GetJSON_APIKeyAuth(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := getJSON(ctx, client, server.URL, params)
+	data, err := fetchDataArray(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
 
-func TestRESTAPIClient_GetJSON_BearerAuth(t *testing.T) {
+func TestRESTAPIClient_BearerAuth(t *testing.T) {
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify bearer token
@@ -226,12 +231,12 @@ func TestRESTAPIClient_GetJSON_BearerAuth(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := getJSON(ctx, client, server.URL, params)
+	data, err := fetchDataArray(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
 
-func TestRESTAPIClient_GetJSON_BearerAuth_HeaderPrefix(t *testing.T) {
+func TestRESTAPIClient_BearerAuth_HeaderPrefix(t *testing.T) {
 	// The prefix is used verbatim: nothing is inserted between it and the token.
 	testCases := []struct {
 		name           string
@@ -287,14 +292,14 @@ func TestRESTAPIClient_GetJSON_BearerAuth_HeaderPrefix(t *testing.T) {
 			client, err := newRESTAPIClient(ctx, componenttest.NewNopTelemetrySettings(), cfg, componenttest.NewNopHost())
 			require.NoError(t, err)
 
-			data, err := getJSON(ctx, client, server.URL, url.Values{})
+			data, err := fetchDataArray(ctx, client, server.URL, url.Values{})
 			require.NoError(t, err)
 			require.Len(t, data, 1)
 		})
 	}
 }
 
-func TestRESTAPIClient_GetJSON_BasicAuth(t *testing.T) {
+func TestRESTAPIClient_BasicAuth(t *testing.T) {
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify basic auth
@@ -329,12 +334,12 @@ func TestRESTAPIClient_GetJSON_BasicAuth(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := getJSON(ctx, client, server.URL, params)
+	data, err := fetchDataArray(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
 
-func TestRESTAPIClient_GetJSON_OAuth2Auth(t *testing.T) {
+func TestRESTAPIClient_OAuth2Auth(t *testing.T) {
 	// Create a mock OAuth2 token server
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify it's a token request
@@ -404,12 +409,12 @@ func TestRESTAPIClient_GetJSON_OAuth2Auth(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := getJSON(ctx, client, apiServer.URL, params)
+	data, err := fetchDataArray(ctx, client, apiServer.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
 
-func TestRESTAPIClient_GetJSON_OAuth2Auth_HeaderPrefix(t *testing.T) {
+func TestRESTAPIClient_OAuth2Auth_HeaderPrefix(t *testing.T) {
 	// Mirrors the Citrix Cloud API: a standard client_credentials exchange whose
 	// token is then sent under the non-standard "CwsAuth Bearer=" scheme.
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -460,12 +465,12 @@ func TestRESTAPIClient_GetJSON_OAuth2Auth_HeaderPrefix(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, componenttest.NewNopTelemetrySettings(), cfg, componenttest.NewNopHost())
 	require.NoError(t, err)
 
-	data, err := getJSON(ctx, client, apiServer.URL, url.Values{})
+	data, err := fetchDataArray(ctx, client, apiServer.URL, url.Values{})
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
 
-func TestRESTAPIClient_GetJSON_OAuth2Auth_WithScopes(t *testing.T) {
+func TestRESTAPIClient_OAuth2Auth_WithScopes(t *testing.T) {
 	// Create a mock OAuth2 token server
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Parse form data
@@ -519,12 +524,12 @@ func TestRESTAPIClient_GetJSON_OAuth2Auth_WithScopes(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := getJSON(ctx, client, apiServer.URL, params)
+	data, err := fetchDataArray(ctx, client, apiServer.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
 
-func TestRESTAPIClient_GetJSON_AkamaiEdgeGridAuth(t *testing.T) {
+func TestRESTAPIClient_AkamaiEdgeGridAuth(t *testing.T) {
 	const (
 		clientToken  = "test-client-token"
 		accessToken  = "test-access-token"
@@ -572,7 +577,7 @@ func TestRESTAPIClient_GetJSON_AkamaiEdgeGridAuth(t *testing.T) {
 	// EscapedPath ("") disagree with server-side EscapedPath ("/").)
 	requestURL := server.URL + "/siem/v1/configs/102889"
 	params := url.Values{"limit": []string{"10"}, "offset": []string{"0"}}
-	data, err := getJSON(ctx, client, requestURL, params)
+	data, err := fetchDataArray(ctx, client, requestURL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 
@@ -630,7 +635,7 @@ func TestRESTAPIClient_GetJSON_AkamaiEdgeGridAuth(t *testing.T) {
 		"signature must match independent HMAC-SHA256 computation per EdgeGrid spec")
 }
 
-func TestRESTAPIClient_GetJSON_AkamaiEdgeGridAuth_AccountKey(t *testing.T) {
+func TestRESTAPIClient_AkamaiEdgeGridAuth_AccountKey(t *testing.T) {
 	var capturedQuery string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedQuery = r.URL.RawQuery
@@ -655,7 +660,7 @@ func TestRESTAPIClient_GetJSON_AkamaiEdgeGridAuth_AccountKey(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, componenttest.NewNopTelemetrySettings(), cfg, componenttest.NewNopHost())
 	require.NoError(t, err)
 
-	_, err = getJSON(ctx, client, server.URL, url.Values{"other": []string{"v"}})
+	_, err = fetchDataArray(ctx, client, server.URL, url.Values{"other": []string{"v"}})
 	require.NoError(t, err)
 
 	q, err := url.ParseQuery(capturedQuery)
@@ -664,7 +669,7 @@ func TestRESTAPIClient_GetJSON_AkamaiEdgeGridAuth_AccountKey(t *testing.T) {
 	require.Equal(t, "v", q.Get("other"))
 }
 
-func TestRESTAPIClient_GetJSON_WithQueryParams(t *testing.T) {
+func TestRESTAPIClient_WithQueryParams(t *testing.T) {
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify query parameters
@@ -699,12 +704,12 @@ func TestRESTAPIClient_GetJSON_WithQueryParams(t *testing.T) {
 	params := url.Values{}
 	params.Set("param1", "value1")
 	params.Set("param2", "value2")
-	data, err := getJSON(ctx, client, server.URL, params)
+	data, err := fetchDataArray(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
 
-func TestRESTAPIClient_GetJSON_ResponseField(t *testing.T) {
+func TestRESTAPIClient_ResponseField(t *testing.T) {
 	// Create a test server that returns nested JSON
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
@@ -740,14 +745,14 @@ func TestRESTAPIClient_GetJSON_ResponseField(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := getJSON(ctx, client, server.URL, params)
+	data, err := fetchDataArray(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 2)
 	require.Equal(t, "1", data[0]["id"])
 	require.Equal(t, "test1", data[0]["name"])
 }
 
-func TestRESTAPIClient_GetJSON_HTTPError(t *testing.T) {
+func TestRESTAPIClient_HTTPError(t *testing.T) {
 	// Create a test server that returns error
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -773,13 +778,13 @@ func TestRESTAPIClient_GetJSON_HTTPError(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := getJSON(ctx, client, server.URL, params)
+	data, err := fetchDataArray(ctx, client, server.URL, params)
 	require.Error(t, err)
 	require.Nil(t, data)
 	require.Contains(t, err.Error(), "500")
 }
 
-func TestRESTAPIClient_GetJSON_InvalidJSON(t *testing.T) {
+func TestRESTAPIClient_InvalidJSON(t *testing.T) {
 	// Create a test server that returns invalid JSON
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -805,12 +810,12 @@ func TestRESTAPIClient_GetJSON_InvalidJSON(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := getJSON(ctx, client, server.URL, params)
+	data, err := fetchDataArray(ctx, client, server.URL, params)
 	require.Error(t, err)
 	require.Nil(t, data)
 }
 
-func TestRESTAPIClient_GetJSON_CustomHeaders(t *testing.T) {
+func TestRESTAPIClient_CustomHeaders(t *testing.T) {
 	// Create a test server that verifies custom headers
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify custom headers are set
@@ -846,7 +851,7 @@ func TestRESTAPIClient_GetJSON_CustomHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := getJSON(ctx, client, server.URL, params)
+	data, err := fetchDataArray(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
@@ -888,7 +893,7 @@ func TestRESTAPIClient_GetFullResponse_CustomHeaders(t *testing.T) {
 	require.NotNil(t, data)
 }
 
-func TestRESTAPIClient_GetJSON_SensitiveHeaders(t *testing.T) {
+func TestRESTAPIClient_SensitiveHeaders(t *testing.T) {
 	// Create a test server that verifies sensitive headers are sent
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify sensitive header is set
@@ -924,7 +929,7 @@ func TestRESTAPIClient_GetJSON_SensitiveHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := getJSON(ctx, client, server.URL, params)
+	data, err := fetchDataArray(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 }
@@ -1290,7 +1295,7 @@ func TestRESTAPIClient_GetFullResponse_ReturnsHeaders(t *testing.T) {
 	require.Equal(t, "page2", headers.Get("X-Next-Cursor"))
 }
 
-func TestRESTAPIClient_GetJSON_EmptyArray(t *testing.T) {
+func TestRESTAPIClient_EmptyArray(t *testing.T) {
 	// Create a test server that returns empty array
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := []map[string]any{}
@@ -1317,7 +1322,7 @@ func TestRESTAPIClient_GetJSON_EmptyArray(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, err := getJSON(ctx, client, server.URL, params)
+	data, err := fetchDataArray(ctx, client, server.URL, params)
 	require.NoError(t, err)
 	require.NotNil(t, data)
 	require.Len(t, data, 0)

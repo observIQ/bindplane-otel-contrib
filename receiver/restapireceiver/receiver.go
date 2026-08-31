@@ -248,8 +248,8 @@ func (b *baseReceiver) adjustPollInterval(result pollResult) {
 //   - page_size, page_limit — throughput knobs, not query-defining.
 //   - response_source, field names for reading responses — how to parse, not what to fetch.
 //   - Auth, headers, poll intervals, storage ID, response format, metrics config.
-//   - method and param_location — these change how the same values are
-//     transmitted, not what is fetched; same rationale as the param names.
+//   - method — changes how the same values are transmitted, not what is
+//     fetched; same rationale as the param names.
 //   - pagination.offset_limit.limit — a throughput knob, like page_size.
 //
 // It DOES include request_body, which is query-defining.

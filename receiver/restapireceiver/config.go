@@ -512,7 +512,12 @@ func oldKeyDisplay(key string) string {
 	return strings.ReplaceAll(key, "::", ".")
 }
 
-// Validate validates the configuration.
+// Validate validates the configuration and applies defaults for unset fields.
+//
+// It does not re-check the closed-set enums (auth_mode, method, response_format,
+// response_source, pagination.mode). Each one's UnmarshalText rejects an invalid
+// value while the config is being decoded, which is the only way one can reach a
+// running receiver.
 func (c *Config) Validate() error {
 	if c.URL == "" {
 		return fmt.Errorf("url is required")
@@ -523,25 +528,9 @@ func (c *Config) Validate() error {
 		c.ResponseFormat = responseFormatJSON
 	}
 
-	// Validate response format
-	switch c.ResponseFormat {
-	case responseFormatJSON, responseFormatNDJSON:
-		// Valid formats
-	default:
-		return fmt.Errorf("invalid response_format: %s, must be one of: json, ndjson", c.ResponseFormat)
-	}
-
 	// Apply default method
 	if c.Method == "" {
 		c.Method = methodGET
-	}
-
-	// Validate method
-	switch c.Method {
-	case methodGET, methodPOST:
-		// Valid methods
-	default:
-		return fmt.Errorf("invalid method: %s, must be one of: get, post", c.Method)
 	}
 
 	// A GET with a body has undefined semantics and is dropped or rejected by
@@ -554,14 +543,6 @@ func (c *Config) Validate() error {
 	// Validate auth
 	if c.AuthMode == "" {
 		return fmt.Errorf("auth is required")
-	}
-
-	// Validate auth mode
-	switch c.AuthMode {
-	case authModeNone, authModeAPIKey, authModeBearer, authModeBasic, authModeOAuth2, authModeAkamaiEdgeGrid:
-		// Valid modes
-	default:
-		return fmt.Errorf("invalid auth mode: %s, must be one of: none, apikey, bearer, basic, oauth2, akamai_edgegrid", c.AuthMode)
 	}
 
 	// Validate auth mode specific requirements
@@ -659,25 +640,9 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// Validate pagination mode
-	switch c.Pagination.Mode {
-	case paginationModeNone, paginationModeOffsetLimit, paginationModePageSize, paginationModeTimestamp:
-		// Valid modes
-	default:
-		return fmt.Errorf("invalid pagination mode: %s, must be one of: none, offset_limit, page_size, timestamp", c.Pagination.Mode)
-	}
-
 	// Default response_source to body
 	if c.Pagination.ResponseSource == "" {
 		c.Pagination.ResponseSource = responseSourceBody
-	}
-
-	// Validate response_source
-	switch c.Pagination.ResponseSource {
-	case responseSourceBody, responseSourceHeader:
-		// Valid
-	default:
-		return fmt.Errorf("invalid response_source: %s, must be one of: body, header", c.Pagination.ResponseSource)
 	}
 
 	// The *_param_name / *_field_name settings name query-string parameters. A
@@ -814,14 +779,8 @@ func (c *Config) validateTimestampValue(value, fieldName string) error {
 // json.Number carries its contents verbatim without validating them, so an
 // illegal value would otherwise fail at marshal time rather than config time.
 func isValidJSONNumber(s string) bool {
-	if s == "" {
-		return false
-	}
-	// Reject non-number starts so a quoted string or "true" cannot pass json.Valid.
-	if c := s[0]; c != '-' && (c < '0' || c > '9') {
-		return false
-	}
-	return json.Valid([]byte(s))
+	var n json.Number
+	return json.Unmarshal([]byte(s), &n) == nil
 }
 
 // parseConfigTimestamp parses a user-configured timestamp value into a time.Time

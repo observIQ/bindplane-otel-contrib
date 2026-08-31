@@ -139,7 +139,7 @@ request_body: |
   {
     "filter": "status:'new'",
     "limit": {{ .Limit }}{{ if .Cursor }},
-    "after": "{{ .Cursor }}"{{ end }}
+    "after": {{ json .Cursor }}{{ end }}
   }
 ```
 
@@ -159,16 +159,22 @@ lets you place each value exactly where the API expects it, at any depth.
 | `.StartTime` | string | The start time bound, formatted per `timestamp_format`. |
 | `.EndTime`   | string | The end time bound, formatted per `timestamp_format`. |
 
-**Quoting decides the JSON type.** `"{{ .Cursor }}"` emits a JSON string; `{{ .Limit }}` emits a
-bare number. String values are escaped, so a cursor containing a quote or backslash still
-produces valid JSON. With an epoch `timestamp_format`, `{{ .StartTime }}` can be used unquoted
-to send a numeric timestamp.
+**Emit string fields with `{{ json . }}`.** The `json` function renders a value as a JSON
+literal — a quoted, escaped string for a string, a bare number for a number — so
+`"after": {{ json .Cursor }}` is always valid, even when the token contains a quote or a
+backslash. Values reach the template unescaped, so hand-quoting as `"{{ .Cursor }}"` produces a
+broken body the moment a real token contains one of those characters; the startup check below
+rejects that form outright.
+
+Numeric fields are safe bare: `"limit": {{ .Limit }}` emits a JSON number. With an epoch
+`timestamp_format`, `{{ .StartTime }}` can also be used bare to send a numeric timestamp.
 
 **The template is validated at startup.** The receiver renders it twice — once as the first
-request of a run and once as a continuation request — and rejects the config unless both render
-to valid JSON. That catches a comma left dangling outside an `{{ if .Cursor }}` guard, a value
-left unquoted that isn't a legal JSON number, and a misspelled field such as `{{ .Cursr }}`,
-rather than letting them fail on every poll.
+request of a run and once as a continuation request, using a sample cursor that contains a
+quote and a backslash — and rejects the config unless both render to valid JSON. That catches a
+comma left dangling outside an `{{ if .Cursor }}` guard, a string field emitted bare or
+hand-quoted, and a misspelled field such as `{{ .Cursr }}`, rather than letting them fail on
+every poll.
 
 **Query parameters are independent.** Values also reach the query string through the
 `*_param_name` and `*_field_name` settings, exactly as they do for GET. When a `request_body`
@@ -423,7 +429,7 @@ receivers:
         "filter": "product:'epp'+status:'new'",
         "sort": "created_timestamp|asc",
         "limit": {{ .Limit }}{{ if .Cursor }},
-        "after": "{{ .Cursor }}"{{ end }}
+        "after": {{ json .Cursor }}{{ end }}
       }
     pagination:
       mode: offset_limit
@@ -458,7 +464,7 @@ receivers:
         "sort": "timestamp",
         "page": {
           "limit": {{ .Limit }}{{ if .Cursor }},
-          "cursor": "{{ .Cursor }}"{{ end }}
+          "cursor": {{ json .Cursor }}{{ end }}
         }
       }
     pagination:

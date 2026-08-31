@@ -15,7 +15,6 @@
 package restapireceiver
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -599,10 +598,12 @@ func requestStartTime(cfg *Config, state *paginationState) string {
 
 // requestBodyData is the value set a request_body template renders against.
 //
-// String fields are escaped for use inside a JSON string literal, so
-// "{{ .Cursor }}" is always valid JSON even when the token contains a quote or
-// backslash. Numeric fields render bare so they can be used unquoted as JSON
-// numbers.
+// Values are raw and unescaped, so escaping is explicit at the call site: emit a
+// string field with {{ json .Cursor }}, which quotes and escapes it. Numeric
+// fields are safe bare — {{ .Limit }} renders a JSON number. Hand-quoting a
+// string as "{{ .Cursor }}" breaks the body as soon as the value contains a
+// quote or backslash, which is why validateRequestBodyTemplate renders with a
+// sample cursor that contains both.
 type requestBodyData struct {
 	// Cursor is the opaque next-offset token. Empty on the first page of a run,
 	// so a template can guard the field with {{ if .Cursor }}.
@@ -624,26 +625,12 @@ type requestBodyData struct {
 // may reference for the next request.
 func newRequestBodyData(cfg *Config, state *paginationState) requestBodyData {
 	return requestBodyData{
-		Cursor:    jsonEscapeString(state.CurrentOffsetToken),
+		Cursor:    state.CurrentOffsetToken,
 		Offset:    state.CurrentOffset,
 		Limit:     state.Limit,
 		Page:      state.CurrentPage,
 		PageSize:  state.PageSize,
-		StartTime: jsonEscapeString(requestStartTime(cfg, state)),
-		EndTime:   jsonEscapeString(state.ResolvedEndTime),
+		StartTime: requestStartTime(cfg, state),
+		EndTime:   state.ResolvedEndTime,
 	}
-}
-
-// jsonEscapeString escapes s for use inside a JSON string literal, without the
-// surrounding quotes. Epoch and RFC3339 timestamps pass through unchanged, so a
-// template may also use them unquoted as bare JSON numbers.
-func jsonEscapeString(s string) string {
-	if s == "" {
-		return ""
-	}
-	encoded, err := json.Marshal(s)
-	if err != nil {
-		return s
-	}
-	return string(encoded[1 : len(encoded)-1])
 }

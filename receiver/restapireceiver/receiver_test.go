@@ -1664,7 +1664,7 @@ func TestBuildAPIRequest(t *testing.T) {
 		cfg := &Config{
 			URL:         "https://api.example.com/alerts",
 			Method:      methodPOST,
-			RequestBody: `{"filter":"status:'new'","limit":{{ .Limit }}{{ if .Cursor }},"after":"{{ .Cursor }}"{{ end }}}`,
+			RequestBody: `{"filter":"status:'new'","limit":{{ .Limit }}{{ if .Cursor }},"after":{{ json .Cursor }}{{ end }}}`,
 			Pagination: PaginationConfig{
 				Mode:        paginationModeOffsetLimit,
 				OffsetLimit: OffsetLimitPagination{Limit: 100, NextOffsetFieldName: "meta.after"},
@@ -1720,7 +1720,7 @@ func TestBuildAPIRequest(t *testing.T) {
 		cfg := &Config{
 			URL:         "https://api.example.com/alerts",
 			Method:      methodPOST,
-			RequestBody: `{"after":"{{ .Cursor }}"}`,
+			RequestBody: `{"after":{{ json .Cursor }}}`,
 			Pagination: PaginationConfig{
 				Mode:        paginationModeOffsetLimit,
 				OffsetLimit: OffsetLimitPagination{NextOffsetFieldName: "meta.after"},

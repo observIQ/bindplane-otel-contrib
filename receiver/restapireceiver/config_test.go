@@ -80,17 +80,6 @@ func TestConfig_Validate(t *testing.T) {
 			expectedErr: "",
 		},
 		{
-			name: "invalid auth mode",
-			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: AuthMode("invalid"),
-				Pagination: PaginationConfig{
-					Mode: paginationModeNone,
-				},
-			},
-			expectedErr: "invalid auth mode: invalid, must be one of: none, apikey, bearer, basic, oauth2, akamai_edgegrid",
-		},
-		{
 			name: "apikey auth missing header name",
 			config: &Config{
 				URL:      "https://api.example.com/data",
@@ -445,33 +434,6 @@ func TestConfig_Validate(t *testing.T) {
 				},
 			},
 			expectedErr: "",
-		},
-		{
-			name: "invalid response format",
-			config: &Config{
-				URL:            "https://api.example.com/data",
-				ResponseFormat: ResponseFormat("xml"),
-				AuthMode:       authModeNone,
-				Pagination: PaginationConfig{
-					Mode: paginationModeNone,
-				},
-			},
-			expectedErr: "invalid response_format: xml, must be one of: json, ndjson",
-		},
-		{
-			name: "invalid pagination mode",
-			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: authModeAPIKey,
-				APIKeyConfig: APIKeyConfig{
-					HeaderName: "X-API-Key",
-					Value:      "test-key",
-				},
-				Pagination: PaginationConfig{
-					Mode: PaginationMode("invalid"),
-				},
-			},
-			expectedErr: "invalid pagination mode: invalid, must be one of: none, offset_limit, page_size, timestamp",
 		},
 		{
 			name: "offset_limit pagination missing offset field name",
@@ -1414,18 +1376,6 @@ func TestConfig_Validate(t *testing.T) {
 			expectedErr: "",
 		},
 		{
-			name: "invalid method",
-			config: &Config{
-				URL:      "https://api.example.com/data",
-				Method:   Method("put"),
-				AuthMode: authModeNone,
-				Pagination: PaginationConfig{
-					Mode: paginationModeNone,
-				},
-			},
-			expectedErr: "invalid method: put, must be one of: get, post",
-		},
-		{
 			name: "request_body rejected with get",
 			config: &Config{
 				URL:         "https://api.example.com/data",
@@ -1515,7 +1465,7 @@ func TestConfig_Validate(t *testing.T) {
 				URL:         "https://api.example.com/alerts",
 				Method:      methodPOST,
 				AuthMode:    authModeNone,
-				RequestBody: `{"limit": {{ .Limit }}{{ if .Cursor }}, "after": "{{ .Cursor }}"{{ end }}}`,
+				RequestBody: `{"limit": {{ .Limit }}{{ if .Cursor }}, "after": {{ json .Cursor }}{{ end }}}`,
 				Pagination: PaginationConfig{
 					Mode: paginationModeOffsetLimit,
 					OffsetLimit: OffsetLimitPagination{
@@ -1782,10 +1732,18 @@ func TestIsValidJSONNumber(t *testing.T) {
 		require.True(t, isValidJSONNumber(v), "%q should be a valid JSON number", v)
 	}
 
-	invalid := []string{"", "+1704067200", "1704067200.", ".5", "0x10", "abc", `"123"`, "true", "1 2", "--1"}
+	// The two forms this check exists for: parseConfigTimestamp accepts both, JSON does not.
+	invalid := []string{"", "+1704067200", "1704067200.", ".5", "0x10", "abc", "true", "1 2", "--1"}
 	for _, v := range invalid {
 		require.False(t, isValidJSONNumber(v), "%q should not be a valid JSON number", v)
 	}
+
+	// A quoted string decodes into json.Number, so this reports true. It cannot
+	// reach the check: validateTimestampValue runs parseConfigTimestamp first,
+	// and that rejects anything strconv.ParseInt will not take.
+	require.True(t, isValidJSONNumber(`"123"`))
+	cfg := &Config{TimestampFormat: epochSeconds}
+	require.Error(t, cfg.validateTimestampValue(`"123"`, "start_time_value"))
 }
 
 // TestEpochTimeBoundsMarshalIntoRequestBody guards the bug isValidJSONNumber
@@ -1825,6 +1783,70 @@ func TestEpochTimeBoundsMarshalIntoRequestBody(t *testing.T) {
 			require.Contains(t, string(body), value)
 			// A bare JSON number, not a quoted string.
 			require.NotContains(t, string(body), `"`+value+`"`)
+		})
+	}
+}
+
+// TestEnums_UnmarshalText covers the closed-set enums at the point they are
+// actually enforced. Validate deliberately does not re-check them: an invalid
+// value is rejected while the config is being decoded, which is the only way one
+// can reach a running receiver.
+func TestEnums_UnmarshalText(t *testing.T) {
+	t.Run("auth_mode", func(t *testing.T) {
+		var m AuthMode
+		require.NoError(t, m.UnmarshalText([]byte("oauth2")))
+		require.Equal(t, authModeOAuth2, m)
+		require.EqualError(t, m.UnmarshalText([]byte("invalid")),
+			"invalid auth mode: invalid, must be one of: none, apikey, bearer, basic, oauth2, akamai_edgegrid")
+	})
+
+	t.Run("response_format", func(t *testing.T) {
+		var f ResponseFormat
+		require.NoError(t, f.UnmarshalText([]byte("ndjson")))
+		require.Equal(t, responseFormatNDJSON, f)
+		require.EqualError(t, f.UnmarshalText([]byte("xml")),
+			"invalid response_format: xml, must be one of: json, ndjson")
+	})
+
+	t.Run("response_source", func(t *testing.T) {
+		var src ResponseSource
+		require.NoError(t, src.UnmarshalText([]byte("header")))
+		require.Equal(t, responseSourceHeader, src)
+		require.EqualError(t, src.UnmarshalText([]byte("trailer")),
+			"invalid response_source: trailer, must be one of: body, header")
+	})
+
+	t.Run("pagination mode", func(t *testing.T) {
+		var m PaginationMode
+		require.NoError(t, m.UnmarshalText([]byte("timestamp")))
+		require.Equal(t, paginationModeTimestamp, m)
+		require.EqualError(t, m.UnmarshalText([]byte("invalid")),
+			"invalid pagination mode: invalid, must be one of: none, offset_limit, page_size, timestamp")
+	})
+}
+
+// TestEnums_RejectedWhenDecoded is the end-to-end guarantee behind dropping the
+// Validate re-checks: a bad enum in a config file fails while it is unmarshaled,
+// before Validate is ever reached.
+func TestEnums_RejectedWhenDecoded(t *testing.T) {
+	testCases := []struct {
+		key   string
+		value string
+	}{
+		{"auth_mode", "invalid"},
+		{"response_format", "xml"},
+		{"method", "put"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.key, func(t *testing.T) {
+			cm := confmap.NewFromStringMap(map[string]any{
+				"url":  "https://api.example.com/data",
+				tc.key: tc.value,
+			})
+			err := cm.Unmarshal(createDefaultConfig().(*Config))
+			require.Error(t, err, "an invalid %s must be rejected at decode time", tc.key)
+			require.Contains(t, err.Error(), tc.value)
 		})
 	}
 }

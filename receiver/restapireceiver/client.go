@@ -192,62 +192,6 @@ func (c *defaultRESTAPIClient) do(ctx context.Context, r apiRequest) ([]byte, ht
 	return body, resp.Header, nil
 }
 
-// GetJSON fetches JSON data and extracts the array of items from it.
-//
-// Not part of restAPIClient and unused by the receiver, which goes through
-// FetchFullResponse and extractDataFromResponse. Retained as the vehicle for
-// the client's authentication-mode test coverage.
-func (c *defaultRESTAPIClient) GetJSON(ctx context.Context, r apiRequest) ([]map[string]any, error) {
-	body, _, err := c.do(ctx, r)
-	if err != nil {
-		return nil, err
-	}
-
-	// Parse JSON
-	var jsonData any
-	if err := jsoniter.Unmarshal(body, &jsonData); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
-	}
-
-	// Extract the array from the response
-	var dataArray []any
-	if c.responseField != "" {
-		// Response has a field containing the array
-		responseMap, ok := jsonData.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("response is not a JSON object when response_field is set")
-		}
-		fieldValue, ok := responseMap[c.responseField]
-		if !ok {
-			return nil, fmt.Errorf("response field '%s' not found in response", c.responseField)
-		}
-		dataArray, ok = fieldValue.([]any)
-		if !ok {
-			return nil, fmt.Errorf("response field '%s' is not an array", c.responseField)
-		}
-	} else {
-		// Response is directly an array
-		var ok bool
-		dataArray, ok = jsonData.([]any)
-		if !ok {
-			return nil, fmt.Errorf("response is not a JSON array")
-		}
-	}
-
-	// Convert []any to []map[string]any
-	result := make([]map[string]any, 0, len(dataArray))
-	for _, item := range dataArray {
-		itemMap, ok := item.(map[string]any)
-		if !ok {
-			c.logger.Warn("skipping non-object item in array", zap.Any("item", item))
-			continue
-		}
-		result = append(result, itemMap)
-	}
-
-	return result, nil
-}
-
 // FetchFullResponse fetches the full JSON response for the given request.
 func (c *defaultRESTAPIClient) FetchFullResponse(ctx context.Context, r apiRequest) (map[string]any, http.Header, error) {
 	body, headers, err := c.do(ctx, r)

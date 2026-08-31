@@ -1874,15 +1874,13 @@ func TestNewRequestBodyData(t *testing.T) {
 		require.Empty(t, newRequestBodyData(cfg, newPaginationState(cfg)).Cursor)
 	})
 
-	t.Run("string values are escaped for a JSON string literal", func(t *testing.T) {
+	t.Run("string values are raw, not escaped", func(t *testing.T) {
+		// Escaping is explicit at the call site via {{ json . }}, so the data
+		// itself carries the token verbatim.
 		cfg := &Config{Pagination: PaginationConfig{Mode: paginationModeOffsetLimit}}
 		state := &paginationState{CurrentOffsetToken: `a"b\c`}
 
-		data := newRequestBodyData(cfg, state)
-		require.Equal(t, `a\"b\\c`, data.Cursor)
-
-		// The whole point: the escaped form is safe to interpolate inside quotes.
-		require.True(t, json.Valid([]byte(`{"after":"`+data.Cursor+`"}`)))
+		require.Equal(t, `a"b\c`, newRequestBodyData(cfg, state).Cursor)
 	})
 
 	t.Run("timestamp mode advances the start time", func(t *testing.T) {

@@ -42,9 +42,6 @@ func createDefaultConfig() component.Config {
 		URL:      "",
 		Method:   methodGET,
 		AuthMode: authModeNone,
-		// ParamLocation is deliberately left empty: Validate() derives it from the
-		// method. Seeding it here would make that derivation dead code, silently
-		// giving a "method: post" config query-string pagination.
 		Pagination: PaginationConfig{
 			Mode:           paginationModeNone,
 			PageLimit:      0,
