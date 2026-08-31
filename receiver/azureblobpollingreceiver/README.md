@@ -36,7 +36,7 @@ Unlike the `azureblobrehydrationreceiver` which is a one-time rehydration receiv
    - The receiver calculates a dynamic time window from the last poll time to now
    - It streams blobs from Azure Blob Storage in the specified container
    - Each blob path is parsed to extract the timestamp and telemetry type
-   - Blobs within the time window and matching the receiver's telemetry type are downloaded and processed
+   - Blobs within the time window and matching the receiver's telemetry type are downloaded and processed (append-growable formats can be read incrementally when `enable_incremental_read` is set; see [Incremental reading](#incremental-reading-of-append-growable-blobs))
    - The checkpoint is updated with the current poll time and processed blobs
 4. The cycle repeats continuously until the collector is shut down.
 
@@ -48,15 +48,48 @@ The receiver automatically manages time windows:
 - **Subsequent Polls**: Uses the timestamp of the last successful poll as the start time, and the current time as the end time
 - **After Restart**: If a checkpoint exists, resumes from the last poll time; otherwise, uses `initial_lookback` again
 
+### Incremental reading of append-growable blobs
+
+Incremental reading is opt-in. Set `enable_incremental_read: true` to turn it on for the `records-json` and `json` formats. When it is off (the default), every format keeps the legacy behavior of parsing each blob whole on every poll and deduping by name, which loses records appended to a blob after it is first read.
+
+> **Temporary flag.** `enable_incremental_read` exists so the incremental path can be adopted gradually. It will become the default and then be removed once the path is proven, at which point the legacy whole-blob behavior goes away.
+
+> **Enabling on an existing deployment re-reads recent blobs once.** Turning the flag on starts per-blob offset tracking from scratch, and the widened revisit window (see below) re-lists blobs the legacy path already consumed. On the first incremental poll each such blob is read once from the beginning, so already-ingested records are delivered again (delivery is at-least-once). This is a one-time cost at the switchover, bounded by `incremental_revisit_window`.
+
+> **Turning the flag back off resumes legacy semantics from the current poll time.** The incremental path advances the poll-time watermark every poll, so after disabling the flag the legacy path windows from the recent poll time, not the pre-incremental one. It re-reads only blobs whose blob-time falls in that window (a small duplication), and a blob still growing at the switch is read whole once and deduped by name, so its later appends are not ingested. Prefer switching the flag while blobs are quiescent.
+
+> **Changing `blob_format` (or `enable_per_line_text`) with a persisted checkpoint is unsupported.** Stored per-blob offsets are byte positions under the old framing; reusing them under a different framing can mis-frame a blob still being tracked. Change the format only with a fresh checkpoint (a new `storage` key, or after tracked blobs have sealed).
+
+With the flag set, the `records-json` and `json` formats are read **incrementally**. Some sources grow a blob in place instead of writing it once: Azure NSG/VNet flow logs, for example, write one `PT1H.json` per hour and append records to it every minute for the whole hour. For these formats the receiver reads only the bytes added since its last read, tracked per blob, so records appended after a blob first appears are still ingested, and already-consumed bytes are not re-read in normal operation (delivery is at-least-once).
+
+To do this the receiver:
+
+- **Revisits growing blobs.** Each poll looks back an extra `incremental_revisit_window` (default 2h) on top of the normal poll window, so a blob whose path time has already left the narrow window is still re-listed until it stops growing. A blob is treated as sealed once it has had no observed change for that window, which is also when it is deleted under `delete_on_read`. On the **first poll** this widening also applies on top of `initial_lookback`, so the first poll effectively looks back at least `incremental_revisit_window` even when `initial_lookback` is shorter. This is intentional (an hourly flow-log blob is typically already up to an hour old when first seen), but it means a small `initial_lookback` does not limit how far back the first incremental poll reaches; lower `incremental_revisit_window` if you need a tighter first-poll bound.
+  - **Path-time modes and long-lived blobs:** when blob time comes from the path (`time_pattern` or the default folder layout) rather than `use_last_modified`, a blob is re-listed only while its *path time* is within the widened window. A blob still appended to after its path time leaves that window is no longer re-listed, so it seals against its last observed change and later appends are not ingested (and under `delete_on_read` it can be deleted while still being written). Set `incremental_revisit_window` above the longest span a blob is appended to past its path time, or use `use_last_modified`, which re-lists on the live modified time and avoids this limit. The reverse case — a blob whose modified time falls slightly *before* its path time (clock skew, or a path that encodes the period end while the blob is written at the period start) — is absorbed by a small built-in tolerance (5 minutes) so minor skew does not seal a blob that is still listed; a larger gap remains subject to the limit above.
+- **Skips unchanged blobs cheaply.** A blob whose `LastModified` has not changed since the last read is skipped without a download.
+- **Detects replacement.** A short fingerprint of each blob's leading bytes is stored. If a blob is replaced or truncated so the fingerprint no longer matches, it is re-read from the start. Narrow exception (accepted limitation): a blob replaced *between* a poll's identity and delta reads whose new `LastModified` matches the old one to Azure's one-second granularity can be skipped by the mtime gate until its entry prunes; `use_last_modified`, or any source that bumps `LastModified` on rewrite, avoids it.
+- **Reads to the last complete record.** For `records-json` the receiver stops at the last complete record and leaves the array's closing `]}` in place, so a source that rewrites that footer as it appends cannot corrupt the read. For `json` it stops at the last newline, and flushes a final line written without a trailing newline once the blob stops growing.
+- **Is more lenient than the whole-blob path on a malformed document.** The whole-blob `records-json` parser rejects a document outright if its `records` array holds a non-object element. The incremental path instead emits the complete records before that element and quarantines the blob (keeping it, never deleting it under `delete_on_read`) rather than dropping everything.
+- **Bounds a blob that can never be finalized.** A blob whose seal-time flush or delete keeps failing is retried, but after the quarantine retention window (7 days) its checkpoint entry is dropped (the blob is left in Azure) so a persistent failure cannot grow the checkpoint without bound.
+
+Gzip-compressed blobs cannot be range-read, so they are read whole; incremental byte-offset reading requires uncompressed blobs. A gzip blob is re-read in full on any `LastModified` change, so incremental works best when gzip blobs are written once. Two limitations follow for a gzip blob that changes after its first read (rewritten larger, or an appended gzip member for `json`/NDJSON):
+
+- **Duplicate delivery.** Each growth re-reads and re-decompresses the whole blob, so already-delivered records are emitted again (at-least-once, not lost). Uncompressed blobs avoid this via byte-offset tracking; gzip cannot.
+- **Same-second final append.** Azure `LastModified` is second-grained, so a final append landing in the same clock second as the read that consumed the blob does not change `LastModified` and is not re-read. The uncompressed formats recover such an append with a final seal-time flush; the gzip path cannot range-tail, so under `delete_on_read` that last same-second append can be deleted unread.
+
+`otlp` blobs are written once rather than grown, so they too are read whole.
+
+Delivery is **at-least-once**: no record is lost, though a record may be delivered more than once (for example after a restart without a storage extension, or if a blob is rewritten). Use a [storage extension](#using-storage-extension-configuration) to persist per-blob progress across restarts.
+
 ### Checkpoint Management
 
 The receiver uses a checkpoint to track:
 
-- `LastPollTime`: The timestamp when the last poll completed successfully
-- `LastTs`: The timestamp from the last processed blob's path
-- `ParsedEntities`: A set of blob names already processed in the current time bucket
+- `LastPollTime`: the timestamp when the last poll completed successfully.
+- `LastTs` / `ParsedEntities`: for formats not read incrementally (`otlp`, and any format with `enable_incremental_read` off), the timestamp and set of blob names already processed in the current time bucket.
+- `Progress`: for the append-growable formats, the per-blob read offset, leading-byte fingerprint, and last-modified time used for [incremental reading](#incremental-reading-of-append-growable-blobs).
 
-This prevents duplicate processing of blobs and ensures data continuity across collector restarts.
+This prevents duplicate processing and, with a storage extension, preserves incremental read progress across collector restarts.
 
 ## Configuration
 
@@ -67,11 +100,15 @@ This prevents duplicate processing of blobs and ensures data continuity across c
 | poll_interval     | duration |                       | `true`   | The interval at which to poll for new blobs. Must be at least 1 minute. The receiver will continuously poll at this interval and collect blobs created since the last poll. |
 | root_folder       | string   |                       | `false`  | The root folder that prefixes the blob path. Should match the `root_folder` value of the Azure Blob Exporter. Supports glob patterns (`*`, `?`, `[...]`) to match multiple directories — see [Glob Root Folders](#glob-root-folders). |
 | initial_lookback  | duration | same as poll_interval | `false`  | The duration to look back on the first poll when no checkpoint exists. For example, if set to `1h`, on first startup the receiver will look for blobs from the last hour.   |
-| delete_on_read    | bool     | `false`               | `false`  | If `true` the blob will be deleted after being processed.                                                                                                                   |
+| delete_on_read    | bool     | `false`               | `false`  | If `true` the blob is deleted after it is processed. **Only when `enable_incremental_read` is set** is the delete deferred until the blob seals (no observed change for `incremental_revisit_window`), so a blob still being appended to is not deleted mid-stream; with the flag off the blob is deleted right after its first whole read, losing any later appends. If a source pauses writes for longer than that window mid-blob, the blob may be treated as sealed and deleted early, so size `incremental_revisit_window` above the longest expected write pause. |
 | storage           | string   |                       | `false`  | The component ID of a storage extension. The storage extension persists checkpoint data across collector restarts, ensuring no data loss or duplication.                    |
 | batch_size        | int      | `30`                  | `false`  | The number of blobs to download and process in the pipeline simultaneously. This parameter directly impacts performance by controlling the concurrent blob download limit.  |
 | page_size         | int      | `1000`                | `false`  | The maximum number of blob information to request in a single API call.                                                                                                     |
-| blob_format       | string   | `otlp`                | `false`  | The format of blob contents. Supported values: `otlp`, `json`, `text`. See [Blob Format](#blob-format) below.                                                              |
+| blob_format       | string   | `otlp`                | `false`  | The format of blob contents. Supported values: `otlp`, `json`, `text`, `records-json`. See [Blob Format](#blob-format) below.                                              |
+| enable_incremental_read | bool | `false`             | `false`  | Opt into [incremental reading](#incremental-reading-of-append-growable-blobs) of append-growable blobs for the `records-json` and `json` formats. Off by default, every format parses each blob whole and dedupes by name. Temporary: this becomes the default and is then removed once the incremental path is proven. |
+| incremental_revisit_window | duration | `2h`           | `false`  | How far back each poll re-lists blobs to catch in-place appends, and how long after a blob's last observed change it is held before being treated as sealed (and deleted under `delete_on_read`). Only used when `enable_incremental_read` is set. The 2h default fits Azure NSG/VNet flow logs (one blob per hour); raise it for a source appended to across a longer span or whose writes pause longer mid-blob. Must be at least `poll_interval` (config error otherwise), since a window shorter than the poll cadence would seal blobs mid-write. |
+| fingerprint_size  | int      | `512`                 | `false`  | Number of leading blob bytes used to identify an append-growable blob across reads, mirroring the filelog receiver's `fingerprint_size`. Raise it when blobs share a long common prefix (fewer head collisions); lower it to shrink the per-poll identity read. Only used when `enable_incremental_read` is set. Minimum 16; `0` selects the default. Lowering it below the size of an already-stored fingerprint forces a one-time re-read of each tracked blob from the start (duplicate delivery, no loss); raising it grows fingerprints in place. |
+| assume_append_only | bool    | `false`               | `false`  | Skip the per-poll blob-identity check, saving one Azure read operation per poll per growing blob. **Only set this when a blob at a given name is never replaced or truncated in place** (append-only sources such as Azure NSG/VNet flow logs). If that guarantee is violated, the receiver emits stale bytes as records (blob replaced larger) or silently misses the new content (replaced smaller), with no error. Only used when `enable_incremental_read` is set. While this is on, a blob's stored fingerprint stays at whatever length its first read captured (growing it needs the identity read this flag skips); it grows to `fingerprint_size` on the first poll after the flag is turned off. |
 
 ## Blob Format
 
@@ -160,11 +197,13 @@ azureblobpolling:
   telemetry_type: "logs"
   blob_format: "records-json"                 # unwrap the {"records":[...]} envelope
   filename_pattern: "PT1H\\.json$"            # only ingest the hourly flow-log file
+  enable_incremental_read: true               # ingest mid-hour appends, not just the first read
   storage: "file_storage"
 ```
 
 How the pieces fit together:
 
+- `enable_incremental_read: true` tracks a per-blob byte offset so each poll ingests the records appended to the still-growing `PT1H.json` since the last poll. Without it, the blob is read once when first seen and mid-hour appends are dropped (see [Incremental reading](#incremental-reading-of-append-growable-blobs)).
 - `root_folder: "flowLogResourceID=/*/*"` lists one directory per NSG (subscription/RG segment, then NSG segment). New NSGs added to Azure are picked up automatically on the next poll.
 - `time_pattern` extracts the timestamp from the `y=/m=/d=/h=/m=` segments. The matched `root_folder` is stripped before matching, so the same pattern works regardless of which NSG produced the blob.
 - `blob_format: "records-json"` unwraps the `{"records":[...]}` envelope so each flow record becomes a separate log. (Use `json` only if the blobs are already NDJSON; use the default `otlp` only for blobs written by the Azure Blob Exporter.)
@@ -272,14 +311,18 @@ Notes:
 
 ### Delete on Read Configuration
 
-This configuration enables the `delete_on_read` functionality which will delete a blob from Azure after it has been successfully processed into OTLP data and sent to the next component in the pipeline. **Use with caution** as this permanently deletes data from Azure Blob Storage.
+This configuration enables `delete_on_read`, which deletes a blob from Azure after it is processed and sent to the next component. **Use with caution** as this permanently deletes data from Azure Blob Storage.
+
+The delete is deferred until the blob seals (stops growing) **only when `enable_incremental_read` is set**; the append-growable formats then keep a blob still being appended to until it seals, so live appends are not lost. Without the flag a blob is deleted right after its first whole read, so an hourly `PT1H.json` deleted at minute 1 loses the remaining appends — pair `delete_on_read` with `enable_incremental_read` for the append-growable formats.
 
 ```yaml
 azureblobpolling:
   connection_string: "DefaultEndpointsProtocol=https;AccountName=storage_account_name;AccountKey=storage_account_key;EndpointSuffix=core.windows.net"
   container: "my-container"
   poll_interval: 10m
+  blob_format: "records-json"
   delete_on_read: true
+  enable_incremental_read: true   # defer the delete until the blob seals
   batch_size: 100
   page_size: 1000
 ```

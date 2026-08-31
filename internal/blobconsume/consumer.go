@@ -16,6 +16,7 @@ package blobconsume //import "github.com/observiq/bindplane-otel-contrib/interna
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"go.opentelemetry.io/collector/consumer"
@@ -23,6 +24,13 @@ import (
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
+
+// ErrDownstream marks an error as coming from the next consumer in the pipeline (a full
+// sending queue, memory limiter, exporter backpressure) rather than from parsing the blob
+// content, so a caller can tell a transient downstream failure apart from a permanent
+// content error and retry instead of quarantining the blob. The append-growable consumers
+// wrap their ConsumeLogs errors with it.
+var ErrDownstream = errors.New("downstream consumer failed")
 
 // Consumer is responsible for turning entities into OTLP data and sending to the next consumer.
 //

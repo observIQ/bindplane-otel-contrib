@@ -57,6 +57,9 @@ service:
 #   - blob_format: records-json unwraps the {"records":[...]} envelope that
 #     Azure writes for NSG flow logs (and most diagnostic-settings exports).
 #   - filename_pattern restricts ingestion to the hourly PT1H.json file.
+#   - enable_incremental_read ingests each hour's appends as they land, instead of
+#     re-reading the whole PT1H.json every poll. See the README "Incremental reading of
+#     append-growable blobs" section for the full option reference.
 # ------------------------------------------------------------------------------
 receivers:
   azureblobpolling/nsg_flow_logs:
@@ -69,6 +72,12 @@ receivers:
     telemetry_type: "logs"
     blob_format: "records-json"
     filename_pattern: "PT1H\\.json$"
-    storage: "file_storage"
+    storage: "file_storage"  # required to persist byte offsets across restarts
     batch_size: 100
     page_size: 1000
+    # Incremental reads (opt-in). Only enable_incremental_read is required; the rest
+    # have sensible defaults shown here.
+    enable_incremental_read: true
+    incremental_revisit_window: 2h    # how long a growing blob is re-read; must be >= poll_interval
+    fingerprint_size: 512             # leading bytes used to detect a replaced blob; min 16
+    assume_append_only: false         # true skips the per-poll identity check (fewer ops, no replacement safety)

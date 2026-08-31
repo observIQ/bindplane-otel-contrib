@@ -90,7 +90,7 @@ func (r *RecordsJSONLogsConsumer) Consume(ctx context.Context, entityContent []b
 	}
 
 	if err := r.nextConsumer.ConsumeLogs(ctx, logs); err != nil {
-		return fmt.Errorf("records-json consume: %w", err)
+		return fmt.Errorf("records-json consume: %w: %w", ErrDownstream, err)
 	}
 	return nil
 }
