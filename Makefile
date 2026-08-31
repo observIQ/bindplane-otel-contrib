@@ -148,7 +148,8 @@ _build-setup:
 		echo "  - $$modpath => $$dir" >> $(OUTDIR)/contrib-replaces.yaml; \
 	done && \
 	awk -v rf="$(OUTDIR)/contrib-replaces.yaml" \
-		'/^replaces:/{print; while ((getline line < rf) > 0) print line; next} {print}' \
+		'/^replaces:/{print; while ((getline line < rf) > 0) print line; next} \
+		 /^[[:space:]]*-[[:space:]].*bindplane-otel-contrib.*=>/{next} {print}' \
 		"$(COLLECTOR_ABS)/manifests/observIQ/manifest.yaml" > $(LOCAL_MANIFEST)
 	@# The source manifest's collector-internal replaces use paths relative to the
 	@# collector repo (e.g. "=> ../internal/..."). Once copied into $(OUTDIR), ocb
