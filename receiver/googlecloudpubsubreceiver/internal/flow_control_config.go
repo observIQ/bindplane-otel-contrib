@@ -1,0 +1,33 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package internal // import "github.com/observiq/bindplane-otel-contrib/receiver/googlecloudpubsubreceiver/internal"
+
+import "time"
+
+// FlowControlConfig holds the Pub/Sub stream flow control and acknowledgement
+// batching settings used by the stream handler.
+type FlowControlConfig struct {
+	// The maximum duration the acknowledgement loop waits before sending the acknowledgements.
+	TriggerAckBatchDuration time.Duration
+	// The number of pending acknowledgements (acks and nacks combined) that triggers an
+	// immediate flush, without waiting for TriggerAckBatchDuration. 0 disables the size trigger.
+	TriggerAckBatchSize int
+	// The ack deadline to use for the Pub/Sub stream.
+	StreamAckDeadline time.Duration
+	// Pub/Sub flow control settings for the maximum number of outstanding messages.
+	MaxOutstandingMessages int64
+	// Pub/Sub flow control settings for the maximum number of outstanding bytes.
+	MaxOutstandingBytes int64
+}
+
+// NewDefaultFlowControlConfig returns a FlowControlConfig with the default settings.
+func NewDefaultFlowControlConfig() *FlowControlConfig {
+	return &FlowControlConfig{
+		TriggerAckBatchDuration: 10 * time.Second,
+		TriggerAckBatchSize:     0,
+		StreamAckDeadline:       60 * time.Second,
+		MaxOutstandingMessages:  0,
+		MaxOutstandingBytes:     0,
+	}
+}

@@ -1,0 +1,501 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package googlecloudpubsubreceiver // import "github.com/observiq/bindplane-otel-contrib/receiver/googlecloudpubsubreceiver"
+
+import (
+	"bytes"
+	"compress/gzip"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
+	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/consumer/consumererror"
+	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/collector/receiver"
+	"go.opentelemetry.io/collector/receiver/receiverhelper"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	"go.uber.org/zap"
+
+	"github.com/observiq/bindplane-otel-contrib/receiver/googlecloudpubsubreceiver/internal"
+	"github.com/observiq/bindplane-otel-contrib/receiver/googlecloudpubsubreceiver/internal/metadata"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/encoding"
+)
+
+// https://cloud.google.com/pubsub/docs/reference/rpc/google.pubsub.v1#streamingpullrequest
+type pubsubReceiver struct {
+	settings           receiver.Settings
+	obsrecv            *receiverhelper.ObsReport
+	tracesConsumer     consumer.Traces
+	metricsConsumer    consumer.Metrics
+	logsConsumer       consumer.Logs
+	userAgent          string
+	config             *Config
+	client             internal.SubscriberClient
+	tracesUnmarshaler  ptrace.Unmarshaler
+	metricsUnmarshaler pmetric.Unmarshaler
+	logsUnmarshaler    plog.Unmarshaler
+	handler            *internal.StreamHandler
+	startOnce          sync.Once
+	telemetryBuilder   *metadata.TelemetryBuilder
+
+	// decodeFailures counts decode failures over the lifetime of the receiver, and
+	// lastDecodeWarn rate limits the decode failure warning to once per interval.
+	decodeFailures atomic.Int64
+	lastDecodeWarn atomic.Int64
+}
+
+// decodeWarnInterval is the minimum time between two decode failure warnings.
+const decodeWarnInterval = 10 * time.Second
+
+type buildInEncoding int
+
+const (
+	unknown         buildInEncoding = iota
+	otlpProtoTrace                  = iota
+	otlpProtoMetric                 = iota
+	otlpProtoLog                    = iota
+	rawTextLog                      = iota
+	cloudLogging                    = iota
+)
+
+type buildInCompression int
+
+const (
+	uncompressed buildInCompression = iota
+	gZip                            = iota
+)
+
+var (
+	// errUnknownEncoding is returned for a message whose attributes match no
+	// known encoding, so no unmarshaler can be selected for it.
+	errUnknownEncoding = errors.New("unknown encoding")
+	// errNoConsumer is returned for a message whose signal has no consumer
+	// attached to this receiver, so it can never be delivered.
+	errNoConsumer = errors.New("no consumer attached for the signal of the message")
+)
+
+// consumerCount returns the number of attached consumers, useful for detecting errors in pipelines
+func (receiver *pubsubReceiver) consumerCount() int {
+	count := 0
+	if receiver.logsConsumer != nil {
+		count++
+	}
+	if receiver.metricsConsumer != nil {
+		count++
+	}
+	if receiver.tracesConsumer != nil {
+		count++
+	}
+	return count
+}
+
+func (receiver *pubsubReceiver) Start(ctx context.Context, host component.Host) error {
+	if receiver.tracesConsumer == nil && receiver.metricsConsumer == nil && receiver.logsConsumer == nil {
+		return errors.New("cannot start receiver: no consumers were specified")
+	}
+
+	var createHandlerFn func(context.Context) error
+
+	if receiver.config.Encoding != "" {
+		if receiver.consumerCount() > 1 {
+			return errors.New("cannot start receiver: multiple consumers were attached, but encoding was specified")
+		}
+		encodingID := convertEncoding(receiver.config.Encoding)
+		if encodingID == unknown {
+			err := receiver.setMarshallerFromExtension(host)
+			if err != nil {
+				return err
+			}
+		} else {
+			err := receiver.setMarshallerFromEncodingID(encodingID)
+			if err != nil {
+				return err
+			}
+		}
+		createHandlerFn = receiver.createReceiverHandler
+	} else {
+		// we will rely on the attributes of the message to determine the signal, so we need all proto unmarshalers
+		receiver.tracesUnmarshaler = &ptrace.ProtoUnmarshaler{}
+		receiver.metricsUnmarshaler = &pmetric.ProtoUnmarshaler{}
+		receiver.logsUnmarshaler = &plog.ProtoUnmarshaler{}
+		createHandlerFn = receiver.createMultiplexingReceiverHandler
+	}
+
+	var startErr error
+	receiver.startOnce.Do(func() {
+		client, err := newSubscriberClient(ctx, receiver.config, receiver.userAgent)
+		if err != nil {
+			startErr = fmt.Errorf("failed creating the gRPC client to Pubsub: %w", err)
+			return
+		}
+		receiver.client = client
+		receiver.telemetryBuilder, err = metadata.NewTelemetryBuilder(receiver.settings.TelemetrySettings)
+		if err != nil {
+			startErr = fmt.Errorf("failed to create telemetry builder: %w", err)
+			return
+		}
+
+		err = createHandlerFn(ctx)
+		if err != nil {
+			startErr = fmt.Errorf("failed to create ReceiverHandler: %w", err)
+			return
+		}
+	})
+	return startErr
+}
+
+func (receiver *pubsubReceiver) setMarshallerFromExtension(host component.Host) error {
+	extensionID := component.ID{}
+	err := extensionID.UnmarshalText([]byte(receiver.config.Encoding))
+	if err != nil {
+		return errors.New("cannot start receiver: neither a build in encoder, or an extension")
+	}
+	extensions := host.GetExtensions()
+	if extension, ok := extensions[extensionID]; ok {
+		if receiver.tracesConsumer != nil {
+			receiver.tracesUnmarshaler, ok = extension.(encoding.TracesUnmarshalerExtension)
+			if !ok {
+				return fmt.Errorf("cannot start receiver: extension %q is not a trace unmarshaler", extensionID)
+			}
+		}
+		if receiver.logsConsumer != nil {
+			receiver.logsUnmarshaler, ok = extension.(encoding.LogsUnmarshalerExtension)
+			if !ok {
+				return fmt.Errorf("cannot start receiver: extension %q is not a logs unmarshaler", extensionID)
+			}
+		}
+		if receiver.metricsConsumer != nil {
+			receiver.metricsUnmarshaler, ok = extension.(encoding.MetricsUnmarshalerExtension)
+			if !ok {
+				return fmt.Errorf("cannot start receiver: extension %q is not a metrics unmarshaler", extensionID)
+			}
+		}
+	} else {
+		return fmt.Errorf("cannot start receiver: extension %q not found", extensionID)
+	}
+	return nil
+}
+
+func (receiver *pubsubReceiver) setMarshallerFromEncodingID(encodingID buildInEncoding) error {
+	if receiver.tracesConsumer != nil {
+		switch encodingID {
+		case otlpProtoTrace:
+			receiver.tracesUnmarshaler = &ptrace.ProtoUnmarshaler{}
+		default:
+			return fmt.Errorf("cannot start receiver: build in encoding %s is not supported for traces", receiver.config.Encoding)
+		}
+	}
+	if receiver.logsConsumer != nil {
+		switch encodingID {
+		case otlpProtoLog:
+			receiver.logsUnmarshaler = &plog.ProtoUnmarshaler{}
+		case rawTextLog:
+			return errors.New("build-in raw_text encoding is removed since v0.132.0, use the text encoding extension instead")
+		case cloudLogging:
+			return errors.New("build-in cloud_logging encoding is removed since v0.132.0, use the googlecloudlogentry encoding extension instead")
+		default:
+			return fmt.Errorf("cannot start receiver: build in encoding %s is not supported for logs", receiver.config.Encoding)
+		}
+	}
+	if receiver.metricsConsumer != nil {
+		switch encodingID {
+		case otlpProtoMetric:
+			receiver.metricsUnmarshaler = &pmetric.ProtoUnmarshaler{}
+		default:
+			return fmt.Errorf("cannot start receiver: build in encoding %s is not supported for metrics", receiver.config.Encoding)
+		}
+	}
+	return nil
+}
+
+func (receiver *pubsubReceiver) Shutdown(_ context.Context) error {
+	if receiver.handler != nil {
+		receiver.settings.Logger.Info("Stopping Google Pubsub receiver")
+		receiver.handler.CancelNow()
+		receiver.settings.Logger.Info("Stopped Google Pubsub receiver")
+		receiver.handler = nil
+	}
+	if receiver.client == nil {
+		return nil
+	}
+	client := receiver.client
+	receiver.client = nil
+	return client.Close()
+}
+
+func decompress(payload []byte, compression buildInCompression) ([]byte, error) {
+	if compression == gZip {
+		reader, err := gzip.NewReader(bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		return io.ReadAll(reader)
+	}
+	return payload, nil
+}
+
+// handleDecodeError applies the on_decode_error policy to a message that failed
+// to decompress or decode, after counting and logging the failure.
+func (receiver *pubsubReceiver) handleDecodeError(ctx context.Context, signal string, message *pubsubpb.ReceivedMessage, err error) error {
+	receiver.increaseEncodingErrorMetric(ctx, signal)
+	receiver.logDecodeError(signal, message, err)
+	switch receiver.config.decodeErrorPolicy() {
+	case onErrorIgnore:
+		return nil
+	case onErrorNack:
+		return internal.ErrNack
+	default: // propagate: neither ack nor nack, the message redelivers on ack deadline expiry
+		return err
+	}
+}
+
+// logDecodeError logs a decode failure at WARN at most once per decodeWarnInterval,
+// with a running total, so a stream of poison messages stays visible without
+// flooding the log.
+func (receiver *pubsubReceiver) logDecodeError(signal string, message *pubsubpb.ReceivedMessage, err error) {
+	total := receiver.decodeFailures.Add(1)
+	now := time.Now().UnixNano()
+	last := receiver.lastDecodeWarn.Load()
+	if now-last < decodeWarnInterval.Nanoseconds() || !receiver.lastDecodeWarn.CompareAndSwap(last, now) {
+		return
+	}
+	receiver.settings.Logger.Warn("failed to decode pubsub message",
+		zap.String("signal", signal),
+		zap.String("message_id", message.Message.MessageId),
+		zap.Any("attributes", message.Message.Attributes),
+		zap.Int64("total_failed", total),
+		zap.Error(err),
+	)
+}
+
+// handlePipelineError applies the on_pipeline_error policy to a message the
+// downstream consumer rejected. Only permanent errors are governed by the
+// policy: transient rejections (a full sending queue, memory limiter refusal)
+// and shutdown cancellations leave the message unacknowledged, so it is
+// redelivered after the ack deadline instead of being dropped or counted
+// toward a dead letter policy.
+func (receiver *pubsubReceiver) handlePipelineError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
+	if !consumererror.IsPermanent(err) {
+		return err
+	}
+	if receiver.config.OnPipelineError == onErrorNack {
+		return internal.ErrNack
+	}
+	// default policy: ack and drop
+	return nil
+}
+
+func (receiver *pubsubReceiver) handleTrace(ctx context.Context, message *pubsubpb.ReceivedMessage, compression buildInCompression) error {
+	payload, err := decompress(message.Message.Data, compression)
+	if err != nil {
+		return receiver.handleDecodeError(ctx, "traces", message, err)
+	}
+	otlpData, err := receiver.tracesUnmarshaler.UnmarshalTraces(payload)
+	if err != nil {
+		return receiver.handleDecodeError(ctx, "traces", message, err)
+	}
+	count := otlpData.SpanCount()
+	ctx = receiver.obsrecv.StartTracesOp(ctx)
+	err = receiver.tracesConsumer.ConsumeTraces(ctx, otlpData)
+	receiver.obsrecv.EndTracesOp(ctx, reportFormatProtobuf, count, err)
+	return receiver.handlePipelineError(err)
+}
+
+func (receiver *pubsubReceiver) handleMetric(ctx context.Context, message *pubsubpb.ReceivedMessage, compression buildInCompression) error {
+	payload, err := decompress(message.Message.Data, compression)
+	if err != nil {
+		return receiver.handleDecodeError(ctx, "metrics", message, err)
+	}
+	otlpData, err := receiver.metricsUnmarshaler.UnmarshalMetrics(payload)
+	if err != nil {
+		return receiver.handleDecodeError(ctx, "metrics", message, err)
+	}
+	count := otlpData.MetricCount()
+	ctx = receiver.obsrecv.StartMetricsOp(ctx)
+	err = receiver.metricsConsumer.ConsumeMetrics(ctx, otlpData)
+	receiver.obsrecv.EndMetricsOp(ctx, reportFormatProtobuf, count, err)
+	return receiver.handlePipelineError(err)
+}
+
+func (receiver *pubsubReceiver) handleLog(ctx context.Context, message *pubsubpb.ReceivedMessage, compression buildInCompression) error {
+	payload, err := decompress(message.Message.Data, compression)
+	if err != nil {
+		return receiver.handleDecodeError(ctx, "logs", message, err)
+	}
+	otlpData, err := receiver.logsUnmarshaler.UnmarshalLogs(payload)
+	if err != nil {
+		return receiver.handleDecodeError(ctx, "logs", message, err)
+	}
+	count := otlpData.LogRecordCount()
+	ctx = receiver.obsrecv.StartLogsOp(ctx)
+	err = receiver.logsConsumer.ConsumeLogs(ctx, otlpData)
+	receiver.obsrecv.EndLogsOp(ctx, reportFormatProtobuf, count, err)
+	return receiver.handlePipelineError(err)
+}
+
+func (receiver *pubsubReceiver) increaseEncodingErrorMetric(ctx context.Context, signal string) {
+	receiver.telemetryBuilder.ReceiverGooglecloudpubsubEncodingError.Add(ctx, 1,
+		metric.WithAttributes(
+			attribute.String("otelcol.component.kind", "receiver"),
+			attribute.String("otelcol.component.id", receiver.settings.ID.String()),
+			attribute.String("otelcol.signal", signal),
+		))
+}
+
+func (receiver *pubsubReceiver) detectEncoding(attributes map[string]string) (otlpEncoding buildInEncoding, otlpCompression buildInCompression) {
+	otlpEncoding = unknown
+	otlpCompression = uncompressed
+
+	ceType := attributes["ce-type"]
+	ceContentType := attributes["content-type"]
+	if strings.HasSuffix(ceContentType, "application/protobuf") {
+		switch ceType {
+		case "org.opentelemetry.otlp.traces.v1":
+			otlpEncoding = otlpProtoTrace
+		case "org.opentelemetry.otlp.metrics.v1":
+			otlpEncoding = otlpProtoMetric
+		case "org.opentelemetry.otlp.logs.v1":
+			otlpEncoding = otlpProtoLog
+		}
+	} else if strings.HasSuffix(ceContentType, "text/plain") {
+		otlpEncoding = rawTextLog
+	}
+
+	if otlpEncoding == unknown && receiver.config.Encoding != "" {
+		otlpEncoding = convertEncoding(receiver.config.Encoding)
+	}
+
+	ceContentEncoding := attributes["content-encoding"]
+	if ceContentEncoding == "gzip" {
+		otlpCompression = gZip
+	}
+
+	if otlpCompression == uncompressed && receiver.config.Compression != "" {
+		if receiver.config.Compression == "gzip" {
+			otlpCompression = gZip
+		}
+	}
+	return otlpEncoding, otlpCompression
+}
+
+func convertEncoding(encodingConfig string) (encoding buildInEncoding) {
+	switch encodingConfig {
+	case "otlp_proto_trace":
+		return otlpProtoTrace
+	case "otlp_proto_metric":
+		return otlpProtoMetric
+	case "otlp_proto_log":
+		return otlpProtoLog
+	case "cloud_logging":
+		return cloudLogging
+	case "raw_text":
+		return rawTextLog
+	}
+	return unknown
+}
+
+// handleMultiplexedMessage routes a message to the consumer of its detected
+// signal. A message that cannot be delivered - an encoding no unmarshaler
+// handles, or a signal without a consumer attached - follows the same
+// on_decode_error policy as a message that fails to decode, so it neither
+// redelivers forever nor vanishes unaccounted.
+func (receiver *pubsubReceiver) handleMultiplexedMessage(ctx context.Context, message *pubsubpb.ReceivedMessage) error {
+	encoding, compression := receiver.detectEncoding(message.Message.Attributes)
+
+	switch encoding {
+	case otlpProtoTrace:
+		if receiver.tracesConsumer != nil {
+			return receiver.handleTrace(ctx, message, compression)
+		}
+		return receiver.handleDecodeError(ctx, "traces", message, errNoConsumer)
+	case otlpProtoMetric:
+		if receiver.metricsConsumer != nil {
+			return receiver.handleMetric(ctx, message, compression)
+		}
+		return receiver.handleDecodeError(ctx, "metrics", message, errNoConsumer)
+	case otlpProtoLog:
+		if receiver.logsConsumer != nil {
+			return receiver.handleLog(ctx, message, compression)
+		}
+		return receiver.handleDecodeError(ctx, "logs", message, errNoConsumer)
+	default:
+		return receiver.handleDecodeError(ctx, "unknown", message, errUnknownEncoding)
+	}
+}
+
+func (receiver *pubsubReceiver) createMultiplexingReceiverHandler(ctx context.Context) error {
+	var err error
+	receiver.handler, err = internal.NewHandler(
+		ctx,
+		receiver.settings,
+		receiver.telemetryBuilder,
+		receiver.client,
+		receiver.config.ClientID,
+		receiver.config.Subscription,
+		receiver.config.FlowControlConfig.getInternalConfig(),
+		receiver.handleMultiplexedMessage,
+	)
+	if err != nil {
+		return err
+	}
+	receiver.handler.RecoverableStream(ctx)
+	return nil
+}
+
+func (receiver *pubsubReceiver) createReceiverHandler(ctx context.Context) error {
+	var err error
+	var handlerFn func(context.Context, *pubsubpb.ReceivedMessage) error
+	compression := uncompressed
+	if receiver.config.Compression == "gzip" {
+		compression = gZip
+	}
+	if receiver.tracesConsumer != nil {
+		handlerFn = func(ctx context.Context, message *pubsubpb.ReceivedMessage) error {
+			return receiver.handleTrace(ctx, message, compression)
+		}
+	}
+	if receiver.logsConsumer != nil {
+		handlerFn = func(ctx context.Context, message *pubsubpb.ReceivedMessage) error {
+			return receiver.handleLog(ctx, message, compression)
+		}
+	}
+	if receiver.metricsConsumer != nil {
+		handlerFn = func(ctx context.Context, message *pubsubpb.ReceivedMessage) error {
+			return receiver.handleMetric(ctx, message, compression)
+		}
+	}
+
+	receiver.handler, err = internal.NewHandler(
+		ctx,
+		receiver.settings,
+		receiver.telemetryBuilder,
+		receiver.client,
+		receiver.config.ClientID,
+		receiver.config.Subscription,
+		receiver.config.FlowControlConfig.getInternalConfig(),
+		handlerFn,
+	)
+	if err != nil {
+		return err
+	}
+	receiver.handler.RecoverableStream(ctx)
+	return nil
+}
