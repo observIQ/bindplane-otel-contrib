@@ -16,6 +16,8 @@ package networkcheckreceiver // import "github.com/observiq/bindplane-otel-contr
 
 import (
 	"context"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -36,6 +38,96 @@ const unansweredHopAddress = "*"
 // range at the per-hop timeout, which on the defaults is 30 * 3s = 90s inside
 // a single scrape.
 const maxConsecutiveTimeouts = 5
+
+// icmpProtocolIPv4 is the IANA protocol number for ICMP, required by
+// icmp.ParseMessage to interpret an IPv4 ICMP message.
+const icmpProtocolIPv4 = 1
+
+// errProbeTimeout is returned when no reply matching the probe arrived before
+// the hop deadline.
+var errProbeTimeout = errors.New("no matching ICMP reply before deadline")
+
+// probeKey identifies the probe that a reply must correspond to. A raw ICMP
+// socket receives every ICMP packet the host sees, so a reply has to be matched
+// back to the probe that provoked it rather than assumed to belong to whichever
+// TTL is currently in flight.
+type probeKey struct {
+	// udp is true when the probe was a UDP datagram, false for an ICMP echo.
+	udp bool
+
+	srcPort int
+	dstPort int
+
+	echoID  int
+	echoSeq int
+}
+
+// matchesProbe reports whether the original datagram quoted inside an ICMP
+// error refers to the probe described by k. ICMP errors echo back the offending
+// IP header plus at least its first 8 payload bytes, which is enough to recover
+// the UDP port pair or the ICMP echo identifier.
+func matchesProbe(inner []byte, k probeKey) bool {
+	hdr, err := ipv4.ParseHeader(inner)
+	if err != nil || hdr.Len <= 0 || len(inner) < hdr.Len+8 {
+		return false
+	}
+	payload := inner[hdr.Len:]
+	if k.udp {
+		src := int(binary.BigEndian.Uint16(payload[0:2]))
+		dst := int(binary.BigEndian.Uint16(payload[2:4]))
+		return src == k.srcPort && dst == k.dstPort
+	}
+	// Quoted ICMP echo header: type, code, checksum, id, seq.
+	id := int(binary.BigEndian.Uint16(payload[4:6]))
+	seq := int(binary.BigEndian.Uint16(payload[6:8]))
+	return id == k.echoID && seq == k.echoSeq
+}
+
+// awaitProbeReply reads from conn until a message matching k arrives or the
+// deadline passes. Unrelated ICMP traffic - echo replies belonging to this
+// receiver's own ping, late replies to earlier TTLs, other processes' ICMP - is
+// discarded instead of being attributed to the current hop. reachedDest is true
+// when the reply shows the probe arrived at the target rather than expiring in
+// transit.
+func awaitProbeReply(conn *icmp.PacketConn, deadline time.Time, k probeKey) (from net.Addr, reachedDest bool, err error) {
+	buf := make([]byte, 1500)
+	for {
+		if time.Now().After(deadline) {
+			return nil, false, errProbeTimeout
+		}
+		if err := conn.SetReadDeadline(deadline); err != nil {
+			return nil, false, err
+		}
+		n, peer, readErr := conn.ReadFrom(buf)
+		if readErr != nil {
+			return nil, false, readErr
+		}
+		if peer == nil {
+			continue
+		}
+		msg, parseErr := icmp.ParseMessage(icmpProtocolIPv4, buf[:n])
+		if parseErr != nil {
+			continue
+		}
+		switch body := msg.Body.(type) {
+		case *icmp.TimeExceeded:
+			if matchesProbe(body.Data, k) {
+				return peer, false, nil
+			}
+		case *icmp.DstUnreach:
+			// The target answering our UDP probe on a closed port means the
+			// probe arrived: the path is complete.
+			if matchesProbe(body.Data, k) {
+				return peer, true, nil
+			}
+		case *icmp.Echo:
+			if !k.udp && msg.Type == ipv4.ICMPTypeEchoReply &&
+				body.ID == k.echoID && body.Seq == k.echoSeq {
+				return peer, true, nil
+			}
+		}
+	}
+}
 
 // HopResult is the latency measurement for a single traceroute hop.
 type HopResult struct {
@@ -164,6 +256,13 @@ func (t *tracerouter) traceUDP(ctx context.Context, dest string) ([]HopResult, e
 			return hops, fmt.Errorf("setting TTL %d: %w", ttl, err)
 		}
 
+		// The source port identifies this probe in the ICMP error that comes
+		// back, so it must be read before the socket is closed.
+		localPort := 0
+		if la, ok := udpConn.LocalAddr().(*net.UDPAddr); ok {
+			localPort = la.Port
+		}
+
 		sent := time.Now()
 		if _, err := udpConn.Write([]byte("ping")); err != nil {
 			_ = udpConn.Close()
@@ -176,12 +275,11 @@ func (t *tracerouter) traceUDP(ctx context.Context, dest string) ([]HopResult, e
 		if hopTimeout == 0 {
 			hopTimeout = 3 * time.Second
 		}
-		if err := icmpConn.SetReadDeadline(time.Now().Add(hopTimeout)); err != nil {
-			return hops, fmt.Errorf("setting read deadline: %w", err)
-		}
-
-		buf := make([]byte, 512)
-		_, from, err := icmpConn.ReadFrom(buf)
+		from, reachedDest, err := awaitProbeReply(icmpConn, time.Now().Add(hopTimeout), probeKey{
+			udp:     true,
+			srcPort: localPort,
+			dstPort: destAddr.Port,
+		})
 		rtt := time.Since(sent)
 
 		if err != nil || from == nil {
@@ -209,7 +307,7 @@ func (t *tracerouter) traceUDP(ctx context.Context, dest string) ([]HopResult, e
 		if splitErr != nil {
 			fromHost = from.String()
 		}
-		if fromHost == dest {
+		if reachedDest || fromHost == dest {
 			break
 		}
 	}
@@ -274,12 +372,10 @@ func (t *tracerouter) traceICMP(ctx context.Context, dest string) ([]HopResult, 
 			return hops, fmt.Errorf("sending ICMP probe: %w", err)
 		}
 
-		if err := conn.SetReadDeadline(time.Now().Add(hopTimeout)); err != nil {
-			return hops, fmt.Errorf("setting read deadline: %w", err)
-		}
-
-		rb := make([]byte, 512)
-		_, from, err := conn.ReadFrom(rb)
+		from, reachedDest, err := awaitProbeReply(conn, time.Now().Add(hopTimeout), probeKey{
+			echoID:  ttl,
+			echoSeq: ttl,
+		})
 		rtt := time.Since(sent)
 
 		if err != nil || from == nil {
@@ -302,7 +398,7 @@ func (t *tracerouter) traceICMP(ctx context.Context, dest string) ([]HopResult, 
 			RTT:     rtt,
 		})
 
-		if from.String() == destAddr.String() {
+		if reachedDest || from.String() == destAddr.String() {
 			break
 		}
 	}
