@@ -19,20 +19,20 @@ func TestSetupTelemetry(t *testing.T) {
 	tb, err := metadata.NewTelemetryBuilder(testTel.NewTelemetrySettings())
 	require.NoError(t, err)
 	defer tb.Shutdown()
-	tb.LogTypeDetectionMatches.Add(context.Background(), 1)
-	tb.LogTypeDetectionRuns.Add(context.Background(), 1)
-	tb.LogTypeDetectionUnknown.Add(context.Background(), 1)
-	tb.LogTypes.Add(context.Background(), 1)
-	AssertEqualLogTypeDetectionMatches(t, testTel,
+	tb.ProcessorLogTypeDetectionAttempts.Add(context.Background(), 1)
+	tb.ProcessorLogTypeDetectionAttemptsMatched.Add(context.Background(), 1)
+	tb.ProcessorLogTypeDetectionLogsClassified.Add(context.Background(), 1)
+	tb.ProcessorLogTypeDetectionLogsUnclassified.Add(context.Background(), 1)
+	AssertEqualProcessorLogTypeDetectionAttempts(t, testTel,
 		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
-	AssertEqualLogTypeDetectionRuns(t, testTel,
+	AssertEqualProcessorLogTypeDetectionAttemptsMatched(t, testTel,
 		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
-	AssertEqualLogTypeDetectionUnknown(t, testTel,
+	AssertEqualProcessorLogTypeDetectionLogsClassified(t, testTel,
 		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
-	AssertEqualLogTypes(t, testTel,
+	AssertEqualProcessorLogTypeDetectionLogsUnclassified(t, testTel,
 		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
 

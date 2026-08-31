@@ -6,34 +6,40 @@
 
 The following telemetry is emitted by this component.
 
-### otelcol_log_type_detection_matches
+### otelcol_processor_log_type_detection_attempts
 
-Number of log type detection matches, one per log type match.
-
-| Unit | Metric Type | Value Type | Monotonic | Stability |
-| ---- | ----------- | ---------- | --------- | --------- |
-| {match} | Sum | Int | true | Alpha |
-
-### otelcol_log_type_detection_runs
-
-Number of log type detections run, one per newly seen log structure.
+Number of log type detections attempted, one per newly seen log structure.
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
 | {detection} | Sum | Int | true | Alpha |
 
-### otelcol_log_type_detection_unknown
+### otelcol_processor_log_type_detection_attempts_matched
 
-Number of logs with no detected log type.
+Number of log type detection attempts that matched, one per newly seen log structure.
+
+| Unit | Metric Type | Value Type | Monotonic | Stability |
+| ---- | ----------- | ---------- | --------- | --------- |
+| {detection} | Sum | Int | true | Alpha |
+
+### otelcol_processor_log_type_detection_logs_classified
+
+Number of log records assigned a log type.
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
 | {log} | Sum | Int | true | Alpha |
 
-### otelcol_log_types
+#### Attributes
 
-The number of hashes with a detected log type.
+| Name | Description | Values | Semantic Convention |
+| ---- | ----------- | ------ | ------------------- |
+| log_type | The log type that matched. | Any Str | - |
+
+### otelcol_processor_log_type_detection_logs_unclassified
+
+Number of log records with no detected log type.
 
 | Unit | Metric Type | Value Type | Monotonic | Stability |
 | ---- | ----------- | ---------- | --------- | --------- |
-| {type} | Sum | Int | true | Alpha |
+| {log} | Sum | Int | true | Alpha |

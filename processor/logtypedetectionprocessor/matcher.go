@@ -32,7 +32,7 @@ const (
 // MatcherConfig is the user-facing config, unmarshalled from YAML.
 type MatcherConfig struct {
 	Name     string      `mapstructure:"name"`
-	Priority int         `mapstructure:"priority"`
+	Priority *int        `mapstructure:"priority"`
 	Method   MatcherType `mapstructure:"method"`
 	Value    string      `mapstructure:"value"`
 }
@@ -48,7 +48,7 @@ func (c MatcherConfig) Validate() error {
 	if c.Name == "" {
 		return fmt.Errorf("name is required")
 	}
-	if c.Priority < 0 {
+	if c.Priority != nil && *c.Priority < 0 {
 		return fmt.Errorf("priority must be >= 0")
 	}
 
@@ -73,23 +73,19 @@ func (c MatcherConfig) Validate() error {
 
 // Build compiles the config into a Matcher.
 func (c MatcherConfig) Build() (Matcher, error) {
-	matcherBase := matcherBase{
-		name:     c.Name,
-		priority: c.Priority,
-	}
+	matcherBase := matcherBase{name: c.Name}
 	switch c.Method {
 	case MatcherTypeRegex:
 		return newRegexMatcher(matcherBase, c.Value)
 	case MatcherTypeStartsWith:
-		return newStartsWithMatcher(matcherBase, c.Value)
+		return newStartsWithMatcher(matcherBase, c.Value), nil
 	default:
 		return nil, fmt.Errorf("unknown matcher method %q", c.Method)
 	}
 }
 
 type matcherBase struct {
-	name     string
-	priority int
+	name string
 }
 
 func (m *matcherBase) Name() string {
@@ -121,11 +117,11 @@ type startsWithMatcher struct {
 	prefix string
 }
 
-func newStartsWithMatcher(matcherBase matcherBase, prefix string) (*startsWithMatcher, error) {
+func newStartsWithMatcher(matcherBase matcherBase, prefix string) *startsWithMatcher {
 	return &startsWithMatcher{
 		matcherBase: matcherBase,
 		prefix:      prefix,
-	}, nil
+	}
 }
 
 func (m *startsWithMatcher) Test(s string) bool {

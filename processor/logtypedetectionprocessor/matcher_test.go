@@ -63,12 +63,11 @@ func TestRegexMatcher(t *testing.T) {
 			var matcher Matcher
 			switch tc.matcherType {
 			case MatcherTypeRegex:
-				regexMatcher, err := newRegexMatcher(matcherBase{name: "test", priority: 0}, tc.value)
+				regexMatcher, err := newRegexMatcher(matcherBase{name: "test"}, tc.value)
 				require.NoError(t, err)
 				matcher = regexMatcher
 			case MatcherTypeStartsWith:
-				startsWithMatcher, err := newStartsWithMatcher(matcherBase{name: "test", priority: 0}, tc.value)
-				require.NoError(t, err)
+				startsWithMatcher := newStartsWithMatcher(matcherBase{name: "test"}, tc.value)
 				matcher = startsWithMatcher
 			}
 			require.Equal(t, tc.expected, matcher.Test(tc.log))

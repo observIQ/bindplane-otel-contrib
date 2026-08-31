@@ -25,6 +25,8 @@ import (
 	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -66,12 +68,12 @@ func newLogTypeDetectionProcessor(cfg *Config, telemetry *metadata.TelemetryBuil
 	return p, nil
 }
 
-// priorityRank orders unset priority (0) last.
-func priorityRank(priority int) int {
-	if priority == 0 {
+// priorityRank orders unset priority last.
+func priorityRank(priority *int) int {
+	if priority == nil {
 		return math.MaxInt
 	}
-	return priority
+	return *priority
 }
 
 func (p *logTypeDetectionProcessor) start(_ context.Context, _ component.Host) error {
@@ -93,7 +95,7 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 				body := logRecord.Body().AsString()
 				logFingerprint := fingerprint.HashLog(body)
 				if logFingerprint == 0 {
-					p.telemetry.LogTypeDetectionUnknown.Add(ctx, 1)
+					p.telemetry.ProcessorLogTypeDetectionLogsUnclassified.Add(ctx, 1)
 					logRecord.Attributes().PutStr(p.logTypeField, unknownLogType)
 					continue
 				}
@@ -122,9 +124,10 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 				lt, _ := logType.(string)
 				if lt == "" {
 					lt = unknownLogType
-					p.telemetry.LogTypeDetectionUnknown.Add(ctx, 1)
+					p.telemetry.ProcessorLogTypeDetectionLogsUnclassified.Add(ctx, 1)
 				} else {
-					p.telemetry.LogTypeDetectionMatches.Add(ctx, 1)
+					p.telemetry.ProcessorLogTypeDetectionLogsClassified.Add(ctx, 1,
+						metric.WithAttributes(attribute.String("log_type", lt)))
 				}
 				logRecord.Attributes().PutStr(p.logTypeField, lt)
 			}
@@ -134,10 +137,10 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 }
 
 func (p *logTypeDetectionProcessor) logType(ctx context.Context, logData string) string {
-	p.telemetry.LogTypeDetectionRuns.Add(ctx, 1)
+	p.telemetry.ProcessorLogTypeDetectionAttempts.Add(ctx, 1)
 	for _, m := range p.matchers {
 		if m.Test(logData) {
-			p.telemetry.LogTypes.Add(ctx, 1)
+			p.telemetry.ProcessorLogTypeDetectionAttemptsMatched.Add(ctx, 1)
 			return m.Name()
 		}
 	}
