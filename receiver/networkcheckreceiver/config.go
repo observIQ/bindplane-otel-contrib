@@ -57,6 +57,27 @@ type Config struct {
 
 	// Traceroute configures optional traceroute probes.
 	Traceroute TracerouteConfig `mapstructure:"traceroute"`
+
+	// Logs configures log record content. Which signals the receiver emits is
+	// decided by pipeline membership, not here: log records are produced only
+	// when the receiver is used in a logs pipeline.
+	Logs LogsConfig `mapstructure:"logs"`
+}
+
+// LogsConfig configures the content of emitted log records.
+//
+// Note there is deliberately no toggle for request or response headers and
+// bodies. Auth headers, cookies, and payloads are exactly what HTTP checks
+// carry, so they are never recorded.
+type LogsConfig struct {
+	// IncludeTLSDetails includes certificate and handshake detail in HTTPS
+	// records. Default true.
+	IncludeTLSDetails bool `mapstructure:"include_tls_details"`
+
+	// RedactURLUserinfo strips credentials from endpoints before they reach a
+	// record. Default true; turn it off only if endpoints are known to be free
+	// of userinfo and the raw URL matters.
+	RedactURLUserinfo bool `mapstructure:"redact_url_userinfo"`
 }
 
 // TargetConfig configures a single probe target.

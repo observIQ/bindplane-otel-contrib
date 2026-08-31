@@ -53,6 +53,43 @@ type PingResult struct {
 
 	// Method is the actual probe method used (may differ from config after fallback).
 	Method string
+
+	// --- Fields below are captured for log records only. Metric recording does
+	// --- not read them, so adding to this block cannot change metric output.
+
+	// ResolvedIP is the address the target resolved to for this probe. A
+	// hostname behind a CDN or round-robin DNS resolves differently over time,
+	// which is invisible in the timing numbers alone.
+	ResolvedIP string
+
+	// ResponseSize is the number of body bytes read from an HTTP response.
+	ResponseSize int64
+
+	// Protocol is the negotiated HTTP version, e.g. "HTTP/1.1" or "HTTP/2.0".
+	Protocol string
+
+	// ErrMessage and ErrPhase describe a failed probe. Without them a failed
+	// HTTP check is indistinguishable between DNS failure, connection refused,
+	// and timeout, since all three surface only as status code 0.
+	ErrMessage string
+	ErrPhase   string
+
+	// TLS carries certificate and handshake detail, nil for non-TLS probes.
+	TLS *TLSDetails
+}
+
+// TLSDetails is the certificate and handshake state observed during an HTTPS
+// probe. The handshake already computes all of this; it was previously
+// discarded.
+type TLSDetails struct {
+	Version            string
+	CipherSuite        string
+	NegotiatedProtocol string
+
+	CertIssuer   string
+	CertSubject  string
+	CertNotAfter time.Time
+	CertDaysLeft float64
 }
 
 // pinger is the interface implemented by icmpPinger and httpPinger.
@@ -307,13 +344,46 @@ func (p *httpPinger) ping(ctx context.Context) (PingResult, error) {
 		requestStart         time.Time
 	)
 
+	var (
+		resolvedIP string
+		tlsState   tls.ConnectionState
+		haveTLS    bool
+
+		// Each of these hooks fires on failure as well as success, so the
+		// timestamps alone cannot say which phase broke. The errors can.
+		dnsErr, connectErr, tlsErr, writeErr error
+	)
+
 	trace := &httptrace.ClientTrace{
-		DNSStart:             func(_ httptrace.DNSStartInfo) { dnsStart = time.Now() },
-		DNSDone:              func(_ httptrace.DNSDoneInfo) { dnsDone = time.Now() },
-		ConnectDone:          func(_, _ string, _ error) { connectDone = time.Now() },
-		TLSHandshakeStart:    func() { tlsStart = time.Now() },
-		TLSHandshakeDone:     func(_ tls.ConnectionState, _ error) { tlsDone = time.Now() },
-		WroteRequest:         func(_ httptrace.WroteRequestInfo) { wroteRequest = time.Now() },
+		DNSStart: func(_ httptrace.DNSStartInfo) { dnsStart = time.Now() },
+		DNSDone: func(info httptrace.DNSDoneInfo) {
+			dnsDone = time.Now()
+			dnsErr = info.Err
+			if len(info.Addrs) > 0 {
+				resolvedIP = info.Addrs[0].IP.String()
+			}
+		},
+		ConnectDone: func(_, addr string, err error) {
+			connectDone = time.Now()
+			connectErr = err
+			// Authoritative even when the address was already cached and no DNS
+			// lookup ran, so prefer it over the DNSDone value.
+			if host, _, splitErr := net.SplitHostPort(addr); splitErr == nil {
+				resolvedIP = host
+			}
+		},
+		TLSHandshakeStart: func() { tlsStart = time.Now() },
+		TLSHandshakeDone: func(cs tls.ConnectionState, err error) {
+			tlsDone = time.Now()
+			tlsErr = err
+			if err == nil {
+				tlsState, haveTLS = cs, true
+			}
+		},
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			wroteRequest = time.Now()
+			writeErr = info.Err
+		},
 		GotFirstResponseByte: func() { gotFirstResponseByte = time.Now() },
 	}
 
@@ -327,10 +397,14 @@ func (p *httpPinger) ping(ctx context.Context) (PingResult, error) {
 	end := time.Now()
 
 	statusCode := 0
+	var responseSize int64
+	var protocol string
 	if resp != nil {
 		statusCode = resp.StatusCode
-		// Drain and close body so the connection can be reused.
-		_, _ = io.Copy(io.Discard, resp.Body)
+		protocol = resp.Proto
+		// Drain and close body so the connection can be reused. The byte count
+		// is the response size; only the timing was kept before.
+		responseSize, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 	}
 
@@ -340,6 +414,15 @@ func (p *httpPinger) ping(ctx context.Context) (PingResult, error) {
 			TotalDuration: end.Sub(requestStart),
 			StatusCode:    0,
 			Method:        MethodHTTP,
+			ResolvedIP:    resolvedIP,
+			ErrMessage:    err.Error(),
+			ErrPhase: failurePhase(phaseTimings{
+				dnsStart: dnsStart, dnsDone: dnsDone,
+				connectDone: connectDone,
+				tlsStart:    tlsStart, tlsDone: tlsDone,
+				wroteRequest: wroteRequest, gotFirstByte: gotFirstResponseByte,
+				dnsErr: dnsErr, connectErr: connectErr, tlsErr: tlsErr, writeErr: writeErr,
+			}),
 		}, nil
 	}
 
@@ -366,7 +449,7 @@ func (p *httpPinger) ping(ctx context.Context) (PingResult, error) {
 		respRead = gotFirstResponseByte.Sub(wroteRequest)
 	}
 
-	return PingResult{
+	res := PingResult{
 		DNSLookup:     dnsLookup,
 		TCPConnect:    tcpConnect,
 		TLSHandshake:  tlsHandshake,
@@ -375,5 +458,78 @@ func (p *httpPinger) ping(ctx context.Context) (PingResult, error) {
 		TotalDuration: end.Sub(requestStart),
 		StatusCode:    statusCode,
 		Method:        MethodHTTP,
-	}, nil
+		ResolvedIP:    resolvedIP,
+		ResponseSize:  responseSize,
+		Protocol:      protocol,
+	}
+	if haveTLS {
+		res.TLS = tlsDetailsFrom(tlsState, end)
+	}
+	return res, nil
+}
+
+// phaseTimings carries what the trace hooks observed about one request.
+type phaseTimings struct {
+	dnsStart, dnsDone                    time.Time
+	connectDone                          time.Time
+	tlsStart, tlsDone                    time.Time
+	wroteRequest, gotFirstByte           time.Time
+	dnsErr, connectErr, tlsErr, writeErr error
+}
+
+// failurePhase names the request phase that broke. A bare status code of 0 says
+// a check failed but not where, which is the difference between a DNS problem
+// and a slow origin.
+//
+// Reported errors are checked before timestamps because every hook fires on
+// failure as well as success: a refused connection still calls ConnectDone, so
+// timing alone would blame the phase after the one that actually failed.
+func failurePhase(t phaseTimings) string {
+	switch {
+	case t.dnsErr != nil:
+		return "dns"
+	case t.connectErr != nil:
+		return "connect"
+	case t.tlsErr != nil:
+		return "tls"
+	case t.writeErr != nil:
+		return "request"
+
+	// No hook reported an error, so fall back to the first phase that started
+	// and never finished.
+	case !t.dnsStart.IsZero() && t.dnsDone.IsZero():
+		return "dns"
+	case !t.dnsDone.IsZero() && t.connectDone.IsZero():
+		return "connect"
+	case !t.tlsStart.IsZero() && t.tlsDone.IsZero():
+		return "tls"
+	case !t.connectDone.IsZero() && t.wroteRequest.IsZero():
+		return "request"
+	case !t.wroteRequest.IsZero() && t.gotFirstByte.IsZero():
+		return "response"
+	case t.dnsStart.IsZero() && t.connectDone.IsZero():
+		// Nothing started: usually an invalid URL or a proxy rejection.
+		return "setup"
+	default:
+		return "unknown"
+	}
+}
+
+// tlsDetailsFrom extracts certificate and handshake detail from a completed
+// handshake. DisableKeepAlives means every probe performs a real handshake, so
+// this is always current rather than cached from an earlier connection.
+func tlsDetailsFrom(cs tls.ConnectionState, now time.Time) *TLSDetails {
+	d := &TLSDetails{
+		Version:            tls.VersionName(cs.Version),
+		CipherSuite:        tls.CipherSuiteName(cs.CipherSuite),
+		NegotiatedProtocol: cs.NegotiatedProtocol,
+	}
+	if len(cs.PeerCertificates) > 0 {
+		leaf := cs.PeerCertificates[0]
+		d.CertIssuer = leaf.Issuer.String()
+		d.CertSubject = leaf.Subject.String()
+		d.CertNotAfter = leaf.NotAfter
+		d.CertDaysLeft = leaf.NotAfter.Sub(now).Hours() / 24
+	}
+	return d
 }

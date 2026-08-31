@@ -100,6 +100,146 @@ receivers:
       failure_threshold: 0.5       # 0.0–1.0. Default 0.5 (50% packet loss).
 ```
 
+## Logs
+
+The receiver can emit log records as well as metrics. Which signals it produces is
+decided by pipeline membership, not by configuration — reference the receiver from a
+logs pipeline and it emits logs, from a metrics pipeline and it emits metrics, from
+both and it emits both.
+
+Two probe types produce records, because for them the unit of meaning is a
+transaction rather than a number:
+
+- **Traceroute** — one record per trace, with the hops as an ordered array. The path
+  is a single observation, so keeping it together avoids reassembling it at query time
+  and makes a route change a diff between two records.
+- **HTTP** — one record per transaction, with the phases together. Averaged metric
+  series cannot answer "this check was slow, which phase caused it?", because the
+  phases are independent series that cannot be correlated back to one request.
+
+**DNS and ICMP probes emit no records.** A single duration plus a status is a metric,
+and turning it into a log costs cheap aggregation, native threshold alerting, and
+usually retention, in exchange for nothing.
+
+### Sharing one probe cycle
+
+A receiver wired into both pipelines is instantiated twice by the collector. The
+receiver shares probe execution between the two instances, so each target is probed
+**once** per collection interval and both signals describe the same observation. Both
+signals run on the same `collection_interval`.
+
+### HTTP record
+
+```jsonc
+{
+  "Timestamp": "<request start, not completion>",
+  "SeverityText": "INFO",              // ERROR when the check fails
+  "Attributes": {
+    "server.address": "https://www.cloudflare.com",
+    "server.resolved_ip": "104.16.124.96",
+    "http.request.method": "GET",
+    "http.response.status_code": 200,
+    "http.response.size": 1256,
+    "network.protocol.version": "HTTP/2.0",
+    "tls.cert.days_remaining": 61.4,
+    "dns.server": "1.1.1.1:53"
+  },
+  "Body": {
+    "phases": {
+      "dns_ms": 2.1, "connect_ms": 11.4, "tls_ms": 184.7,
+      "write_ms": 0.3, "ttfb_ms": 8.2, "total_ms": 206.7
+    },
+    "tls": {
+      "version": "TLS 1.3",
+      "cipher": "TLS_AES_128_GCM_SHA256",
+      "cert": { "issuer": "...", "subject": "...", "not_after": "...", "days_remaining": 61.4 }
+    }
+  }
+}
+```
+
+A failed check is `SeverityText: ERROR` and adds an `error` block with the failing
+phase and the underlying message. This matters because a failed HTTP probe reports
+status code `0` regardless of cause — the error text is the only thing separating a
+DNS failure from a refused connection from a timeout.
+
+Phase semantics match the corresponding metrics exactly, including their quirks:
+`connect_ms` is measured from DNS-done rather than from connection start, `write_ms`
+spans the TLS handshake, and `ttfb_ms` is time to first byte rather than a full body
+read.
+
+### Traceroute record
+
+```jsonc
+{
+  "Timestamp": "<trace start>",
+  "SeverityText": "INFO",              // WARN when the destination was not reached
+  "Attributes": {
+    "server.address": "www.cloudflare.com",
+    "server.resolved_ip": "104.16.124.96",
+    "traceroute.method": "udp",
+    "traceroute.hop_count": 11,
+    "traceroute.hops_answered": 8,
+    "traceroute.reached_dest": true,
+    "traceroute.aborted_early": false
+  },
+  "Body": {
+    "hops": [
+      { "index": 1, "address": "172.16.1.1",     "timed_out": false, "rtt_ms": 0.443 },
+      { "index": 2, "address": "10.112.162.67",  "timed_out": false, "rtt_ms": 11.34 },
+      { "index": 3, "address": "*",              "timed_out": true }
+    ]
+  }
+}
+```
+
+Hops that never answered are included with `timed_out: true` and the conventional `*`
+address, carrying no `rtt_ms` — the only duration available for such a hop is the
+timeout that was configured, which is not a measurement. `traceroute.aborted_early`
+distinguishes a path truncated by the consecutive-timeout bail-out from a genuinely
+short one.
+
+### Security
+
+Request and response **headers and bodies are never recorded**, and there is no option
+to enable it. Auth headers, cookies, and payloads are exactly what HTTP checks carry.
+Only the response size is captured.
+
+Endpoint credentials are stripped by default. A target configured as
+`https://user:pass@host` reaches records as `https://user:xxxxx@host`. Disable with
+`logs.redact_url_userinfo: false` only if endpoints are known to carry no credentials.
+
+### Volume
+
+Records scale with targets and interval, not with hops: one traceroute record per trace
+rather than one per hop. At a 60s interval that is ~1,440 records per target per day for
+HTTP plus the same for traceroute — roughly 30x fewer than per-hop records would be.
+
+### Configuration
+
+```yaml
+receivers:
+  networkcheck:
+    logs:
+      # Include certificate and handshake detail in HTTPS records. Default true.
+      include_tls_details: true
+      # Strip credentials from endpoints before they reach a record. Default true.
+      redact_url_userinfo: true
+```
+
+### Example
+
+```yaml
+service:
+  pipelines:
+    metrics:
+      receivers: [networkcheck]
+      exporters: [otlphttp]
+    logs:
+      receivers: [networkcheck]
+      exporters: [otlphttp]
+```
+
 ## Metrics
 
 ### Failed probes
