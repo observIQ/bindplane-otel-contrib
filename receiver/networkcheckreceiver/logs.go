@@ -48,7 +48,11 @@ func redactEndpoint(endpoint string) string {
 }
 
 // userinfoInURL matches the userinfo segment of a URL embedded in free text.
-var userinfoInURL = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.\-]*://)[^/@\s"]+@`)
+//
+// "?" and "#" are excluded along with "/" so the match cannot run past the URL
+// authority: an "@" inside a query or fragment (an email address in a
+// parameter, say) would otherwise swallow the host on the way to it.
+var userinfoInURL = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.\-]*://)[^/@\s"?#]+@`)
 
 // redactMessage strips credentials from any URL embedded in free-form text.
 //
