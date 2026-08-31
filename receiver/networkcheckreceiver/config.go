@@ -128,6 +128,23 @@ type TracerouteConfig struct {
 
 	// Timeout is the per-hop probe timeout. Default 3s.
 	Timeout time.Duration `mapstructure:"timeout"`
+
+	// ProbesPerHop is the maximum number of probes sent for a single hop.
+	// Probing stops at the first reply, so a hop that answers costs one probe
+	// and only a silent hop costs more. Default 3.
+	//
+	// Routers rate-limit ICMP time-exceeded generation, so a single probe
+	// regularly goes unanswered on a path that is otherwise healthy — which
+	// reads as a missing hop. Retrying only the silent hops recovers them
+	// without multiplying traffic against the routers doing the limiting.
+	ProbesPerHop int `mapstructure:"probes_per_hop"`
+
+	// MaxConsecutiveTimeouts abandons the trace after this many unanswered
+	// hops in a row. Without a bound, a path that stops answering walks the
+	// full max_hops range at the per-hop timeout inside a single scrape.
+	// 0 disables the early abort, leaving max_hops as the only bound.
+	// Default 5.
+	MaxConsecutiveTimeouts int `mapstructure:"max_consecutive_timeouts"`
 }
 
 // Validate checks the configuration for required fields and valid values.
@@ -176,6 +193,12 @@ func (c *Config) Validate() error {
 		}
 		if c.Traceroute.FailureThreshold < 0 || c.Traceroute.FailureThreshold > 1 {
 			errs = multierr.Append(errs, errors.New("traceroute.failure_threshold must be between 0.0 and 1.0"))
+		}
+		if c.Traceroute.ProbesPerHop < 0 {
+			errs = multierr.Append(errs, errors.New("traceroute.probes_per_hop must be >= 0"))
+		}
+		if c.Traceroute.MaxConsecutiveTimeouts < 0 {
+			errs = multierr.Append(errs, errors.New("traceroute.max_consecutive_timeouts must be >= 0"))
 		}
 	}
 

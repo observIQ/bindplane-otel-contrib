@@ -50,10 +50,12 @@ func createDefaultConfig() component.Config {
 			RedactURLUserinfo: true,
 		},
 		Traceroute: TracerouteConfig{
-			Method:           "udp",
-			MaxHops:          30,
-			FailureThreshold: 0.5,
-			Timeout:          3 * time.Second,
+			Method:                 "udp",
+			MaxHops:                30,
+			FailureThreshold:       0.5,
+			Timeout:                3 * time.Second,
+			ProbesPerHop:           defaultProbesPerHop,
+			MaxConsecutiveTimeouts: defaultMaxConsecutiveTimeouts,
 		},
 	}
 }
