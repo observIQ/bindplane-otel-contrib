@@ -384,6 +384,26 @@ func TestRedactMessagePreservesText(t *testing.T) {
 			wantContains: "context deadline exceeded",
 			wantAbsent:   "",
 		},
+		{
+			// The match must stop at the URL authority: an "@" in a query
+			// string would otherwise swallow the host on the way to it.
+			name:         "at-sign in a query string does not eat the host",
+			in:           "GET https://api.example.test?email=user@example.test failed",
+			wantContains: "api.example.test",
+			wantAbsent:   "",
+		},
+		{
+			name:         "at-sign in a fragment does not eat the host",
+			in:           "https://host.example#frag@anchor unreachable",
+			wantContains: "host.example",
+			wantAbsent:   "",
+		},
+		{
+			name:         "credential still stripped when a query follows",
+			in:           `Get "https://admin:hunter2@example.com/health?verbose=1": timeout`,
+			wantContains: "verbose=1",
+			wantAbsent:   "hunter2",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
