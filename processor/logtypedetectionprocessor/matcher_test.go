@@ -74,3 +74,70 @@ func TestRegexMatcher(t *testing.T) {
 		})
 	}
 }
+
+func TestMatcherConfigValidate(t *testing.T) {
+	testCases := []struct {
+		name   string
+		config MatcherConfig
+		expect string
+	}{
+		{
+			name:   "valid regex",
+			config: MatcherConfig{Name: "a", Method: MatcherTypeRegex, Value: `^foo`},
+		},
+		{
+			name:   "valid starts with",
+			config: MatcherConfig{Name: "a", Method: MatcherTypeStartsWith, Value: "foo"},
+		},
+		{
+			name:   "valid with zero priority",
+			config: MatcherConfig{Name: "a", Priority: new(0), Method: MatcherTypeStartsWith, Value: "foo"},
+		},
+		{
+			name:   "missing name",
+			config: MatcherConfig{Method: MatcherTypeStartsWith, Value: "foo"},
+			expect: "name is required",
+		},
+		{
+			name:   "negative priority",
+			config: MatcherConfig{Name: "a", Priority: new(-1), Method: MatcherTypeStartsWith, Value: "foo"},
+			expect: "priority must be >= 0",
+		},
+		{
+			name:   "regex missing value",
+			config: MatcherConfig{Name: "a", Method: MatcherTypeRegex},
+			expect: "regex matcher requires a value",
+		},
+		{
+			name:   "invalid regex",
+			config: MatcherConfig{Name: "a", Method: MatcherTypeRegex, Value: "("},
+			expect: `invalid regex "("`,
+		},
+		{
+			name:   "starts with missing value",
+			config: MatcherConfig{Name: "a", Method: MatcherTypeStartsWith},
+			expect: "starts with matcher requires a value",
+		},
+		{
+			name:   "unknown method",
+			config: MatcherConfig{Name: "a", Method: "contains", Value: "foo"},
+			expect: `unknown matcher method "contains"`,
+		},
+		{
+			name:   "empty method",
+			config: MatcherConfig{Name: "a", Value: "foo"},
+			expect: `unknown matcher method ""`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.config.Validate()
+			if tc.expect == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.expect)
+		})
+	}
+}

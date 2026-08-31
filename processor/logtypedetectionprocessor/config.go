@@ -26,7 +26,7 @@ const (
 	unknownLogType          = "unknown"
 )
 
-var errMissingLogTypeFieldError = errors.New("log_type_field is required")
+var errMissingLogTypeField = errors.New("log_type_field is required")
 
 // Config is the config of the processor.
 type Config struct {
@@ -46,14 +46,12 @@ func createDefaultConfig() component.Config {
 // Validate validates the processor configuration
 func (c Config) Validate() error {
 	if c.LogTypeField == "" {
-		return errMissingLogTypeFieldError
+		return errMissingLogTypeField
 	}
 
-	if c.Matchers != nil {
-		for _, m := range c.Matchers {
-			if err := m.Validate(); err != nil {
-				return err
-			}
+	for _, m := range c.Matchers {
+		if err := m.Validate(); err != nil {
+			return err
 		}
 	}
 	return nil

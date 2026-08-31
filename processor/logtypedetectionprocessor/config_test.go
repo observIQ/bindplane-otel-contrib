@@ -48,7 +48,7 @@ func TestConfig_Validate(t *testing.T) {
 			config: &Config{
 				FingerprintField: "fingerprint_field",
 			},
-			err: errMissingLogTypeFieldError,
+			err: errMissingLogTypeField,
 		},
 	}
 	for _, tc := range testCases {

@@ -17,7 +17,7 @@ package logtypedetectionprocessor
 import (
 	"context"
 	"math"
-	"sort"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -52,8 +52,8 @@ func newLogTypeDetectionProcessor(cfg *Config, telemetry *metadata.TelemetryBuil
 	if cfg.Matchers != nil {
 		matchers := make([]MatcherConfig, len(cfg.Matchers))
 		copy(matchers, cfg.Matchers)
-		sort.SliceStable(matchers, func(i, j int) bool {
-			return priorityRank(matchers[i].Priority) < priorityRank(matchers[j].Priority)
+		slices.SortStableFunc(matchers, func(i, j MatcherConfig) int {
+			return priorityRank(i.Priority) - priorityRank(j.Priority)
 		})
 
 		for _, m := range matchers {
