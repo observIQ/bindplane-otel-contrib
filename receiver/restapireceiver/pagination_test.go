@@ -1766,3 +1766,139 @@ func TestBuildPaginationParams_TimeBound_StartTimeNow(t *testing.T) {
 	require.NoError(t, err)
 	require.InDelta(t, before.Unix(), fromEpoch, 2)
 }
+
+func TestNewPaginationState_OffsetLimit_ConfiguredLimit(t *testing.T) {
+	testCases := []struct {
+		name     string
+		limit    int
+		expected int
+	}{
+		{name: "unset falls back to the historical default", limit: 0, expected: 10},
+		{name: "configured limit is used", limit: 250, expected: 250},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "offset",
+						LimitFieldName:  "limit",
+						Limit:           tc.limit,
+					},
+				},
+			}
+			require.Equal(t, tc.expected, newPaginationState(cfg).Limit)
+		})
+	}
+}
+
+// TestParseOffsetLimitResponse_NumericTokenFormatting covers a next-offset token
+// the API returned as a JSON number. %v rendered 1000000 as "1e+06", corrupting
+// the cursor on the following request.
+func TestParseOffsetLimitResponse_NumericTokenFormatting(t *testing.T) {
+	cfg := &Config{
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "offset",
+				LimitFieldName:      "limit",
+				NextOffsetFieldName: "next_offset",
+			},
+		},
+	}
+
+	testCases := []struct {
+		name     string
+		tokenVal any
+		expected string
+	}{
+		{name: "small number", tokenVal: float64(50), expected: "50"},
+		{name: "large number keeps its digits", tokenVal: float64(1000000), expected: "1000000"},
+		{name: "fractional number", tokenVal: float64(1.5), expected: "1.5"},
+		{name: "opaque string is untouched", tokenVal: "eyJvZmZzZXQiOjEwfQ==", expected: "eyJvZmZzZXQiOjEwfQ=="},
+		{name: "digit-only string stays a string", tokenVal: "0012345", expected: "0012345"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			state := &paginationState{Limit: 10}
+			_, err := parseOffsetLimitResponse(cfg, map[string]any{"next_offset": tc.tokenVal}, []map[string]any{}, state)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, state.CurrentOffsetToken)
+			require.Equal(t, tc.expected, buildPaginationParams(cfg, state).Get("offset"))
+		})
+	}
+}
+
+func TestNewRequestBodyData(t *testing.T) {
+	t.Run("populates the receiver-owned values", func(t *testing.T) {
+		cfg := &Config{
+			StartTimeParamName: "since",
+			StartTimeValue:     "2025-01-01T00:00:00Z",
+			EndTimeParamName:   "until",
+			EndTimeValue:       "2025-01-02T00:00:00Z",
+			Pagination: PaginationConfig{
+				Mode: paginationModeOffsetLimit,
+				OffsetLimit: OffsetLimitPagination{
+					OffsetFieldName: "after",
+					LimitFieldName:  "limit",
+					Limit:           100,
+				},
+			},
+		}
+		state := newPaginationState(cfg)
+		state.CurrentOffsetToken = "cursor-1"
+		state.CurrentOffset = 40
+		state.CurrentPage = 3
+		state.PageSize = 25
+
+		data := newRequestBodyData(cfg, state)
+		require.Equal(t, "cursor-1", data.Cursor)
+		require.Equal(t, 40, data.Offset)
+		require.Equal(t, 100, data.Limit)
+		require.Equal(t, 3, data.Page)
+		require.Equal(t, 25, data.PageSize)
+		require.Equal(t, "2025-01-01T00:00:00Z", data.StartTime)
+		require.Equal(t, "2025-01-02T00:00:00Z", data.EndTime)
+	})
+
+	t.Run("cursor is empty on the first page", func(t *testing.T) {
+		cfg := &Config{
+			Pagination: PaginationConfig{
+				Mode:        paginationModeOffsetLimit,
+				OffsetLimit: OffsetLimitPagination{OffsetFieldName: "after", LimitFieldName: "limit"},
+			},
+		}
+		require.Empty(t, newRequestBodyData(cfg, newPaginationState(cfg)).Cursor)
+	})
+
+	t.Run("string values are raw, not escaped", func(t *testing.T) {
+		// Escaping is explicit at the call site via {{ json . }}, so the data
+		// itself carries the token verbatim.
+		cfg := &Config{Pagination: PaginationConfig{Mode: paginationModeOffsetLimit}}
+		state := &paginationState{CurrentOffsetToken: `a"b\c`}
+
+		require.Equal(t, `a"b\c`, newRequestBodyData(cfg, state).Cursor)
+	})
+
+	t.Run("timestamp mode advances the start time", func(t *testing.T) {
+		cfg := &Config{
+			StartTimeParamName: "since",
+			StartTimeValue:     "2025-01-01T00:00:00Z",
+			Pagination: PaginationConfig{
+				Mode:      paginationModeTimestamp,
+				Timestamp: TimestampPagination{TimestampFieldName: "created_at"},
+			},
+		}
+		state := newPaginationState(cfg)
+
+		// First page: the configured value, un-nudged.
+		require.Equal(t, "2025-01-01T00:00:00Z", newRequestBodyData(cfg, state).StartTime)
+
+		// After a page, it steps past the last record already fetched.
+		state.PagesFetched = 1
+		require.Equal(t, requestStartTime(cfg, state), newRequestBodyData(cfg, state).StartTime)
+	})
+}

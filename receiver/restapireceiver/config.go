@@ -15,6 +15,7 @@
 package restapireceiver // import "github.com/observiq/bindplane-otel-contrib/receiver/restapireceiver"
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -137,10 +138,58 @@ func (m *PaginationMode) UnmarshalText(text []byte) error {
 	}
 }
 
+// Method defines the HTTP method used for polling requests.
+type Method string
+
+const (
+	methodGET  Method = "get"
+	methodPOST Method = "post"
+)
+
+// UnmarshalText implements the encoding.TextUnmarshaler interface
+func (m *Method) UnmarshalText(text []byte) error {
+	method := Method(text)
+	switch method {
+	case methodGET, methodPOST:
+		*m = method
+		return nil
+	default:
+		return fmt.Errorf("invalid method: %s, must be one of: get, post", text)
+	}
+}
+
+// httpMethod returns the wire-format method token. Methods are case-sensitive
+// and http.NewRequestWithContext does not normalize them, so the lowercase
+// config value must never reach the transport; EdgeGrid also only hashes a body
+// when the method is exactly http.MethodPost. An unset method means GET.
+func (m Method) httpMethod() string {
+	if m == methodPOST {
+		return http.MethodPost
+	}
+	return http.MethodGet
+}
+
 // Config defines configuration for the REST API receiver.
 type Config struct {
 	// URL is the base URL for the REST API endpoint (required).
 	URL string `mapstructure:"url"`
+
+	// Method is the HTTP method used for polling requests: "get" (default) or "post".
+	Method Method `mapstructure:"method"`
+
+	// RequestBody is a Go text/template rendering to the JSON request body sent
+	// with each request. Only valid when method is "post".
+	//
+	// Receiver-owned values are available as template fields (.Cursor, .Limit,
+	// .PageSize, .StartTime, ...) and may be placed anywhere in the JSON at any
+	// nesting depth, which is what lets one config shape match APIs whose bodies
+	// differ structurally. Quote a field to emit a JSON string, leave it unquoted
+	// to emit a bare number. Validate renders the template to check it produces
+	// valid JSON on both the first and continuation requests.
+	//
+	// The template is NOT masked in logs or config dumps. Do not put credentials
+	// here; use auth_mode or sensitive_headers instead.
+	RequestBody string `mapstructure:"request_body"`
 
 	// ResponseFormat defines the format of the API response body.
 	// "json" (default): standard JSON array or object with a data field.
@@ -359,10 +408,17 @@ type OffsetLimitPagination struct {
 	// StartingOffset is the starting offset value.
 	StartingOffset int `mapstructure:"starting_offset"`
 
-	// LimitFieldName is the name of the query parameter for limit.
+	// LimitFieldName is the name of the request parameter for limit.
 	// Required for numeric offset pagination. Optional when NextOffsetFieldName
 	// is set (token-based pagination), since page advance is driven by the token.
 	LimitFieldName string `mapstructure:"limit_field_name"`
+
+	// Limit is the value sent for LimitFieldName, and the expected page size for
+	// the "a full page means there may be more" heuristic in
+	// parseOffsetLimitResponse — so it should match what the API actually
+	// returns. With LimitFieldName unset (token-based pagination) it is only that
+	// threshold. Defaults to 10.
+	Limit int `mapstructure:"limit"`
 
 	// NextOffsetFieldName is the name of the field or header that contains the next offset token.
 	// When set, the receiver uses token-based (cursor) pagination instead of numeric offsets.
@@ -456,7 +512,12 @@ func oldKeyDisplay(key string) string {
 	return strings.ReplaceAll(key, "::", ".")
 }
 
-// Validate validates the configuration.
+// Validate validates the configuration and applies defaults for unset fields.
+//
+// It does not re-check the closed-set enums (auth_mode, method, response_format,
+// response_source, pagination.mode). Each one's UnmarshalText rejects an invalid
+// value while the config is being decoded, which is the only way one can reach a
+// running receiver.
 func (c *Config) Validate() error {
 	if c.URL == "" {
 		return fmt.Errorf("url is required")
@@ -467,25 +528,21 @@ func (c *Config) Validate() error {
 		c.ResponseFormat = responseFormatJSON
 	}
 
-	// Validate response format
-	switch c.ResponseFormat {
-	case responseFormatJSON, responseFormatNDJSON:
-		// Valid formats
-	default:
-		return fmt.Errorf("invalid response_format: %s, must be one of: json, ndjson", c.ResponseFormat)
+	// Apply default method
+	if c.Method == "" {
+		c.Method = methodGET
+	}
+
+	// A GET with a body has undefined semantics and is dropped or rejected by
+	// many servers, caches, and proxies. Reject it rather than let it surface as
+	// a silent empty poll.
+	if c.Method == methodGET && c.RequestBody != "" {
+		return fmt.Errorf("request_body is not supported when method is get")
 	}
 
 	// Validate auth
 	if c.AuthMode == "" {
 		return fmt.Errorf("auth is required")
-	}
-
-	// Validate auth mode
-	switch c.AuthMode {
-	case authModeNone, authModeAPIKey, authModeBearer, authModeBasic, authModeOAuth2, authModeAkamaiEdgeGrid:
-		// Valid modes
-	default:
-		return fmt.Errorf("invalid auth mode: %s, must be one of: none, apikey, bearer, basic, oauth2, akamai_edgegrid", c.AuthMode)
 	}
 
 	// Validate auth mode specific requirements
@@ -583,58 +640,54 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// Validate pagination mode
-	switch c.Pagination.Mode {
-	case paginationModeNone, paginationModeOffsetLimit, paginationModePageSize, paginationModeTimestamp:
-		// Valid modes
-	default:
-		return fmt.Errorf("invalid pagination mode: %s, must be one of: none, offset_limit, page_size, timestamp", c.Pagination.Mode)
-	}
-
 	// Default response_source to body
 	if c.Pagination.ResponseSource == "" {
 		c.Pagination.ResponseSource = responseSourceBody
 	}
 
-	// Validate response_source
-	switch c.Pagination.ResponseSource {
-	case responseSourceBody, responseSourceHeader:
-		// Valid
-	default:
-		return fmt.Errorf("invalid response_source: %s, must be one of: body, header", c.Pagination.ResponseSource)
-	}
+	// The *_param_name / *_field_name settings name query-string parameters. A
+	// request_body template carries its own values, so when one is configured
+	// they become optional — the template may be the only place the receiver's
+	// values appear.
+	requiresQueryParams := c.RequestBody == ""
 
 	// Validate pagination mode specific requirements
 	switch c.Pagination.Mode {
 	case paginationModeOffsetLimit:
-		if c.Pagination.OffsetLimit.OffsetFieldName == "" {
+		if requiresQueryParams && c.Pagination.OffsetLimit.OffsetFieldName == "" {
 			return fmt.Errorf("offset_field_name is required when pagination.mode is offset_limit")
 		}
 		// limit_field_name is required for numeric offset pagination so the
 		// server's page size matches the internal offset advance. With
 		// token-based pagination (next_offset_field_name set), advance is
 		// driven by the token so limit_field_name is optional.
-		if c.Pagination.OffsetLimit.NextOffsetFieldName == "" && c.Pagination.OffsetLimit.LimitFieldName == "" {
+		if requiresQueryParams && c.Pagination.OffsetLimit.NextOffsetFieldName == "" && c.Pagination.OffsetLimit.LimitFieldName == "" {
 			return fmt.Errorf("limit_field_name is required when pagination.mode is offset_limit and next_offset_field_name is not set for token-based pagination")
 		}
-		// next_offset_field_name is required when response_source is header
+		// next_offset_field_name names a response field, so it is required
+		// regardless of where the request carries its values.
 		if c.Pagination.ResponseSource == responseSourceHeader && c.Pagination.OffsetLimit.NextOffsetFieldName == "" {
 			return fmt.Errorf("next_offset_field_name is required when response_source is header")
 		}
 	case paginationModePageSize:
-		if c.Pagination.PageSize.PageNumFieldName == "" {
+		if requiresQueryParams && c.Pagination.PageSize.PageNumFieldName == "" {
 			return fmt.Errorf("page_num_field_name is required when pagination.mode is page_size")
 		}
-		if c.Pagination.PageSize.PageSizeFieldName == "" {
+		if requiresQueryParams && c.Pagination.PageSize.PageSizeFieldName == "" {
 			return fmt.Errorf("page_size_field_name is required when pagination.mode is page_size")
 		}
 	case paginationModeTimestamp:
-		if c.StartTimeParamName == "" {
+		if requiresQueryParams && c.StartTimeParamName == "" {
 			return fmt.Errorf("start_time_param_name is required when pagination.mode is timestamp")
 		}
+		// timestamp_field_name names a response field and is always required.
 		if c.Pagination.Timestamp.TimestampFieldName == "" {
 			return fmt.Errorf("timestamp_field_name is required when pagination.mode is timestamp")
 		}
+	}
+
+	if c.Pagination.OffsetLimit.Limit < 0 {
+		return fmt.Errorf("limit must be greater than or equal to 0")
 	}
 
 	// Validate start_time_value format if provided
@@ -688,7 +741,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("backoff_multiplier must be greater than 1.0")
 	}
 
-	return nil
+	// Runs last: rendering the template needs the pagination mode and the time
+	// bounds already defaulted and validated.
+	return validateRequestBodyTemplate(c)
 }
 
 // validateTimestampValue validates that a timestamp value string can be parsed
@@ -708,7 +763,24 @@ func (c *Config) validateTimestampValue(value, fieldName string) error {
 		}
 		return fmt.Errorf("%s %q could not be parsed; must be \"now\" or match %s", fieldName, value, formatHint)
 	}
+
+	// An epoch value is sent as a bare JSON number in body mode, so it must be
+	// legal JSON as well as parseable: parseConfigTimestamp accepts forms JSON
+	// does not (leading "+", trailing "."), which would otherwise pass here and
+	// then fail on every poll when the body is marshaled.
+	if isEpochFormat(c.TimestampFormat) && !isValidJSONNumber(value) {
+		return fmt.Errorf("%s %q is not a valid JSON number; an epoch timestamp must be plain digits with no leading \"+\" and no trailing \".\"", fieldName, value)
+	}
+
 	return nil
+}
+
+// isValidJSONNumber reports whether s can be emitted as a bare JSON number.
+// json.Number carries its contents verbatim without validating them, so an
+// illegal value would otherwise fail at marshal time rather than config time.
+func isValidJSONNumber(s string) bool {
+	var n json.Number
+	return json.Unmarshal([]byte(s), &n) == nil
 }
 
 // parseConfigTimestamp parses a user-configured timestamp value into a time.Time

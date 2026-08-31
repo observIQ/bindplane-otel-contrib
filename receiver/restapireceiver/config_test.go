@@ -15,6 +15,8 @@
 package restapireceiver
 
 import (
+	"encoding/json"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -76,17 +78,6 @@ func TestConfig_Validate(t *testing.T) {
 				},
 			},
 			expectedErr: "",
-		},
-		{
-			name: "invalid auth mode",
-			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: AuthMode("invalid"),
-				Pagination: PaginationConfig{
-					Mode: paginationModeNone,
-				},
-			},
-			expectedErr: "invalid auth mode: invalid, must be one of: none, apikey, bearer, basic, oauth2, akamai_edgegrid",
 		},
 		{
 			name: "apikey auth missing header name",
@@ -443,33 +434,6 @@ func TestConfig_Validate(t *testing.T) {
 				},
 			},
 			expectedErr: "",
-		},
-		{
-			name: "invalid response format",
-			config: &Config{
-				URL:            "https://api.example.com/data",
-				ResponseFormat: ResponseFormat("xml"),
-				AuthMode:       authModeNone,
-				Pagination: PaginationConfig{
-					Mode: paginationModeNone,
-				},
-			},
-			expectedErr: "invalid response_format: xml, must be one of: json, ndjson",
-		},
-		{
-			name: "invalid pagination mode",
-			config: &Config{
-				URL:      "https://api.example.com/data",
-				AuthMode: authModeAPIKey,
-				APIKeyConfig: APIKeyConfig{
-					HeaderName: "X-API-Key",
-					Value:      "test-key",
-				},
-				Pagination: PaginationConfig{
-					Mode: PaginationMode("invalid"),
-				},
-			},
-			expectedErr: "invalid pagination mode: invalid, must be one of: none, offset_limit, page_size, timestamp",
 		},
 		{
 			name: "offset_limit pagination missing offset field name",
@@ -1398,6 +1362,132 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectedErr: "start_time_value (1748736000) must be before end_time_value (1704067200)",
 		},
+		{
+			name: "valid post config with request body",
+			config: &Config{
+				URL:         "https://api.example.com/alerts",
+				Method:      methodPOST,
+				AuthMode:    authModeNone,
+				RequestBody: `{"filter":"status:'new'","sort":"created_timestamp|asc"}`,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "request_body rejected with get",
+			config: &Config{
+				URL:         "https://api.example.com/data",
+				Method:      methodGET,
+				AuthMode:    authModeNone,
+				RequestBody: `{"filter":"x"}`,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "request_body is not supported when method is get",
+		},
+		{
+			name: "negative offset_limit limit",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "offset",
+						LimitFieldName:  "limit",
+						Limit:           -1,
+					},
+				},
+			},
+			expectedErr: "limit must be greater than or equal to 0",
+		},
+		{
+			name: "epoch start_time_value with a leading plus",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeNone,
+				StartTimeParamName: "since",
+				StartTimeValue:     "+1704067200",
+				TimestampFormat:    epochSeconds,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: `start_time_value "+1704067200" is not a valid JSON number`,
+		},
+		{
+			name: "epoch end_time_value with a trailing dot",
+			config: &Config{
+				URL:              "https://api.example.com/data",
+				AuthMode:         authModeNone,
+				EndTimeParamName: "until",
+				EndTimeValue:     "1704067200.",
+				TimestampFormat:  epochSecondsFractional,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: `end_time_value "1704067200." is not a valid JSON number`,
+		},
+		{
+			name: "valid epoch fractional start_time_value",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeNone,
+				StartTimeParamName: "since",
+				StartTimeValue:     "1704067200.123456",
+				TimestampFormat:    epochSecondsFractional,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "request_body template reaching Validate",
+			config: &Config{
+				URL:         "https://api.example.com/alerts",
+				Method:      methodPOST,
+				AuthMode:    authModeNone,
+				RequestBody: `{"limit": {{ .Limit }},}`,
+				Pagination: PaginationConfig{
+					Mode: paginationModeNone,
+				},
+			},
+			expectedErr: "request_body must render to valid JSON",
+		},
+		{
+			name: "request_body template frees the query param names",
+			config: &Config{
+				URL:         "https://api.example.com/alerts",
+				Method:      methodPOST,
+				AuthMode:    authModeNone,
+				RequestBody: `{"limit": {{ .Limit }}{{ if .Cursor }}, "after": {{ json .Cursor }}{{ end }}}`,
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						Limit:               100,
+						NextOffsetFieldName: "meta.pagination.after",
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "offset_field_name still required without a template",
+			config: &Config{
+				URL:      "https://api.example.com/alerts",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode:        paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{LimitFieldName: "limit"},
+				},
+			},
+			expectedErr: "offset_field_name is required when pagination.mode is offset_limit",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1418,6 +1508,7 @@ func TestConfig_DefaultValues(t *testing.T) {
 	cfg := factory.CreateDefaultConfig().(*Config)
 
 	require.Equal(t, authModeNone, cfg.AuthMode)
+	require.Equal(t, methodGET, cfg.Method)
 	require.Equal(t, paginationModeNone, cfg.Pagination.Mode)
 	require.Equal(t, 10*time.Second, cfg.MinPollInterval)
 	require.Equal(t, 5*time.Minute, cfg.MaxPollInterval)
@@ -1457,6 +1548,69 @@ func TestLoadConfigFromYAML(t *testing.T) {
 	require.Equal(t, authModeAPIKey, restapiCfg.AuthMode)
 	require.Equal(t, configopaque.String("test-key"), restapiCfg.APIKeyConfig.Value)
 	require.Equal(t, "X-API-Key", restapiCfg.APIKeyConfig.HeaderName)
+
+	// The POST shape must survive the YAML -> confmap -> map[string]any round
+	// trip with key case, nesting, and non-string scalar types preserved.
+	require.Equal(t, methodPOST, restapiCfg.Method)
+	require.Contains(t, restapiCfg.RequestBody, `"filter": "status:'new'"`)
+	require.Contains(t, restapiCfg.RequestBody, "{{ .PageSize }}")
+}
+
+func TestConfig_MethodDefault(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		method   Method
+		expected Method
+	}{
+		{name: "unset defaults to get", expected: methodGET},
+		{name: "explicit post", method: methodPOST, expected: methodPOST},
+		{name: "explicit get", method: methodGET, expected: methodGET},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				URL:        "https://api.example.com/data",
+				Method:     tc.method,
+				AuthMode:   authModeNone,
+				Pagination: PaginationConfig{Mode: paginationModeNone},
+			}
+			require.NoError(t, cfg.Validate())
+			require.Equal(t, tc.expected, cfg.Method)
+		})
+	}
+}
+
+func TestMethod_UnmarshalText(t *testing.T) {
+	testCases := []struct {
+		input       string
+		expected    Method
+		expectedErr string
+	}{
+		{input: "get", expected: methodGET},
+		{input: "post", expected: methodPOST},
+		{input: "PATCH", expectedErr: "invalid method: PATCH, must be one of: get, post"},
+		{input: "POST", expectedErr: "invalid method: POST, must be one of: get, post"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.input, func(t *testing.T) {
+			var m Method
+			err := m.UnmarshalText([]byte(tc.input))
+			if tc.expectedErr != "" {
+				require.EqualError(t, err, tc.expectedErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, m)
+		})
+	}
+}
+
+func TestMethod_HTTPMethod(t *testing.T) {
+	require.Equal(t, http.MethodPost, methodPOST.httpMethod())
+	require.Equal(t, http.MethodGet, methodGET.httpMethod())
+	// An unset method must map to GET: the client tests and receiver tests build
+	// Config literals that never run through Validate().
+	require.Equal(t, http.MethodGet, Method("").httpMethod())
 }
 
 func TestConfig_DeprecatedTimestampMigration(t *testing.T) {
@@ -1568,6 +1722,131 @@ func TestConfig_DeprecatedTimestampMigration(t *testing.T) {
 				}
 				assert.True(t, found, "expected warning containing %q, got %v", tc.warnContains, cfg.deprecationWarnings)
 			}
+		})
+	}
+}
+
+func TestIsValidJSONNumber(t *testing.T) {
+	valid := []string{"0", "123", "-123", "1704067200123456789", "1704067200.123456", "1.5e3"}
+	for _, v := range valid {
+		require.True(t, isValidJSONNumber(v), "%q should be a valid JSON number", v)
+	}
+
+	// The two forms this check exists for: parseConfigTimestamp accepts both, JSON does not.
+	invalid := []string{"", "+1704067200", "1704067200.", ".5", "0x10", "abc", "true", "1 2", "--1"}
+	for _, v := range invalid {
+		require.False(t, isValidJSONNumber(v), "%q should not be a valid JSON number", v)
+	}
+
+	// A quoted string decodes into json.Number, so this reports true. It cannot
+	// reach the check: validateTimestampValue runs parseConfigTimestamp first,
+	// and that rejects anything strconv.ParseInt will not take.
+	require.True(t, isValidJSONNumber(`"123"`))
+	cfg := &Config{TimestampFormat: epochSeconds}
+	require.Error(t, cfg.validateTimestampValue(`"123"`, "start_time_value"))
+}
+
+// TestEpochTimeBoundsMarshalIntoRequestBody guards the bug isValidJSONNumber
+// closes: any epoch format accepted by Validate() must produce a body that
+// actually marshals.
+func TestEpochTimeBoundsMarshalIntoRequestBody(t *testing.T) {
+	formats := map[string]string{
+		epochSeconds:           "1704067200",
+		epochMilliseconds:      "1704067200000",
+		epochMicroseconds:      "1704067200000000",
+		epochNanoseconds:       "1704067200000000000",
+		epochSecondsFractional: "1704067200.123456",
+	}
+
+	for format, value := range formats {
+		t.Run(format, func(t *testing.T) {
+			cfg := &Config{
+				URL:                "https://api.example.com/data",
+				Method:             methodPOST,
+				AuthMode:           authModeNone,
+				StartTimeParamName: "since",
+				StartTimeValue:     value,
+				EndTimeParamName:   "until",
+				EndTimeValue:       "now",
+				TimestampFormat:    format,
+				RequestBody:        `{"since": {{ .StartTime }}}`,
+				Pagination:         PaginationConfig{Mode: paginationModeNone},
+			}
+			require.NoError(t, cfg.Validate())
+
+			tmpl, err := parseRequestBodyTemplate(cfg.RequestBody)
+			require.NoError(t, err)
+			body, err := renderRequestBody(tmpl, newRequestBodyData(cfg, newPaginationState(cfg)))
+			require.NoError(t, err)
+			// The bound must land as a bare JSON number, not a quoted string.
+			require.True(t, json.Valid(body), string(body))
+			require.Contains(t, string(body), value)
+			// A bare JSON number, not a quoted string.
+			require.NotContains(t, string(body), `"`+value+`"`)
+		})
+	}
+}
+
+// TestEnums_UnmarshalText covers the closed-set enums at the point they are
+// actually enforced. Validate deliberately does not re-check them: an invalid
+// value is rejected while the config is being decoded, which is the only way one
+// can reach a running receiver.
+func TestEnums_UnmarshalText(t *testing.T) {
+	t.Run("auth_mode", func(t *testing.T) {
+		var m AuthMode
+		require.NoError(t, m.UnmarshalText([]byte("oauth2")))
+		require.Equal(t, authModeOAuth2, m)
+		require.EqualError(t, m.UnmarshalText([]byte("invalid")),
+			"invalid auth mode: invalid, must be one of: none, apikey, bearer, basic, oauth2, akamai_edgegrid")
+	})
+
+	t.Run("response_format", func(t *testing.T) {
+		var f ResponseFormat
+		require.NoError(t, f.UnmarshalText([]byte("ndjson")))
+		require.Equal(t, responseFormatNDJSON, f)
+		require.EqualError(t, f.UnmarshalText([]byte("xml")),
+			"invalid response_format: xml, must be one of: json, ndjson")
+	})
+
+	t.Run("response_source", func(t *testing.T) {
+		var src ResponseSource
+		require.NoError(t, src.UnmarshalText([]byte("header")))
+		require.Equal(t, responseSourceHeader, src)
+		require.EqualError(t, src.UnmarshalText([]byte("trailer")),
+			"invalid response_source: trailer, must be one of: body, header")
+	})
+
+	t.Run("pagination mode", func(t *testing.T) {
+		var m PaginationMode
+		require.NoError(t, m.UnmarshalText([]byte("timestamp")))
+		require.Equal(t, paginationModeTimestamp, m)
+		require.EqualError(t, m.UnmarshalText([]byte("invalid")),
+			"invalid pagination mode: invalid, must be one of: none, offset_limit, page_size, timestamp")
+	})
+}
+
+// TestEnums_RejectedWhenDecoded is the end-to-end guarantee behind dropping the
+// Validate re-checks: a bad enum in a config file fails while it is unmarshaled,
+// before Validate is ever reached.
+func TestEnums_RejectedWhenDecoded(t *testing.T) {
+	testCases := []struct {
+		key   string
+		value string
+	}{
+		{"auth_mode", "invalid"},
+		{"response_format", "xml"},
+		{"method", "put"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.key, func(t *testing.T) {
+			cm := confmap.NewFromStringMap(map[string]any{
+				"url":  "https://api.example.com/data",
+				tc.key: tc.value,
+			})
+			err := cm.Unmarshal(createDefaultConfig().(*Config))
+			require.Error(t, err, "an invalid %s must be rejected at decode time", tc.key)
+			require.Contains(t, err.Error(), tc.value)
 		})
 	}
 }

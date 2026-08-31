@@ -19,10 +19,10 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
@@ -64,6 +64,27 @@ type baseReceiver struct {
 	currentPollInterval time.Duration // current adaptive poll interval
 	cancel              context.CancelFunc
 	paginationState     *paginationState
+
+	// bodyTemplate is the parsed request_body template, nil when unconfigured.
+	// Parsed once at Start rather than per request.
+	bodyTemplate *template.Template
+}
+
+// initializeRequestBody parses the configured request_body template. Validate
+// has already proved it parses and renders to valid JSON, so a failure here
+// means the config was never validated.
+func (b *baseReceiver) initializeRequestBody() error {
+	if b.cfg.RequestBody == "" {
+		return nil
+	}
+
+	tmpl, err := parseRequestBodyTemplate(b.cfg.RequestBody)
+	if err != nil {
+		return fmt.Errorf("failed to parse request_body template: %w", err)
+	}
+	b.bodyTemplate = tmpl
+
+	return nil
 }
 
 // logDeprecationWarnings emits warnings for any deprecated config fields that were migrated.
@@ -123,6 +144,20 @@ func (b *baseReceiver) initializePagination() {
 // For checkpoints from a *different* config, fingerprint-based invalidation in loadCheckpoint
 // handles discarding them before we reach this point.
 func (b *baseReceiver) reconcileCheckpointWithConfig() {
+	// Limit is a throughput knob, not polling progress, so it is excluded from
+	// configFingerprint — changing it must not discard a checkpoint. But
+	// loadCheckpoint restores the whole state, Limit included, so the configured
+	// value has to be re-applied or a limit change would never take effect.
+	if b.cfg.Pagination.Mode == paginationModeOffsetLimit {
+		configuredLimit := newPaginationState(b.cfg).Limit
+		if b.paginationState.Limit != configuredLimit {
+			b.logger.Info("applying configured pagination limit over the value in the stored checkpoint",
+				zap.Int("checkpoint_limit", b.paginationState.Limit),
+				zap.Int("configured_limit", configuredLimit))
+			b.paginationState.Limit = configuredLimit
+		}
+	}
+
 	if b.cfg.Pagination.Mode == paginationModeTimestamp {
 		configState := newPaginationState(b.cfg)
 
@@ -213,6 +248,11 @@ func (b *baseReceiver) adjustPollInterval(result pollResult) {
 //   - page_size, page_limit — throughput knobs, not query-defining.
 //   - response_source, field names for reading responses — how to parse, not what to fetch.
 //   - Auth, headers, poll intervals, storage ID, response format, metrics config.
+//   - method — changes how the same values are transmitted, not what is
+//     fetched; same rationale as the param names.
+//   - pagination.offset_limit.limit — a throughput knob, like page_size.
+//
+// It DOES include request_body, which is query-defining.
 func configFingerprint(cfg *Config) string {
 	h := sha256.New()
 	h.Write([]byte(cfg.URL))
@@ -226,6 +266,19 @@ func configFingerprint(cfg *Config) string {
 	h.Write([]byte(fmt.Sprintf("%d", cfg.Pagination.OffsetLimit.StartingOffset)))
 	h.Write([]byte{0})
 	h.Write([]byte(fmt.Sprintf("%d", cfg.Pagination.PageSize.StartingPage)))
+
+	// request_body is query-defining: changing a filter or sort changes which
+	// records come back, so a cursor obtained under a previous body must not be
+	// reused.
+	//
+	// Contributes to the hash — separator included — only when set, so a config
+	// written before request_body existed hashes identically and keeps its
+	// stored checkpoint across the upgrade.
+	if cfg.RequestBody != "" {
+		h.Write([]byte{0})
+		h.Write([]byte(cfg.RequestBody))
+	}
+
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
@@ -297,7 +350,7 @@ func (b *baseReceiver) saveCheckpoint(ctx context.Context) error {
 // Returns the response metadata (for pagination), extracted data, and any error.
 // When response_source is "header", pagination attributes are extracted from
 // response headers and injected into the metadata map for the pagination logic.
-func (b *baseReceiver) fetchDataPage(ctx context.Context, requestURL string, params url.Values) (map[string]any, []map[string]any, error) {
+func (b *baseReceiver) fetchDataPage(ctx context.Context, req apiRequest) (map[string]any, []map[string]any, error) {
 	var metadata map[string]any
 	var data []map[string]any
 	var respHeaders http.Header
@@ -305,13 +358,13 @@ func (b *baseReceiver) fetchDataPage(ctx context.Context, requestURL string, par
 	if b.cfg.ResponseFormat == responseFormatNDJSON {
 		var err error
 		metadataInBody := b.cfg.Pagination.ResponseSource != responseSourceHeader
-		data, metadata, respHeaders, err = b.client.GetNDJSON(ctx, requestURL, params, metadataInBody)
+		data, metadata, respHeaders, err = b.client.FetchNDJSON(ctx, req, metadataInBody)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to get NDJSON response: %w", err)
 		}
 	} else {
 		var err error
-		metadata, respHeaders, err = b.client.GetFullResponse(ctx, requestURL, params)
+		metadata, respHeaders, err = b.client.FetchFullResponse(ctx, req)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to get full response: %w", err)
 		}
@@ -363,27 +416,27 @@ func (b *baseReceiver) paginationResponseFields() []string {
 
 // handlePagination checks if there are more pages and updates pagination state.
 // Returns true if there are more pages to fetch.
-func (b *baseReceiver) handlePagination(fullResponse map[string]any, data []map[string]any) (bool, url.Values) {
+func (b *baseReceiver) handlePagination(fullResponse map[string]any, data []map[string]any) (bool, apiRequest) {
 	// Check pagination mode
 	if b.cfg.Pagination.Mode == paginationModeNone {
-		return false, nil
+		return false, apiRequest{}
 	}
 
 	// Parse pagination response to check if there are more pages
 	hasMore, err := parsePaginationResponse(b.cfg, fullResponse, data, b.paginationState, b.logger)
 	if err != nil {
 		b.logger.Warn("failed to parse pagination response", zap.Error(err))
-		return false, nil
+		return false, apiRequest{}
 	}
 
 	// Check page limit
 	if !checkPageLimit(b.cfg, b.paginationState) {
 		b.logger.Debug("page limit reached, stopping pagination")
-		return false, nil
+		return false, apiRequest{}
 	}
 
 	if !hasMore {
-		return false, nil
+		return false, apiRequest{}
 	}
 
 	// Update pagination state for next page
@@ -403,16 +456,45 @@ func (b *baseReceiver) handlePagination(fullResponse map[string]any, data []map[
 		updatePaginationState(b.cfg, b.paginationState)
 	}
 
-	// Rebuild params with new pagination state
-	params := url.Values{}
-	paginationParams := buildPaginationParams(b.cfg, b.paginationState)
-	for key, values := range paginationParams {
-		for _, value := range values {
-			params.Add(key, value)
-		}
+	// Rebuild the request from the advanced pagination state
+	nextReq, err := b.buildAPIRequest()
+	if err != nil {
+		b.logger.Error("failed to build the next request", zap.Error(err))
+		return false, apiRequest{}
+	}
+	return true, nextReq
+}
+
+// buildAPIRequest assembles the request descriptor for the current pagination
+// state: query parameters from the configured parameter names, and the request
+// body rendered from the configured template.
+func (b *baseReceiver) buildAPIRequest() (apiRequest, error) {
+	req := apiRequest{
+		URL:   b.cfg.URL,
+		Query: buildPaginationParams(b.cfg, b.paginationState),
 	}
 
-	return true, params
+	if b.bodyTemplate == nil {
+		return req, nil
+	}
+
+	body, err := renderRequestBody(b.bodyTemplate, newRequestBodyData(b.cfg, b.paginationState))
+	if err != nil {
+		return apiRequest{}, fmt.Errorf("failed to render request_body template: %w", err)
+	}
+	req.Body = body
+
+	return req, nil
+}
+
+// requestLogFields returns debug log fields describing an outgoing request.
+// The body's size is logged but never its content: the template is not masked
+// (see the RequestBody doc comment), and its shape is already visible in config.
+func requestLogFields(req apiRequest) []zap.Field {
+	return []zap.Field{
+		zap.String("query", req.Query.Encode()),
+		zap.Int("body_bytes", len(req.Body)),
+	}
 }
 
 // resetTimestampPagination resets the pages fetched counter after a poll cycle.
@@ -456,6 +538,9 @@ func newRESTAPILogsReceiver(
 func (r *restAPILogsReceiver) Start(ctx context.Context, host component.Host) error {
 	r.logDeprecationWarnings()
 	if err := r.initializeClient(ctx, host); err != nil {
+		return err
+	}
+	if err := r.initializeRequestBody(); err != nil {
 		return err
 	}
 	if err := r.initializeStorage(ctx, host); err != nil {
@@ -519,29 +604,35 @@ func (r *restAPILogsReceiver) poll(ctx context.Context) (pollResult, error) {
 
 	result := pollResult{}
 
-	// Build initial pagination parameters
-	params := buildPaginationParams(r.cfg, r.paginationState)
+	// Build the initial request from the current pagination state
+	req, err := r.buildAPIRequest()
+	if err != nil {
+		return result, err
+	}
 
 	r.logger.Debug("starting poll cycle",
-		zap.String("url", r.cfg.URL),
-		zap.String("pagination_mode", string(r.cfg.Pagination.Mode)),
-		zap.Time("current_timestamp", r.paginationState.CurrentTimestamp),
-		zap.Int("pages_fetched", r.paginationState.PagesFetched),
-		zap.String("params", params.Encode()))
+		append([]zap.Field{
+			zap.String("url", r.cfg.URL),
+			zap.String("method", r.cfg.Method.httpMethod()),
+			zap.String("pagination_mode", string(r.cfg.Pagination.Mode)),
+			zap.Time("current_timestamp", r.paginationState.CurrentTimestamp),
+			zap.Int("pages_fetched", r.paginationState.PagesFetched),
+		}, requestLogFields(req)...)...)
 
 	// Handle pagination - fetch all pages in this poll cycle
 	pageNum := 0
 	for {
 		pageNum++
-		fullResponse, data, err := r.fetchDataPage(ctx, r.cfg.URL, params)
+		fullResponse, data, err := r.fetchDataPage(ctx, req)
 		if err != nil {
 			return result, err
 		}
 
 		r.logger.Debug("fetched page",
-			zap.Int("page_num", pageNum),
-			zap.Int("records_in_page", len(data)),
-			zap.String("request_params", params.Encode()))
+			append([]zap.Field{
+				zap.Int("page_num", pageNum),
+				zap.Int("records_in_page", len(data)),
+			}, requestLogFields(req)...)...)
 
 		// Log first and last record timestamps if available for debugging duplicates
 		if len(data) > 0 && r.cfg.Pagination.Mode == paginationModeTimestamp {
@@ -572,7 +663,7 @@ func (r *restAPILogsReceiver) poll(ctx context.Context) (pollResult, error) {
 		}
 
 		// Check for more pages
-		hasMore, nextParams := r.handlePagination(fullResponse, data)
+		hasMore, nextReq := r.handlePagination(fullResponse, data)
 		r.logger.Debug("pagination decision",
 			zap.Int("page_num", pageNum),
 			zap.Bool("has_more", hasMore),
@@ -591,7 +682,7 @@ func (r *restAPILogsReceiver) poll(ctx context.Context) (pollResult, error) {
 			r.logger.Error("failed to save checkpoint", zap.Error(err))
 		}
 
-		params = nextParams
+		req = nextReq
 	}
 
 	r.logger.Debug("poll cycle complete",
@@ -772,6 +863,9 @@ func (r *restAPIMetricsReceiver) Start(ctx context.Context, host component.Host)
 	if err := r.initializeClient(ctx, host); err != nil {
 		return err
 	}
+	if err := r.initializeRequestBody(); err != nil {
+		return err
+	}
 	if err := r.initializeStorage(ctx, host); err != nil {
 		return err
 	}
@@ -833,29 +927,35 @@ func (r *restAPIMetricsReceiver) poll(ctx context.Context) (pollResult, error) {
 
 	result := pollResult{}
 
-	// Build initial pagination parameters
-	params := buildPaginationParams(r.cfg, r.paginationState)
+	// Build the initial request from the current pagination state
+	req, err := r.buildAPIRequest()
+	if err != nil {
+		return result, err
+	}
 
 	r.logger.Debug("starting poll cycle",
-		zap.String("url", r.cfg.URL),
-		zap.String("pagination_mode", string(r.cfg.Pagination.Mode)),
-		zap.Time("current_timestamp", r.paginationState.CurrentTimestamp),
-		zap.Int("pages_fetched", r.paginationState.PagesFetched),
-		zap.String("params", params.Encode()))
+		append([]zap.Field{
+			zap.String("url", r.cfg.URL),
+			zap.String("method", r.cfg.Method.httpMethod()),
+			zap.String("pagination_mode", string(r.cfg.Pagination.Mode)),
+			zap.Time("current_timestamp", r.paginationState.CurrentTimestamp),
+			zap.Int("pages_fetched", r.paginationState.PagesFetched),
+		}, requestLogFields(req)...)...)
 
 	// Handle pagination - fetch all pages in this poll cycle
 	pageNum := 0
 	for {
 		pageNum++
-		fullResponse, data, err := r.fetchDataPage(ctx, r.cfg.URL, params)
+		fullResponse, data, err := r.fetchDataPage(ctx, req)
 		if err != nil {
 			return result, err
 		}
 
 		r.logger.Debug("fetched page",
-			zap.Int("page_num", pageNum),
-			zap.Int("records_in_page", len(data)),
-			zap.String("request_params", params.Encode()))
+			append([]zap.Field{
+				zap.Int("page_num", pageNum),
+				zap.Int("records_in_page", len(data)),
+			}, requestLogFields(req)...)...)
 
 		// Log first and last record timestamps if available for debugging duplicates
 		if len(data) > 0 && r.cfg.Pagination.Mode == paginationModeTimestamp {
@@ -886,7 +986,7 @@ func (r *restAPIMetricsReceiver) poll(ctx context.Context) (pollResult, error) {
 		}
 
 		// Check for more pages
-		hasMore, nextParams := r.handlePagination(fullResponse, data)
+		hasMore, nextReq := r.handlePagination(fullResponse, data)
 		r.logger.Debug("pagination decision",
 			zap.Int("page_num", pageNum),
 			zap.Bool("has_more", hasMore),
@@ -905,7 +1005,7 @@ func (r *restAPIMetricsReceiver) poll(ctx context.Context) (pollResult, error) {
 			r.logger.Error("failed to save checkpoint", zap.Error(err))
 		}
 
-		params = nextParams
+		req = nextReq
 	}
 
 	r.logger.Debug("poll cycle complete",

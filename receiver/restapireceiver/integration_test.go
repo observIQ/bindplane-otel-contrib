@@ -456,3 +456,283 @@ func TestIntegration_ErrorRecovery(t *testing.T) {
 	allLogs := sink.AllLogs()
 	require.Greater(t, len(allLogs), 0)
 }
+
+// The three tests below are the point of request-body templating: the same
+// receiver polls APIs whose bodies differ structurally, not merely in field
+// names. Each walks two pages of a cursor and asserts the exact bytes sent.
+
+// TestIntegration_PostTemplate_CrowdStrike covers a flat body whose cursor sits
+// at the top level and must be absent on the first request.
+func TestIntegration_PostTemplate_CrowdStrike(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		require.Equal(t, "status:'new'", body["filter"])
+		// limit must arrive as a JSON number, not a quoted string.
+		require.Equal(t, float64(2), body["limit"])
+
+		mu.Lock()
+		bodies = append(bodies, body)
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		switch body["after"] {
+		case nil:
+			_, _ = w.Write([]byte(`{"resources":[{"id":"1"},{"id":"2"}],"meta":{"pagination":{"after":"cursor-2"}}}`))
+		case "cursor-2":
+			_, _ = w.Write([]byte(`{"resources":[{"id":"3"},{"id":"4"}],"meta":{"pagination":{"after":"cursor-3"}}}`))
+		default:
+			_, _ = w.Write([]byte(`{"resources":[],"meta":{"pagination":{"after":""}}}`))
+		}
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:           server.URL,
+		Method:        methodPOST,
+		ResponseField: "resources",
+		AuthMode:      authModeNone,
+		RequestBody: `{
+			"filter": "status:'new'",
+			"limit": {{ .Limit }}{{ if .Cursor }},
+			"after": {{ json .Cursor }}{{ end }}
+		}`,
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				LimitFieldName:      "",
+				Limit:               2,
+				NextOffsetFieldName: "meta.pagination.after",
+			},
+		},
+		MinPollInterval:   100 * time.Millisecond,
+		MaxPollInterval:   time.Second,
+		BackoffMultiplier: 2.0,
+		ClientConfig:      confighttp.ClientConfig{},
+	}
+	require.NoError(t, cfg.Validate())
+
+	sink := new(consumertest.LogsSink)
+	rcvr, err := newRESTAPILogsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+	require.NoError(t, err)
+	require.NoError(t, rcvr.Start(context.Background(), componenttest.NewNopHost()))
+	defer func() { require.NoError(t, rcvr.Shutdown(context.Background())) }()
+
+	require.Eventually(t, func() bool { return logRecordCount(sink) >= 4 }, 5*time.Second, 10*time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(bodies), 2)
+	require.NotContains(t, bodies[0], "after", "the first request must omit the cursor entirely")
+	require.Equal(t, "cursor-2", bodies[1]["after"])
+}
+
+// TestIntegration_PostTemplate_Datadog covers a nested body: the cursor and page
+// size live under "page", the query under "filter".
+func TestIntegration_PostTemplate_Datadog(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+
+		filter, ok := body["filter"].(map[string]any)
+		require.True(t, ok, "filter should be a nested object")
+		require.Equal(t, "env:prod status:error", filter["query"])
+
+		page, ok := body["page"].(map[string]any)
+		require.True(t, ok, "page should be a nested object")
+		require.Equal(t, float64(2), page["limit"])
+
+		mu.Lock()
+		bodies = append(bodies, body)
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		if page["cursor"] == nil {
+			_, _ = w.Write([]byte(`{"data":[{"id":"1"},{"id":"2"}],"meta":{"page":{"after":"dd-cursor-2"}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[],"meta":{"page":{"after":""}}}`))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:           server.URL,
+		Method:        methodPOST,
+		ResponseField: "data",
+		AuthMode:      authModeNone,
+		RequestBody: `{
+			"filter": {"query": "env:prod status:error"},
+			"sort": "-timestamp",
+			"page": {
+				"limit": {{ .Limit }}{{ if .Cursor }},
+				"cursor": {{ json .Cursor }}{{ end }}
+			}
+		}`,
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				Limit:               2,
+				NextOffsetFieldName: "meta.page.after",
+			},
+		},
+		MinPollInterval:   100 * time.Millisecond,
+		MaxPollInterval:   time.Second,
+		BackoffMultiplier: 2.0,
+		ClientConfig:      confighttp.ClientConfig{},
+	}
+	require.NoError(t, cfg.Validate())
+
+	sink := new(consumertest.LogsSink)
+	rcvr, err := newRESTAPILogsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+	require.NoError(t, err)
+	require.NoError(t, rcvr.Start(context.Background(), componenttest.NewNopHost()))
+	defer func() { require.NoError(t, rcvr.Shutdown(context.Background())) }()
+
+	require.Eventually(t, func() bool { return logRecordCount(sink) >= 2 }, 5*time.Second, 10*time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(bodies), 2)
+	require.Equal(t, "dd-cursor-2", bodies[1]["page"].(map[string]any)["cursor"])
+}
+
+// TestIntegration_PostTemplate_Mimecast covers a body that nests pagination
+// under meta.pagination and wraps the query in a "data" array — the shape no
+// top-level or dotted-path injection could reach.
+func TestIntegration_PostTemplate_Mimecast(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+
+		meta, ok := body["meta"].(map[string]any)
+		require.True(t, ok)
+		pagination, ok := meta["pagination"].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, float64(2), pagination["pageSize"])
+
+		data, ok := body["data"].([]any)
+		require.True(t, ok, "data should be a JSON array")
+		require.Len(t, data, 1)
+		require.Equal(t, "2025-01-01T00:00:00Z", data[0].(map[string]any)["start"])
+
+		mu.Lock()
+		bodies = append(bodies, body)
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		if pagination["pageToken"] == nil {
+			_, _ = w.Write([]byte(`{"data":[{"id":"1"},{"id":"2"}],"meta":{"pagination":{"next":"mc-token-2"}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[],"meta":{"pagination":{"next":""}}}`))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:                server.URL,
+		Method:             methodPOST,
+		ResponseField:      "data",
+		AuthMode:           authModeNone,
+		StartTimeParamName: "",
+		StartTimeValue:     "2025-01-01T00:00:00Z",
+		RequestBody: `{
+			"meta": {"pagination": {
+				"pageSize": {{ .Limit }}{{ if .Cursor }},
+				"pageToken": {{ json .Cursor }}{{ end }}
+			}},
+			"data": [{"start": {{ json .StartTime }}, "query": "attachment"}]
+		}`,
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				Limit:               2,
+				NextOffsetFieldName: "meta.pagination.next",
+			},
+		},
+		MinPollInterval:   100 * time.Millisecond,
+		MaxPollInterval:   time.Second,
+		BackoffMultiplier: 2.0,
+		ClientConfig:      confighttp.ClientConfig{},
+	}
+	require.NoError(t, cfg.Validate())
+
+	sink := new(consumertest.LogsSink)
+	rcvr, err := newRESTAPILogsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+	require.NoError(t, err)
+	require.NoError(t, rcvr.Start(context.Background(), componenttest.NewNopHost()))
+	defer func() { require.NoError(t, rcvr.Shutdown(context.Background())) }()
+
+	require.Eventually(t, func() bool { return logRecordCount(sink) >= 2 }, 5*time.Second, 10*time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(bodies), 2)
+	secondPagination := bodies[1]["meta"].(map[string]any)["pagination"].(map[string]any)
+	require.Equal(t, "mc-token-2", secondPagination["pageToken"])
+}
+
+// TestIntegration_PostTemplate_Metrics covers the metrics poll loop, which is a
+// hand-copy of the logs one.
+func TestIntegration_PostTemplate_Metrics(t *testing.T) {
+	var requestCount atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		require.Equal(t, http.MethodPost, r.Method)
+
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		require.Equal(t, "cpu", body["metric_filter"])
+
+		w.Header().Set("Content-Type", "application/json")
+		if body["after"] == nil {
+			_, _ = w.Write([]byte(`{"resources":[{"name":"cpu.usage","value":42},{"name":"cpu.idle","value":58}],"meta":{"after":"m-2"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"resources":[],"meta":{"after":""}}`))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:           server.URL,
+		Method:        methodPOST,
+		ResponseField: "resources",
+		AuthMode:      authModeNone,
+		RequestBody: `{"metric_filter": "cpu", "limit": {{ .Limit }}` +
+			`{{ if .Cursor }}, "after": {{ json .Cursor }}{{ end }}}`,
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				Limit:               2,
+				NextOffsetFieldName: "meta.after",
+			},
+		},
+		Metrics:           MetricsConfig{NameField: "name"},
+		MinPollInterval:   100 * time.Millisecond,
+		MaxPollInterval:   time.Second,
+		BackoffMultiplier: 2.0,
+		ClientConfig:      confighttp.ClientConfig{},
+	}
+	require.NoError(t, cfg.Validate())
+
+	sink := new(consumertest.MetricsSink)
+	rcvr, err := newRESTAPIMetricsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+	require.NoError(t, err)
+	require.NoError(t, rcvr.Start(context.Background(), componenttest.NewNopHost()))
+	defer func() { require.NoError(t, rcvr.Shutdown(context.Background())) }()
+
+	require.Eventually(t, func() bool { return len(sink.AllMetrics()) > 0 }, 5*time.Second, 10*time.Millisecond)
+	require.GreaterOrEqual(t, requestCount.Load(), int32(2))
+}

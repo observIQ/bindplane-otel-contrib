@@ -77,9 +77,11 @@ func newPaginationState(cfg *Config) *paginationState {
 	switch cfg.Pagination.Mode {
 	case paginationModeOffsetLimit:
 		state.CurrentOffset = cfg.Pagination.OffsetLimit.StartingOffset
-		// Use a default limit - this will be sent as a query parameter
-		// The actual page size may differ based on API response
+		// Zero means unset: fall back to the default rather than disable paging.
 		state.Limit = 10
+		if cfg.Pagination.OffsetLimit.Limit > 0 {
+			state.Limit = cfg.Pagination.OffsetLimit.Limit
+		}
 
 	case paginationModePageSize:
 		if cfg.Pagination.ZeroBasedIndex {
@@ -125,17 +127,16 @@ func newPaginationState(cfg *Config) *paginationState {
 		}
 	}
 
-	// Set limit if configured for offset/limit pagination
-	if cfg.Pagination.Mode == paginationModeOffsetLimit &&
-		cfg.Pagination.OffsetLimit.LimitFieldName != "" {
-		state.Limit = 10 // reasonable default
-	}
-
 	// Resolve "now" once so all pages in a pagination run share the same value.
-	if cfg.StartTimeParamName != "" && cfg.StartTimeValue != "" {
+	//
+	// Resolution is driven by the configured values, not by the *_param_name
+	// settings: a param name only decides whether the bound is sent as a query
+	// parameter, and a request_body template may reference the bound without any
+	// param name being set at all.
+	if cfg.StartTimeValue != "" {
 		state.ResolvedStartTime = formatTimeBoundValue(cfg.StartTimeValue, cfg.TimestampFormat)
 	}
-	if cfg.EndTimeParamName != "" {
+	if cfg.EndTimeParamName != "" || cfg.EndTimeValue != "" {
 		endValue := cfg.EndTimeValue
 		if endValue == "" {
 			endValue = "now"
@@ -177,58 +178,17 @@ func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
 		if cfg.Pagination.Timestamp.PageSizeFieldName != "" {
 			params.Set(cfg.Pagination.Timestamp.PageSizeFieldName, fmt.Sprintf("%d", state.PageSize))
 		}
-		// For timestamp pagination, the start time advances through response data.
-		// The start_time_param_name and advancing logic are handled below in the
-		// shared time-bound section via the pagination state's CurrentTimestamp.
-		if !state.CurrentTimestamp.IsZero() && cfg.StartTimeParamName != "" {
-			timestampForRequest := state.CurrentTimestamp
-			// Check if we should add an offset to avoid re-fetching the same record.
-			// We add the offset when:
-			// 1. pagesFetched > 0: Within a poll cycle, after the first page
-			// 2. timestampFromData is true: The timestamp came from response data (not initial config),
-			//    meaning we've already fetched records up to this timestamp in a previous cycle
-			if state.PagesFetched > 0 || state.TimestampFromData {
-				// Increment by the minimum resolution of the configured format to avoid
-				// re-fetching the same record.
-				switch cfg.TimestampFormat {
-				case epochSeconds:
-					timestampForRequest = timestampForRequest.Add(time.Second)
-				case epochMilliseconds:
-					timestampForRequest = timestampForRequest.Add(time.Millisecond)
-				case epochMicroseconds:
-					timestampForRequest = timestampForRequest.Add(time.Microsecond)
-				case epochNanoseconds:
-					timestampForRequest = timestampForRequest.Add(time.Nanosecond)
-				case epochSecondsFractional:
-					// Fractional seconds — increment by 1 microsecond as a reasonable default.
-					timestampForRequest = timestampForRequest.Add(time.Microsecond)
-				default:
-					// For string formats, increment by 1 microsecond since most formats
-					// preserve microsecond precision at best.
-					timestampForRequest = timestampForRequest.Add(time.Microsecond)
-				}
-			}
-			// Use configured format or default to RFC3339
-			format := cfg.TimestampFormat
-			if isEpochFormat(format) {
-				params.Set(cfg.StartTimeParamName, formatTimestampEpoch(timestampForRequest, format))
-			} else {
-				if format == "" {
-					format = time.RFC3339
-				}
-				params.Set(cfg.StartTimeParamName, timestampForRequest.Format(format))
-			}
-		}
+		// The start time itself is applied below, shared with every other mode.
 
 	case paginationModeNone:
 		// No pagination parameters
 	}
 
-	// Add time-bound parameters for non-timestamp pagination modes.
-	// For timestamp pagination, start time is handled above (it advances through data).
-	if cfg.Pagination.Mode != paginationModeTimestamp {
-		if cfg.StartTimeParamName != "" && state.ResolvedStartTime != "" {
-			params.Set(cfg.StartTimeParamName, state.ResolvedStartTime)
+	// Start time. In timestamp mode this advances through the response data; in
+	// every other mode it is the value resolved once per run.
+	if cfg.StartTimeParamName != "" {
+		if startTime := requestStartTime(cfg, state); startTime != "" {
+			params.Set(cfg.StartTimeParamName, startTime)
 		}
 	}
 
@@ -284,9 +244,11 @@ func parseOffsetLimitResponse(cfg *Config, response any, extractedData []map[str
 		case string:
 			tokenStr = v
 		case float64:
-			tokenStr = fmt.Sprintf("%v", v)
+			// JSON numbers decode to float64. Format without an exponent so
+			// 1000000 stays "1000000" rather than "1e+06".
+			tokenStr = strconv.FormatFloat(v, 'f', -1, 64)
 		case int:
-			tokenStr = fmt.Sprintf("%d", v)
+			tokenStr = strconv.Itoa(v)
 		default:
 			tokenStr = fmt.Sprintf("%v", v)
 		}
@@ -585,4 +547,90 @@ func checkPageLimit(cfg *Config, state *paginationState) bool {
 	}
 
 	return state.PagesFetched < cfg.Pagination.PageLimit
+}
+
+// timestampResolution returns the smallest increment the configured format can
+// represent, used to step past the last record already fetched.
+func timestampResolution(format string) time.Duration {
+	switch format {
+	case epochSeconds:
+		return time.Second
+	case epochMilliseconds:
+		return time.Millisecond
+	case epochNanoseconds:
+		return time.Nanosecond
+	default:
+		// epoch_us, epoch_s_frac, and string formats preserve microsecond
+		// precision at best.
+		return time.Microsecond
+	}
+}
+
+// requestStartTime returns the formatted start-time bound for the next request.
+//
+// In timestamp mode it tracks the newest record seen and is nudged forward one
+// unit of the format's resolution once any data has been fetched, so the same
+// record is not returned twice. In every other mode it is the value resolved
+// once per run. Returns "" when there is no start time to send.
+func requestStartTime(cfg *Config, state *paginationState) string {
+	if cfg.Pagination.Mode != paginationModeTimestamp {
+		return state.ResolvedStartTime
+	}
+
+	if state.CurrentTimestamp.IsZero() {
+		return ""
+	}
+
+	timestampForRequest := state.CurrentTimestamp
+	if state.PagesFetched > 0 || state.TimestampFromData {
+		timestampForRequest = timestampForRequest.Add(timestampResolution(cfg.TimestampFormat))
+	}
+
+	format := cfg.TimestampFormat
+	if isEpochFormat(format) {
+		return formatTimestampEpoch(timestampForRequest, format)
+	}
+	if format == "" {
+		format = time.RFC3339
+	}
+	return timestampForRequest.Format(format)
+}
+
+// requestBodyData is the value set a request_body template renders against.
+//
+// Values are raw and unescaped, so escaping is explicit at the call site: emit a
+// string field with {{ json .Cursor }}, which quotes and escapes it. Numeric
+// fields are safe bare — {{ .Limit }} renders a JSON number. Hand-quoting a
+// string as "{{ .Cursor }}" breaks the body as soon as the value contains a
+// quote or backslash, which is why validateRequestBodyTemplate renders with a
+// sample cursor that contains both.
+type requestBodyData struct {
+	// Cursor is the opaque next-offset token. Empty on the first page of a run,
+	// so a template can guard the field with {{ if .Cursor }}.
+	Cursor string
+	// Offset is the numeric offset for offset/limit pagination.
+	Offset int
+	// Limit is the offset/limit page size.
+	Limit int
+	// Page is the current page number for page/size pagination.
+	Page int
+	// PageSize is the page size for page/size and timestamp pagination.
+	PageSize int
+	// StartTime and EndTime are the formatted time bounds, or "" when unset.
+	StartTime string
+	EndTime   string
+}
+
+// newRequestBodyData collects the receiver-owned values a request_body template
+// may reference for the next request.
+func newRequestBodyData(cfg *Config, state *paginationState) requestBodyData {
+	return requestBodyData{
+		Cursor:    state.CurrentOffsetToken,
+		Offset:    state.CurrentOffset,
+		Limit:     state.Limit,
+		Page:      state.CurrentPage,
+		PageSize:  state.PageSize,
+		StartTime: requestStartTime(cfg, state),
+		EndTime:   state.ResolvedEndTime,
+	}
 }

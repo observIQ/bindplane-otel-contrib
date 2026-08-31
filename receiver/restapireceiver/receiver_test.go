@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1585,4 +1586,233 @@ func logRecordCount(sink *consumertest.LogsSink) int {
 		total += logs.LogRecordCount()
 	}
 	return total
+}
+
+// TestConfigFingerprint_UnchangedByPOSTFieldsWhenUnused stops a future edit to
+// configFingerprint from silently invalidating every checkpoint in the field.
+//
+// Changing the expected digest discards every deployed checkpoint, making each
+// receiver re-fetch from its configured start and emit duplicate data. Do not
+// update it to make a test pass.
+func TestConfigFingerprint_UnchangedByPOSTFieldsWhenUnused(t *testing.T) {
+	cfg := &Config{
+		URL:                "https://api.example.com/events",
+		StartTimeParamName: "since",
+		StartTimeValue:     "2026-03-31T12:00:00Z",
+		Pagination: PaginationConfig{
+			Mode:      paginationModeTimestamp,
+			Timestamp: TimestampPagination{PageSize: 100},
+		},
+	}
+
+	// sha256 of the pre-existing byte sequence:
+	//   url \0 mode \0 start_time_value \0 end_time_value \0 starting_offset \0 starting_page
+	const expected = "4c7dfc88eb97947ab68db7bea33617d560af8f4aaeaee784afedf509821e4a02"
+	require.Equal(t, expected, configFingerprint(cfg))
+
+	// An explicitly defaulted method must not perturb it either — Validate()
+	// sets Method to "get" on every config, including ones that predate it.
+	withDefaults := *cfg
+	withDefaults.Method = methodGET
+	require.Equal(t, expected, configFingerprint(&withDefaults))
+}
+
+func TestConfigFingerprint_POSTFields(t *testing.T) {
+	baseCfg := &Config{
+		URL:    "https://api.crowdstrike.com/alerts/combined/alerts/v1",
+		Method: methodPOST,
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "after",
+				LimitFieldName:      "limit",
+				NextOffsetFieldName: "meta.pagination.after",
+			},
+		},
+		RequestBody: `{"filter":"status:'new'","sort":"created_timestamp|asc"}`,
+	}
+	baseFingerprint := configFingerprint(baseCfg)
+	require.Equal(t, baseFingerprint, configFingerprint(baseCfg))
+
+	// request_body IS query-defining: a different filter selects different
+	// records, so a cursor from the old filter must not be replayed.
+	differentFilter := *baseCfg
+	differentFilter.RequestBody = `{"filter":"status:'closed'","sort":"created_timestamp|asc"}`
+	require.NotEqual(t, baseFingerprint, configFingerprint(&differentFilter),
+		"different request_body should produce different fingerprint")
+
+	// offset_limit.limit is a throughput knob, like page_size and page_limit.
+	differentLimit := *baseCfg
+	differentLimit.Pagination.OffsetLimit.Limit = 500
+	require.Equal(t, baseFingerprint, configFingerprint(&differentLimit),
+		"offset_limit.limit should not affect the fingerprint")
+}
+
+func TestBuildAPIRequest(t *testing.T) {
+	newReceiver := func(t *testing.T, cfg *Config) *baseReceiver {
+		t.Helper()
+		b := &baseReceiver{
+			cfg:             cfg,
+			logger:          zap.NewNop(),
+			paginationState: newPaginationState(cfg),
+		}
+		require.NoError(t, b.initializeRequestBody())
+		return b
+	}
+
+	t.Run("renders the body from the template", func(t *testing.T) {
+		cfg := &Config{
+			URL:         "https://api.example.com/alerts",
+			Method:      methodPOST,
+			RequestBody: `{"filter":"status:'new'","limit":{{ .Limit }}{{ if .Cursor }},"after":{{ json .Cursor }}{{ end }}}`,
+			Pagination: PaginationConfig{
+				Mode:        paginationModeOffsetLimit,
+				OffsetLimit: OffsetLimitPagination{Limit: 100, NextOffsetFieldName: "meta.after"},
+			},
+		}
+		r := newReceiver(t, cfg)
+
+		// First page: the cursor guard suppresses the field entirely.
+		req, err := r.buildAPIRequest()
+		require.NoError(t, err)
+		require.Equal(t, cfg.URL, req.URL)
+		require.JSONEq(t, `{"filter":"status:'new'","limit":100}`, string(req.Body))
+
+		// Continuation: the cursor appears.
+		r.paginationState.CurrentOffsetToken = "cursor-1"
+		req, err = r.buildAPIRequest()
+		require.NoError(t, err)
+		require.JSONEq(t, `{"filter":"status:'new'","limit":100,"after":"cursor-1"}`, string(req.Body))
+	})
+
+	t.Run("no template means no body", func(t *testing.T) {
+		cfg := &Config{
+			URL:        "https://api.example.com/data",
+			Pagination: PaginationConfig{Mode: paginationModeNone},
+		}
+		req, err := newReceiver(t, cfg).buildAPIRequest()
+		require.NoError(t, err)
+		require.Empty(t, req.Body)
+	})
+
+	t.Run("query parameters are unaffected by the body", func(t *testing.T) {
+		cfg := &Config{
+			URL:         "https://api.example.com/data",
+			Method:      methodPOST,
+			RequestBody: `{"filter":"status:'new'"}`,
+			Pagination: PaginationConfig{
+				Mode: paginationModeOffsetLimit,
+				OffsetLimit: OffsetLimitPagination{
+					OffsetFieldName: "offset",
+					LimitFieldName:  "limit",
+					Limit:           25,
+				},
+			},
+		}
+		req, err := newReceiver(t, cfg).buildAPIRequest()
+		require.NoError(t, err)
+		require.Equal(t, "0", req.Query.Get("offset"))
+		require.Equal(t, "25", req.Query.Get("limit"))
+		require.JSONEq(t, `{"filter":"status:'new'"}`, string(req.Body))
+	})
+
+	t.Run("each request gets its own body", func(t *testing.T) {
+		cfg := &Config{
+			URL:         "https://api.example.com/alerts",
+			Method:      methodPOST,
+			RequestBody: `{"after":{{ json .Cursor }}}`,
+			Pagination: PaginationConfig{
+				Mode:        paginationModeOffsetLimit,
+				OffsetLimit: OffsetLimitPagination{NextOffsetFieldName: "meta.after"},
+			},
+		}
+		r := newReceiver(t, cfg)
+
+		r.paginationState.CurrentOffsetToken = "cursor-1"
+		first, err := r.buildAPIRequest()
+		require.NoError(t, err)
+		r.paginationState.CurrentOffsetToken = "cursor-2"
+		second, err := r.buildAPIRequest()
+		require.NoError(t, err)
+
+		require.JSONEq(t, `{"after":"cursor-1"}`, string(first.Body))
+		require.JSONEq(t, `{"after":"cursor-2"}`, string(second.Body))
+	})
+}
+
+// TestReconcileCheckpointWithConfig_AppliesConfiguredLimit covers limit being
+// excluded from configFingerprint while loadCheckpoint restores the whole state:
+// without reconciliation a limit change would never take effect once the
+// receiver has checkpointed.
+func TestReconcileCheckpointWithConfig_AppliesConfiguredLimit(t *testing.T) {
+	testCases := []struct {
+		name            string
+		configuredLimit int
+		checkpointLimit int
+		expected        int
+	}{
+		{name: "raised limit takes effect", configuredLimit: 100, checkpointLimit: 10, expected: 100},
+		{name: "lowered limit takes effect", configuredLimit: 5, checkpointLimit: 10, expected: 5},
+		{name: "unset limit falls back to the default", configuredLimit: 0, checkpointLimit: 250, expected: 10},
+		{name: "matching limit is left alone", configuredLimit: 25, checkpointLimit: 25, expected: 25},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				URL: "https://api.example.com/alerts",
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "after",
+						LimitFieldName:  "limit",
+						Limit:           tc.configuredLimit,
+					},
+				},
+			}
+			b := &baseReceiver{
+				cfg:    cfg,
+				logger: zap.NewNop(),
+				// A checkpoint restored by loadCheckpoint, carrying real progress.
+				paginationState: &paginationState{Limit: tc.checkpointLimit, CurrentOffset: 30},
+			}
+
+			b.reconcileCheckpointWithConfig()
+
+			require.Equal(t, tc.expected, b.paginationState.Limit)
+			// Polling progress must survive reconciliation untouched.
+			require.Equal(t, 30, b.paginationState.CurrentOffset)
+			// The value sent and the full-page threshold stay the same variable.
+			require.Equal(t, strconv.Itoa(tc.expected), buildPaginationParams(cfg, b.paginationState).Get("limit"))
+		})
+	}
+}
+
+// TestInitializePagination_ChangedLimitSurvivesCheckpointLoad walks the real
+// path: checkpoint written with one limit, config changed, reload must use the
+// new value.
+func TestInitializePagination_ChangedLimitSurvivesCheckpointLoad(t *testing.T) {
+	cfg := &Config{
+		URL: "https://api.example.com/alerts",
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName: "after",
+				LimitFieldName:  "limit",
+				Limit:           100,
+			},
+		},
+	}
+
+	// Simulate loadCheckpoint having restored a state persisted when limit was unset.
+	b := &baseReceiver{
+		cfg:             cfg,
+		logger:          zap.NewNop(),
+		paginationState: &paginationState{Limit: 10, CurrentOffsetToken: "cursor-7"},
+	}
+	b.initializePagination()
+
+	require.Equal(t, 100, b.paginationState.Limit)
+	require.Equal(t, "cursor-7", b.paginationState.CurrentOffsetToken,
+		"the stored cursor must be preserved")
 }

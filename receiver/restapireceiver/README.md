@@ -31,6 +31,8 @@ Beta:
 | Field                | Type      | Default | Required | Description                                                                                                                                                                                                                                                 |
 | -------------------- | --------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `url`                | string    |         | `true`   | The base URL for the REST API endpoint                                                                                                                                                                                                                      |
+| `method`             | string    | `get`   | `false`  | HTTP method for polling requests: `get` or `post`. See [Request Body Templating](#request-body-templating).                                                                                                                                                                     |
+| `request_body`       | string    |         | `false`  | A Go template rendering to the JSON request body sent with each request. Only valid when `method` is `post`. See [Request Body Templating](#request-body-templating). **Not masked in logs or configuration dumps — do not put credentials here; use `auth_mode` or `sensitive_headers`.** |
 | `response_format`    | string    | `json`  | `false`  | Response body format: `json` (standard JSON array/object) or `ndjson` (newline-delimited JSON). In NDJSON mode, each line is a separate JSON object; the last line is treated as metadata (e.g., containing pagination cursors) and is not emitted as data. |
 | `response_field`     | string    |         | `false`  | The name of the field in the response that contains the array of items. If empty, the response is assumed to be a top-level array. For nested fields, use dot notation (e.g., `response.data`). Array elements can be selected by non-negative index (e.g., `intervals[0].readings`, `matrix[0][1]`). Not used when `response_format` is `ndjson`.                |
 | `metrics`            | object    |         | `false`  | Metrics configuration (see below)                                                                                                                                                                                                                           |
@@ -120,13 +122,72 @@ These top-level fields add start and/or end time query parameters to every reque
 
 | Field                   | Type   | Default | Required | Description                                                                                                                                                                                                                                                                       |
 | ----------------------- | ------ | ------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `start_time_param_name` | string |         | `false`  | Query parameter name for start time (e.g., "since", "from", "start_time"). **Required** when `pagination.mode` is `timestamp`                                                                                                                                                     |
+| `start_time_param_name` | string |         | `false`  | Request parameter name for start time (e.g., "since", "from", "start_time"). **Required** when `pagination.mode` is `timestamp`                                                                                                                                                     |
 | `start_time_value`      | string |         | `false`  | Value for the start time: `"now"` resolves to the current time at receiver start (not dynamically updated), or a fixed timestamp in the configured format (e.g., `"2025-01-01T00:00:00Z"` or `"1704067200"` for epoch). For timestamp pagination, this is the initial start value |
-| `end_time_param_name`   | string |         | `false`  | Query parameter name for end time (e.g., "until", "to", "end_time"). If set, sends an end time on every request                                                                                                                                                                   |
+| `end_time_param_name`   | string |         | `false`  | Request parameter name for end time (e.g., "until", "to", "end_time"). If set, sends an end time on every request                                                                                                                                                                   |
 | `end_time_value`        | string | `now`   | `false`  | Value for the end time: `"now"` (default) resolves to the current time at receiver start (not dynamically updated), or a fixed timestamp in the configured format                                                                                                                 |
-| `timestamp_format`      | string | RFC3339 | `false`  | Format for both start and end time query parameters. Accepts Go time format strings or epoch formats (see below)                                                                                                                                                                  |
+| `timestamp_format`      | string | RFC3339 | `false`  | Format for both start and end time request parameters. Accepts Go time format strings or epoch formats (see below). With an epoch format, `start_time_value` and `end_time_value` must be plain JSON numbers — no leading `+` and no trailing `.` — so a `request_body` template can emit them unquoted                                                                                                                                                                  |
+
+### Request Body Templating
+
+Some APIs have no GET endpoint and require a POST carrying the query in a JSON body. Set
+`method: post` and describe the body with `request_body`, a Go template that renders to JSON:
+
+```yaml
+method: post
+request_body: |
+  {
+    "filter": "status:'new'",
+    "limit": {{ .Limit }}{{ if .Cursor }},
+    "after": {{ json .Cursor }}{{ end }}
+  }
+```
+
+Real APIs differ in the *shape* of the body, not just in field names — one nests its cursor
+under `page`, another under `meta.pagination`, another wraps the query in an array. A template
+lets you place each value exactly where the API expects it, at any depth.
+
+#### Available fields
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `.Cursor`    | string | The opaque next-offset token from the previous response. **Empty on the first request of a run**, so guard it with `{{ if .Cursor }}`. |
+| `.Offset`    | number | The numeric offset for `offset_limit` pagination. |
+| `.Limit`     | number | `pagination.offset_limit.limit`. |
+| `.Page`      | number | The current page number for `page_size` pagination. |
+| `.PageSize`  | number | The page size for `page_size` and `timestamp` pagination. |
+| `.StartTime` | string | The start time bound, formatted per `timestamp_format`. |
+| `.EndTime`   | string | The end time bound, formatted per `timestamp_format`. |
+
+**Emit string fields with `{{ json . }}`.** The `json` function renders a value as a JSON
+literal — a quoted, escaped string for a string, a bare number for a number — so
+`"after": {{ json .Cursor }}` is always valid, even when the token contains a quote or a
+backslash. Values reach the template unescaped, so hand-quoting as `"{{ .Cursor }}"` produces a
+broken body the moment a real token contains one of those characters; the startup check below
+rejects that form outright.
+
+Numeric fields are safe bare: `"limit": {{ .Limit }}` emits a JSON number. With an epoch
+`timestamp_format`, `{{ .StartTime }}` can also be used bare to send a numeric timestamp.
+
+**The template is validated at startup.** The receiver renders it twice — once as the first
+request of a run and once as a continuation request, using a sample cursor that contains a
+quote and a backslash — and rejects the config unless both render to valid JSON. That catches a
+comma left dangling outside an `{{ if .Cursor }}` guard, a string field emitted bare or
+hand-quoted, and a misspelled field such as `{{ .Cursr }}`, rather than letting them fail on
+every poll.
+
+**Query parameters are independent.** Values also reach the query string through the
+`*_param_name` and `*_field_name` settings, exactly as they do for GET. When a `request_body`
+template is configured those names become optional, since the template may be the only place
+the receiver's values appear.
+
+`Content-Type: application/json` is set automatically for POST and can be overridden through
+`headers` or `sensitive_headers`. A POST with no `request_body` sends `{}`.
 
 ### Pagination Configuration
+
+These name **query-string** parameters. To carry a value in a POST body instead, reference it
+from a `request_body` template — see [Request Body Templating](#request-body-templating).
 
 | Field                                 | Type   | Default | Required | Description                                                                                                                                                                                                                              |
 | ------------------------------------- | ------ | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -140,8 +201,9 @@ These top-level fields add start and/or end time query parameters to every reque
 
 | Field                                            | Type   | Default | Required | Description                                                                                                                                                                                                                                        |
 | ------------------------------------------------ | ------ | ------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pagination.offset_limit.offset_field_name`      | string |         | `false`  | Query parameter name for offset                                                                                                                                                                                                                    |
-| `pagination.offset_limit.limit_field_name`       | string |         | `false`  | Query parameter name for limit. Required for numeric offset pagination; optional when `next_offset_field_name` is set (token-based pagination)                                                                                                     |
+| `pagination.offset_limit.offset_field_name`      | string |         | `false`  | Request parameter name for offset                                                                                                                                                                                                                    |
+| `pagination.offset_limit.limit_field_name`       | string |         | `false`  | Request parameter name for limit. Required for numeric offset pagination; optional when `next_offset_field_name` is set (token-based pagination)                                                                                                     |
+| `pagination.offset_limit.limit`                  | int    | `10`    | `false`  | Value sent for `limit_field_name` on each request. Also the expected page size for the "a full page means there may be more" heuristic, so it should match the page size the API actually returns. When `limit_field_name` is unset (token-based pagination), it is used only as that heuristic threshold and should be set to the API's own page size. |
 | `pagination.offset_limit.starting_offset`        | int    | `0`     | `false`  | Starting offset value                                                                                                                                                                                                                              |
 | `pagination.offset_limit.next_offset_field_name` | string |         | `false`  | Name of the field or header containing the next offset token. When set, the receiver uses token-based (cursor) pagination instead of numeric offsets. For body sources, supports nested fields with dot notation and array indices (e.g., `pagination.next_cursor`, `cursors[0].next`). |
 
@@ -149,8 +211,8 @@ These top-level fields add start and/or end time query parameters to every reque
 
 | Field                                         | Type   | Default | Required | Description                                             |
 | --------------------------------------------- | ------ | ------- | -------- | ------------------------------------------------------- |
-| `pagination.page_size.page_num_field_name`    | string |         | `false`  | Query parameter name for page number                    |
-| `pagination.page_size.page_size_field_name`   | string |         | `false`  | Query parameter name for page size                      |
+| `pagination.page_size.page_num_field_name`    | string |         | `false`  | Request parameter name for page number                    |
+| `pagination.page_size.page_size_field_name`   | string |         | `false`  | Request parameter name for page size                      |
 | `pagination.page_size.starting_page`          | int    | `1`     | `false`  | Starting page number                                    |
 | `pagination.page_size.total_pages_field_name` | string |         | `false`  | Name of the field or header containing total page count |
 
@@ -161,7 +223,7 @@ Timestamp pagination uses the top-level `start_time_param_name` and `timestamp_f
 | Field                                       | Type   | Default | Required | Description                                                                         |
 | ------------------------------------------- | ------ | ------- | -------- | ----------------------------------------------------------------------------------- |
 | `pagination.timestamp.timestamp_field_name` | string |         | `true`   | Field name in each response item containing the timestamp (e.g., "ts", "timestamp") |
-| `pagination.timestamp.page_size_field_name` | string |         | `false`  | Query parameter name for page size (e.g., "perPage", "limit")                       |
+| `pagination.timestamp.page_size_field_name` | string |         | `false`  | Request parameter name for page size (e.g., "perPage", "limit")                       |
 | `pagination.timestamp.page_size`            | int    | `100`   | `false`  | Page size to use                                                                    |
 
 Common timestamp formats:
@@ -344,6 +406,75 @@ receivers:
         next_offset_field_name: "offset"
 ```
 
+### CrowdStrike Falcon Alerts (POST, flat body)
+
+The alerts API has no GET equivalent. The cursor sits at the top level and must be absent on
+the first request.
+
+```yaml
+receivers:
+  restapi:
+    url: "https://api.crowdstrike.com/alerts/combined/alerts/v1"
+    method: post
+    response_field: "resources"
+    min_poll_interval: 1m
+    max_poll_interval: 10m
+    auth_mode: oauth2
+    oauth2:
+      client_id: "${env:FALCON_CLIENT_ID}"
+      client_secret: "${env:FALCON_CLIENT_SECRET}"
+      token_url: "https://api.crowdstrike.com/oauth2/token"
+    request_body: |
+      {
+        "filter": "product:'epp'+status:'new'",
+        "sort": "created_timestamp|asc",
+        "limit": {{ .Limit }}{{ if .Cursor }},
+        "after": {{ json .Cursor }}{{ end }}
+      }
+    pagination:
+      mode: offset_limit
+      offset_limit:
+        limit: 100
+        next_offset_field_name: "meta.pagination.after"
+    storage: file_storage
+```
+
+`limit` should match the page size the API actually returns — it doubles as the "a full page
+means there may be more" threshold. Changing `request_body` invalidates the stored checkpoint
+by design, since a cursor obtained under a different filter is meaningless.
+
+### Datadog Logs Search (POST, nested body)
+
+The cursor and page size live under `page`, the query under `filter`.
+
+```yaml
+receivers:
+  restapi:
+    url: "https://api.datadoghq.com/api/v2/logs/events/search"
+    method: post
+    response_field: "data"
+    auth_mode: none
+    headers:
+      DD-API-KEY: "${env:DD_API_KEY}"
+    sensitive_headers:
+      DD-APPLICATION-KEY: "${env:DD_APP_KEY}"
+    request_body: |
+      {
+        "filter": {"query": "env:prod status:error", "from": "now-15m", "to": "now"},
+        "sort": "timestamp",
+        "page": {
+          "limit": {{ .Limit }}{{ if .Cursor }},
+          "cursor": {{ json .Cursor }}{{ end }}
+        }
+      }
+    pagination:
+      mode: offset_limit
+      offset_limit:
+        limit: 100
+        next_offset_field_name: "meta.page.after"
+    storage: file_storage
+```
+
 ### Token-Based (Cursor) Offset Pagination
 
 Some APIs return a token or cursor in the response body instead of using numeric offsets. Use `next_offset_field_name` to extract this token and pass it as the offset parameter on subsequent requests.
@@ -379,6 +510,14 @@ This configuration would work with an API that returns responses like:
 ```
 
 When `next_cursor` is empty, null, or missing, the receiver treats it as the end of available data.
+
+On the first request of a run there is no cursor yet, so `offset_field_name` is sent as the
+starting offset (`0` by default). In a `request_body` template, guard the cursor with
+`{{ if .Cursor }}` to omit it entirely on that first request — APIs that expect an opaque
+string token there reject `{"after": 0}`.
+
+A next offset the API returns as a JSON number is rendered as plain digits, so a token of
+`1000000` is sent as `1000000` rather than `1e+06`.
 
 ### Header-Based Cursor Pagination
 
@@ -600,6 +739,13 @@ The checkpoint includes:
 
 - Current pagination state (offset/page number/timestamp depending on mode)
 - A config fingerprint used to detect when the receiver configuration has changed
+
+### Pagination limit and checkpoints
+
+`pagination.offset_limit.limit` is a throughput knob rather than part of the query, so
+changing it does **not** discard a stored checkpoint. The configured value is re-applied over
+the one in the checkpoint on startup, so a limit change takes effect on the next poll while
+the cursor or offset already reached is preserved.
 
 ### Config change detection
 

@@ -40,6 +40,7 @@ func NewFactory() receiver.Factory {
 func createDefaultConfig() component.Config {
 	return &Config{
 		URL:      "",
+		Method:   methodGET,
 		AuthMode: authModeNone,
 		Pagination: PaginationConfig{
 			Mode:           paginationModeNone,
