@@ -165,9 +165,9 @@ metrics:
 
   network.traceroute.hop.status:
     enabled: true
-    description: 1 if the traceroute hop answered within the timeout, 0 if it did not.
+    description: 1 if the traceroute hop answered within the timeout, 0 if it did not. Averaging gives the fraction of probes a hop answered.
     unit: "1"
     stability: alpha
     gauge:
-      value_type: int
+      value_type: double
     attributes: [traceroute.hop.index, traceroute.hop.address, dns.server]

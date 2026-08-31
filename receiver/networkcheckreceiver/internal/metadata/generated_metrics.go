@@ -1405,20 +1405,20 @@ type metricNetworkTracerouteHopStatus struct {
 	data          pmetric.Metric                         // data buffer for generated metric.
 	config        NetworkTracerouteHopStatusMetricConfig // metric config provided by user.
 	capacity      int                                    // max observed number of data points added to the metric.
-	aggDataPoints []int64                                // slice containing number of aggregated datapoints at each index
+	aggDataPoints []float64                              // slice containing number of aggregated datapoints at each index
 }
 
 // init fills network.traceroute.hop.status metric with initial data.
 func (m *metricNetworkTracerouteHopStatus) init() {
 	m.data.SetName("network.traceroute.hop.status")
-	m.data.SetDescription("1 if the traceroute hop answered within the timeout, 0 if it did not.")
+	m.data.SetDescription("1 if the traceroute hop answered within the timeout, 0 if it did not. Averaging gives the fraction of probes a hop answered.")
 	m.data.SetUnit("1")
 	m.data.SetEmptyGauge()
 	m.data.Gauge().DataPoints().EnsureCapacity(m.capacity)
 	m.aggDataPoints = m.aggDataPoints[:0]
 }
 
-func (m *metricNetworkTracerouteHopStatus) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val int64, tracerouteHopIndexAttributeValue int64, tracerouteHopAddressAttributeValue string, dnsServerAttributeValue string) {
+func (m *metricNetworkTracerouteHopStatus) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val float64, tracerouteHopIndexAttributeValue int64, tracerouteHopAddressAttributeValue string, dnsServerAttributeValue string) {
 	if !m.config.Enabled {
 		return
 	}
@@ -1443,24 +1443,24 @@ func (m *metricNetworkTracerouteHopStatus) recordDataPoint(start pcommon.Timesta
 		if dp.Attributes().Equal(dpi.Attributes()) && dp.StartTimestamp() == dpi.StartTimestamp() && dp.Timestamp() == dpi.Timestamp() {
 			switch s = m.config.AggregationStrategy; s {
 			case AggregationStrategySum, AggregationStrategyAvg:
-				dpi.SetIntValue(dpi.IntValue() + val)
+				dpi.SetDoubleValue(dpi.DoubleValue() + val)
 				m.aggDataPoints[i] += 1
 				return
 			case AggregationStrategyMin:
-				if dpi.IntValue() > val {
-					dpi.SetIntValue(val)
+				if dpi.DoubleValue() > val {
+					dpi.SetDoubleValue(val)
 				}
 				return
 			case AggregationStrategyMax:
-				if dpi.IntValue() < val {
-					dpi.SetIntValue(val)
+				if dpi.DoubleValue() < val {
+					dpi.SetDoubleValue(val)
 				}
 				return
 			}
 		}
 	}
 
-	dp.SetIntValue(val)
+	dp.SetDoubleValue(val)
 	m.aggDataPoints = append(m.aggDataPoints, 1)
 	dp.MoveTo(dps.AppendEmpty())
 }
@@ -1477,7 +1477,7 @@ func (m *metricNetworkTracerouteHopStatus) emit(metrics pmetric.MetricSlice) {
 	if m.config.Enabled && m.data.Gauge().DataPoints().Len() > 0 {
 		if m.config.AggregationStrategy == AggregationStrategyAvg {
 			for i, aggCount := range m.aggDataPoints {
-				m.data.Gauge().DataPoints().At(i).SetIntValue(m.data.Gauge().DataPoints().At(i).IntValue() / aggCount)
+				m.data.Gauge().DataPoints().At(i).SetDoubleValue(m.data.Gauge().DataPoints().At(i).DoubleValue() / aggCount)
 			}
 		}
 		m.updateCapacity()
@@ -1756,7 +1756,7 @@ func (mb *MetricsBuilder) RecordNetworkTracerouteHopLatencyDataPoint(ts pcommon.
 }
 
 // RecordNetworkTracerouteHopStatusDataPoint adds a data point to network.traceroute.hop.status metric.
-func (mb *MetricsBuilder) RecordNetworkTracerouteHopStatusDataPoint(ts pcommon.Timestamp, val int64, tracerouteHopIndexAttributeValue int64, tracerouteHopAddressAttributeValue string, dnsServerAttributeValue string) {
+func (mb *MetricsBuilder) RecordNetworkTracerouteHopStatusDataPoint(ts pcommon.Timestamp, val float64, tracerouteHopIndexAttributeValue int64, tracerouteHopAddressAttributeValue string, dnsServerAttributeValue string) {
 	mb.metricNetworkTracerouteHopStatus.recordDataPoint(mb.startTime, ts, val, tracerouteHopIndexAttributeValue, tracerouteHopAddressAttributeValue, dnsServerAttributeValue)
 }
 

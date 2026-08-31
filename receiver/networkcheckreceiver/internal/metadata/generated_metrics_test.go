@@ -834,13 +834,13 @@ func TestMetricsBuilder(t *testing.T) {
 						validatedMetrics["network.traceroute.hop.status"] = true
 						assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
 						assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
-						assert.Equal(t, "1 if the traceroute hop answered within the timeout, 0 if it did not.", mi.Description())
+						assert.Equal(t, "1 if the traceroute hop answered within the timeout, 0 if it did not. Averaging gives the fraction of probes a hop answered.", mi.Description())
 						assert.Equal(t, "1", mi.Unit())
 						dp := mi.Gauge().DataPoints().At(0)
 						assert.Equal(t, start, dp.StartTimestamp())
 						assert.Equal(t, ts, dp.Timestamp())
-						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
-						assert.Equal(t, int64(1), dp.IntValue())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeDouble, dp.ValueType())
+						assert.InDelta(t, float64(1), dp.DoubleValue(), 0.01)
 						tracerouteHopIndexAttrVal, ok := dp.Attributes().Get("traceroute.hop.index")
 						assert.True(t, ok)
 						assert.EqualValues(t, 20, tracerouteHopIndexAttrVal.Int())
@@ -855,21 +855,21 @@ func TestMetricsBuilder(t *testing.T) {
 						validatedMetrics["network.traceroute.hop.status"] = true
 						assert.Equal(t, pmetric.MetricTypeGauge, mi.Type())
 						assert.Equal(t, 1, mi.Gauge().DataPoints().Len())
-						assert.Equal(t, "1 if the traceroute hop answered within the timeout, 0 if it did not.", mi.Description())
+						assert.Equal(t, "1 if the traceroute hop answered within the timeout, 0 if it did not. Averaging gives the fraction of probes a hop answered.", mi.Description())
 						assert.Equal(t, "1", mi.Unit())
 						dp := mi.Gauge().DataPoints().At(0)
 						assert.Equal(t, start, dp.StartTimestamp())
 						assert.Equal(t, ts, dp.Timestamp())
-						assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+						assert.Equal(t, pmetric.NumberDataPointValueTypeDouble, dp.ValueType())
 						switch aggMap["network.traceroute.hop.status"] {
 						case "sum":
-							assert.Equal(t, int64(4), dp.IntValue())
+							assert.InDelta(t, float64(4), dp.DoubleValue(), 0.01)
 						case "avg":
-							assert.Equal(t, int64(2), dp.IntValue())
+							assert.InDelta(t, float64(2), dp.DoubleValue(), 0.01)
 						case "min":
-							assert.Equal(t, int64(1), dp.IntValue())
+							assert.InDelta(t, float64(1), dp.DoubleValue(), 0.01)
 						case "max":
-							assert.Equal(t, int64(3), dp.IntValue())
+							assert.InDelta(t, float64(3), dp.DoubleValue(), 0.01)
 						}
 						_, ok := dp.Attributes().Get("traceroute.hop.index")
 						assert.False(t, ok)
