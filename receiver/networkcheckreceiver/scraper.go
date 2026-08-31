@@ -17,8 +17,6 @@ package networkcheckreceiver // import "github.com/observiq/bindplane-otel-contr
 import (
 	"context"
 	"fmt"
-	"math/rand/v2"
-	"strings"
 	"time"
 
 	"go.opentelemetry.io/collector/component"
@@ -47,9 +45,10 @@ type networkStatScraper struct {
 	mb       *metadata.MetricsBuilder
 	rb       *metadata.ResourceBuilder
 
-	targets     []*targetState
-	batchOffset int
-	systemDNS   string
+	// prober owns probe execution and is shared with the logs signal when the
+	// same receiver ID appears in both a metrics and a logs pipeline.
+	prober *sharedProber
+	id     component.ID
 }
 
 func newNetworkStatScraper(settings receiver.Settings, cfg *Config) *networkStatScraper {
@@ -57,105 +56,42 @@ func newNetworkStatScraper(settings receiver.Settings, cfg *Config) *networkStat
 		cfg:      cfg,
 		settings: settings,
 		logger:   settings.Logger,
+		id:       settings.ID,
+		prober:   acquireProber(settings.ID, cfg, settings),
 	}
 }
 
-func (s *networkStatScraper) start(_ context.Context, _ component.Host) error {
+func (s *networkStatScraper) start(ctx context.Context, host component.Host) error {
 	s.mb = metadata.NewMetricsBuilder(s.cfg.MetricsBuilderConfig, s.settings)
 	s.rb = metadata.NewResourceBuilder(s.cfg.MetricsBuilderConfig.ResourceAttributes)
-	s.systemDNS = detectSystemDNS()
-
-	icmpAvailable, icmpPrivileged := checkICMPMode()
-	if !icmpAvailable {
-		s.logger.Warn("ICMP unavailable (raw and datagram modes both failed); ICMP targets will fall back to HTTP probing")
-	} else if !icmpPrivileged {
-		s.logger.Info("ICMP running in datagram (unprivileged) mode")
-	}
-
-	for i, tc := range s.cfg.Targets {
-		method := tc.Method
-		if method == "" {
-			method = MethodICMP
-		}
-
-		dnsServer := tc.DNSServer
-		if dnsServer == "" {
-			dnsServer = s.systemDNS
-		}
-
-		var p pinger
-		var err error
-
-		if method == MethodICMP && !icmpAvailable {
-			s.logger.Warn("falling back to HTTP for ICMP target",
-				zap.String("target", tc.Endpoint),
-				zap.Int("index", i),
-			)
-			method = MethodHTTP
-		}
-
-		switch method {
-		case MethodICMP:
-			p = newICMPPinger(tc, icmpPrivileged)
-		case MethodDNS:
-			p = newDNSPinger(tc)
-		default:
-			fallbackTC := tc
-			if !strings.HasPrefix(fallbackTC.Endpoint, "http://") && !strings.HasPrefix(fallbackTC.Endpoint, "https://") {
-				fallbackTC.Endpoint = "http://" + fallbackTC.Endpoint
-			}
-			p, err = newHTTPPinger(fallbackTC, dnsServer)
-			if err != nil {
-				return fmt.Errorf("target[%d] HTTP pinger: %w", i, err)
-			}
-		}
-
-		s.targets = append(s.targets, &targetState{
-			cfg:       tc,
-			p:         p,
-			tr:        newTracerouter(s.cfg.Traceroute, tc.Endpoint),
-			dnsServer: dnsServer,
-		})
-	}
-
-	return nil
+	return s.prober.start(ctx, host)
 }
 
 func (s *networkStatScraper) shutdown(_ context.Context) error {
+	releaseProber(s.id)
 	return nil
 }
 
 func (s *networkStatScraper) scrape(ctx context.Context) (pmetric.Metrics, error) {
-	if s.cfg.Jitter > 0 {
-		delay := time.Duration(rand.Int64N(int64(s.cfg.Jitter)))
-		select {
-		case <-time.After(delay):
-		case <-ctx.Done():
-			return pmetric.NewMetrics(), ctx.Err()
-		}
-	}
-
 	errs := &scrapererror.ScrapeErrors{}
-	now := pcommon.NewTimestampFromTime(time.Now())
+	cycle := s.prober.latestCycle(ctx, s.prober.cycleMaxAge())
+	now := pcommon.NewTimestampFromTime(cycle.at)
 
-	batch := s.activeBatch()
-	for _, ts := range batch {
-		result, err := ts.p.ping(ctx)
-		if err != nil {
-			errs.AddPartial(1, fmt.Errorf("ping %s: %w", ts.cfg.Endpoint, err))
+	for _, res := range cycle.results {
+		ts := res.target
+		if res.pingErr != nil {
+			errs.AddPartial(1, fmt.Errorf("ping %s: %w", redactEndpoint(ts.cfg.Endpoint), res.pingErr))
 			continue
 		}
 
 		s.rb.SetTargetEndpoint(ts.cfg.Endpoint)
-		s.recordMetrics(now, ts, result)
-		ts.checkCount++
+		s.recordMetrics(now, ts, res.ping)
 
-		if ts.tr.shouldRun(ts.checkCount, result) {
-			hops, trErr := ts.tr.trace(ctx)
-			if trErr != nil {
-				errs.AddPartial(1, fmt.Errorf("traceroute %s: %w", ts.cfg.Endpoint, trErr))
-			}
-			for _, hop := range hops {
+		if res.traceErr != nil {
+			errs.AddPartial(1, fmt.Errorf("traceroute %s: %w", redactEndpoint(ts.cfg.Endpoint), res.traceErr))
+		}
+		if res.traced {
+			for _, hop := range res.trace.Hops {
 				// Status is reported for every probed hop, answered or not, so
 				// that a hop going dark is visible as a 0 rather than as an
 				// absent series indistinguishable from "traceroute never ran".
@@ -190,32 +126,7 @@ func (s *networkStatScraper) scrape(ctx context.Context) (pmetric.Metrics, error
 		s.mb.EmitForResource(metadata.WithResource(s.rb.Emit()))
 	}
 
-	if s.cfg.BatchSize > 0 && len(s.targets) > 0 {
-		s.batchOffset = (s.batchOffset + len(batch)) % len(s.targets)
-	}
-
 	return s.mb.Emit(), errs.Combine()
-}
-
-// activeBatch returns the targets to probe this cycle. When BatchSize is 0
-// (default) all targets are returned. Otherwise a rotating window of BatchSize
-// targets is returned.
-func (s *networkStatScraper) activeBatch() []*targetState {
-	if len(s.targets) == 0 {
-		return nil
-	}
-	if s.cfg.BatchSize <= 0 {
-		return s.targets
-	}
-	size := s.cfg.BatchSize
-	if size > len(s.targets) {
-		size = len(s.targets)
-	}
-	out := make([]*targetState, size)
-	for i := range size {
-		out[i] = s.targets[(s.batchOffset+i)%len(s.targets)]
-	}
-	return out
 }
 
 // recordMetrics writes data points for one completed probe cycle.

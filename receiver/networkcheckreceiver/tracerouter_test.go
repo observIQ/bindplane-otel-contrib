@@ -100,10 +100,12 @@ func TestTraceUnansweredHopsAreMarkedAndBounded(t *testing.T) {
 	if handled {
 		require.NoError(t, err)
 	} else {
-		hops, err = tr.traceUDP(ctx, blackhole)
+		var res TraceResult
+		res, err = tr.traceUDP(ctx, blackhole)
 		if err != nil {
 			t.Skipf("raw ICMP socket unavailable in this environment: %v", err)
 		}
+		hops = res.Hops
 	}
 
 	// Early hops toward the blackhole are real routers that do answer, so the

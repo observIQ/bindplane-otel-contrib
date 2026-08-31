@@ -34,6 +34,7 @@ func NewFactory() receiver.Factory {
 		metadata.Type,
 		createDefaultConfig,
 		receiver.WithMetrics(createMetricsReceiver, metadata.MetricsStability),
+		receiver.WithLogs(createLogsReceiver, metadata.LogsStability),
 	)
 }
 
@@ -44,6 +45,10 @@ func createDefaultConfig() component.Config {
 			InitialDelay:       time.Second,
 		},
 		MetricsBuilderConfig: metadata.DefaultMetricsBuilderConfig(),
+		Logs: LogsConfig{
+			IncludeTLSDetails: true,
+			RedactURLUserinfo: true,
+		},
 		Traceroute: TracerouteConfig{
 			Method:           "udp",
 			MaxHops:          30,
@@ -79,5 +84,43 @@ func createMetricsReceiver(
 	return scraperhelper.NewMetricsController(
 		&cfg.ControllerConfig, params, consumer,
 		scraperhelper.AddMetricsScraper(metadata.Type, s),
+	)
+}
+
+// createLogsReceiver builds the logs signal. scraperhelper has a logs
+// controller but no AddLogsScraper helper, so the scraper factory is
+// constructed directly and passed through AddFactoryWithConfig. Sharing
+// ControllerConfig keeps both signals on one collection interval, which is what
+// lets them share a probe cycle.
+func createLogsReceiver(
+	_ context.Context,
+	params receiver.Settings,
+	rConf component.Config,
+	consumer consumer.Logs,
+) (receiver.Logs, error) {
+	cfg, ok := rConf.(*Config)
+	if !ok {
+		return nil, errInvalidConfig
+	}
+
+	ls := newNetworkStatLogsScraper(params, cfg)
+	s, err := scraper.NewLogs(
+		ls.scrape,
+		scraper.WithStart(ls.start),
+		scraper.WithShutdown(ls.shutdown),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	f := scraper.NewFactory(metadata.Type, nil,
+		scraper.WithLogs(func(context.Context, scraper.Settings, component.Config) (scraper.Logs, error) {
+			return s, nil
+		}, metadata.LogsStability),
+	)
+
+	return scraperhelper.NewLogsController(
+		&cfg.ControllerConfig, params, consumer,
+		scraperhelper.AddFactoryWithConfig(f, nil),
 	)
 }
