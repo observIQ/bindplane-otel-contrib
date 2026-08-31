@@ -3,14 +3,13 @@
 package metadata
 
 import (
-	"slices"
-	"time"
-
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/filter"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/receiver"
+	"slices"
+	"time"
 )
 
 const (
@@ -103,6 +102,10 @@ var MetricsInfo = metricsInfo{
 		Name:       "network.traceroute.hop.latency",
 		Attributes: []string{"traceroute.hop.index", "traceroute.hop.address", "dns.server"},
 	},
+	NetworkTracerouteHopStatus: metricInfo{
+		Name:       "network.traceroute.hop.status",
+		Attributes: []string{"traceroute.hop.index", "traceroute.hop.address", "dns.server"},
+	},
 }
 
 type metricsInfo struct {
@@ -120,6 +123,7 @@ type metricsInfo struct {
 	NetworkPingLatencyMin               metricInfo
 	NetworkPingPacketLoss               metricInfo
 	NetworkTracerouteHopLatency         metricInfo
+	NetworkTracerouteHopStatus          metricInfo
 }
 
 type metricInfo struct {
@@ -1397,6 +1401,101 @@ func newMetricNetworkTracerouteHopLatency(cfg NetworkTracerouteHopLatencyMetricC
 	return m
 }
 
+type metricNetworkTracerouteHopStatus struct {
+	data          pmetric.Metric                         // data buffer for generated metric.
+	config        NetworkTracerouteHopStatusMetricConfig // metric config provided by user.
+	capacity      int                                    // max observed number of data points added to the metric.
+	aggDataPoints []int64                                // slice containing number of aggregated datapoints at each index
+}
+
+// init fills network.traceroute.hop.status metric with initial data.
+func (m *metricNetworkTracerouteHopStatus) init() {
+	m.data.SetName("network.traceroute.hop.status")
+	m.data.SetDescription("1 if the traceroute hop answered within the timeout, 0 if it did not.")
+	m.data.SetUnit("1")
+	m.data.SetEmptyGauge()
+	m.data.Gauge().DataPoints().EnsureCapacity(m.capacity)
+	m.aggDataPoints = m.aggDataPoints[:0]
+}
+
+func (m *metricNetworkTracerouteHopStatus) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val int64, tracerouteHopIndexAttributeValue int64, tracerouteHopAddressAttributeValue string, dnsServerAttributeValue string) {
+	if !m.config.Enabled {
+		return
+	}
+
+	dp := pmetric.NewNumberDataPoint()
+	dp.SetStartTimestamp(start)
+	dp.SetTimestamp(ts)
+	if slices.Contains(m.config.EnabledAttributes, NetworkTracerouteHopStatusMetricAttributeKeyTracerouteHopIndex) {
+		dp.Attributes().PutInt("traceroute.hop.index", tracerouteHopIndexAttributeValue)
+	}
+	if slices.Contains(m.config.EnabledAttributes, NetworkTracerouteHopStatusMetricAttributeKeyTracerouteHopAddress) {
+		dp.Attributes().PutStr("traceroute.hop.address", tracerouteHopAddressAttributeValue)
+	}
+	if slices.Contains(m.config.EnabledAttributes, NetworkTracerouteHopStatusMetricAttributeKeyDNSServer) {
+		dp.Attributes().PutStr("dns.server", dnsServerAttributeValue)
+	}
+
+	var s string
+	dps := m.data.Gauge().DataPoints()
+	for i := 0; i < dps.Len(); i++ {
+		dpi := dps.At(i)
+		if dp.Attributes().Equal(dpi.Attributes()) && dp.StartTimestamp() == dpi.StartTimestamp() && dp.Timestamp() == dpi.Timestamp() {
+			switch s = m.config.AggregationStrategy; s {
+			case AggregationStrategySum, AggregationStrategyAvg:
+				dpi.SetIntValue(dpi.IntValue() + val)
+				m.aggDataPoints[i] += 1
+				return
+			case AggregationStrategyMin:
+				if dpi.IntValue() > val {
+					dpi.SetIntValue(val)
+				}
+				return
+			case AggregationStrategyMax:
+				if dpi.IntValue() < val {
+					dpi.SetIntValue(val)
+				}
+				return
+			}
+		}
+	}
+
+	dp.SetIntValue(val)
+	m.aggDataPoints = append(m.aggDataPoints, 1)
+	dp.MoveTo(dps.AppendEmpty())
+}
+
+// updateCapacity saves max length of data point slices that will be used for the slice capacity.
+func (m *metricNetworkTracerouteHopStatus) updateCapacity() {
+	if m.data.Gauge().DataPoints().Len() > m.capacity {
+		m.capacity = m.data.Gauge().DataPoints().Len()
+	}
+}
+
+// emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
+func (m *metricNetworkTracerouteHopStatus) emit(metrics pmetric.MetricSlice) {
+	if m.config.Enabled && m.data.Gauge().DataPoints().Len() > 0 {
+		if m.config.AggregationStrategy == AggregationStrategyAvg {
+			for i, aggCount := range m.aggDataPoints {
+				m.data.Gauge().DataPoints().At(i).SetIntValue(m.data.Gauge().DataPoints().At(i).IntValue() / aggCount)
+			}
+		}
+		m.updateCapacity()
+		m.data.MoveTo(metrics.AppendEmpty())
+		m.init()
+	}
+}
+
+func newMetricNetworkTracerouteHopStatus(cfg NetworkTracerouteHopStatusMetricConfig) metricNetworkTracerouteHopStatus {
+	m := metricNetworkTracerouteHopStatus{config: cfg}
+
+	if cfg.Enabled {
+		m.data = pmetric.NewMetric()
+		m.init()
+	}
+	return m
+}
+
 // MetricsBuilder provides an interface for scrapers to report metrics while taking care of all the transformations
 // required to produce metric representation defined in metadata and user config.
 type MetricsBuilder struct {
@@ -1421,6 +1520,7 @@ type MetricsBuilder struct {
 	metricNetworkPingLatencyMin               metricNetworkPingLatencyMin
 	metricNetworkPingPacketLoss               metricNetworkPingPacketLoss
 	metricNetworkTracerouteHopLatency         metricNetworkTracerouteHopLatency
+	metricNetworkTracerouteHopStatus          metricNetworkTracerouteHopStatus
 }
 
 // MetricBuilderOption applies changes to default metrics builder.
@@ -1460,6 +1560,7 @@ func NewMetricsBuilder(mbc MetricsBuilderConfig, settings receiver.Settings, opt
 		metricNetworkPingLatencyMin:               newMetricNetworkPingLatencyMin(mbc.Metrics.NetworkPingLatencyMin),
 		metricNetworkPingPacketLoss:               newMetricNetworkPingPacketLoss(mbc.Metrics.NetworkPingPacketLoss),
 		metricNetworkTracerouteHopLatency:         newMetricNetworkTracerouteHopLatency(mbc.Metrics.NetworkTracerouteHopLatency),
+		metricNetworkTracerouteHopStatus:          newMetricNetworkTracerouteHopStatus(mbc.Metrics.NetworkTracerouteHopStatus),
 		resourceAttributeIncludeFilter:            make(map[string]filter.Filter),
 		resourceAttributeExcludeFilter:            make(map[string]filter.Filter),
 	}
@@ -1552,6 +1653,7 @@ func (mb *MetricsBuilder) EmitForResource(options ...ResourceMetricsOption) {
 	mb.metricNetworkPingLatencyMin.emit(ils.Metrics())
 	mb.metricNetworkPingPacketLoss.emit(ils.Metrics())
 	mb.metricNetworkTracerouteHopLatency.emit(ils.Metrics())
+	mb.metricNetworkTracerouteHopStatus.emit(ils.Metrics())
 
 	for _, op := range options {
 		op.apply(rm)
@@ -1651,6 +1753,11 @@ func (mb *MetricsBuilder) RecordNetworkPingPacketLossDataPoint(ts pcommon.Timest
 // RecordNetworkTracerouteHopLatencyDataPoint adds a data point to network.traceroute.hop.latency metric.
 func (mb *MetricsBuilder) RecordNetworkTracerouteHopLatencyDataPoint(ts pcommon.Timestamp, val float64, tracerouteHopIndexAttributeValue int64, tracerouteHopAddressAttributeValue string, dnsServerAttributeValue string) {
 	mb.metricNetworkTracerouteHopLatency.recordDataPoint(mb.startTime, ts, val, tracerouteHopIndexAttributeValue, tracerouteHopAddressAttributeValue, dnsServerAttributeValue)
+}
+
+// RecordNetworkTracerouteHopStatusDataPoint adds a data point to network.traceroute.hop.status metric.
+func (mb *MetricsBuilder) RecordNetworkTracerouteHopStatusDataPoint(ts pcommon.Timestamp, val int64, tracerouteHopIndexAttributeValue int64, tracerouteHopAddressAttributeValue string, dnsServerAttributeValue string) {
+	mb.metricNetworkTracerouteHopStatus.recordDataPoint(mb.startTime, ts, val, tracerouteHopIndexAttributeValue, tracerouteHopAddressAttributeValue, dnsServerAttributeValue)
 }
 
 // Reset resets metrics builder to its initial state. It should be used when external metrics source is restarted,

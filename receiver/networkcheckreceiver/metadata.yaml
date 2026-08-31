@@ -162,3 +162,12 @@ metrics:
     gauge:
       value_type: double
     attributes: [traceroute.hop.index, traceroute.hop.address, dns.server]
+
+  network.traceroute.hop.status:
+    enabled: true
+    description: 1 if the traceroute hop answered within the timeout, 0 if it did not.
+    unit: "1"
+    stability: alpha
+    gauge:
+      value_type: int
+    attributes: [traceroute.hop.index, traceroute.hop.address, dns.server]

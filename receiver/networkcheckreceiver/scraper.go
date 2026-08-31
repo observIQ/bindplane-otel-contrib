@@ -156,6 +156,21 @@ func (s *networkStatScraper) scrape(ctx context.Context) (pmetric.Metrics, error
 				errs.AddPartial(1, fmt.Errorf("traceroute %s: %w", ts.cfg.Endpoint, trErr))
 			}
 			for _, hop := range hops {
+				// Status is reported for every probed hop, answered or not, so
+				// that a hop going dark is visible as a 0 rather than as an
+				// absent series indistinguishable from "traceroute never ran".
+				status := int64(1)
+				if hop.TimedOut {
+					status = 0
+				}
+				s.mb.RecordNetworkTracerouteHopStatusDataPoint(
+					now,
+					status,
+					int64(hop.Index),
+					hop.Address,
+					ts.dnsServer,
+				)
+
 				// A hop that never answered has no latency to report; its RTT
 				// is just the probe timeout. Emitting it would look like a
 				// real (and very slow) measurement.
