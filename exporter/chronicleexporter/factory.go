@@ -61,6 +61,7 @@ func createDefaultConfig() component.Config {
 		BatchRequestSizeLimitHTTP: defaultBatchRequestSizeLimitHTTP,
 		LogErroredPayloads:        false,
 		ValidateLogTypes:          false,
+		RBACEnabled:               false,
 		HTTPResponseHeaderTimeout: defaultHTTPResponseHeaderTimeout,
 	}
 }
