@@ -128,14 +128,22 @@ type Config struct {
 	BlobFormat BlobFormat `mapstructure:"blob_format"`
 
 	// EnableIncrementalRead opts a blob into incremental byte-offset reads for the
-	// "records-json" and "json" formats: the receiver tracks a per-blob offset and consumes
-	// only newly appended complete records/lines, revisiting the blob until it seals. When
-	// false (default) those formats parse the whole blob once per poll and dedupe by name,
-	// losing mid-hour appends to a growing blob. See the README for details.
+	// "records-json" and "json" formats (and "text" with enable_per_line_text): the receiver
+	// tracks a per-blob offset and consumes only newly appended complete records/lines,
+	// revisiting the blob until it seals. When false (default) those formats parse the whole
+	// blob once per poll and dedupe by name, losing mid-hour appends to a growing blob. See the
+	// README for details.
 	//
 	// TEMPORARY: this will become the default and be removed once the incremental
 	// path is proven, at which point the legacy whole-blob behavior goes away.
 	EnableIncrementalRead bool `mapstructure:"enable_incremental_read"`
+
+	// EnablePerLineText opts the "text" format into incremental, one-record-per-line
+	// reads. When false (default), a text blob is read whole and becomes a single log
+	// record (the legacy behavior). When true, each non-empty line becomes its own log
+	// record and the blob is tailed incrementally like the other append-growable
+	// formats. It requires EnableIncrementalRead and is rejected on non-"text" formats.
+	EnablePerLineText bool `mapstructure:"enable_per_line_text"`
 
 	// IncrementalRevisitWindow bounds two things for the incremental path: how far back each
 	// poll re-lists blobs to pick up in-place appends, and how long after a blob's last
@@ -261,10 +269,7 @@ func (c *Config) Validate() error {
 	// These only affect the incremental (append-growable logs) path. Set without their
 	// prerequisite they'd be silent no-ops, so reject each rather than let it look active.
 	if c.EnableIncrementalRead && (c.BlobFormat == BlobFormatOTLP || c.BlobFormat == "") {
-		return errors.New("enable_incremental_read has no effect with blob_format otlp; use json or records-json")
-	}
-	if c.EnableIncrementalRead && c.BlobFormat == BlobFormatText {
-		return errors.New("enable_incremental_read has no effect with blob_format text")
+		return errors.New("enable_incremental_read has no effect with blob_format otlp; use json, records-json, or text")
 	}
 	if c.FingerprintSize != 0 && !c.EnableIncrementalRead {
 		return errors.New("fingerprint_size has no effect without enable_incremental_read")
@@ -274,6 +279,17 @@ func (c *Config) Validate() error {
 	}
 	if c.AssumeAppendOnly && !c.EnableIncrementalRead {
 		return errors.New("assume_append_only has no effect without enable_incremental_read")
+	}
+	if c.EnablePerLineText && !c.EnableIncrementalRead {
+		return errors.New("enable_per_line_text requires enable_incremental_read")
+	}
+	if c.EnablePerLineText && c.BlobFormat != BlobFormatText {
+		return errors.New("enable_per_line_text has no effect unless blob_format is text")
+	}
+	// text is incremental only via enable_per_line_text, so incremental-read alone on text
+	// would silently stay on the whole-blob path.
+	if c.EnableIncrementalRead && c.BlobFormat == BlobFormatText && !c.EnablePerLineText {
+		return errors.New("enable_incremental_read on blob_format text requires enable_per_line_text")
 	}
 
 	return nil

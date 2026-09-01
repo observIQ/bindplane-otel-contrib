@@ -18,8 +18,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
@@ -47,6 +49,7 @@ func (r *RawTextLogsConsumer) Consume(ctx context.Context, entityContent []byte)
 	scopeLogs := resourceLogs.ScopeLogs().AppendEmpty()
 	record := scopeLogs.LogRecords().AppendEmpty()
 	record.Body().SetStr(string(entityContent))
+	record.SetObservedTimestamp(pcommon.NewTimestampFromTime(time.Now()))
 
 	if err := r.nextConsumer.ConsumeLogs(ctx, logs); err != nil {
 		return fmt.Errorf("text consume: %w: %w", ErrDownstream, err)

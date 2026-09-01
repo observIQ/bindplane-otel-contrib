@@ -150,8 +150,13 @@ func newLogsReceiver(id component.ID, logger *zap.Logger, cfg *Config, nextConsu
 		logger.Debug("Using NDJSON blob format consumer")
 		r.consumer = blobconsume.NewNDJSONLogsConsumer(nextConsumer, logger)
 	case BlobFormatText:
-		logger.Debug("Using raw text blob format consumer")
-		r.consumer = blobconsume.NewRawTextLogsConsumer(nextConsumer)
+		if cfg.EnablePerLineText {
+			logger.Debug("Using per-line text blob format consumer")
+			r.consumer = blobconsume.NewLineTextLogsConsumer(nextConsumer)
+		} else {
+			logger.Debug("Using raw text blob format consumer")
+			r.consumer = blobconsume.NewRawTextLogsConsumer(nextConsumer)
+		}
 	case BlobFormatRecordsJSON:
 		logger.Debug("Using records-json blob format consumer")
 		r.consumer = blobconsume.NewRecordsJSONLogsConsumer(nextConsumer, logger)
@@ -870,10 +875,10 @@ func (r *pollingReceiver) now() time.Time {
 }
 
 // isIncrementalFormat reports whether the configured blob format is one whose
-// blobs can grow in place (records-json, json/NDJSON) and therefore should be
-// read incrementally by byte offset rather than whole-file once. Gated behind the
-// enable_incremental_read opt-in; when it is off every format uses the legacy
-// whole-blob path.
+// blobs can grow in place (records-json, json/NDJSON, and text when
+// enable_per_line_text is set) and therefore should be read incrementally by byte
+// offset rather than whole-file once. Gated behind the enable_incremental_read
+// opt-in; when it is off every format uses the legacy whole-blob path.
 func (r *pollingReceiver) isIncrementalFormat() bool {
 	if !r.cfg.EnableIncrementalRead {
 		return false
@@ -881,7 +886,11 @@ func (r *pollingReceiver) isIncrementalFormat() bool {
 	switch r.cfg.BlobFormat {
 	case BlobFormatRecordsJSON, BlobFormatJSON:
 		return true
-	default: // BlobFormatOTLP, BlobFormatText, ""
+	case BlobFormatText:
+		// text only tails per line when the second opt-in is set; otherwise it
+		// stays whole-blob (one record) on the legacy path.
+		return r.cfg.EnablePerLineText
+	default: // BlobFormatOTLP, ""
 		return false
 	}
 }
@@ -934,8 +943,10 @@ func (r *pollingReceiver) consumeDelta(ctx context.Context, delta []byte, atStar
 	return bytesConsumed, len(bytes.TrimSpace(complete)) > 0, nil
 }
 
-// consumeContent hands newline-delimited content (json/NDJSON) to the consumer,
-// which splits it into one log record per line.
+// consumeContent hands newline-delimited content to the consumer, which splits it
+// into one log record per line: the NDJSON consumer for json, and the line-text
+// consumer for text when enable_per_line_text is set (the only way text reaches
+// the incremental path).
 func (r *pollingReceiver) consumeContent(ctx context.Context, content []byte) error {
 	if err := r.consumer.Consume(ctx, content); err != nil {
 		return fmt.Errorf("consume: %w", err)
@@ -1245,7 +1256,11 @@ func (r *pollingReceiver) processBlob(ctx context.Context, blob *azureblob.BlobI
 	case ".json":
 		// Uncompressed; nothing to decompress.
 	default:
-		return fmt.Errorf("unsupported file type: %s", ext)
+		// The text format is content-agnostic, so accept any extension (as the per-line
+		// text path does); the structured formats still require .json/.gz.
+		if r.cfg.BlobFormat != BlobFormatText {
+			return fmt.Errorf("unsupported file type: %s", ext)
+		}
 	}
 
 	if err := r.consumer.Consume(ctx, blobBuffer); err != nil {
