@@ -17,6 +17,7 @@ package restapireceiver
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -1901,4 +1902,40 @@ func TestNewRequestBodyData(t *testing.T) {
 		state.PagesFetched = 1
 		require.Equal(t, requestStartTime(cfg, state), newRequestBodyData(cfg, state).StartTime)
 	})
+}
+
+func TestNewPaginationState_PageSize_ConfiguredPageSize(t *testing.T) {
+	testCases := []struct {
+		name     string
+		pageSize int
+		expected int
+	}{
+		{name: "unset falls back to the historical default", pageSize: 0, expected: 20},
+		{name: "configured page size is used", pageSize: 100, expected: 100},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				Pagination: PaginationConfig{
+					Mode: paginationModePageSize,
+					PageSize: PageSizePagination{
+						PageNumFieldName:  "page",
+						PageSizeFieldName: "size",
+						StartingPage:      1,
+						PageSize:          tc.pageSize,
+					},
+				},
+			}
+			state := newPaginationState(cfg)
+			require.Equal(t, tc.expected, state.PageSize)
+
+			// The value sent and the full-page threshold are the same variable.
+			require.Equal(t, strconv.Itoa(tc.expected), buildPaginationParams(cfg, state).Get("size"))
+			full := make([]map[string]any, tc.expected)
+			more, err := parsePageSizeResponse(cfg, map[string]any{}, full, state)
+			require.NoError(t, err)
+			require.True(t, more, "a full page should report more pages")
+		})
+	}
 }

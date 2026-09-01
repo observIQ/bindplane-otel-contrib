@@ -1816,3 +1816,62 @@ func TestInitializePagination_ChangedLimitSurvivesCheckpointLoad(t *testing.T) {
 	require.Equal(t, "cursor-7", b.paginationState.CurrentOffsetToken,
 		"the stored cursor must be preserved")
 }
+
+// TestReconcileCheckpointWithConfig_AppliesConfiguredPageSize mirrors the limit
+// case: page_size is excluded from configFingerprint, so a change to it must be
+// re-applied over the value restored from a checkpoint.
+func TestReconcileCheckpointWithConfig_AppliesConfiguredPageSize(t *testing.T) {
+	testCases := []struct {
+		name       string
+		configured int
+		checkpoint int
+		expected   int
+	}{
+		{name: "raised page size takes effect", configured: 100, checkpoint: 20, expected: 100},
+		{name: "lowered page size takes effect", configured: 5, checkpoint: 20, expected: 5},
+		{name: "unset falls back to the default", configured: 0, checkpoint: 250, expected: 20},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				URL: "https://api.example.com/data",
+				Pagination: PaginationConfig{
+					Mode: paginationModePageSize,
+					PageSize: PageSizePagination{
+						PageNumFieldName:  "page",
+						PageSizeFieldName: "size",
+						PageSize:          tc.configured,
+					},
+				},
+			}
+			b := &baseReceiver{
+				cfg:             cfg,
+				logger:          zap.NewNop(),
+				paginationState: &paginationState{PageSize: tc.checkpoint, CurrentPage: 7},
+			}
+
+			b.reconcileCheckpointWithConfig()
+
+			require.Equal(t, tc.expected, b.paginationState.PageSize)
+			// Polling progress survives reconciliation.
+			require.Equal(t, 7, b.paginationState.CurrentPage)
+		})
+	}
+}
+
+func TestConfigFingerprint_PageSizeExcluded(t *testing.T) {
+	cfg := &Config{
+		URL: "https://api.example.com/data",
+		Pagination: PaginationConfig{
+			Mode:     paginationModePageSize,
+			PageSize: PageSizePagination{PageNumFieldName: "page", PageSizeFieldName: "size"},
+		},
+	}
+	base := configFingerprint(cfg)
+
+	changed := *cfg
+	changed.Pagination.PageSize.PageSize = 500
+	require.Equal(t, base, configFingerprint(&changed),
+		"page_size is a throughput knob and must not invalidate a checkpoint")
+}

@@ -434,8 +434,13 @@ type PageSizePagination struct {
 	// StartingPage is the starting page number.
 	StartingPage int `mapstructure:"starting_page"`
 
-	// PageSizeFieldName is the name of the query parameter for page size.
+	// PageSizeFieldName is the name of the request parameter for page size.
 	PageSizeFieldName string `mapstructure:"page_size_field_name"`
+
+	// PageSize is the value sent for PageSizeFieldName, and the expected page
+	// size for the "a full page means there may be more" heuristic in
+	// parsePageSizeResponse — so it should match what the API actually returns.
+	PageSize int `mapstructure:"page_size"`
 
 	// TotalPagesFieldName is the name of the field in the response that contains the total page count.
 	TotalPagesFieldName string `mapstructure:"total_pages_field_name"`
@@ -688,6 +693,10 @@ func (c *Config) Validate() error {
 
 	if c.Pagination.OffsetLimit.Limit < 0 {
 		return fmt.Errorf("limit must be greater than or equal to 0")
+	}
+
+	if c.Pagination.PageSize.PageSize < 0 {
+		return fmt.Errorf("page_size must be greater than or equal to 0")
 	}
 
 	// Validate start_time_value format if provided
