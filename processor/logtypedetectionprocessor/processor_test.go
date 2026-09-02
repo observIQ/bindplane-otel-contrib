@@ -18,15 +18,21 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadata"
 	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadatatest"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componenttest"
+	"go.opentelemetry.io/collector/extension"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata/metricdatatest"
+	"go.uber.org/zap"
 )
 
 func logsFromBodies(bodies ...string) plog.Logs {
@@ -79,7 +85,7 @@ func TestProcessLogs(t *testing.T) {
 			tb, err := metadata.NewTelemetryBuilder(metadatatest.NewSettings(tel).TelemetrySettings)
 			require.NoError(t, err)
 
-			p, err := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+			p, err := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), component.MustNewID("logtypedetection"), zap.NewNop(), tb)
 			require.NoError(t, err)
 
 			out, err := p.processLogs(context.Background(), logsFromBodies(tc.bodies...))
@@ -115,7 +121,7 @@ func TestProcessLogsCachesAcrossCalls(t *testing.T) {
 	tb, err := metadata.NewTelemetryBuilder(metadatatest.NewSettings(tel).TelemetrySettings)
 	require.NoError(t, err)
 
-	p, err := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+	p, err := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), component.MustNewID("logtypedetection"), zap.NewNop(), tb)
 	require.NoError(t, err)
 
 	for range 3 {
@@ -135,7 +141,7 @@ func TestProcessLogsConcurrentSameStructure(t *testing.T) {
 	tb, err := metadata.NewTelemetryBuilder(metadatatest.NewSettings(tel).TelemetrySettings)
 	require.NoError(t, err)
 
-	p, err := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), tb)
+	p, err := newLogTypeDetectionProcessor(createDefaultConfig().(*Config), component.MustNewID("logtypedetection"), zap.NewNop(), tb)
 	require.NoError(t, err)
 
 	start := make(chan struct{})
@@ -171,7 +177,7 @@ func TestPriorityOfMatchers(t *testing.T) {
 		{Name: "priority-0", Priority: new(0), Value: `{"a"`, Method: MatcherTypeStartsWith},
 		{Name: "priority-2", Priority: new(2), Value: `{"a"`, Method: MatcherTypeStartsWith},
 	}
-	p, err := newLogTypeDetectionProcessor(config, tb)
+	p, err := newLogTypeDetectionProcessor(config, component.MustNewID("logtypedetection"), zap.NewNop(), tb)
 	require.NoError(t, err)
 
 	out, err := p.processLogs(context.Background(), logsFromBodies(`{"a":1,"b":"x"}`))
@@ -195,7 +201,7 @@ func TestUnknownLogType(t *testing.T) {
 
 	cfg := createDefaultConfig().(*Config)
 	cfg.Matchers = []MatcherConfig{{Name: "json_a", Method: MatcherTypeStartsWith, Value: `{"a"`}}
-	p, err := newLogTypeDetectionProcessor(cfg, tb)
+	p, err := newLogTypeDetectionProcessor(cfg, component.MustNewID("logtypedetection"), zap.NewNop(), tb)
 	require.NoError(t, err)
 
 	out, err := p.processLogs(context.Background(), logsFromBodies(`{"a":1,"b":2}`, `{"z":1,"y":2}`, "plain text line"))
@@ -217,4 +223,113 @@ func TestUnknownLogType(t *testing.T) {
 			Attributes: attribute.NewSet(attribute.String("log_type", "json_a")),
 		}},
 		metricdatatest.IgnoreTimestamp())
+}
+
+type testHost struct {
+	component.Host
+	components map[component.ID]component.Component
+}
+
+func (t *testHost) GetExtensions() map[component.ID]component.Component {
+	return t.components
+}
+
+func TestFingerprintMapPersistence(t *testing.T) {
+	ctx := context.Background()
+
+	factory := filestorage.NewFactory()
+	storageCfg := factory.CreateDefaultConfig().(*filestorage.Config)
+	storageCfg.Directory = t.TempDir()
+
+	fingerprintStorageID := component.NewIDWithName(component.MustNewType("file_storage"), "test")
+	ext, err := factory.Create(ctx, extension.Settings{ID: fingerprintStorageID, TelemetrySettings: componenttest.NewNopTelemetrySettings()}, storageCfg)
+	require.NoError(t, err)
+	require.NoError(t, ext.Start(ctx, componenttest.NewNopHost()))
+	defer func() { require.NoError(t, ext.Shutdown(ctx)) }()
+
+	host := &testHost{components: map[component.ID]component.Component{fingerprintStorageID: ext}}
+
+	cfg := createDefaultConfig().(*Config)
+	cfg.FingerprintStorageID = &fingerprintStorageID
+	cfg.Matchers = []MatcherConfig{{Name: "nginx", Method: MatcherTypeStartsWith, Value: "GET "}}
+
+	newProcessor := func() *logTypeDetectionProcessor {
+		tb, err := metadata.NewTelemetryBuilder(componenttest.NewNopTelemetrySettings())
+		require.NoError(t, err)
+		p, err := newLogTypeDetectionProcessor(cfg, component.MustNewID("logtypedetection"), zap.NewNop(), tb)
+		require.NoError(t, err)
+		return p
+	}
+
+	first := newProcessor()
+	require.NoError(t, first.start(ctx, host))
+	_, err = first.processLogs(ctx, logsFromBodies("GET /index.html 200"))
+	require.NoError(t, err)
+	require.NoError(t, first.stop(ctx))
+
+	second := newProcessor()
+	require.NoError(t, second.start(ctx, host))
+	defer func() { require.NoError(t, second.stop(ctx)) }()
+
+	count := 0
+	second.logTypes.Range(func(_, value any) bool {
+		require.Equal(t, "nginx", value)
+		count++
+		return true
+	})
+	require.Equal(t, 1, count)
+}
+
+func TestFingerprintMapPeriodicPersist(t *testing.T) {
+	ctx := context.Background()
+
+	factory := filestorage.NewFactory()
+	storageCfg := factory.CreateDefaultConfig().(*filestorage.Config)
+	storageCfg.Directory = t.TempDir()
+
+	fingerprintStorageID := component.NewIDWithName(component.MustNewType("file_storage"), "test")
+	ext, err := factory.Create(ctx, extension.Settings{ID: fingerprintStorageID, TelemetrySettings: componenttest.NewNopTelemetrySettings()}, storageCfg)
+	require.NoError(t, err)
+	require.NoError(t, ext.Start(ctx, componenttest.NewNopHost()))
+	defer func() { require.NoError(t, ext.Shutdown(ctx)) }()
+
+	host := &testHost{components: map[component.ID]component.Component{fingerprintStorageID: ext}}
+
+	cfg := createDefaultConfig().(*Config)
+	cfg.FingerprintStorageID = &fingerprintStorageID
+	cfg.FingerprintPersistInterval = 10 * time.Millisecond
+	cfg.Matchers = []MatcherConfig{{Name: "nginx", Method: MatcherTypeStartsWith, Value: "GET "}}
+
+	tb, err := metadata.NewTelemetryBuilder(componenttest.NewNopTelemetrySettings())
+	require.NoError(t, err)
+	p, err := newLogTypeDetectionProcessor(cfg, component.MustNewID("logtypedetection"), zap.NewNop(), tb)
+	require.NoError(t, err)
+	require.NoError(t, p.start(ctx, host))
+
+	_, err = p.processLogs(ctx, logsFromBodies("GET /index.html 200"))
+	require.NoError(t, err)
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		saved := logTypeMap{}
+		assert.NoError(c, p.fingerprintStorageClient.LoadStorageData(ctx, fingerprintStorageKey, &saved))
+		assert.Len(c, saved, 1)
+	}, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, p.stop(ctx))
+}
+
+func TestStopAfterFailedStart(t *testing.T) {
+	ctx := context.Background()
+
+	missingStorageID := component.MustNewIDWithName("file_storage", "missing")
+	cfg := createDefaultConfig().(*Config)
+	cfg.FingerprintStorageID = &missingStorageID
+
+	tb, err := metadata.NewTelemetryBuilder(componenttest.NewNopTelemetrySettings())
+	require.NoError(t, err)
+	p, err := newLogTypeDetectionProcessor(cfg, component.MustNewID("logtypedetection"), zap.NewNop(), tb)
+	require.NoError(t, err)
+
+	require.Error(t, p.start(ctx, &testHost{components: map[component.ID]component.Component{}}))
+	require.NoError(t, p.stop(ctx))
 }

@@ -16,30 +16,48 @@ package logtypedetectionprocessor
 
 import (
 	"errors"
+	"time"
 
 	"go.opentelemetry.io/collector/component"
 )
 
 const (
-	defaultFingerprintField = "fingerprint"
-	defaultLogTypeField     = "log_type"
-	unknownLogType          = "unknown"
+	defaultFingerprintField           = "fingerprint"
+	defaultLogTypeField               = "log_type"
+	defaultFingerprintPersistInterval = 5 * time.Minute
+	defaultMaxSavedFingerprints       = 100_000
+	unknownLogType                    = "unknown"
 )
 
-var errMissingLogTypeField = errors.New("log_type_field is required")
+var (
+	errMissingLogTypeField    = errors.New("log_type_field is required")
+	errInvalidPersistInterval = errors.New("fingerprint_persist_interval must be > 0")
+	errInvalidMaxFingerprints = errors.New("max_saved_fingerprints must be > 0")
+)
 
 // Config is the config of the processor.
 type Config struct {
 	Matchers         []MatcherConfig `mapstructure:"matchers"`
 	FingerprintField string          `mapstructure:"fingerprint_field"`
 	LogTypeField     string          `mapstructure:"log_type_field"`
+
+	// ID of the storage extension used to persist the fingerprint map
+	FingerprintStorageID *component.ID `mapstructure:"fingerprint_storage"`
+
+	// How often the fingerprint map is written to the storage extension
+	FingerprintPersistInterval time.Duration `mapstructure:"fingerprint_persist_interval"`
+
+	// Maximum number of fingerprint-to-log-type mappings held in memory
+	MaxSavedFingerprints int `mapstructure:"max_saved_fingerprints"`
 }
 
 func createDefaultConfig() component.Config {
 	return &Config{
-		Matchers:         []MatcherConfig{},
-		FingerprintField: defaultFingerprintField,
-		LogTypeField:     defaultLogTypeField,
+		Matchers:                   []MatcherConfig{},
+		FingerprintField:           defaultFingerprintField,
+		LogTypeField:               defaultLogTypeField,
+		FingerprintPersistInterval: defaultFingerprintPersistInterval,
+		MaxSavedFingerprints:       defaultMaxSavedFingerprints,
 	}
 }
 
@@ -47,6 +65,14 @@ func createDefaultConfig() component.Config {
 func (c Config) Validate() error {
 	if c.LogTypeField == "" {
 		return errMissingLogTypeField
+	}
+
+	if c.FingerprintStorageID != nil && c.FingerprintPersistInterval <= 0 {
+		return errInvalidPersistInterval
+	}
+
+	if c.MaxSavedFingerprints <= 0 {
+		return errInvalidMaxFingerprints
 	}
 
 	for _, m := range c.Matchers {
