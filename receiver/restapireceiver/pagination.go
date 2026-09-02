@@ -89,9 +89,10 @@ func newPaginationState(cfg *Config) *paginationState {
 		} else {
 			state.CurrentPage = cfg.Pagination.PageSize.StartingPage
 		}
-		if cfg.Pagination.PageSize.PageSizeFieldName != "" {
-			// Use a default page size if not specified
-			state.PageSize = 20
+		// Zero means unset: fall back to the default rather than disable paging.
+		state.PageSize = 20
+		if cfg.Pagination.PageSize.PageSize > 0 {
+			state.PageSize = cfg.Pagination.PageSize.PageSize
 		}
 
 	case paginationModeTimestamp:

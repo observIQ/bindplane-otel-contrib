@@ -213,6 +213,7 @@ from a `request_body` template — see [Request Body Templating](#request-body-t
 | --------------------------------------------- | ------ | ------- | -------- | ------------------------------------------------------- |
 | `pagination.page_size.page_num_field_name`    | string |         | `false`  | Request parameter name for page number                    |
 | `pagination.page_size.page_size_field_name`   | string |         | `false`  | Request parameter name for page size                      |
+| `pagination.page_size.page_size`              | int    | `20`    | `false`  | Value sent for `page_size_field_name`. Also the expected page size for the "a full page means there may be more" heuristic, so it should match the page size the API actually returns. |
 | `pagination.page_size.starting_page`          | int    | `1`     | `false`  | Starting page number                                    |
 | `pagination.page_size.total_pages_field_name` | string |         | `false`  | Name of the field or header containing total page count |
 
@@ -740,12 +741,12 @@ The checkpoint includes:
 - Current pagination state (offset/page number/timestamp depending on mode)
 - A config fingerprint used to detect when the receiver configuration has changed
 
-### Pagination limit and checkpoints
+### Page size and checkpoints
 
-`pagination.offset_limit.limit` is a throughput knob rather than part of the query, so
-changing it does **not** discard a stored checkpoint. The configured value is re-applied over
-the one in the checkpoint on startup, so a limit change takes effect on the next poll while
-the cursor or offset already reached is preserved.
+`pagination.offset_limit.limit` and `pagination.page_size.page_size` are throughput knobs
+rather than part of the query, so changing either does **not** discard a stored checkpoint.
+The configured value is re-applied over the one in the checkpoint on startup, so the change
+takes effect on the next poll while the cursor, offset, or page already reached is preserved.
 
 ### Config change detection
 

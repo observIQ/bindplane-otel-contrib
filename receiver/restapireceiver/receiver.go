@@ -158,6 +158,16 @@ func (b *baseReceiver) reconcileCheckpointWithConfig() {
 		}
 	}
 
+	if b.cfg.Pagination.Mode == paginationModePageSize {
+		configuredPageSize := newPaginationState(b.cfg).PageSize
+		if b.paginationState.PageSize != configuredPageSize {
+			b.logger.Info("applying configured page size over the value in the stored checkpoint",
+				zap.Int("checkpoint_page_size", b.paginationState.PageSize),
+				zap.Int("configured_page_size", configuredPageSize))
+			b.paginationState.PageSize = configuredPageSize
+		}
+	}
+
 	if b.cfg.Pagination.Mode == paginationModeTimestamp {
 		configState := newPaginationState(b.cfg)
 
@@ -250,7 +260,8 @@ func (b *baseReceiver) adjustPollInterval(result pollResult) {
 //   - Auth, headers, poll intervals, storage ID, response format, metrics config.
 //   - method — changes how the same values are transmitted, not what is
 //     fetched; same rationale as the param names.
-//   - pagination.offset_limit.limit — a throughput knob, like page_size.
+//   - pagination.offset_limit.limit and pagination.page_size.page_size — throughput
+//     knobs, like page_limit.
 //
 // It DOES include request_body, which is query-defining.
 func configFingerprint(cfg *Config) string {
