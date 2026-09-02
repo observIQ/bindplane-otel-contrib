@@ -3,6 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionproc
 go 1.26.4
 
 require (
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.159.0
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/collector/component v1.65.0

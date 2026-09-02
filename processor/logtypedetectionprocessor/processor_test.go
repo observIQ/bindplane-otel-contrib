@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/fingerprint"
 	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadata"
 	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadatatest"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage"
@@ -132,6 +133,34 @@ func TestProcessLogsCachesAcrossCalls(t *testing.T) {
 	metadatatest.AssertEqualProcessorLogTypeDetectionAttempts(t, tel,
 		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
+}
+
+func TestFingerprintCacheEvictsOldest(t *testing.T) {
+	tel := componenttest.NewTelemetry()
+	t.Cleanup(func() { require.NoError(t, tel.Shutdown(context.Background())) })
+
+	tb, err := metadata.NewTelemetryBuilder(metadatatest.NewSettings(tel).TelemetrySettings)
+	require.NoError(t, err)
+
+	cfg := createDefaultConfig().(*Config)
+	cfg.MaxSavedFingerprints = 2
+	p, err := newLogTypeDetectionProcessor(cfg, component.MustNewID("logtypedetection"), zap.NewNop(), tb)
+	require.NoError(t, err)
+
+	_, err = p.processLogs(context.Background(), logsFromBodies(`{"alpha":1}`, `{"beta":1}`, `{"gamma":1}`))
+	require.NoError(t, err)
+
+	require.Equal(t, 2, p.logTypes.Len())
+	require.False(t, p.logTypes.Contains(fingerprint.HashLog(`{"alpha":1}`)))
+	require.True(t, p.logTypes.Contains(fingerprint.HashLog(`{"beta":1}`)))
+	require.True(t, p.logTypes.Contains(fingerprint.HashLog(`{"gamma":1}`)))
+
+	// A hit on beta keeps it, so the next insert evicts gamma.
+	_, err = p.processLogs(context.Background(), logsFromBodies(`{"beta":1}`, `{"delta":1}`))
+	require.NoError(t, err)
+
+	require.True(t, p.logTypes.Contains(fingerprint.HashLog(`{"beta":1}`)))
+	require.False(t, p.logTypes.Contains(fingerprint.HashLog(`{"gamma":1}`)))
 }
 
 func TestProcessLogsConcurrentSameStructure(t *testing.T) {
@@ -271,13 +300,12 @@ func TestFingerprintMapPersistence(t *testing.T) {
 	require.NoError(t, second.start(ctx, host))
 	defer func() { require.NoError(t, second.stop(ctx)) }()
 
-	count := 0
-	second.logTypes.Range(func(_, value any) bool {
-		require.Equal(t, "nginx", value)
-		count++
-		return true
-	})
-	require.Equal(t, 1, count)
+	for _, logFingerprint := range second.logTypes.Keys() {
+		logType, ok := second.logTypes.Peek(logFingerprint)
+		require.True(t, ok)
+		require.Equal(t, "nginx", logType)
+	}
+	require.Equal(t, 1, second.logTypes.Len())
 }
 
 func TestFingerprintMapPeriodicPersist(t *testing.T) {
