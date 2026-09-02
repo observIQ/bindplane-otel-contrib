@@ -165,7 +165,7 @@ func (p *logTypeDetectionProcessor) save(ctx context.Context) error {
 	toSave := logTypeMap{}
 	for _, logFingerprint := range p.logTypes.Keys() {
 		logType, ok := p.logTypes.Peek(logFingerprint)
-		if !ok || logType == "" {
+		if !ok {
 			continue
 		}
 		toSave[strconv.FormatUint(logFingerprint, 16)] = logType

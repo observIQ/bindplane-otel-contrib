@@ -292,7 +292,7 @@ func TestFingerprintMapPersistence(t *testing.T) {
 
 	first := newProcessor()
 	require.NoError(t, first.start(ctx, host))
-	_, err = first.processLogs(ctx, logsFromBodies("GET /index.html 200"))
+	_, err = first.processLogs(ctx, logsFromBodies("GET /index.html 200", "something else entirely"))
 	require.NoError(t, err)
 	require.NoError(t, first.stop(ctx))
 
@@ -300,12 +300,17 @@ func TestFingerprintMapPersistence(t *testing.T) {
 	require.NoError(t, second.start(ctx, host))
 	defer func() { require.NoError(t, second.stop(ctx)) }()
 
-	for _, logFingerprint := range second.logTypes.Keys() {
-		logType, ok := second.logTypes.Peek(logFingerprint)
-		require.True(t, ok)
-		require.Equal(t, "nginx", logType)
+	want := map[uint64]string{}
+	for _, logFingerprint := range first.logTypes.Keys() {
+		want[logFingerprint], _ = first.logTypes.Peek(logFingerprint)
 	}
-	require.Equal(t, 1, second.logTypes.Len())
+	require.Len(t, want, 2)
+	require.Equal(t, 2, second.logTypes.Len())
+	for logFingerprint, logType := range want {
+		got, ok := second.logTypes.Peek(logFingerprint)
+		require.True(t, ok)
+		require.Equal(t, logType, got)
+	}
 }
 
 func TestFingerprintMapPeriodicPersist(t *testing.T) {
