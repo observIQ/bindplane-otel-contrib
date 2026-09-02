@@ -25,7 +25,7 @@ const (
 	defaultFingerprintField           = "fingerprint"
 	defaultLogTypeField               = "log_type"
 	defaultFingerprintPersistInterval = 5 * time.Minute
-	defaultMaxSavedFingerprints       = 100_000
+	defaultMaxSavedFingerprints       = 10_000
 	unknownLogType                    = "unknown"
 )
 
