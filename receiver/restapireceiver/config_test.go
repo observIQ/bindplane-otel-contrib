@@ -1405,6 +1405,38 @@ func TestConfig_Validate(t *testing.T) {
 			expectedErr: "limit must be greater than or equal to 0",
 		},
 		{
+			name: "negative page_size",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModePageSize,
+					PageSize: PageSizePagination{
+						PageNumFieldName:  "page",
+						PageSizeFieldName: "size",
+						PageSize:          -1,
+					},
+				},
+			},
+			expectedErr: "page_size must be greater than or equal to 0",
+		},
+		{
+			name: "zero page_size is accepted and defaults",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModePageSize,
+					PageSize: PageSizePagination{
+						PageNumFieldName:  "page",
+						PageSizeFieldName: "size",
+						PageSize:          0,
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
 			name: "epoch start_time_value with a leading plus",
 			config: &Config{
 				URL:                "https://api.example.com/data",
