@@ -207,7 +207,7 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 				if p.cfg.FingerprintField != "" {
 					logRecord.Attributes().PutStr(p.cfg.FingerprintField, strconv.FormatUint(logFingerprint, 16))
 				}
-				lt, ok := p.logTypes.Get(logFingerprint)
+				logType, ok := p.logTypes.Get(logFingerprint)
 				if !ok {
 					newLogType, err, _ := p.detectionGroup.Do(
 						strconv.FormatUint(logFingerprint, 10),
@@ -224,16 +224,16 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 					if err != nil {
 						return ld, err
 					}
-					lt = newLogType.(string)
+					logType = newLogType.(string)
 				}
-				if lt == "" {
-					lt = unknownLogType
+				if logType == "" {
+					logType = unknownLogType
 					p.telemetry.ProcessorLogTypeDetectionLogsUnclassified.Add(ctx, 1)
 				} else {
 					p.telemetry.ProcessorLogTypeDetectionLogsClassified.Add(ctx, 1,
-						metric.WithAttributes(attribute.String("log_type", lt)))
+						metric.WithAttributes(attribute.String("log_type", logType)))
 				}
-				logRecord.Attributes().PutStr(p.cfg.LogTypeField, lt)
+				logRecord.Attributes().PutStr(p.cfg.LogTypeField, logType)
 			}
 		}
 	}
