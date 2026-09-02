@@ -78,6 +78,11 @@ type Config struct {
 	// IngestionLabels are the labels that will be attached to logs when sent to Chronicle.
 	IngestionLabels map[string]string `mapstructure:"ingestion_labels"`
 
+	// RBACEnabledLabels lists the ingestion label keys that are eligible for Data RBAC.
+	// Labels not listed here are sent with rbac_enabled=false. Only supported by the https
+	// protocol; Validate rejects it when the protocol is gRPC.
+	RBACEnabledLabels []string `mapstructure:"rbac_enabled_labels"`
+
 	// CollectAgentMetrics is a flag that determines whether or not to collect agent metrics.
 	CollectAgentMetrics bool `mapstructure:"collect_agent_metrics"`
 
@@ -181,6 +186,9 @@ func (cfg *Config) Validate() error {
 	}
 
 	if cfg.Protocol == protocolGRPC {
+		if len(cfg.RBACEnabledLabels) > 0 {
+			return errors.New("rbac_enabled_labels is only supported when protocol is https")
+		}
 		if cfg.BatchRequestSizeLimitGRPC <= 0 {
 			return errors.New("positive batch request size limit is required when protocol is grpc")
 		}

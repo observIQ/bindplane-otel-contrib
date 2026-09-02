@@ -49,6 +49,7 @@ The exporter can be configured using the following fields:
 | `namespace`                     | string            |                                        | `false`  | User-configured environment namespace to identify the data domain the logs originated from.                                                                                              |
 | `compression`                   | string            | `none`                                 | `false`  | The compression type to use when sending logs. Valid values are `none` and `gzip`.                                                                                                       |
 | `ingestion_labels`              | map[string]string |                                        | `false`  | Key-value pairs of labels to be applied to the logs when sent to Chronicle.                                                                                                              |
+| `rbac_enabled_labels`           | []string          |                                        | `false`  | Ingestion label keys that are eligible for Data RBAC. Labels not listed are sent with `rbac_enabled: false`. Only supported with the `https` protocol; rejected at startup with `gRPC`. |
 | `collect_agent_metrics`         | bool              | `true`                                 | `false`  | Enables collecting metrics about the agent's process and log ingestion metrics.                                                                                                          |
 | `metrics_interval`              | duration          | `5m`                                   | `false`  | The interval at which agent metrics are collected and sent. Only applies when `collect_agent_metrics` is `true`.                                                                         |
 | `batch_request_size_limit_grpc` | int               | `4000000`                              | `false`  | The maximum size, in bytes, allowed for a gRPC batch creation request.                                                                                                                   |
@@ -74,6 +75,14 @@ If the `attributes["chronicle_log_type"]` field is present in the log, its value
 If the `attributes["chronicle_namespace"]` field is present in the log, its value will be used in the payload instead of the `namespace` in the config.
 
 Any labels defined by key value pairs in a nested map at `attributes["chronicle_ingestion_label"]` are merged with the `ingestion_labels` in the config. When the same label key is set in both places, the value from the attribute takes precedence over that from the config.
+
+### Data RBAC
+
+Google SecOps can restrict access to ingested data based on ingestion labels, but only labels marked as RBAC-eligible at ingestion time are considered. List the label keys that should be eligible in `rbac_enabled_labels`; every other label is sent with `rbac_enabled: false`. The flag is matched by label key, so it also applies to labels supplied through `attributes["chronicle_ingestion_label"]`.
+
+Sending `rbac_enabled: true` is necessary but not sufficient. Data RBAC only takes effect once the SecOps tenant is set up for it: Google must enable ingestion-label based Data RBAC for the tenant (log-level ingestion labels are not generally available and are enabled per tenant), and an administrator must define the [Data RBAC scopes](https://cloud.google.com/chronicle/docs/administration/datarbac-overview) and assign the Restricted Data Access role to the affected users. Until then the flag is carried on the ingested logs but has no visible effect.
+
+This option is only supported with the `https` protocol (v1alpha, v1beta and v1). The legacy `gRPC` protocol has no equivalent field, so the exporter fails validation at startup if `rbac_enabled_labels` is set together with `protocol: gRPC`.
 
 ## Credentials
 
@@ -190,4 +199,20 @@ chronicle:
   ingestion_labels:
     env: dev
     zone: USA
+```
+
+### Configuration with Data RBAC Ingestion Labels
+
+```yaml
+chronicle:
+  protocol: https
+  location: us
+  project: my-project
+  creds_file_path: "/path/to/google/creds.json"
+  customer_id: "customer-123"
+  ingestion_labels:
+    env: dev
+    zone: USA
+  rbac_enabled_labels:
+    - zone
 ```
