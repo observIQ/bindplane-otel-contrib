@@ -66,11 +66,34 @@ graph LR
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `server.endpoint` | string | *(required)* | WebSocket URL of the upstream OpAMP server. Must use `ws://` or `wss://` scheme. |
-| `server.headers` | map | *(none)* | HTTP headers sent on upstream connections (e.g. `Authorization`). |
+| `server.headers` | map | *(none)* | HTTP headers sent on upstream connections (e.g. `Authorization`). Setting `User-Agent` here overrides the default described below. |
 | `server.tls` | [TLS config](https://pkg.go.dev/go.opentelemetry.io/collector/config/configtls#ClientConfig) | *(none)* | TLS configuration for the upstream client connection. |
 | `server.connections` | int | `1` | Number of persistent WebSocket connections to maintain to the upstream server. |
 | `listener.endpoint` | string | `"0.0.0.0:0"` | Address the downstream server listens on for agent connections. |
 | `listener.tls` | [TLS config](https://pkg.go.dev/go.opentelemetry.io/collector/config/configtls#ServerConfig) | *(none)* | TLS configuration for the downstream server. |
+
+### User agent
+
+Upstream connections identify themselves with an [RFC 9110][rfc9110] product
+list naming the gateway, the collector distribution hosting it, and the
+platform:
+
+```
+opamp-gateway/v1.9.0 bindplane-otel-collector/v2.0.1-beta.3 (linux/amd64)
+```
+
+- `opamp-gateway/<version>` is the version of the `opampgateway` extension
+  module, read from the binary's build information. It is `unknown` for builds
+  that replace the module with a local directory, such as
+  `make build-collector`.
+- `<collector>/<version>` comes from the collector's `BuildInfo`, using the base
+  name of its command. It is omitted when the build information does not name
+  both. `BuildInfo.Description` is not used because it is prose rather than a
+  valid product token.
+
+Set `server.headers.User-Agent` to send a different value instead.
+
+[rfc9110]: https://www.rfc-editor.org/rfc/rfc9110#field.user-agent
 
 ### Example
 
