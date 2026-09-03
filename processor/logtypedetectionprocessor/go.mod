@@ -3,7 +3,10 @@ module github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionproc
 go 1.26.4
 
 require (
+	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/open-telemetry/opamp-go v0.23.0
+	github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages v0.159.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.159.0
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/collector/component v1.65.0
@@ -22,11 +25,13 @@ require (
 	go.opentelemetry.io/otel/trace v1.45.0
 	go.uber.org/goleak v1.3.0
 	golang.org/x/sync v0.22.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
 	go.etcd.io/bbolt v1.5.0 // indirect
 	go.opentelemetry.io/collector/extension/xextension v0.159.0 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 )
 
 require (

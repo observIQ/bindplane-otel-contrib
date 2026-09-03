@@ -26,6 +26,7 @@ const (
 	defaultLogTypeField               = "log_type"
 	defaultFingerprintPersistInterval = 5 * time.Minute
 	defaultMaxSavedFingerprints       = 10_000
+	defaultOpAMPRequestTimeout        = 30 * time.Second
 	unknownLogType                    = "unknown"
 )
 
@@ -33,6 +34,8 @@ var (
 	errMissingLogTypeField    = errors.New("log_type_field is required")
 	errInvalidPersistInterval = errors.New("fingerprint_persist_interval must be > 0")
 	errInvalidMaxFingerprints = errors.New("max_saved_fingerprints must be > 0")
+	errInvalidOpAMPTimeout    = errors.New("opamp_request_timeout must be >= 0")
+	errMatcherStorageNoOpAMP  = errors.New("matcher_storage requires opamp to be set")
 )
 
 // Config is the config of the processor.
@@ -49,6 +52,15 @@ type Config struct {
 
 	// Maximum number of fingerprint-to-log-type mappings held in memory
 	MaxSavedFingerprints int `mapstructure:"max_saved_fingerprints"`
+
+	// ID of the opamp extension used to load matchers from an opamp server
+	OpAMP *component.ID `mapstructure:"opamp"`
+
+	// How long startup waits for the opamp server to send matchers, 0 to wait indefinitely
+	OpAMPRequestTimeout time.Duration `mapstructure:"opamp_request_timeout"`
+
+	// ID of the storage extension used to persist matchers received over opamp
+	MatcherStorageID *component.ID `mapstructure:"matcher_storage"`
 }
 
 func createDefaultConfig() component.Config {
@@ -58,6 +70,7 @@ func createDefaultConfig() component.Config {
 		LogTypeField:               defaultLogTypeField,
 		FingerprintPersistInterval: defaultFingerprintPersistInterval,
 		MaxSavedFingerprints:       defaultMaxSavedFingerprints,
+		OpAMPRequestTimeout:        defaultOpAMPRequestTimeout,
 	}
 }
 
@@ -73,6 +86,14 @@ func (c Config) Validate() error {
 
 	if c.MaxSavedFingerprints <= 0 {
 		return errInvalidMaxFingerprints
+	}
+
+	if c.OpAMP != nil && c.OpAMPRequestTimeout < 0 {
+		return errInvalidOpAMPTimeout
+	}
+
+	if c.MatcherStorageID != nil && c.OpAMP == nil {
+		return errMatcherStorageNoOpAMP
 	}
 
 	for _, m := range c.Matchers {

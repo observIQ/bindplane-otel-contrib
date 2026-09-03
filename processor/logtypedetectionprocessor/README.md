@@ -34,6 +34,9 @@ as an attribute on each log record.
 | matchers          | list   | `[]`            | Matchers tested against each log body with a unique structure. See [Matchers](#matchers). When empty, all log records are detected as `unknown`.                                   |
 | fingerprint_storage | component ID | | ID of a storage extension used to persist the fingerprint-to-log-type map across restarts. The map is loaded on startup, saved periodically, and saved on shutdown. The persisted map is tied to the `matchers` it was detected with, so editing, renaming, reordering, or removing a matcher discards it and log types are detected again from scratch. |
 | fingerprint_persist_interval | duration | `5m` | How often the fingerprint map is written to the storage extension. Only used when `fingerprint_storage` is set. |
+| opamp | component ID | | ID of an opamp extension. When set, the processor asks the opamp server for matchers on startup and merges them with the `matchers` below. See [OpAMP Matchers](#opamp-matchers). |
+| opamp_request_timeout | duration | `30s` | How long startup waits for the opamp server to answer. Set to `0` to wait indefinitely. Only used when `opamp` is set, and only when no matchers are stored locally. |
+| matcher_storage | component ID | | ID of a storage extension used to persist the matchers received over opamp, with the version they came with. Requires `opamp`. Without it the matchers are fetched again on every startup. |
 | max_saved_fingerprints | int | `10000` | Maximum number of fingerprint-to-log-type mappings cached in memory. The cache is LRU; once full, the least recently seen fingerprint is evicted. Evicted mappings are also dropped from `fingerprint_storage` on the next save. |
 
 ### Matchers
@@ -48,6 +51,81 @@ as an attribute on each log record.
 Matchers test the log body as a string, regardless of its underlying type. A map
 or slice body is stringified before it is tested. It is recommended that the matcher targets
 the log structure to avoid false positives.
+
+### OpAMP Matchers
+
+When `opamp` is set, the processor registers the `com.bindplane.logtypedetection`
+custom capability with the opamp extension and asks the server for matchers on
+startup.
+
+Matchers are versioned with [semver](https://semver.org). The processor reports
+the version it holds and the server answers with either `updateMatchers`, if it
+has a newer set, or `matchersUpToDate`. A full matcher set only crosses the wire
+when the version has actually changed.
+
+Only a higher version of the **same major** is taken up. A major bump is treated
+as a breaking change the running collector may not understand, so it is refused
+and the matchers in use are kept — upgrade the collector to move to a new major.
+When no version is held yet, whatever the server offers is accepted. The version
+check is the only exchange: the server is asked at startup and does not push
+matchers at other times, so a matcher change takes effect on the next restart.
+
+Matchers from the server are merged with the `matchers` in the config and the
+combined set is ordered by `priority` as usual. Matchers of equal priority keep
+config-first order. Server matchers are validated the same way configured ones
+are; an invalid or refused set is ignored and does not disturb the matchers in
+use.
+
+#### Startup
+
+With `matcher_storage` set, the stored matchers are put in use before startup
+finishes and the version check runs in the background, so a restart is not
+delayed and an unreachable server does not hold up the collector.
+
+With nothing stored — no `matcher_storage`, or the first ever start — startup
+blocks until the server answers, retrying every 5s up to
+`opamp_request_timeout` (`0` waits indefinitely; shutdown still interrupts it).
+The collector starts receivers after processors, so no logs are read while this
+waits and none are labelled with an incomplete matcher set. A timeout is not
+fatal: the processor starts with the matchers from its config and applies the
+server's whenever they arrive.
+
+When `fingerprint_storage` is also set, the persisted fingerprint map is held
+back until the matcher set is final and then restored, so a restart does not
+relabel log structures that were already detected. Pointing `matcher_storage`
+and `fingerprint_storage` at the same extension is supported.
+
+#### Messages
+
+All three message types carry the same YAML payload. `processor` must be the
+full component ID of the processor the message is for; a message naming a
+different processor is ignored.
+
+`requestMatchers`, sent by the processor — `version` is empty on a first run:
+
+```yaml
+processor: log_type_detection
+version: 1.2.3
+```
+
+`updateMatchers`, sent by the server when it has something newer:
+
+```yaml
+processor: log_type_detection
+version: 1.3.0
+matchers:
+  - name: k8s_audit
+    method: starts_with
+    value: '{"kind":"Event"'
+    priority: 1
+```
+
+`matchersUpToDate`, sent by the server when the reported version is current:
+
+```yaml
+processor: log_type_detection
+version: 1.2.3
+```
 
 ### Example Config
 
