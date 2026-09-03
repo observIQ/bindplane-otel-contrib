@@ -100,13 +100,11 @@ func (p *logTypeDetectionProcessor) startOpAMP(ctx context.Context, host compone
 		return p.awaitMatchers(ctx)
 	}
 
-	p.opampWg.Add(1)
-	go func() {
-		defer p.opampWg.Done()
+	p.opampWg.Go(func() {
 		if err := p.awaitMatchers(context.Background()); err != nil {
 			p.logger.Error("Failed to check for new matchers.", zap.Error(err))
 		}
-	}()
+	})
 
 	return nil
 }
