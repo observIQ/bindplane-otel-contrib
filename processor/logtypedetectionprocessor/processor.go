@@ -49,6 +49,8 @@ type logTypeDetectionProcessor struct {
 	matchers    []Matcher
 	matcherHash string
 
+	stopped bool
+
 	fingerprintStorageClient storageclient.StorageClient
 	fingerprintPersistCancel context.CancelFunc
 	fingerprintPersistDone   chan struct{}
@@ -217,6 +219,10 @@ func (p *logTypeDetectionProcessor) save(ctx context.Context) error {
 }
 
 func (p *logTypeDetectionProcessor) stop(ctx context.Context) error {
+	if p.stopped {
+		return nil
+	}
+	p.stopped = true
 	p.telemetry.Shutdown()
 
 	if p.fingerprintPersistCancel == nil {

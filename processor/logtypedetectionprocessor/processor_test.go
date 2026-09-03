@@ -349,6 +349,7 @@ func TestFingerprintMapPeriodicPersist(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 
 	require.NoError(t, p.stop(ctx))
+	require.NoError(t, p.stop(ctx))
 }
 
 func TestStopAfterFailedStart(t *testing.T) {
