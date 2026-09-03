@@ -16,6 +16,8 @@ package logtypedetectionprocessor
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,7 +46,8 @@ type logTypeDetectionProcessor struct {
 	id  component.ID
 	cfg *Config
 
-	matchers []Matcher
+	matchers    []Matcher
+	matcherHash string
 
 	fingerprintStorageClient storageclient.StorageClient
 	fingerprintPersistCancel context.CancelFunc
@@ -59,15 +62,32 @@ const fingerprintStorageKey = "fingerprints"
 // logTypeMap is the persisted form of the fingerprint map.
 type logTypeMap map[string]string
 
-func (m *logTypeMap) Marshal() ([]byte, error) {
+// persistedFingerprints ties the fingerprint map to the matcher config that produced it.
+type persistedFingerprints struct {
+	MatcherHash string     `json:"matcher_hash"`
+	LogTypes    logTypeMap `json:"log_types"`
+}
+
+func (m *persistedFingerprints) Marshal() ([]byte, error) {
 	return json.Marshal(m)
 }
 
-func (m *logTypeMap) Unmarshal(data []byte) error {
+func (m *persistedFingerprints) Unmarshal(data []byte) error {
 	if len(data) == 0 {
 		return nil
 	}
 	return json.Unmarshal(data, m)
+}
+
+// hashMatchers renders the matcher config to JSON and hashes it, so a config
+// change invalidates log types detected under the old config.
+func hashMatchers(matchers []MatcherConfig) (string, error) {
+	encoded, err := json.Marshal(matchers)
+	if err != nil {
+		return "", fmt.Errorf("encode matchers: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func newLogTypeDetectionProcessor(cfg *Config, id component.ID, logger *zap.Logger, telemetry *metadata.TelemetryBuilder) (*logTypeDetectionProcessor, error) {
@@ -99,6 +119,10 @@ func newLogTypeDetectionProcessor(cfg *Config, id component.ID, logger *zap.Logg
 			}
 			p.matchers = append(p.matchers, matcher)
 		}
+
+		if p.matcherHash, err = hashMatchers(matchers); err != nil {
+			return nil, err
+		}
 	}
 
 	return p, nil
@@ -117,17 +141,31 @@ func (p *logTypeDetectionProcessor) start(ctx context.Context, host component.Ho
 		return nil
 	}
 
-	client, err := storageclient.NewStorageClient(ctx, host, *p.cfg.FingerprintStorageID, p.id, pipeline.SignalLogs)
+	client, err := storageclient.NewStorageClient(
+		ctx,
+		host,
+		component.KindProcessor,
+		*p.cfg.FingerprintStorageID,
+		p.id,
+		pipeline.SignalLogs,
+	)
 	if err != nil {
 		return fmt.Errorf("create storage client: %w", err)
 	}
-	saved := logTypeMap{}
+	saved := persistedFingerprints{}
 	if err := client.LoadStorageData(ctx, fingerprintStorageKey, &saved); err != nil {
 		return errors.Join(fmt.Errorf("load log types: %w", err), client.Close(ctx))
 	}
 	p.fingerprintStorageClient = client
 
-	for key, logType := range saved {
+	if saved.MatcherHash != p.matcherHash {
+		if len(saved.LogTypes) > 0 {
+			p.logger.Info("matcher config changed, discarding persisted log types")
+		}
+		saved.LogTypes = nil
+	}
+
+	for key, logType := range saved.LogTypes {
 		logFingerprint, err := strconv.ParseUint(key, 16, 64)
 		if err != nil {
 			continue
@@ -171,7 +209,8 @@ func (p *logTypeDetectionProcessor) save(ctx context.Context) error {
 		toSave[strconv.FormatUint(logFingerprint, 16)] = logType
 	}
 
-	if err := p.fingerprintStorageClient.SaveStorageData(ctx, fingerprintStorageKey, &toSave); err != nil {
+	state := persistedFingerprints{MatcherHash: p.matcherHash, LogTypes: toSave}
+	if err := p.fingerprintStorageClient.SaveStorageData(ctx, fingerprintStorageKey, &state); err != nil {
 		return fmt.Errorf("save log types: %w", err)
 	}
 	return nil

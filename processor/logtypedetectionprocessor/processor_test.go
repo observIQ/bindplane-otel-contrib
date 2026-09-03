@@ -343,9 +343,9 @@ func TestFingerprintMapPeriodicPersist(t *testing.T) {
 	require.NoError(t, err)
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		saved := logTypeMap{}
+		saved := persistedFingerprints{}
 		assert.NoError(c, p.fingerprintStorageClient.LoadStorageData(ctx, fingerprintStorageKey, &saved))
-		assert.Len(c, saved, 1)
+		assert.Len(c, saved.LogTypes, 1)
 	}, time.Second, 10*time.Millisecond)
 
 	require.NoError(t, p.stop(ctx))
@@ -365,4 +365,53 @@ func TestStopAfterFailedStart(t *testing.T) {
 
 	require.Error(t, p.start(ctx, &testHost{components: map[component.ID]component.Component{}}))
 	require.NoError(t, p.stop(ctx))
+}
+
+func TestPersistedLogTypesDiscardedWhenMatchersChange(t *testing.T) {
+	ctx := context.Background()
+
+	factory := filestorage.NewFactory()
+	storageCfg := factory.CreateDefaultConfig().(*filestorage.Config)
+	storageCfg.Directory = t.TempDir()
+
+	fingerprintStorageID := component.NewIDWithName(component.MustNewType("file_storage"), "test")
+	ext, err := factory.Create(ctx, extension.Settings{ID: fingerprintStorageID, TelemetrySettings: componenttest.NewNopTelemetrySettings()}, storageCfg)
+	require.NoError(t, err)
+	require.NoError(t, ext.Start(ctx, componenttest.NewNopHost()))
+	defer func() { require.NoError(t, ext.Shutdown(ctx)) }()
+
+	host := &testHost{components: map[component.ID]component.Component{fingerprintStorageID: ext}}
+
+	newProcessor := func(matchers []MatcherConfig) *logTypeDetectionProcessor {
+		cfg := createDefaultConfig().(*Config)
+		cfg.FingerprintStorageID = &fingerprintStorageID
+		cfg.Matchers = matchers
+		tb, err := metadata.NewTelemetryBuilder(componenttest.NewNopTelemetrySettings())
+		require.NoError(t, err)
+		p, err := newLogTypeDetectionProcessor(cfg, component.MustNewID("logtypedetection"), zap.NewNop(), tb)
+		require.NoError(t, err)
+		return p
+	}
+
+	original := newProcessor([]MatcherConfig{{Name: "nginx", Method: MatcherTypeStartsWith, Value: "GET "}})
+	require.NoError(t, original.start(ctx, host))
+	_, err = original.processLogs(ctx, logsFromBodies("GET /index.html 200"))
+	require.NoError(t, err)
+	require.NoError(t, original.stop(ctx))
+
+	unchanged := newProcessor([]MatcherConfig{{Name: "nginx", Method: MatcherTypeStartsWith, Value: "GET "}})
+	require.NoError(t, unchanged.start(ctx, host))
+	require.Equal(t, 1, unchanged.logTypes.Len())
+	require.NoError(t, unchanged.stop(ctx))
+
+	renamed := newProcessor([]MatcherConfig{{Name: "nginx_access", Method: MatcherTypeStartsWith, Value: "GET "}})
+	require.NoError(t, renamed.start(ctx, host))
+	defer func() { require.NoError(t, renamed.stop(ctx)) }()
+	require.Equal(t, 0, renamed.logTypes.Len())
+
+	out, err := renamed.processLogs(ctx, logsFromBodies("GET /index.html 200"))
+	require.NoError(t, err)
+	logType, ok := out.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0).Attributes().Get("log_type")
+	require.True(t, ok)
+	require.Equal(t, "nginx_access", logType.Str())
 }
