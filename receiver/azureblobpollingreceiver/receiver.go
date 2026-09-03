@@ -173,7 +173,14 @@ func newPollingReceiver(id component.ID, logger *zap.Logger, cfg *Config) (*poll
 // Start starts the polling receiver
 func (r *pollingReceiver) Start(ctx context.Context, host component.Host) error {
 	if r.cfg.StorageID != nil {
-		checkpointStore, err := storageclient.NewStorageClient(ctx, host, *r.cfg.StorageID, r.id, r.supportedTelemetry)
+		checkpointStore, err := storageclient.NewStorageClient(
+			ctx,
+			host,
+			component.KindReceiver,
+			*r.cfg.StorageID,
+			r.id,
+			r.supportedTelemetry,
+		)
 		if err != nil {
 			return fmt.Errorf("NewCheckpointStorage: %w", err)
 		}
