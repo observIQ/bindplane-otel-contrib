@@ -16,6 +16,7 @@ package logtypedetectionprocessor
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -52,6 +53,25 @@ func TestConfig_Validate(t *testing.T) {
 				MaxSavedFingerprints: defaultMaxSavedFingerprints,
 			},
 			err: errMissingLogTypeField,
+		},
+		{
+			name: "matcher storage without opamp",
+			config: &Config{
+				LogTypeField:         "log_type_field",
+				MaxSavedFingerprints: defaultMaxSavedFingerprints,
+				MatcherStorageID:     &opampID,
+			},
+			err: errMatcherStorageNoOpAMP,
+		},
+		{
+			name: "negative opamp request timeout",
+			config: &Config{
+				LogTypeField:         "log_type_field",
+				MaxSavedFingerprints: defaultMaxSavedFingerprints,
+				OpAMP:                &opampID,
+				OpAMPRequestTimeout:  -time.Second,
+			},
+			err: errInvalidOpAMPTimeout,
 		},
 		{
 			name: "non-positive max saved fingerprints",
