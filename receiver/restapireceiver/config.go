@@ -169,6 +169,26 @@ func (m Method) httpMethod() string {
 	return http.MethodGet
 }
 
+// OffsetType declares what kind of value the offset parameter carries.
+type OffsetType string
+
+const (
+	offsetTypeNumeric OffsetType = "numeric"
+	offsetTypeOpaque  OffsetType = "opaque"
+)
+
+// UnmarshalText implements the encoding.TextUnmarshaler interface
+func (t *OffsetType) UnmarshalText(text []byte) error {
+	offsetType := OffsetType(text)
+	switch offsetType {
+	case offsetTypeNumeric, offsetTypeOpaque:
+		*t = offsetType
+		return nil
+	default:
+		return fmt.Errorf("invalid offset_type: %s, must be one of: numeric, opaque", text)
+	}
+}
+
 // Config defines configuration for the REST API receiver.
 type Config struct {
 	// URL is the base URL for the REST API endpoint (required).
@@ -424,6 +444,17 @@ type OffsetLimitPagination struct {
 	// When set, the receiver uses token-based (cursor) pagination instead of numeric offsets.
 	// Where the value is extracted from depends on pagination.response_source.
 	NextOffsetFieldName string `mapstructure:"next_offset_field_name"`
+
+	// OffsetType declares what OffsetFieldName carries: "numeric" (default) for a
+	// numeric offset, or "opaque" for a token whose contents mean nothing to the
+	// receiver.
+	//
+	// The distinction only matters before a token exists. A numeric offset counts
+	// from StartingOffset, so sending 0 on the first request is meaningful; an
+	// opaque token has no equivalent starting value, and an API expecting one
+	// rejects a numeric 0 with HTTP 400. With "opaque" the parameter is omitted
+	// entirely until the first NextOffsetFieldName value arrives.
+	OffsetType OffsetType `mapstructure:"offset_type"`
 }
 
 // PageSizePagination defines page/size pagination configuration.
@@ -673,6 +704,19 @@ func (c *Config) Validate() error {
 		// regardless of where the request carries its values.
 		if c.Pagination.ResponseSource == responseSourceHeader && c.Pagination.OffsetLimit.NextOffsetFieldName == "" {
 			return fmt.Errorf("next_offset_field_name is required when response_source is header")
+		}
+		// An opaque token is only ever learned from a response, and the parameter
+		// is omitted until one arrives. Without a source for it the receiver would
+		// send the same first request forever.
+		if c.Pagination.OffsetLimit.OffsetType == offsetTypeOpaque {
+			if c.Pagination.OffsetLimit.NextOffsetFieldName == "" {
+				return fmt.Errorf("next_offset_field_name is required when offset_type is opaque")
+			}
+			// starting_offset is a numeric-offset concept. Zero is indistinguishable
+			// from unset, so only a non-zero value is a real contradiction.
+			if c.Pagination.OffsetLimit.StartingOffset != 0 {
+				return fmt.Errorf("starting_offset must not be set when offset_type is opaque")
+			}
 		}
 	case paginationModePageSize:
 		if requiresQueryParams && c.Pagination.PageSize.PageNumFieldName == "" {

@@ -619,6 +619,85 @@ func TestBuildPaginationParams_OffsetLimit_EmptyToken(t *testing.T) {
 	require.Equal(t, "10", params.Get("limit"))
 }
 
+// TestBuildPaginationParams_OffsetLimit_OpaqueEmptyToken covers the bootstrap
+// request of an opaque-cursor run: there is no token yet, and a numeric 0 in its
+// place is what strict APIs reject, so the parameter must be absent entirely
+// rather than present-and-empty.
+func TestBuildPaginationParams_OffsetLimit_OpaqueEmptyToken(t *testing.T) {
+	cfg := &Config{
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "cursor",
+				LimitFieldName:      "limit",
+				NextOffsetFieldName: "next_cursor",
+				OffsetType:          offsetTypeOpaque,
+			},
+		},
+	}
+
+	state := &paginationState{
+		CurrentOffset:      0,
+		CurrentOffsetToken: "",
+		Limit:              10,
+	}
+
+	params := buildPaginationParams(cfg, state)
+	_, present := params["cursor"]
+	require.False(t, present, "cursor must be omitted entirely, not sent as an empty value")
+	require.Equal(t, "10", params.Get("limit"), "limit is unaffected by offset_type")
+}
+
+// TestBuildPaginationParams_OffsetLimit_OpaqueWithToken is the continuation
+// request: once a token exists it is sent under the same parameter name.
+func TestBuildPaginationParams_OffsetLimit_OpaqueWithToken(t *testing.T) {
+	cfg := &Config{
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "cursor",
+				LimitFieldName:      "limit",
+				NextOffsetFieldName: "next_cursor",
+				OffsetType:          offsetTypeOpaque,
+			},
+		},
+	}
+
+	state := &paginationState{
+		CurrentOffsetToken: "eyJvZmZzZXQiOjEwfQ==",
+		Limit:              10,
+	}
+
+	params := buildPaginationParams(cfg, state)
+	require.Equal(t, "eyJvZmZzZXQiOjEwfQ==", params.Get("cursor"))
+}
+
+// TestBuildPaginationParams_OffsetLimit_NumericEmptyToken pins the explicit
+// numeric case. Together with TestBuildPaginationParams_OffsetLimit_EmptyToken,
+// which leaves OffsetType unset, it proves the numeric default is inert.
+func TestBuildPaginationParams_OffsetLimit_NumericEmptyToken(t *testing.T) {
+	cfg := &Config{
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "offset",
+				LimitFieldName:      "limit",
+				NextOffsetFieldName: "next_offset",
+				OffsetType:          offsetTypeNumeric,
+			},
+		},
+	}
+
+	state := &paginationState{
+		CurrentOffset:      0,
+		CurrentOffsetToken: "",
+		Limit:              10,
+	}
+
+	params := buildPaginationParams(cfg, state)
+	require.Equal(t, "0", params.Get("offset"), "a numeric offset still starts at 0")
+}
+
 func TestParseOffsetLimitResponse_TokenPresent_FullPage(t *testing.T) {
 	cfg := &Config{
 		Pagination: PaginationConfig{

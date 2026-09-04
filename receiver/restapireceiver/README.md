@@ -206,6 +206,7 @@ from a `request_body` template — see [Request Body Templating](#request-body-t
 | `pagination.offset_limit.limit`                  | int    | `10`    | `false`  | Value sent for `limit_field_name` on each request. Also the expected page size for the "a full page means there may be more" heuristic, so it should match the page size the API actually returns. When `limit_field_name` is unset (token-based pagination), it is used only as that heuristic threshold and should be set to the API's own page size. |
 | `pagination.offset_limit.starting_offset`        | int    | `0`     | `false`  | Starting offset value                                                                                                                                                                                                                              |
 | `pagination.offset_limit.next_offset_field_name` | string |         | `false`  | Name of the field or header containing the next offset token. When set, the receiver uses token-based (cursor) pagination instead of numeric offsets. For body sources, supports nested fields with dot notation and array indices (e.g., `pagination.next_cursor`, `cursors[0].next`). |
+| `pagination.offset_limit.offset_type`            | string | `numeric` | `false`  | What `offset_field_name` carries: `numeric` for a numeric offset, or `opaque` for a token the receiver treats as meaningless. With `opaque` the parameter is omitted entirely until the first `next_offset_field_name` value arrives, instead of falling back to `starting_offset`. Requires `next_offset_field_name`, and is incompatible with a non-zero `starting_offset`. |
 
 #### Page/Size Pagination
 
@@ -495,6 +496,7 @@ receivers:
         offset_field_name: "cursor"
         limit_field_name: "limit"
         next_offset_field_name: "next_cursor"
+        offset_type: opaque
     storage: file_storage
 ```
 
@@ -512,10 +514,14 @@ This configuration would work with an API that returns responses like:
 
 When `next_cursor` is empty, null, or missing, the receiver treats it as the end of available data.
 
-On the first request of a run there is no cursor yet, so `offset_field_name` is sent as the
-starting offset (`0` by default). In a `request_body` template, guard the cursor with
-`{{ if .Cursor }}` to omit it entirely on that first request — APIs that expect an opaque
-string token there reject `{"after": 0}`.
+On the first request of a run there is no cursor yet. By default (`offset_type: numeric`)
+`offset_field_name` is sent as the starting offset (`0` by default), which is correct for an API
+whose cursor is itself a number. APIs that expect an opaque string token reject a `0` with
+HTTP 400 — set `offset_type: opaque` so the parameter is omitted entirely until a token exists.
+
+In a `request_body` template the equivalent is guarding the cursor with `{{ if .Cursor }}`, which
+omits it on that first request; `offset_type` governs the query parameter, so a POST config that
+carries its cursor only in the body does not need it.
 
 A next offset the API returns as a JSON number is rendered as plain digits, so a token of
 `1000000` is sent as `1000000` rather than `1e+06`.

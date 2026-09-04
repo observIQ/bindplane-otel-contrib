@@ -155,10 +155,15 @@ func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
 	switch cfg.Pagination.Mode {
 	case paginationModeOffsetLimit:
 		if cfg.Pagination.OffsetLimit.OffsetFieldName != "" {
-			if state.CurrentOffsetToken != "" {
+			switch {
+			case state.CurrentOffsetToken != "":
 				// Use token-based offset when available
 				params.Set(cfg.Pagination.OffsetLimit.OffsetFieldName, state.CurrentOffsetToken)
-			} else {
+			case cfg.Pagination.OffsetLimit.OffsetType == offsetTypeOpaque:
+				// No token yet, and there is no numeric value an opaque API would
+				// accept in its place — a 0 here draws an HTTP 400. Omit the
+				// parameter and let the API return its first page.
+			default:
 				params.Set(cfg.Pagination.OffsetLimit.OffsetFieldName, fmt.Sprintf("%d", state.CurrentOffset))
 			}
 		}
