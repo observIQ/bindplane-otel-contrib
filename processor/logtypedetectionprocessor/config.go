@@ -41,13 +41,13 @@ type Config struct {
 	FingerprintField string          `mapstructure:"fingerprint_field"`
 	LogTypeField     string          `mapstructure:"log_type_field"`
 
-	// ID of the storage extension used to persist the fingerprint map
+	// FingerprintStorageID is the storage extension used to persist the fingerprint map.
 	FingerprintStorageID *component.ID `mapstructure:"fingerprint_storage"`
 
-	// How often the fingerprint map is written to the storage extension
+	// FingerprintPersistInterval is how often the fingerprint map is persisted.
 	FingerprintPersistInterval time.Duration `mapstructure:"fingerprint_persist_interval"`
 
-	// Maximum number of fingerprint-to-log-type mappings held in memory
+	// MaxSavedFingerprints is the maximum number of mappings held in memory.
 	MaxSavedFingerprints int `mapstructure:"max_saved_fingerprints"`
 }
 

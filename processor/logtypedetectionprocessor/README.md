@@ -1,7 +1,7 @@
 # Log Type Detection Processor
 
-This processor allows the classification of logs passing through it based on their structure and records the result
-as an attribute on each log record.
+Detects the type of logs passing through it based on their structure and records the result as an attribute
+on each log record.
 
 ## Supported pipelines
 
@@ -18,8 +18,6 @@ as an attribute on each log record.
 3. The first time a fingerprint is seen, the matchers are tested against the body
    in priority order and the first match wins. The result is cached by
    fingerprint, so later records sharing that structure skip matching entirely.
-   Matching cost is proportional to the number of distinct log structures
-   observed, not to the volume of logs processed.
 4. The detected log type is written to the `log_type_field` attribute. Records
    that match no matcher, and records under 10 characters after trimming
    whitespace, are assigned the log type `unknown`. A record too short to
@@ -34,7 +32,7 @@ as an attribute on each log record.
 | matchers          | list   | `[]`            | Matchers tested against each log body with a unique structure. See [Matchers](#matchers). When empty, all log records are detected as `unknown`.                                   |
 | fingerprint_storage | component ID | | ID of a storage extension used to persist the fingerprint-to-log-type map across restarts. The map is loaded on startup, saved periodically, and saved on shutdown. The persisted map is tied to the `matchers` it was detected with, so editing, renaming, reordering, or removing a matcher discards it and log types are detected again from scratch. |
 | fingerprint_persist_interval | duration | `5m` | How often the fingerprint map is written to the storage extension. Only used when `fingerprint_storage` is set. |
-| max_saved_fingerprints | int | `10000` | Maximum number of fingerprint-to-log-type mappings cached in memory. The cache is LRU; once full, the least recently seen fingerprint is evicted. Evicted mappings are also dropped from `fingerprint_storage` on the next save. |
+| max_saved_fingerprints | int | `10000` | Maximum number of fingerprint-to-log-type mappings cached in memory. Once full, the least recently seen fingerprint is evicted. Evicted mappings are also dropped from `fingerprint_storage` on the next save. |
 
 ### Matchers
 
@@ -46,14 +44,12 @@ as an attribute on each log record.
 | priority | int    | unset   | Order matchers are tested in, lowest first. Matchers with no priority are tested after all matchers that have one. Matchers of equal priority keep their configured order. |
 
 Matchers test the log body as a string, regardless of its underlying type. A map
-or slice body is stringified before it is tested. It is recommended that the matcher targets
-the log structure to avoid false positives.
+or slice body is stringified before it is tested. Target the log structure to avoid false positives.
 
 ### Example Config
 
-The following config detects Windows event logs, RFC 5424 syslog, and Kubernetes
-audit logs from a file, writing the result to the `log_type` attribute of each log
-record.
+Detects Windows event logs, RFC 5424 syslog, and Kubernetes audit logs from a file, writing the result
+to the `log_type` attribute of each log record.
 
 ```yaml
 extensions:
@@ -99,9 +95,7 @@ The metrics emitted by this processor are documented in
 `attempts` and `attempts_matched` increment once per newly observed log
 structure, so their ratio is the share of distinct structures the matchers cover.
 `logs_classified` and `logs_unclassified` increment once per log record, so their
-ratio is the share of log volume the matchers cover. The two ratios differ
-whenever the uncovered structures are more or less frequent than the covered
-ones.
+ratio is the share of log volume the matchers cover.
 
 `logs_unclassified` counts both log records no matcher matched and log records
 too short to fingerprint.
