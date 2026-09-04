@@ -61,13 +61,9 @@ type logTypeDetectionProcessor struct {
 
 const fingerprintStorageKey = "fingerprints"
 
-// logTypeMap is the persisted form of the fingerprint map.
-type logTypeMap map[string]string
-
-// persistedFingerprints ties the fingerprint map to the matcher config that produced it.
 type persistedFingerprints struct {
-	MatcherHash string     `json:"matcher_hash"`
-	LogTypes    logTypeMap `json:"log_types"`
+	MatcherHash string            `json:"matcher_hash"`
+	LogTypes    map[string]string `json:"log_types"`
 }
 
 func (m *persistedFingerprints) Marshal() ([]byte, error) {
@@ -81,8 +77,6 @@ func (m *persistedFingerprints) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, m)
 }
 
-// hashMatchers renders the matcher config to JSON and hashes it, so a config
-// change invalidates log types detected under the old config.
 func hashMatchers(matchers []MatcherConfig) (string, error) {
 	encoded, err := json.Marshal(matchers)
 	if err != nil {
@@ -202,7 +196,7 @@ func (p *logTypeDetectionProcessor) fingerprintPersistLoop(ctx context.Context) 
 }
 
 func (p *logTypeDetectionProcessor) save(ctx context.Context) error {
-	toSave := logTypeMap{}
+	toSave := map[string]string{}
 	for _, logFingerprint := range p.logTypes.Keys() {
 		logType, ok := p.logTypes.Peek(logFingerprint)
 		if !ok {

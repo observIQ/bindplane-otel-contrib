@@ -155,7 +155,6 @@ func TestFingerprintCacheEvictsOldest(t *testing.T) {
 	require.True(t, p.logTypes.Contains(fingerprint.HashLog(`{"beta":1}`)))
 	require.True(t, p.logTypes.Contains(fingerprint.HashLog(`{"gamma":1}`)))
 
-	// A hit on beta keeps it, so the next insert evicts gamma.
 	_, err = p.processLogs(context.Background(), logsFromBodies(`{"beta":1}`, `{"delta":1}`))
 	require.NoError(t, err)
 
