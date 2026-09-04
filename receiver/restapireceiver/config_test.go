@@ -546,6 +546,56 @@ func TestConfig_Validate(t *testing.T) {
 			expectedErr: "next_offset_field_name is required when response_source is header",
 		},
 		{
+			name: "opaque offset_type requires next_offset_field_name",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "cursor",
+						LimitFieldName:  "limit",
+						OffsetType:      offsetTypeOpaque,
+					},
+				},
+			},
+			expectedErr: "next_offset_field_name is required when offset_type is opaque",
+		},
+		{
+			name: "opaque offset_type rejects a non-zero starting_offset",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName:     "cursor",
+						LimitFieldName:      "limit",
+						NextOffsetFieldName: "next_cursor",
+						StartingOffset:      50,
+						OffsetType:          offsetTypeOpaque,
+					},
+				},
+			},
+			expectedErr: "starting_offset must not be set when offset_type is opaque",
+		},
+		{
+			name: "valid opaque offset_type",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode: paginationModeOffsetLimit,
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName:     "cursor",
+						NextOffsetFieldName: "next_cursor",
+						OffsetType:          offsetTypeOpaque,
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
 			name: "valid page_size with header response_source",
 			config: &Config{
 				URL:      "https://api.example.com/data",
@@ -1855,6 +1905,33 @@ func TestEnums_UnmarshalText(t *testing.T) {
 		require.EqualError(t, m.UnmarshalText([]byte("invalid")),
 			"invalid pagination mode: invalid, must be one of: none, offset_limit, page_size, timestamp")
 	})
+
+	t.Run("offset_type", func(t *testing.T) {
+		var o OffsetType
+		require.NoError(t, o.UnmarshalText([]byte("opaque")))
+		require.Equal(t, offsetTypeOpaque, o)
+		require.EqualError(t, o.UnmarshalText([]byte("base64")),
+			"invalid offset_type: base64, must be one of: numeric, opaque")
+	})
+}
+
+// TestOffsetType_RejectedWhenDecoded is the nested-key counterpart to
+// TestEnums_RejectedWhenDecoded: offset_type sits three levels deep, so this
+// proves the TextUnmarshaler is actually reached at that path and a bad value
+// fails at decode time rather than being silently ignored.
+func TestOffsetType_RejectedWhenDecoded(t *testing.T) {
+	cm := confmap.NewFromStringMap(map[string]any{
+		"url": "https://api.example.com/data",
+		"pagination": map[string]any{
+			"mode": "offset_limit",
+			"offset_limit": map[string]any{
+				"offset_type": "base64",
+			},
+		},
+	})
+	err := cm.Unmarshal(createDefaultConfig().(*Config))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "base64")
 }
 
 // TestEnums_RejectedWhenDecoded is the end-to-end guarantee behind dropping the
