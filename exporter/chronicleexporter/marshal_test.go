@@ -1530,6 +1530,161 @@ func TestProtoMarshaler_MarshalRawLogsForHTTP(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "RBAC enabled labels are flagged per key (v1alpha)",
+			cfg: Config{
+				CustomerID:      uuid.New().String(),
+				LogType:         "WINEVTLOG",
+				RawLogField:     "body",
+				OverrideLogType: false,
+				Protocol:        protocolHTTPS,
+				Project:         "test-project",
+				Location:        "us",
+				APIVersion:      "v1alpha",
+				IngestionLabels: map[string]string{
+					"env":  "prod",
+					"team": "blue",
+				},
+				RBACEnabledLabels:         []string{"team", "region", "unused"},
+				BatchRequestSizeLimitHTTP: 5242880,
+			},
+			logRecords: func() plog.Logs {
+				return mockLogs(mockLogRecord("Test log message", map[string]any{
+					`chronicle_ingestion_label["region"]`: "us-east1",
+					`chronicle_ingestion_label["env"]`:    "staging",
+				}))
+			},
+			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
+				require.Len(t, requests, 1)
+				logs := requests["WINEVTLOG"][0].GetInlineSource().Logs
+				require.Len(t, logs, 1)
+				labels := logs[0].Labels
+				require.Len(t, labels, 3)
+				// config label not listed: value kept, rbac off
+				require.Equal(t, "staging", labels["env"].Value)
+				require.False(t, labels["env"].RbacEnabled)
+				// config label listed
+				require.Equal(t, "blue", labels["team"].Value)
+				require.True(t, labels["team"].RbacEnabled)
+				// attribute-sourced label listed: matched by key
+				require.Equal(t, "us-east1", labels["region"].Value)
+				require.True(t, labels["region"].RbacEnabled)
+				// listed key with no label present does not create a label
+				require.NotContains(t, labels, "unused")
+			},
+		},
+		{
+			name: "RBAC enabled labels are flagged per key (v1beta)",
+			cfg: Config{
+				CustomerID:      uuid.New().String(),
+				LogType:         "WINEVTLOG",
+				RawLogField:     "body",
+				OverrideLogType: false,
+				Protocol:        protocolHTTPS,
+				Project:         "test-project",
+				Location:        "us",
+				APIVersion:      "v1beta",
+				IngestionLabels: map[string]string{
+					"env":  "prod",
+					"team": "blue",
+				},
+				RBACEnabledLabels:         []string{"team", "region", "unused"},
+				BatchRequestSizeLimitHTTP: 5242880,
+			},
+			logRecords: func() plog.Logs {
+				return mockLogs(mockLogRecord("Test log message", map[string]any{
+					`chronicle_ingestion_label["region"]`: "us-east1",
+					`chronicle_ingestion_label["env"]`:    "staging",
+				}))
+			},
+			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
+				require.Len(t, requests, 1)
+				logs := requests["WINEVTLOG"][0].GetInlineSource().Logs
+				require.Len(t, logs, 1)
+				labels := logs[0].Labels
+				require.Len(t, labels, 3)
+				// config label not listed: value kept, rbac off
+				require.Equal(t, "staging", labels["env"].Value)
+				require.False(t, labels["env"].RbacEnabled)
+				// config label listed
+				require.Equal(t, "blue", labels["team"].Value)
+				require.True(t, labels["team"].RbacEnabled)
+				// attribute-sourced label listed: matched by key
+				require.Equal(t, "us-east1", labels["region"].Value)
+				require.True(t, labels["region"].RbacEnabled)
+				// listed key with no label present does not create a label
+				require.NotContains(t, labels, "unused")
+			},
+		},
+		{
+			name: "RBAC enabled labels are flagged per key (v1)",
+			cfg: Config{
+				CustomerID:      uuid.New().String(),
+				LogType:         "WINEVTLOG",
+				RawLogField:     "body",
+				OverrideLogType: false,
+				Protocol:        protocolHTTPS,
+				Project:         "test-project",
+				Location:        "us",
+				APIVersion:      "v1",
+				IngestionLabels: map[string]string{
+					"env":  "prod",
+					"team": "blue",
+				},
+				RBACEnabledLabels:         []string{"team", "region", "unused"},
+				BatchRequestSizeLimitHTTP: 5242880,
+			},
+			logRecords: func() plog.Logs {
+				return mockLogs(mockLogRecord("Test log message", map[string]any{
+					`chronicle_ingestion_label["region"]`: "us-east1",
+					`chronicle_ingestion_label["env"]`:    "staging",
+				}))
+			},
+			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
+				require.Len(t, requests, 1)
+				logs := requests["WINEVTLOG"][0].GetInlineSource().Logs
+				require.Len(t, logs, 1)
+				labels := logs[0].Labels
+				require.Len(t, labels, 3)
+				// config label not listed: value kept, rbac off
+				require.Equal(t, "staging", labels["env"].Value)
+				require.False(t, labels["env"].RbacEnabled)
+				// config label listed
+				require.Equal(t, "blue", labels["team"].Value)
+				require.True(t, labels["team"].RbacEnabled)
+				// attribute-sourced label listed: matched by key
+				require.Equal(t, "us-east1", labels["region"].Value)
+				require.True(t, labels["region"].RbacEnabled)
+				// listed key with no label present does not create a label
+				require.NotContains(t, labels, "unused")
+			},
+		},
+		{
+			name: "Labels default to rbac disabled when rbac_enabled_labels is unset",
+			cfg: Config{
+				CustomerID:      uuid.New().String(),
+				LogType:         "WINEVTLOG",
+				RawLogField:     "body",
+				OverrideLogType: false,
+				Protocol:        protocolHTTPS,
+				Project:         "test-project",
+				Location:        "us",
+				IngestionLabels: map[string]string{
+					"env": "prod",
+				},
+				BatchRequestSizeLimitHTTP: 5242880,
+			},
+			logRecords: func() plog.Logs {
+				return mockLogs(mockLogRecord("Test log message", nil))
+			},
+			expectations: func(t *testing.T, requests map[string][]*api.ImportLogsRequest) {
+				logs := requests["WINEVTLOG"][0].GetInlineSource().Logs
+				require.Len(t, logs, 1)
+				require.Len(t, logs[0].Labels, 1)
+				require.Equal(t, "prod", logs[0].Labels["env"].Value)
+				require.False(t, logs[0].Labels["env"].RbacEnabled)
+			},
+		},
 	}
 
 	for _, tt := range tests {

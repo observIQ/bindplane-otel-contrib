@@ -16,6 +16,7 @@ package chronicleexporter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -1023,6 +1024,81 @@ func TestHTTPExporterTelemetry(t *testing.T) {
 				require.Error(t, err, "Metric should not exist when no bytes are counted")
 				require.Contains(t, err.Error(), "not found", "Error should indicate metric was not found")
 			}
+		})
+	}
+}
+
+// TestHTTPExporterRBACLabelsOnTheWire asserts the JSON body sent to the import
+// endpoint carries rbacEnabled only for the configured label keys.
+func TestHTTPExporterRBACLabelsOnTheWire(t *testing.T) {
+	secureTokenSource := tokenSource
+	defer func() { tokenSource = secureTokenSource }()
+	tokenSource = func(context.Context, *Config) (oauth2.TokenSource, error) {
+		return &emptyTokenSource{}, nil
+	}
+
+	var body []byte
+	srv := newMockHTTPServer(map[string]http.HandlerFunc{
+		"FAKE": func(w http.ResponseWriter, r *http.Request) {
+			var err error
+			body, err = io.ReadAll(r.Body)
+			require.NoError(t, err)
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+	defer srv.srv.Close()
+
+	secureHTTPEndpoint := httpEndpoint
+	defer func() { httpEndpoint = secureHTTPEndpoint }()
+	httpEndpoint = func(_ *Config, logType string) string {
+		return fmt.Sprintf("%s/logTypes/%s/logs:import", srv.srv.URL, logType)
+	}
+
+	for _, apiVersion := range []string{apiVersionV1Alpha, apiVersionV1Beta, apiVersionV1} {
+		t.Run(apiVersion, func(t *testing.T) {
+			body = nil
+			f := NewFactory()
+			cfg := f.CreateDefaultConfig().(*Config)
+			cfg.Protocol = protocolHTTPS
+			cfg.Location = "us"
+			cfg.CustomerID = "00000000-1111-2222-3333-444444444444"
+			cfg.Project = "fake"
+			cfg.LogType = "FAKE"
+			cfg.APIVersion = apiVersion
+			cfg.IngestionLabels = map[string]string{"env": "prod", "team": "blue"}
+			cfg.RBACEnabledLabels = []string{"team"}
+			cfg.QueueBatchConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
+			cfg.BackOffConfig.Enabled = false
+			require.NoError(t, cfg.Validate())
+
+			ctx := context.Background()
+			exp, err := f.CreateLogs(ctx, exportertest.NewNopSettings(typ), cfg)
+			require.NoError(t, err)
+			require.NoError(t, exp.Start(ctx, componenttest.NewNopHost()))
+			defer func() { require.NoError(t, exp.Shutdown(ctx)) }()
+
+			logs := plog.NewLogs()
+			logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty().Body().SetStr("Test")
+			require.NoError(t, exp.ConsumeLogs(ctx, logs))
+
+			var req struct {
+				InlineSource struct {
+					Logs []struct {
+						Labels map[string]struct {
+							Value       string `json:"value"`
+							RbacEnabled bool   `json:"rbacEnabled"`
+						} `json:"labels"`
+					} `json:"logs"`
+				} `json:"inlineSource"`
+			}
+			require.NoError(t, json.Unmarshal(body, &req))
+			require.Len(t, req.InlineSource.Logs, 1)
+			labels := req.InlineSource.Logs[0].Labels
+			require.Equal(t, "blue", labels["team"].Value)
+			require.True(t, labels["team"].RbacEnabled)
+			require.Equal(t, "prod", labels["env"].Value)
+			require.False(t, labels["env"].RbacEnabled)
+			require.Contains(t, string(body), `"rbacEnabled":true`)
 		})
 	}
 }

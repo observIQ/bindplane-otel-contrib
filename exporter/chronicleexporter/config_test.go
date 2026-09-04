@@ -243,6 +243,36 @@ func TestConfigValidate(t *testing.T) {
 			},
 			expectedErr: "positive HTTP response header timeout is required when protocol is https",
 		},
+		{
+			desc: "rbac_enabled_labels rejected with gRPC protocol",
+			config: &Config{
+				Creds:                     "creds_example",
+				LogType:                   "log_type_example",
+				Compression:               noCompression,
+				Protocol:                  protocolGRPC,
+				BatchRequestSizeLimitGRPC: defaultBatchRequestSizeLimitGRPC,
+				IngestionLabels:           map[string]string{"team": "blue"},
+				RBACEnabledLabels:         []string{"team"},
+			},
+			expectedErr: "rbac_enabled_labels is only supported when protocol is https",
+		},
+		{
+			desc: "rbac_enabled_labels accepted with https protocol",
+			config: &Config{
+				Creds:                     "creds_example",
+				LogType:                   "log_type_example",
+				Compression:               noCompression,
+				Protocol:                  protocolHTTPS,
+				Location:                  "us",
+				Endpoint:                  "chronicle.googleapis.com",
+				Project:                   "project_example",
+				BatchRequestSizeLimitHTTP: defaultBatchRequestSizeLimitHTTP,
+				HTTPResponseHeaderTimeout: defaultHTTPResponseHeaderTimeout,
+				IngestionLabels:           map[string]string{"team": "blue"},
+				RBACEnabledLabels:         []string{"team"},
+			},
+			expectedErr: "",
+		},
 	}
 
 	for _, tc := range testCases {
