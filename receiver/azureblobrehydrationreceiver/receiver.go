@@ -142,7 +142,14 @@ func (r *rehydrationReceiver) Start(ctx context.Context, host component.Host) er
 	r.logAnyDeprecationWarnings()
 
 	if r.cfg.StorageID != nil {
-		checkpointStore, err := storageclient.NewStorageClient(ctx, host, *r.cfg.StorageID, r.id, r.supportedTelemetry)
+		checkpointStore, err := storageclient.NewStorageClient(
+			ctx,
+			host,
+			component.KindReceiver,
+			*r.cfg.StorageID,
+			r.id,
+			r.supportedTelemetry,
+		)
 		if err != nil {
 			return fmt.Errorf("NewCheckpointStorage: %w", err)
 		}

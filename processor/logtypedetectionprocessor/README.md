@@ -32,6 +32,9 @@ as an attribute on each log record.
 | log_type_field    | string | `log_type`      | Attribute the detected log type is written to. Required. Every log record receives this attribute, including those detected as `unknown`.                  |
 | fingerprint_field | string | `fingerprint`   | Attribute the log's structure fingerprint is written to, hex encoded. Set to an empty string to omit it. |
 | matchers          | list   | `[]`            | Matchers tested against each log body with a unique structure. See [Matchers](#matchers). When empty, all log records are detected as `unknown`.                                   |
+| fingerprint_storage | component ID | | ID of a storage extension used to persist the fingerprint-to-log-type map across restarts. The map is loaded on startup, saved periodically, and saved on shutdown. The persisted map is tied to the `matchers` it was detected with, so editing, renaming, reordering, or removing a matcher discards it and log types are detected again from scratch. |
+| fingerprint_persist_interval | duration | `5m` | How often the fingerprint map is written to the storage extension. Only used when `fingerprint_storage` is set. |
+| max_saved_fingerprints | int | `10000` | Maximum number of fingerprint-to-log-type mappings cached in memory. The cache is LRU; once full, the least recently seen fingerprint is evicted. Evicted mappings are also dropped from `fingerprint_storage` on the next save. |
 
 ### Matchers
 
@@ -53,6 +56,8 @@ audit logs from a file, writing the result to the `log_type` attribute of each l
 record.
 
 ```yaml
+extensions:
+  file_storage:
 receivers:
   filelog:
     include: [./example/mixed.log]
@@ -72,10 +77,13 @@ processors:
       - name: k8s_audit
         method: regex
         value: '"kind"\s*:\s*"Event".*"apiVersion"\s*:\s*"audit\.k8s\.io'
+    fingerprint_storage: file_storage
+    fingerprint_persist_interval: 5m
 exporters:
   debug:
 
 service:
+  extensions: [file_storage]
   pipelines:
     logs:
       receivers: [filelog]
