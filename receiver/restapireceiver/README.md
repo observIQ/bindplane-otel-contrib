@@ -513,6 +513,9 @@ This configuration would work with an API that returns responses like:
 ```
 
 When `next_cursor` is empty, null, or missing, the receiver treats it as the end of available data.
+It keeps the cursor it last used rather than discarding it, so the next poll resumes from that point
+instead of restarting the stream. With a `storage` extension configured the cursor is checkpointed at
+the end of every poll cycle and survives a collector restart.
 
 On the first request of a run there is no cursor yet. By default (`offset_type: numeric`)
 `offset_field_name` is sent as the starting offset (`0` by default), which is correct for an API

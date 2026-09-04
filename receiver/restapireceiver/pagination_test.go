@@ -800,7 +800,8 @@ func TestParseOffsetLimitResponse_TokenEmpty(t *testing.T) {
 	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state)
 	require.NoError(t, err)
 	require.False(t, hasMore)
-	require.Equal(t, "", state.CurrentOffsetToken)
+	require.Equal(t, "previous", state.CurrentOffsetToken,
+		"the stored cursor is the bookmark the next poll resumes from and must survive the tail")
 }
 
 func TestParseOffsetLimitResponse_TokenMissing(t *testing.T) {
@@ -823,7 +824,8 @@ func TestParseOffsetLimitResponse_TokenMissing(t *testing.T) {
 	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state)
 	require.NoError(t, err)
 	require.False(t, hasMore)
-	require.Equal(t, "", state.CurrentOffsetToken)
+	require.Equal(t, "previous", state.CurrentOffsetToken,
+		"the stored cursor is the bookmark the next poll resumes from and must survive the tail")
 }
 
 func TestParseOffsetLimitResponse_TokenNull(t *testing.T) {
@@ -847,7 +849,34 @@ func TestParseOffsetLimitResponse_TokenNull(t *testing.T) {
 	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state)
 	require.NoError(t, err)
 	require.False(t, hasMore)
-	require.Equal(t, "", state.CurrentOffsetToken)
+	require.Equal(t, "previous", state.CurrentOffsetToken,
+		"the stored cursor is the bookmark the next poll resumes from and must survive the tail")
+}
+
+// TestParseOffsetLimitResponse_NonMapResponse covers a top-level JSON array with
+// token pagination configured. There is nowhere to look for a next token, but a
+// cursor already in hand is still the bookmark the next poll resumes from.
+func TestParseOffsetLimitResponse_NonMapResponse(t *testing.T) {
+	cfg := &Config{
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "offset",
+				LimitFieldName:      "limit",
+				NextOffsetFieldName: "next_offset",
+			},
+		},
+	}
+
+	response := []any{map[string]any{"id": "1"}}
+	extracted := []map[string]any{{"id": "1"}}
+
+	state := &paginationState{Limit: 10, CurrentOffsetToken: "previous"}
+	hasMore, err := parseOffsetLimitResponse(cfg, response, extracted, state)
+	require.NoError(t, err)
+	require.False(t, hasMore)
+	require.Equal(t, "previous", state.CurrentOffsetToken,
+		"a response shape with no token field must not discard the stored cursor")
 }
 
 func TestParseOffsetLimitResponse_TokenNested(t *testing.T) {
