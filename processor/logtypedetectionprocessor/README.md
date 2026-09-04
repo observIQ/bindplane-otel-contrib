@@ -43,7 +43,8 @@ as an attribute on each log record.
 | priority | int    | unset   | Order matchers are tested in, lowest first. Matchers with no priority are tested after all matchers that have one. Matchers of equal priority keep their configured order. |
 
 Matchers test the log body as a string, regardless of its underlying type. A map
-or slice body is stringified before it is tested.
+or slice body is stringified before it is tested. It is recommended that the matcher targets
+the log structure to avoid false positives.
 
 ### Example Config
 
