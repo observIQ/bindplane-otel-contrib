@@ -49,6 +49,7 @@ type Settings struct {
 	UpstreamConnections  int
 	OpAMPServer          confighttp.ServerConfig
 	AuthTimeout          time.Duration
+	BuildInfo            component.BuildInfo
 }
 
 // Gateway is the core OpAMP gateway implementation that manages upstream and downstream
