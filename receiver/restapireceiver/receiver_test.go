@@ -1875,3 +1875,189 @@ func TestConfigFingerprint_PageSizeExcluded(t *testing.T) {
 	require.Equal(t, base, configFingerprint(&changed),
 		"page_size is a throughput knob and must not invalidate a checkpoint")
 }
+
+// memStorageClient is an in-memory storage.Client that records what the receiver
+// persists. storage.NewNopClient discards writes, which would make any assertion
+// about checkpointing vacuous.
+type memStorageClient struct {
+	mu   sync.Mutex
+	data map[string][]byte
+	sets int
+}
+
+func newMemStorageClient() *memStorageClient {
+	return &memStorageClient{data: make(map[string][]byte)}
+}
+
+func (m *memStorageClient) Get(_ context.Context, key string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.data[key], nil
+}
+
+func (m *memStorageClient) Set(_ context.Context, key string, value []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.data[key] = value
+	m.sets++
+	return nil
+}
+
+func (m *memStorageClient) Delete(_ context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.data, key)
+	return nil
+}
+
+func (m *memStorageClient) Batch(_ context.Context, _ ...*storage.Operation) error { return nil }
+
+func (m *memStorageClient) Close(_ context.Context) error { return nil }
+
+func (m *memStorageClient) setCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sets
+}
+
+// TestPoll_TailPreservesAndPersistsCursor is the end-to-end guarantee behind the
+// cursor fix: a poll cycle that ends without a next token keeps the cursor it was
+// using AND writes it to storage, so the next poll resumes rather than restarting
+// the stream. Shutdown is deliberately not called — it saves a checkpoint of its
+// own, which would hide whether the poll cycle persisted anything.
+func TestPoll_TailPreservesAndPersistsCursor(t *testing.T) {
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		// A tail response: data, but no next_cursor field at all.
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{{"id": "1"}},
+		}))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:           server.URL,
+		AuthMode:      authModeNone,
+		ResponseField: "data",
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "cursor",
+				NextOffsetFieldName: "next_cursor",
+				OffsetType:          offsetTypeOpaque,
+				Limit:               10,
+			},
+		},
+		MinPollInterval:   10 * time.Second,
+		MaxPollInterval:   5 * time.Minute,
+		BackoffMultiplier: 2.0,
+		ClientConfig:      confighttp.ClientConfig{},
+	}
+
+	sink := new(consumertest.LogsSink)
+	r, err := newRESTAPILogsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, r.initializeClient(ctx, componenttest.NewNopHost()))
+	store := newMemStorageClient()
+	r.storageClient = store
+	r.initializePagination()
+
+	// Stand in for a run that already holds a cursor from an earlier poll.
+	r.paginationState.CurrentOffsetToken = "cursor-from-earlier-poll"
+
+	_, err = r.poll(ctx)
+	require.NoError(t, err)
+
+	require.Equal(t, int64(1), requests.Load(), "a tail response must end the cycle after one page")
+	require.Equal(t, "cursor-from-earlier-poll", r.paginationState.CurrentOffsetToken,
+		"a tail response must not clear the in-memory cursor")
+
+	// One page means the mid-loop save never ran, so any checkpoint present came
+	// from the end-of-cycle save.
+	require.Equal(t, 1, store.setCount(), "the end of a poll cycle must persist exactly one checkpoint")
+
+	raw, err := store.Get(ctx, checkpointStorageKey)
+	require.NoError(t, err)
+	require.NotNil(t, raw, "the poll cycle must persist a checkpoint without waiting for shutdown")
+
+	var saved checkpointData
+	require.NoError(t, json.Unmarshal(raw, &saved))
+	require.Equal(t, "cursor-from-earlier-poll", saved.PaginationState.CurrentOffsetToken,
+		"the persisted checkpoint must carry the cursor the next poll resumes from")
+}
+
+// TestMetricsPoll_TailPreservesAndPersistsCursor is the metrics-receiver twin of
+// TestPoll_TailPreservesAndPersistsCursor. restAPIMetricsReceiver.poll is a
+// near-verbatim copy of the logs one (see PIPE-1453), so the end-of-cycle
+// checkpoint save has to be asserted on both paths — a fix applied to only one
+// copy would otherwise pass CI.
+func TestMetricsPoll_TailPreservesAndPersistsCursor(t *testing.T) {
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		// A tail response: data, but no next_cursor field at all.
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{{"name": "cpu.utilization", "value": 42.0}},
+		}))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:           server.URL,
+		AuthMode:      authModeNone,
+		ResponseField: "data",
+		Pagination: PaginationConfig{
+			Mode: paginationModeOffsetLimit,
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "cursor",
+				NextOffsetFieldName: "next_cursor",
+				OffsetType:          offsetTypeOpaque,
+				Limit:               10,
+			},
+		},
+		MinPollInterval:   10 * time.Second,
+		MaxPollInterval:   5 * time.Minute,
+		BackoffMultiplier: 2.0,
+		ClientConfig:      confighttp.ClientConfig{},
+		Metrics:           MetricsConfig{NameField: "name"},
+	}
+
+	sink := new(consumertest.MetricsSink)
+	r, err := newRESTAPIMetricsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, r.initializeClient(ctx, componenttest.NewNopHost()))
+	store := newMemStorageClient()
+	r.storageClient = store
+	r.initializePagination()
+
+	// Stand in for a run that already holds a cursor from an earlier poll.
+	r.paginationState.CurrentOffsetToken = "cursor-from-earlier-poll"
+
+	result, err := r.poll(ctx)
+	require.NoError(t, err)
+
+	// Prove a real cycle ran rather than a no-op poll that would checkpoint anyway.
+	require.Equal(t, int64(1), requests.Load(), "a tail response must end the cycle after one page")
+	require.Equal(t, 1, result.recordCount)
+	require.Len(t, sink.AllMetrics(), 1)
+
+	require.Equal(t, "cursor-from-earlier-poll", r.paginationState.CurrentOffsetToken,
+		"a tail response must not clear the in-memory cursor")
+	require.Equal(t, 1, store.setCount(), "the end of a poll cycle must persist exactly one checkpoint")
+
+	raw, err := store.Get(ctx, checkpointStorageKey)
+	require.NoError(t, err)
+	require.NotNil(t, raw, "the poll cycle must persist a checkpoint without waiting for shutdown")
+
+	var saved checkpointData
+	require.NoError(t, json.Unmarshal(raw, &saved))
+	require.Equal(t, "cursor-from-earlier-poll", saved.PaginationState.CurrentOffsetToken,
+		"the persisted checkpoint must carry the cursor the next poll resumes from")
+}

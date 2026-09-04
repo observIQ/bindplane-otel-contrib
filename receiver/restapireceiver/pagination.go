@@ -231,17 +231,22 @@ func parsePaginationResponse(cfg *Config, response any, extractedData []map[stri
 
 // parseOffsetLimitResponse parses the response for offset/limit pagination.
 func parseOffsetLimitResponse(cfg *Config, response any, extractedData []map[string]any, state *paginationState) (bool, error) {
-	// If NextOffsetFieldName is configured, use token-based offset extraction
+	// If NextOffsetFieldName is configured, use token-based offset extraction.
+	//
+	// Every "no next token" path below leaves CurrentOffsetToken untouched rather
+	// than clearing it. The stored token is the bookmark the next poll resumes
+	// from, and an API that has run out of pages usually says so by omitting the
+	// field entirely — so clearing it would discard the only cursor we have and
+	// restart the stream from the beginning on the next poll (a 400 for an opaque
+	// cursor, a silent full re-fetch otherwise).
 	if cfg.Pagination.OffsetLimit.NextOffsetFieldName != "" {
 		responseMap, ok := response.(map[string]any)
 		if !ok {
-			state.CurrentOffsetToken = ""
 			return false, nil
 		}
 
 		tokenVal, exists := getNestedField(responseMap, cfg.Pagination.OffsetLimit.NextOffsetFieldName)
 		if !exists || tokenVal == nil {
-			state.CurrentOffsetToken = ""
 			return false, nil
 		}
 
@@ -260,7 +265,6 @@ func parseOffsetLimitResponse(cfg *Config, response any, extractedData []map[str
 		}
 
 		if tokenStr == "" {
-			state.CurrentOffsetToken = ""
 			return false, nil
 		}
 

@@ -703,6 +703,15 @@ func (r *restAPILogsReceiver) poll(ctx context.Context) (pollResult, error) {
 		zap.Time("final_timestamp_state", r.paginationState.CurrentTimestamp))
 
 	r.resetTimestampPagination()
+
+	// Persist the end-of-cycle state. The mid-loop save above only runs when
+	// advancing to another page, so without this the final page of every cycle —
+	// and all of a single-page cycle — reaches storage only via shutdownBase, and
+	// is lost outright on a crash or SIGKILL.
+	if err := r.saveCheckpoint(ctx); err != nil {
+		r.logger.Error("failed to save checkpoint", zap.Error(err))
+	}
+
 	return result, nil
 }
 
@@ -1026,5 +1035,14 @@ func (r *restAPIMetricsReceiver) poll(ctx context.Context) (pollResult, error) {
 		zap.Time("final_timestamp_state", r.paginationState.CurrentTimestamp))
 
 	r.resetTimestampPagination()
+
+	// Persist the end-of-cycle state. The mid-loop save above only runs when
+	// advancing to another page, so without this the final page of every cycle —
+	// and all of a single-page cycle — reaches storage only via shutdownBase, and
+	// is lost outright on a crash or SIGKILL.
+	if err := r.saveCheckpoint(ctx); err != nil {
+		r.logger.Error("failed to save checkpoint", zap.Error(err))
+	}
+
 	return result, nil
 }
