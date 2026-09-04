@@ -93,6 +93,7 @@ type protoMarshaler struct {
 	collectorIDString string
 	telemetry         *metadata.TelemetryBuilder
 	logTypes          map[string]exists
+	rbacLabels        map[string]exists
 	logger            *zap.Logger
 }
 
@@ -101,9 +102,14 @@ func newProtoMarshaler(cfg Config, teleSettings component.TelemetrySettings, tel
 	if err != nil {
 		return nil, fmt.Errorf("parse customer ID: %w", err)
 	}
+	rbacLabels := make(map[string]exists, len(cfg.RBACEnabledLabels))
+	for _, key := range cfg.RBACEnabledLabels {
+		rbacLabels[key] = exists{}
+	}
 	return &protoMarshaler{
 		startTime:         time.Now(),
 		cfg:               cfg,
+		rbacLabels:        rbacLabels,
 		teleSettings:      teleSettings,
 		customerID:        customerID[:],
 		collectorID:       getCollectorID(cfg.LicenseType),
@@ -311,8 +317,10 @@ func (m *protoMarshaler) getHTTPIngestionLabels(logRecord plog.LogRecord) map[st
 	mergedLabels := m.aggregateIngestionLabels(logRecord)
 	labels := make(map[string]*api.Log_LogLabel, len(mergedLabels))
 	for k, v := range mergedLabels {
+		_, rbacEnabled := m.rbacLabels[k]
 		labels[k] = &api.Log_LogLabel{
-			Value: v,
+			Value:       v,
+			RbacEnabled: rbacEnabled,
 		}
 	}
 	return labels
