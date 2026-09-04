@@ -18,7 +18,7 @@ as an attribute on each log record.
 3. The first time a fingerprint is seen, the matchers are tested against the body
    in priority order and the first match wins. The result is cached by
    fingerprint, so later records sharing that structure skip matching entirely.
-   Detection cost is proportional to the number of distinct log structures
+   Matching cost is proportional to the number of distinct log structures
    observed, not to the volume of logs processed.
 4. The detected log type is written to the `log_type_field` attribute. Records
    that match no matcher, and records under 10 characters after trimming
@@ -31,15 +31,15 @@ as an attribute on each log record.
 | ----------------- | ------ | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | log_type_field    | string | `log_type`      | Attribute the detected log type is written to. Required. Every log record receives this attribute, including those detected as `unknown`.                  |
 | fingerprint_field | string | `fingerprint`   | Attribute the log's structure fingerprint is written to, hex encoded. Set to an empty string to omit it. |
-| matchers          | list   | `[]`            | Matchers tested against each log body. See [Matchers](#matchers). When empty, all log records are detected as `unknown`.                                   |
+| matchers          | list   | `[]`            | Matchers tested against each log body with a unique structure. See [Matchers](#matchers). When empty, all log records are detected as `unknown`.                                   |
 
 ### Matchers
 
 | Field    | Type   | Default | Description                                                                                                                                            |
 | -------- | ------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| name     | string | ` `     | The log type assigned when this matcher matches. Required.                                                                                              |
-| method   | string | ` `     | How the matcher tests the log body. One of `regex`, `starts_with`. Required.                                                                            |
-| value    | string | ` `     | The pattern to test with: an [RE2](https://github.com/google/re2/wiki/Syntax) expression for `regex`, a literal prefix for `starts_with`. Required.      |
+| name     | string |       | The log type assigned when this matcher matches. Required.                                                                                              |
+| method   | string |       | How the matcher tests the log body. One of `regex`, `starts_with`. Required.                                                                            |
+| value    | string |       | The pattern to test with: an [RE2](https://github.com/google/re2/wiki/Syntax) expression for `regex`, a literal prefix for `starts_with`. Required.      |
 | priority | int    | unset   | Order matchers are tested in, lowest first. Matchers with no priority are tested after all matchers that have one. Matchers of equal priority keep their configured order. |
 
 Matchers test the log body as a string, regardless of its underlying type. A map
