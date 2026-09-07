@@ -68,6 +68,7 @@ type APISource struct {
 	responseMapping map[string]string
 	client          *http.Client
 	logger          *zap.Logger
+	avail           *availability
 }
 
 // NewAPISource creates a new APISource.
@@ -116,6 +117,7 @@ func NewAPISource(cfg *APIConfig, logger *zap.Logger) (*APISource, error) {
 		responseMapping: cfg.ResponseMapping,
 		client:          client,
 		logger:          logger,
+		avail:           newAvailability(logger, "api"),
 	}, nil
 }
 
@@ -124,6 +126,10 @@ func NewAPISource(cfg *APIConfig, logger *zap.Logger) (*APISource, error) {
 // of retried slow requests cannot exceed it. Non-retryable HTTP statuses abort
 // immediately; cancellation aborts pending retry sleeps promptly.
 func (a *APISource) Lookup(ctx context.Context, key string) (map[string]string, error) {
+	if a.avail.skip() {
+		return nil, errSourceUnavailable
+	}
+
 	requestURL := a.substituteURL(key)
 
 	if _, err := url.Parse(requestURL); err != nil {
@@ -149,12 +155,15 @@ func (a *APISource) Lookup(ctx context.Context, key string) (map[string]string, 
 
 		data, err := a.makeRequest(ctx, requestURL)
 		if err == nil {
+			a.avail.markUp()
 			return data, nil
 		}
 
 		// Non-retryable status codes (e.g. 400, 401, 403, 404) abort immediately.
+		// The endpoint answered, so this is a per-key result, not an outage.
 		var nrse *nonRetryableStatusError
 		if errors.As(err, &nrse) {
+			a.avail.markUp()
 			return nil, err
 		}
 
@@ -162,6 +171,7 @@ func (a *APISource) Lookup(ctx context.Context, key string) (map[string]string, 
 		a.logger.Debug("API request failed", zap.Error(err), zap.Int("attempt", attempt+1))
 	}
 
+	a.avail.markDown(lastErr)
 	return nil, fmt.Errorf("API request failed after %d attempts: %w", a.maxRetries, lastErr)
 }
 

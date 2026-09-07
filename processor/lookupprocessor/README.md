@@ -81,10 +81,22 @@ startup, and will become a configuration error in a future release.
 The processor first tries `HGETALL` on the resolved key. If no fields are
 returned, it falls back to `GET` and decodes the value as JSON `map[string]string`.
 
-On startup, the lookup source performs a `PING` (bounded by `dial_timeout`). A failed
-`PING` aborts processor start so a misconfigured Redis (bad address, auth
-failure, unreachable host) surfaces immediately rather than masking the issue
-until the first lookup.
+On startup, the lookup source performs a `PING` (bounded by `dial_timeout`). A
+failed `PING` is logged at `warn` and the processor starts anyway: enrichment
+is best-effort, so a Redis restart, network blip, or maintenance window that
+coincides with a collector start must not take the telemetry pipeline offline.
+Records pass through un-enriched until Redis is reachable; the client
+reconnects on its own with no collector restart. Startup behaviour therefore
+matches the API source, which never probes its endpoint at start.
+
+While Redis (or an API endpoint) is down, the source logs one `warn` when it
+stops answering and one `info` when it answers again. Individual failed
+lookups stay at `debug`. After a failure the source is marked down for 5s and
+lookups return immediately without touching the network; when the window
+elapses a single lookup probes the backend and either clears the mark or opens
+a new window. So an outage costs one failed dial (at most `lookup_timeout`)
+per 5s rather than one per record, and recovery is noticed within 5s. Entries
+already in the cache keep being served throughout.
 
 ### API Lookup Source
 | Field            | Type              | Default | Description |
