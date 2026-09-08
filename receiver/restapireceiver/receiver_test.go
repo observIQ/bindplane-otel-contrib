@@ -1991,10 +1991,10 @@ func TestPoll_TailPreservesAndPersistsCursor(t *testing.T) {
 }
 
 // TestMetricsPoll_TailPreservesAndPersistsCursor is the metrics-receiver twin of
-// TestPoll_TailPreservesAndPersistsCursor. restAPIMetricsReceiver.poll is a
-// near-verbatim copy of the logs one (see PIPE-1453), so the end-of-cycle
-// checkpoint save has to be asserted on both paths — a fix applied to only one
-// copy would otherwise pass CI.
+// TestPoll_TailPreservesAndPersistsCursor. Both signals now share
+// baseReceiver.poll, so this asserts the metrics receiver actually reaches that
+// loop — that its constructor wired up a consumeFunc and that records flow
+// through to the sink — rather than re-testing the pagination itself.
 func TestMetricsPoll_TailPreservesAndPersistsCursor(t *testing.T) {
 	var requests atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

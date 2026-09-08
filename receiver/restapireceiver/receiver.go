@@ -68,6 +68,10 @@ type baseReceiver struct {
 	// bodyTemplate is the parsed request_body template, nil when unconfigured.
 	// Parsed once at Start rather than per request.
 	bodyTemplate *template.Template
+	// consume converts a fetched page into the receiver's signal type and passes
+	// it to the next consumer. Installed by the logs and metrics constructors;
+	// it is the only per-signal step in the shared poll loop.
+	consume consumeFunc
 }
 
 // initializeRequestBody parses the configured request_body template. Validate
@@ -522,6 +526,176 @@ func (b *baseReceiver) resetTimestampPagination() {
 	}
 }
 
+// consumeFunc converts one page of records into a signal-specific payload and
+// hands it to the next consumer. It reports how many records the page yielded —
+// returned even alongside a consume error, so a poll cycle still accounts for
+// what it pulled from the API.
+type consumeFunc func(ctx context.Context, data []map[string]any) (int, error)
+
+// startBase brings up the shared receiver machinery and starts polling. The logs
+// and metrics receivers start identically; only the consumeFunc their
+// constructors install differs.
+func (b *baseReceiver) startBase(ctx context.Context, host component.Host) error {
+	b.logDeprecationWarnings()
+	if err := b.initializeClient(ctx, host); err != nil {
+		return err
+	}
+	if err := b.initializeRequestBody(); err != nil {
+		return err
+	}
+	if err := b.initializeStorage(ctx, host); err != nil {
+		return err
+	}
+	b.initializePagination()
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	b.cancel = cancel
+
+	return b.startPolling(cancelCtx)
+}
+
+// startPolling starts the polling goroutine.
+func (b *baseReceiver) startPolling(ctx context.Context) error {
+	// Initialize with minimum poll interval for responsive startup
+	b.currentPollInterval = b.cfg.MinPollInterval
+
+	// Run immediately on startup
+	result, err := b.poll(ctx)
+	if err != nil {
+		b.logger.Error("error on initial poll", zap.Error(err))
+		// Continue with periodic polling even if initial poll fails
+	}
+	b.adjustPollInterval(result)
+
+	// Start periodic polling with adaptive timer
+	timer := time.NewTimer(b.currentPollInterval)
+	b.wg.Add(1)
+	go func() {
+		defer b.wg.Done()
+		defer timer.Stop()
+		for {
+			select {
+			case <-timer.C:
+				result, err := b.poll(ctx)
+				if err != nil {
+					b.logger.Error("error while polling", zap.Error(err))
+				}
+				b.adjustPollInterval(result)
+				timer.Reset(b.currentPollInterval)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return nil
+}
+
+// poll performs a single polling cycle. Returns a pollResult with the total record count
+// and whether the last page was full (indicating more data may be available soon).
+func (b *baseReceiver) poll(ctx context.Context) (pollResult, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	result := pollResult{}
+
+	// Build the initial request from the current pagination state
+	req, err := b.buildAPIRequest()
+	if err != nil {
+		return result, err
+	}
+
+	b.logger.Debug("starting poll cycle",
+		append([]zap.Field{
+			zap.String("url", b.cfg.URL),
+			zap.String("method", b.cfg.Method.httpMethod()),
+			zap.String("pagination_mode", string(b.cfg.Pagination.Mode)),
+			zap.Time("current_timestamp", b.paginationState.CurrentTimestamp),
+			zap.Int("pages_fetched", b.paginationState.PagesFetched),
+		}, requestLogFields(req)...)...)
+
+	// Handle pagination - fetch all pages in this poll cycle
+	pageNum := 0
+	for {
+		pageNum++
+		fullResponse, data, err := b.fetchDataPage(ctx, req)
+		if err != nil {
+			return result, err
+		}
+
+		b.logger.Debug("fetched page",
+			append([]zap.Field{
+				zap.Int("page_num", pageNum),
+				zap.Int("records_in_page", len(data)),
+			}, requestLogFields(req)...)...)
+
+		// Log first and last record timestamps if available for debugging duplicates
+		if len(data) > 0 && b.cfg.Pagination.Mode == paginationModeTimestamp {
+			timestampField := b.cfg.Pagination.Timestamp.TimestampFieldName
+			if timestampField != "" {
+				if firstTS, ok := data[0][timestampField]; ok {
+					b.logger.Debug("first record in page",
+						zap.Int("page_num", pageNum),
+						zap.Any("timestamp", firstTS),
+						zap.Any("record_preview", truncateRecord(data[0])))
+				}
+				if lastTS, ok := data[len(data)-1][timestampField]; ok {
+					b.logger.Debug("last record in page",
+						zap.Int("page_num", pageNum),
+						zap.Any("timestamp", lastTS),
+						zap.Any("record_preview", truncateRecord(data[len(data)-1])))
+				}
+			}
+		}
+
+		// Convert to the receiver's signal type and consume
+		count, err := b.consume(ctx, data)
+		result.recordCount += count
+		if err != nil {
+			return result, err
+		}
+
+		// Check for more pages
+		hasMore, nextReq := b.handlePagination(fullResponse, data)
+		b.logger.Debug("pagination decision",
+			zap.Int("page_num", pageNum),
+			zap.Bool("has_more", hasMore),
+			zap.Time("current_timestamp_state", b.paginationState.CurrentTimestamp))
+
+		if !hasMore {
+			// Determine if we stopped because the page limit was reached (API may have more data)
+			// or because the data was exhausted (partial/empty last page).
+			if len(data) > 0 && b.cfg.Pagination.PageLimit > 0 && !checkPageLimit(b.cfg, b.paginationState) {
+				result.lastPageFull = true
+			}
+			break
+		}
+
+		if err := b.saveCheckpoint(ctx); err != nil {
+			b.logger.Error("failed to save checkpoint", zap.Error(err))
+		}
+
+		req = nextReq
+	}
+
+	b.logger.Debug("poll cycle complete",
+		zap.Int("total_records", result.recordCount),
+		zap.Int("pages_fetched", pageNum),
+		zap.Bool("last_page_full", result.lastPageFull),
+		zap.Time("final_timestamp_state", b.paginationState.CurrentTimestamp))
+
+	b.resetTimestampPagination()
+
+	// Persist the end-of-cycle state. The mid-loop save above only runs when
+	// advancing to another page, so without this the final page of every cycle —
+	// and all of a single-page cycle — reaches storage only via shutdownBase, and
+	// is lost outright on a crash or SIGKILL.
+	if err := b.saveCheckpoint(ctx); err != nil {
+		b.logger.Error("failed to save checkpoint", zap.Error(err))
+	}
+
+	return result, nil
+}
+
 // restAPILogsReceiver is a receiver that pulls logs from a REST API.
 type restAPILogsReceiver struct {
 	baseReceiver
@@ -534,7 +708,7 @@ func newRESTAPILogsReceiver(
 	cfg *Config,
 	cons consumer.Logs,
 ) (*restAPILogsReceiver, error) {
-	return &restAPILogsReceiver{
+	r := &restAPILogsReceiver{
 		baseReceiver: baseReceiver{
 			settings: params.TelemetrySettings,
 			logger:   params.Logger,
@@ -542,27 +716,14 @@ func newRESTAPILogsReceiver(
 			id:       params.ID,
 		},
 		consumer: cons,
-	}, nil
+	}
+	r.consume = r.consumeLogs
+	return r, nil
 }
 
 // Start starts the receiver.
 func (r *restAPILogsReceiver) Start(ctx context.Context, host component.Host) error {
-	r.logDeprecationWarnings()
-	if err := r.initializeClient(ctx, host); err != nil {
-		return err
-	}
-	if err := r.initializeRequestBody(); err != nil {
-		return err
-	}
-	if err := r.initializeStorage(ctx, host); err != nil {
-		return err
-	}
-	r.initializePagination()
-
-	cancelCtx, cancel := context.WithCancel(context.Background())
-	r.cancel = cancel
-
-	return r.startPolling(cancelCtx)
+	return r.startBase(ctx, host)
 }
 
 // Shutdown stops the receiver.
@@ -571,148 +732,18 @@ func (r *restAPILogsReceiver) Shutdown(ctx context.Context) error {
 	return r.shutdownBase(ctx)
 }
 
-// startPolling starts the polling goroutine.
-func (r *restAPILogsReceiver) startPolling(ctx context.Context) error {
-	// Initialize with minimum poll interval for responsive startup
-	r.currentPollInterval = r.cfg.MinPollInterval
-
-	// Run immediately on startup
-	result, err := r.poll(ctx)
-	if err != nil {
-		r.logger.Error("error on initial poll", zap.Error(err))
-		// Continue with periodic polling even if initial poll fails
+// consumeLogs converts a page of records into logs and passes them to the next
+// consumer. It is the logs receiver's consumeFunc.
+func (r *restAPILogsReceiver) consumeLogs(ctx context.Context, data []map[string]any) (int, error) {
+	logs := convertJSONToLogs(data, r.logger)
+	count := logs.LogRecordCount()
+	if count == 0 {
+		return 0, nil
 	}
-	r.adjustPollInterval(result)
-
-	// Start periodic polling with adaptive timer
-	timer := time.NewTimer(r.currentPollInterval)
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
-		defer timer.Stop()
-		for {
-			select {
-			case <-timer.C:
-				result, err := r.poll(ctx)
-				if err != nil {
-					r.logger.Error("error while polling", zap.Error(err))
-				}
-				r.adjustPollInterval(result)
-				timer.Reset(r.currentPollInterval)
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return nil
-}
-
-// poll performs a single polling cycle. Returns a pollResult with the total record count
-// and whether the last page was full (indicating more data may be available soon).
-func (r *restAPILogsReceiver) poll(ctx context.Context) (pollResult, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	result := pollResult{}
-
-	// Build the initial request from the current pagination state
-	req, err := r.buildAPIRequest()
-	if err != nil {
-		return result, err
+	if err := r.consumer.ConsumeLogs(ctx, logs); err != nil {
+		return count, fmt.Errorf("failed to consume logs: %w", err)
 	}
-
-	r.logger.Debug("starting poll cycle",
-		append([]zap.Field{
-			zap.String("url", r.cfg.URL),
-			zap.String("method", r.cfg.Method.httpMethod()),
-			zap.String("pagination_mode", string(r.cfg.Pagination.Mode)),
-			zap.Time("current_timestamp", r.paginationState.CurrentTimestamp),
-			zap.Int("pages_fetched", r.paginationState.PagesFetched),
-		}, requestLogFields(req)...)...)
-
-	// Handle pagination - fetch all pages in this poll cycle
-	pageNum := 0
-	for {
-		pageNum++
-		fullResponse, data, err := r.fetchDataPage(ctx, req)
-		if err != nil {
-			return result, err
-		}
-
-		r.logger.Debug("fetched page",
-			append([]zap.Field{
-				zap.Int("page_num", pageNum),
-				zap.Int("records_in_page", len(data)),
-			}, requestLogFields(req)...)...)
-
-		// Log first and last record timestamps if available for debugging duplicates
-		if len(data) > 0 && r.cfg.Pagination.Mode == paginationModeTimestamp {
-			timestampField := r.cfg.Pagination.Timestamp.TimestampFieldName
-			if timestampField != "" {
-				if firstTS, ok := data[0][timestampField]; ok {
-					r.logger.Debug("first record in page",
-						zap.Int("page_num", pageNum),
-						zap.Any("timestamp", firstTS),
-						zap.Any("record_preview", truncateRecord(data[0])))
-				}
-				if lastTS, ok := data[len(data)-1][timestampField]; ok {
-					r.logger.Debug("last record in page",
-						zap.Int("page_num", pageNum),
-						zap.Any("timestamp", lastTS),
-						zap.Any("record_preview", truncateRecord(data[len(data)-1])))
-				}
-			}
-		}
-
-		// Convert to logs and consume
-		logs := convertJSONToLogs(data, r.logger)
-		if logs.LogRecordCount() > 0 {
-			result.recordCount += logs.LogRecordCount()
-			if err := r.consumer.ConsumeLogs(ctx, logs); err != nil {
-				return result, fmt.Errorf("failed to consume logs: %w", err)
-			}
-		}
-
-		// Check for more pages
-		hasMore, nextReq := r.handlePagination(fullResponse, data)
-		r.logger.Debug("pagination decision",
-			zap.Int("page_num", pageNum),
-			zap.Bool("has_more", hasMore),
-			zap.Time("current_timestamp_state", r.paginationState.CurrentTimestamp))
-
-		if !hasMore {
-			// Determine if we stopped because the page limit was reached (API may have more data)
-			// or because the data was exhausted (partial/empty last page).
-			if len(data) > 0 && r.cfg.Pagination.PageLimit > 0 && !checkPageLimit(r.cfg, r.paginationState) {
-				result.lastPageFull = true
-			}
-			break
-		}
-
-		if err := r.saveCheckpoint(ctx); err != nil {
-			r.logger.Error("failed to save checkpoint", zap.Error(err))
-		}
-
-		req = nextReq
-	}
-
-	r.logger.Debug("poll cycle complete",
-		zap.Int("total_records", result.recordCount),
-		zap.Int("pages_fetched", pageNum),
-		zap.Bool("last_page_full", result.lastPageFull),
-		zap.Time("final_timestamp_state", r.paginationState.CurrentTimestamp))
-
-	r.resetTimestampPagination()
-
-	// Persist the end-of-cycle state. The mid-loop save above only runs when
-	// advancing to another page, so without this the final page of every cycle —
-	// and all of a single-page cycle — reaches storage only via shutdownBase, and
-	// is lost outright on a crash or SIGKILL.
-	if err := r.saveCheckpoint(ctx); err != nil {
-		r.logger.Error("failed to save checkpoint", zap.Error(err))
-	}
-
-	return result, nil
+	return count, nil
 }
 
 // truncateRecord creates a preview of a record for logging, limiting to key fields.
@@ -866,7 +897,7 @@ func newRESTAPIMetricsReceiver(
 	cfg *Config,
 	cons consumer.Metrics,
 ) (*restAPIMetricsReceiver, error) {
-	return &restAPIMetricsReceiver{
+	r := &restAPIMetricsReceiver{
 		baseReceiver: baseReceiver{
 			settings: params.TelemetrySettings,
 			logger:   params.Logger,
@@ -874,27 +905,14 @@ func newRESTAPIMetricsReceiver(
 			id:       params.ID,
 		},
 		consumer: cons,
-	}, nil
+	}
+	r.consume = r.consumeMetrics
+	return r, nil
 }
 
 // Start starts the receiver.
 func (r *restAPIMetricsReceiver) Start(ctx context.Context, host component.Host) error {
-	r.logDeprecationWarnings()
-	if err := r.initializeClient(ctx, host); err != nil {
-		return err
-	}
-	if err := r.initializeRequestBody(); err != nil {
-		return err
-	}
-	if err := r.initializeStorage(ctx, host); err != nil {
-		return err
-	}
-	r.initializePagination()
-
-	cancelCtx, cancel := context.WithCancel(context.Background())
-	r.cancel = cancel
-
-	return r.startPolling(cancelCtx)
+	return r.startBase(ctx, host)
 }
 
 // Shutdown stops the receiver.
@@ -903,146 +921,16 @@ func (r *restAPIMetricsReceiver) Shutdown(ctx context.Context) error {
 	return r.shutdownBase(ctx)
 }
 
-// startPolling starts the polling goroutine.
-func (r *restAPIMetricsReceiver) startPolling(ctx context.Context) error {
-	// Initialize with minimum poll interval for responsive startup
-	r.currentPollInterval = r.cfg.MinPollInterval
-
-	// Run immediately on startup
-	result, err := r.poll(ctx)
-	if err != nil {
-		r.logger.Error("error on initial poll", zap.Error(err))
-		// Continue with periodic polling even if initial poll fails
+// consumeMetrics converts a page of records into metrics and passes them to the
+// next consumer. It is the metrics receiver's consumeFunc.
+func (r *restAPIMetricsReceiver) consumeMetrics(ctx context.Context, data []map[string]any) (int, error) {
+	metrics := convertJSONToMetrics(data, &r.cfg.Metrics, r.logger)
+	count := metrics.MetricCount()
+	if count == 0 {
+		return 0, nil
 	}
-	r.adjustPollInterval(result)
-
-	// Start periodic polling with adaptive timer
-	timer := time.NewTimer(r.currentPollInterval)
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
-		defer timer.Stop()
-		for {
-			select {
-			case <-timer.C:
-				result, err := r.poll(ctx)
-				if err != nil {
-					r.logger.Error("error while polling", zap.Error(err))
-				}
-				r.adjustPollInterval(result)
-				timer.Reset(r.currentPollInterval)
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return nil
-}
-
-// poll performs a single polling cycle. Returns a pollResult with the total record count
-// and whether the last page was full (indicating more data may be available soon).
-func (r *restAPIMetricsReceiver) poll(ctx context.Context) (pollResult, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	result := pollResult{}
-
-	// Build the initial request from the current pagination state
-	req, err := r.buildAPIRequest()
-	if err != nil {
-		return result, err
+	if err := r.consumer.ConsumeMetrics(ctx, metrics); err != nil {
+		return count, fmt.Errorf("failed to consume metrics: %w", err)
 	}
-
-	r.logger.Debug("starting poll cycle",
-		append([]zap.Field{
-			zap.String("url", r.cfg.URL),
-			zap.String("method", r.cfg.Method.httpMethod()),
-			zap.String("pagination_mode", string(r.cfg.Pagination.Mode)),
-			zap.Time("current_timestamp", r.paginationState.CurrentTimestamp),
-			zap.Int("pages_fetched", r.paginationState.PagesFetched),
-		}, requestLogFields(req)...)...)
-
-	// Handle pagination - fetch all pages in this poll cycle
-	pageNum := 0
-	for {
-		pageNum++
-		fullResponse, data, err := r.fetchDataPage(ctx, req)
-		if err != nil {
-			return result, err
-		}
-
-		r.logger.Debug("fetched page",
-			append([]zap.Field{
-				zap.Int("page_num", pageNum),
-				zap.Int("records_in_page", len(data)),
-			}, requestLogFields(req)...)...)
-
-		// Log first and last record timestamps if available for debugging duplicates
-		if len(data) > 0 && r.cfg.Pagination.Mode == paginationModeTimestamp {
-			timestampField := r.cfg.Pagination.Timestamp.TimestampFieldName
-			if timestampField != "" {
-				if firstTS, ok := data[0][timestampField]; ok {
-					r.logger.Debug("first record in page",
-						zap.Int("page_num", pageNum),
-						zap.Any("timestamp", firstTS),
-						zap.Any("record_preview", truncateRecord(data[0])))
-				}
-				if lastTS, ok := data[len(data)-1][timestampField]; ok {
-					r.logger.Debug("last record in page",
-						zap.Int("page_num", pageNum),
-						zap.Any("timestamp", lastTS),
-						zap.Any("record_preview", truncateRecord(data[len(data)-1])))
-				}
-			}
-		}
-
-		// Convert to metrics and consume
-		metrics := convertJSONToMetrics(data, &r.cfg.Metrics, r.logger)
-		if metrics.MetricCount() > 0 {
-			result.recordCount += metrics.MetricCount()
-			if err := r.consumer.ConsumeMetrics(ctx, metrics); err != nil {
-				return result, fmt.Errorf("failed to consume metrics: %w", err)
-			}
-		}
-
-		// Check for more pages
-		hasMore, nextReq := r.handlePagination(fullResponse, data)
-		r.logger.Debug("pagination decision",
-			zap.Int("page_num", pageNum),
-			zap.Bool("has_more", hasMore),
-			zap.Time("current_timestamp_state", r.paginationState.CurrentTimestamp))
-
-		if !hasMore {
-			// Determine if we stopped because the page limit was reached (API may have more data)
-			// or because the data was exhausted (partial/empty last page).
-			if len(data) > 0 && r.cfg.Pagination.PageLimit > 0 && !checkPageLimit(r.cfg, r.paginationState) {
-				result.lastPageFull = true
-			}
-			break
-		}
-
-		if err := r.saveCheckpoint(ctx); err != nil {
-			r.logger.Error("failed to save checkpoint", zap.Error(err))
-		}
-
-		req = nextReq
-	}
-
-	r.logger.Debug("poll cycle complete",
-		zap.Int("total_records", result.recordCount),
-		zap.Int("pages_fetched", pageNum),
-		zap.Bool("last_page_full", result.lastPageFull),
-		zap.Time("final_timestamp_state", r.paginationState.CurrentTimestamp))
-
-	r.resetTimestampPagination()
-
-	// Persist the end-of-cycle state. The mid-loop save above only runs when
-	// advancing to another page, so without this the final page of every cycle —
-	// and all of a single-page cycle — reaches storage only via shutdownBase, and
-	// is lost outright on a crash or SIGKILL.
-	if err := r.saveCheckpoint(ctx); err != nil {
-		r.logger.Error("failed to save checkpoint", zap.Error(err))
-	}
-
-	return result, nil
+	return count, nil
 }
