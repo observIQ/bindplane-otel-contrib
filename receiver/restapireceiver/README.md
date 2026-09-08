@@ -192,8 +192,9 @@ from a `request_body` template — see [Request Body Templating](#request-body-t
 | Field                                 | Type   | Default | Required | Description                                                                                                                                                                                                                              |
 | ------------------------------------- | ------ | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pagination.mode`                     | string | `none`  | `false`  | Pagination mode: `none`, `offset_limit`, `page_size`, or `timestamp`                                                                                                                                                                     |
-| `pagination.response_source`          | string | `body`  | `false`  | Where to extract pagination response attributes from: `body` (response body or NDJSON metadata line) or `header` (HTTP response headers). Applies to `total_record_count_field`, `next_offset_field_name`, and `total_pages_field_name`. |
+| `pagination.response_source`          | string | `body`  | `false`  | Where to extract pagination response attributes from: `body` (response body or NDJSON metadata line) or `header` (HTTP response headers). Applies to `total_record_count_field`, `next_offset_field_name`, `total_pages_field_name`, and `has_more_field_name`. |
 | `pagination.total_record_count_field` | string |         | `false`  | Name of the field or header containing total record count                                                                                                                                                                                |
+| `pagination.has_more_field_name`      | string |         | `false`  | Name of the field or header containing the API's own "there is more data" boolean (e.g. `has_more`). When set and present in a response, it decides whether another page is fetched, replacing the "a full page means there may be more" heuristic — so `limit` / `page_size` no longer have to match the API's real page size. Supports nested fields with dot notation (e.g. `response_metadata.has_more`). Accepts `true`/`false`, the strings `"true"`/`"1"`, and numeric `1`/`0`. Only valid when `mode` is `offset_limit` or `page_size`. |
 | `pagination.page_limit`               | int    | `0`     | `false`  | Maximum number of pages to fetch (0 = no limit)                                                                                                                                                                                          |
 | `pagination.zero_based_index`         | bool   | `false` | `false`  | Indicates that the requested data starts at index 0                                                                                                                                                                                      |
 
@@ -203,7 +204,7 @@ from a `request_body` template — see [Request Body Templating](#request-body-t
 | ------------------------------------------------ | ------ | ------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pagination.offset_limit.offset_field_name`      | string |         | `false`  | Request parameter name for offset                                                                                                                                                                                                                    |
 | `pagination.offset_limit.limit_field_name`       | string |         | `false`  | Request parameter name for limit. Required for numeric offset pagination; optional when `next_offset_field_name` is set (token-based pagination)                                                                                                     |
-| `pagination.offset_limit.limit`                  | int    | `10`    | `false`  | Value sent for `limit_field_name` on each request. Also the expected page size for the "a full page means there may be more" heuristic, so it should match the page size the API actually returns. When `limit_field_name` is unset (token-based pagination), it is used only as that heuristic threshold and should be set to the API's own page size. |
+| `pagination.offset_limit.limit`                  | int    | `10`    | `false`  | Value sent for `limit_field_name` on each request. Unless `has_more_field_name` is set, it is also the expected page size for the "a full page means there may be more" heuristic, so it should match the page size the API actually returns. When `limit_field_name` is unset (token-based pagination), it is used only as that heuristic threshold and should be set to the API's own page size. |
 | `pagination.offset_limit.starting_offset`        | int    | `0`     | `false`  | Starting offset value                                                                                                                                                                                                                              |
 | `pagination.offset_limit.next_offset_field_name` | string |         | `false`  | Name of the field or header containing the next offset token. When set, the receiver uses token-based (cursor) pagination instead of numeric offsets. For body sources, supports nested fields with dot notation and array indices (e.g., `pagination.next_cursor`, `cursors[0].next`). |
 | `pagination.offset_limit.offset_type`            | string | `numeric` | `false`  | What `offset_field_name` carries: `numeric` for a numeric offset, or `opaque` for a token the receiver treats as meaningless. With `opaque` the parameter is omitted entirely until the first `next_offset_field_name` value arrives, instead of falling back to `starting_offset`. Requires `next_offset_field_name`, and is incompatible with a non-zero `starting_offset`. |
@@ -214,7 +215,7 @@ from a `request_body` template — see [Request Body Templating](#request-body-t
 | --------------------------------------------- | ------ | ------- | -------- | ------------------------------------------------------- |
 | `pagination.page_size.page_num_field_name`    | string |         | `false`  | Request parameter name for page number                    |
 | `pagination.page_size.page_size_field_name`   | string |         | `false`  | Request parameter name for page size                      |
-| `pagination.page_size.page_size`              | int    | `20`    | `false`  | Value sent for `page_size_field_name`. Also the expected page size for the "a full page means there may be more" heuristic, so it should match the page size the API actually returns. |
+| `pagination.page_size.page_size`              | int    | `20`    | `false`  | Value sent for `page_size_field_name`. Unless `has_more_field_name` is set, it is also the expected page size for the "a full page means there may be more" heuristic, so it should match the page size the API actually returns. |
 | `pagination.page_size.starting_page`          | int    | `1`     | `false`  | Starting page number                                    |
 | `pagination.page_size.total_pages_field_name` | string |         | `false`  | Name of the field or header containing total page count |
 
@@ -442,8 +443,10 @@ receivers:
 ```
 
 `limit` should match the page size the API actually returns — it doubles as the "a full page
-means there may be more" threshold. Changing `request_body` invalidates the stored checkpoint
-by design, since a cursor obtained under a different filter is meaningless.
+means there may be more" threshold. If the API reports continuation directly, set
+`has_more_field_name` instead and `limit` goes back to being a pure throughput knob. Changing
+`request_body` invalidates the stored checkpoint by design, since a cursor obtained under a
+different filter is meaningless.
 
 ### Datadog Logs Search (POST, nested body)
 
@@ -528,6 +531,65 @@ carries its cursor only in the body does not need it.
 
 A next offset the API returns as a JSON number is rendered as plain digits, so a token of
 `1000000` is sent as `1000000` rather than `1e+06`.
+
+### Explicit `has_more` Continuation
+
+By default the receiver infers whether to fetch another page from how many records came back: a
+full page (`limit` or `page_size` items) means there may be more, a short page means the backlog is
+drained. That makes `limit` load-bearing for correctness — set it larger than the API's real page
+size and every page looks short, so pagination stops after page one; set it smaller and every page
+looks full, costing a wasted request per cycle.
+
+Many APIs answer the question outright. Point `has_more_field_name` at that field and it decides
+instead, leaving `limit` as a pure throughput knob.
+
+```yaml
+receivers:
+  restapi:
+    url: "https://api.example.com/v1/audit_logs"
+    response_field: "data"
+    max_poll_interval: 5m
+    auth_mode: bearer
+    bearer:
+      token: "your-bearer-token-here"
+    pagination:
+      mode: offset_limit
+      has_more_field_name: "has_more"
+      offset_limit:
+        offset_field_name: "after"
+        limit_field_name: "limit"
+        limit: 100
+        next_offset_field_name: "last_id"
+        offset_type: opaque
+    storage: file_storage
+```
+
+Matching a response like:
+
+```json
+{
+  "data": [{ "id": "audit_log-1" }, { "id": "audit_log-2" }],
+  "has_more": true,
+  "last_id": "audit_log-2"
+}
+```
+
+Details worth knowing:
+
+- **Nested fields** work through the same dot notation as the other response fields — Slack-style
+  APIs put it at `response_metadata.has_more`.
+- **Header sources** are supported: with `response_source: header` the value is read from the named
+  header, where `true` arrives as a string. Booleans, the strings `"true"`/`"false"`/`"1"`/`"0"`,
+  and numeric `1`/`0` are all accepted.
+- **A response that omits the field** falls back to the page-count heuristic rather than assuming
+  the stream ended, so an API that only emits `has_more` on some responses still paginates.
+- **A cursor still wins over `has_more`.** In token-based pagination, a response with no
+  `next_offset_field_name` value ends the cycle even if `has_more` is `true` — there is no cursor to
+  advance with, so continuing would re-request the same page forever. The stored cursor is preserved
+  and the next poll resumes from it.
+- Only valid for `offset_limit` and `page_size` modes. Timestamp pagination advances by the newest
+  record it has seen rather than by page counts, so the receiver rejects the setting there instead
+  of silently ignoring it.
 
 ### Header-Based Cursor Pagination
 

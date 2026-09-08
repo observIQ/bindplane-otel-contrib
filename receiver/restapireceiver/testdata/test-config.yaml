@@ -17,6 +17,7 @@ receivers:
       value: test-key
     pagination:
       mode: page_size
+      has_more_field_name: "response_metadata.has_more"
       page_size:
         page_num_field_name: "page"
         page_size_field_name: "size"

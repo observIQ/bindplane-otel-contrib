@@ -722,7 +722,7 @@ func TestParseOffsetLimitResponse_TokenPresent_FullPage(t *testing.T) {
 	}
 
 	state := &paginationState{Limit: 10}
-	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state)
+	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state, zap.NewNop())
 	require.NoError(t, err)
 	require.True(t, hasMore)
 	require.Equal(t, "abc123", state.CurrentOffsetToken)
@@ -748,7 +748,7 @@ func TestParseOffsetLimitResponse_TokenPresent_PartialPage(t *testing.T) {
 	}
 
 	state := &paginationState{Limit: 10}
-	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state)
+	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state, zap.NewNop())
 	require.NoError(t, err)
 	require.False(t, hasMore)
 	require.Equal(t, "abc123", state.CurrentOffsetToken)
@@ -773,7 +773,7 @@ func TestParseOffsetLimitResponse_TokenPresent_EmptyPage(t *testing.T) {
 	}
 
 	state := &paginationState{Limit: 10}
-	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state)
+	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state, zap.NewNop())
 	require.NoError(t, err)
 	require.False(t, hasMore)
 	require.Equal(t, "bookmark123", state.CurrentOffsetToken)
@@ -797,7 +797,7 @@ func TestParseOffsetLimitResponse_TokenEmpty(t *testing.T) {
 	}
 
 	state := &paginationState{Limit: 10, CurrentOffsetToken: "previous"}
-	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state)
+	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state, zap.NewNop())
 	require.NoError(t, err)
 	require.False(t, hasMore)
 	require.Equal(t, "previous", state.CurrentOffsetToken,
@@ -821,7 +821,7 @@ func TestParseOffsetLimitResponse_TokenMissing(t *testing.T) {
 	}
 
 	state := &paginationState{Limit: 10, CurrentOffsetToken: "previous"}
-	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state)
+	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state, zap.NewNop())
 	require.NoError(t, err)
 	require.False(t, hasMore)
 	require.Equal(t, "previous", state.CurrentOffsetToken,
@@ -846,7 +846,7 @@ func TestParseOffsetLimitResponse_TokenNull(t *testing.T) {
 	}
 
 	state := &paginationState{Limit: 10, CurrentOffsetToken: "previous"}
-	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state)
+	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state, zap.NewNop())
 	require.NoError(t, err)
 	require.False(t, hasMore)
 	require.Equal(t, "previous", state.CurrentOffsetToken,
@@ -872,7 +872,7 @@ func TestParseOffsetLimitResponse_NonMapResponse(t *testing.T) {
 	extracted := []map[string]any{{"id": "1"}}
 
 	state := &paginationState{Limit: 10, CurrentOffsetToken: "previous"}
-	hasMore, err := parseOffsetLimitResponse(cfg, response, extracted, state)
+	hasMore, err := parseOffsetLimitResponse(cfg, response, extracted, state, zap.NewNop())
 	require.NoError(t, err)
 	require.False(t, hasMore)
 	require.Equal(t, "previous", state.CurrentOffsetToken,
@@ -904,7 +904,7 @@ func TestParseOffsetLimitResponse_TokenNested(t *testing.T) {
 	}
 
 	state := &paginationState{Limit: 10}
-	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state)
+	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state, zap.NewNop())
 	require.NoError(t, err)
 	require.True(t, hasMore)
 	require.Equal(t, "cursor_xyz", state.CurrentOffsetToken)
@@ -935,7 +935,7 @@ func TestParseOffsetLimitResponse_TokenNumeric(t *testing.T) {
 			"next_offset": float64(42),
 		}
 		state := &paginationState{Limit: 10}
-		hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state)
+		hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state, zap.NewNop())
 		require.NoError(t, err)
 		require.True(t, hasMore)
 		require.Equal(t, "42", state.CurrentOffsetToken)
@@ -947,7 +947,7 @@ func TestParseOffsetLimitResponse_TokenNumeric(t *testing.T) {
 			"next_offset": 99,
 		}
 		state := &paginationState{Limit: 10}
-		hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state)
+		hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state, zap.NewNop())
 		require.NoError(t, err)
 		require.True(t, hasMore)
 		require.Equal(t, "99", state.CurrentOffsetToken)
@@ -976,7 +976,7 @@ func TestParseOffsetLimitResponse_NoTokenFieldConfigured(t *testing.T) {
 		Limit:         10,
 	}
 
-	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state)
+	hasMore, err := parseOffsetLimitResponse(cfg, response, testExtractData(response), state, zap.NewNop())
 	require.NoError(t, err)
 	require.True(t, hasMore)
 	require.Equal(t, 10, state.TotalRecords)
@@ -1933,7 +1933,7 @@ func TestParseOffsetLimitResponse_NumericTokenFormatting(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			state := &paginationState{Limit: 10}
-			_, err := parseOffsetLimitResponse(cfg, map[string]any{"next_offset": tc.tokenVal}, []map[string]any{}, state)
+			_, err := parseOffsetLimitResponse(cfg, map[string]any{"next_offset": tc.tokenVal}, []map[string]any{}, state, zap.NewNop())
 			require.NoError(t, err)
 			require.Equal(t, tc.expected, state.CurrentOffsetToken)
 			require.Equal(t, tc.expected, buildPaginationParams(cfg, state).Get("offset"))
@@ -2041,9 +2041,312 @@ func TestNewPaginationState_PageSize_ConfiguredPageSize(t *testing.T) {
 			// The value sent and the full-page threshold are the same variable.
 			require.Equal(t, strconv.Itoa(tc.expected), buildPaginationParams(cfg, state).Get("size"))
 			full := make([]map[string]any, tc.expected)
-			more, err := parsePageSizeResponse(cfg, map[string]any{}, full, state)
+			more, err := parsePageSizeResponse(cfg, map[string]any{}, full, state, zap.NewNop())
 			require.NoError(t, err)
 			require.True(t, more, "a full page should report more pages")
+		})
+	}
+}
+
+func TestToBool(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  any
+		want   bool
+		wantOK bool
+	}{
+		{name: "native true", input: true, want: true, wantOK: true},
+		{name: "native false", input: false, want: false, wantOK: true},
+		{name: "string true", input: "true", want: true, wantOK: true},
+		{name: "string false", input: "false", want: false, wantOK: true},
+		{name: "string capitalized", input: "True", want: true, wantOK: true},
+		{name: "string uppercase", input: "TRUE", want: true, wantOK: true},
+		{name: "string one", input: "1", want: true, wantOK: true},
+		{name: "string zero", input: "0", want: false, wantOK: true},
+		{name: "string padded by a header source", input: " true ", want: true, wantOK: true},
+		{name: "json number one", input: float64(1), want: true, wantOK: true},
+		{name: "json number zero", input: float64(0), want: false, wantOK: true},
+		{name: "int one", input: 1, want: true, wantOK: true},
+		{name: "int zero", input: 0, want: false, wantOK: true},
+		{name: "unparseable string", input: "yes please", want: false, wantOK: false},
+		{name: "empty string", input: "", want: false, wantOK: false},
+		{name: "map", input: map[string]any{}, want: false, wantOK: false},
+		{name: "slice", input: []any{}, want: false, wantOK: false},
+		{name: "nil", input: nil, want: false, wantOK: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := toBool(tc.input)
+			require.Equal(t, tc.wantOK, ok)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// items builds a data array of n records for the pagination heuristics, which
+// only ever look at its length.
+func items(n int) []map[string]any {
+	data := make([]map[string]any, 0, n)
+	for i := 0; i < n; i++ {
+		data = append(data, map[string]any{"id": fmt.Sprintf("%d", i)})
+	}
+	return data
+}
+
+func offsetLimitHasMoreConfig(hasMoreField string, ol OffsetLimitPagination) *Config {
+	return &Config{
+		Pagination: PaginationConfig{
+			Mode:             paginationModeOffsetLimit,
+			HasMoreFieldName: hasMoreField,
+			OffsetLimit:      ol,
+		},
+	}
+}
+
+// TestHasMoreFieldName covers pagination.has_more_field_name: when the API
+// states continuation outright it replaces the "a full page means there may be
+// more" count heuristic, so limit / page_size no longer have to match the API's
+// real page size. Each case pairs a has_more value with a data count the
+// heuristic would read the opposite way, so a regression that ignored the field
+// would flip the expectation.
+func TestHasMoreFieldName(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         *Config
+		response    map[string]any
+		state       *paginationState
+		wantHasMore bool
+		wantToken   string
+	}{
+		{
+			// The headline fix: a short page no longer ends the cycle when the
+			// API says otherwise, so limit may exceed the real page size.
+			name: "token pagination continues on a short page when has_more is true",
+			cfg:  offsetLimitHasMoreConfig("has_more", OffsetLimitPagination{NextOffsetFieldName: "next_cursor"}),
+			response: map[string]any{
+				"data":        items(2),
+				"next_cursor": "cursor-2",
+				"has_more":    true,
+			},
+			state:       &paginationState{Limit: 100},
+			wantHasMore: true,
+			wantToken:   "cursor-2",
+		},
+		{
+			// The other direction: a full page no longer costs a wasted request
+			// when the API says the backlog is drained.
+			name: "token pagination stops on a full page when has_more is false",
+			cfg:  offsetLimitHasMoreConfig("has_more", OffsetLimitPagination{NextOffsetFieldName: "next_cursor"}),
+			response: map[string]any{
+				"data":        items(3),
+				"next_cursor": "cursor-2",
+				"has_more":    false,
+			},
+			state:       &paginationState{Limit: 3},
+			wantHasMore: false,
+			// Still recorded: the token is the bookmark the next poll resumes from.
+			wantToken: "cursor-2",
+		},
+		{
+			// A has_more of true with no cursor to advance with would re-request
+			// the same page forever, so the missing token wins.
+			name: "token pagination stops when has_more is true but no cursor is returned",
+			cfg:  offsetLimitHasMoreConfig("has_more", OffsetLimitPagination{NextOffsetFieldName: "next_cursor"}),
+			response: map[string]any{
+				"data":     items(3),
+				"has_more": true,
+			},
+			state:       &paginationState{Limit: 3, CurrentOffsetToken: "cursor-1"},
+			wantHasMore: false,
+			// The stored cursor is preserved rather than discarded.
+			wantToken: "cursor-1",
+		},
+		{
+			name: "numeric offset stops when has_more is false despite a full page",
+			cfg: offsetLimitHasMoreConfig("has_more", OffsetLimitPagination{
+				OffsetFieldName: "offset",
+				LimitFieldName:  "limit",
+			}),
+			response: map[string]any{
+				"data":     items(10),
+				"has_more": false,
+			},
+			state:       &paginationState{Limit: 10},
+			wantHasMore: false,
+		},
+		{
+			name: "numeric offset continues when has_more is true despite a short page",
+			cfg: offsetLimitHasMoreConfig("has_more", OffsetLimitPagination{
+				OffsetFieldName: "offset",
+				LimitFieldName:  "limit",
+			}),
+			response: map[string]any{
+				"data":     items(2),
+				"has_more": true,
+			},
+			state:       &paginationState{Limit: 10},
+			wantHasMore: true,
+		},
+		{
+			// has_more is the API's own answer, so it outranks the derived
+			// offset-vs-total comparison too.
+			name: "has_more outranks total_record_count_field",
+			cfg: func() *Config {
+				cfg := offsetLimitHasMoreConfig("has_more", OffsetLimitPagination{
+					OffsetFieldName: "offset",
+					LimitFieldName:  "limit",
+				})
+				cfg.Pagination.TotalRecordCountField = "total"
+				return cfg
+			}(),
+			response: map[string]any{
+				"data":     items(2),
+				"total":    float64(1000),
+				"has_more": false,
+			},
+			state:       &paginationState{Limit: 10},
+			wantHasMore: false,
+		},
+		{
+			name: "nested has_more field",
+			cfg: offsetLimitHasMoreConfig("response_metadata.has_more", OffsetLimitPagination{
+				NextOffsetFieldName: "response_metadata.next_cursor",
+			}),
+			response: map[string]any{
+				"data": items(2),
+				"response_metadata": map[string]any{
+					"next_cursor": "cursor-2",
+					"has_more":    true,
+				},
+			},
+			state:       &paginationState{Limit: 100},
+			wantHasMore: true,
+			wantToken:   "cursor-2",
+		},
+		{
+			// A header source yields strings, never JSON booleans.
+			name: "string true from a header source",
+			cfg: offsetLimitHasMoreConfig("X-Has-More", OffsetLimitPagination{
+				OffsetFieldName: "offset",
+				LimitFieldName:  "limit",
+			}),
+			response: map[string]any{
+				"data":       items(2),
+				"X-Has-More": "true",
+			},
+			state:       &paginationState{Limit: 10},
+			wantHasMore: true,
+		},
+		{
+			name: "string false from a header source",
+			cfg: offsetLimitHasMoreConfig("X-Has-More", OffsetLimitPagination{
+				OffsetFieldName: "offset",
+				LimitFieldName:  "limit",
+			}),
+			response: map[string]any{
+				"data":       items(10),
+				"X-Has-More": "false",
+			},
+			state:       &paginationState{Limit: 10},
+			wantHasMore: false,
+		},
+		{
+			// An API that only emits has_more on some responses must still
+			// paginate, so a missing field falls back rather than ending the run.
+			name: "missing has_more falls back to the full-page heuristic",
+			cfg: offsetLimitHasMoreConfig("has_more", OffsetLimitPagination{
+				OffsetFieldName: "offset",
+				LimitFieldName:  "limit",
+			}),
+			response:    map[string]any{"data": items(10)},
+			state:       &paginationState{Limit: 10},
+			wantHasMore: true,
+		},
+		{
+			name: "null has_more falls back to the full-page heuristic",
+			cfg: offsetLimitHasMoreConfig("has_more", OffsetLimitPagination{
+				OffsetFieldName: "offset",
+				LimitFieldName:  "limit",
+			}),
+			response:    map[string]any{"data": items(2), "has_more": nil},
+			state:       &paginationState{Limit: 10},
+			wantHasMore: false,
+		},
+		{
+			name: "uncoercible has_more falls back to the full-page heuristic",
+			cfg: offsetLimitHasMoreConfig("has_more", OffsetLimitPagination{
+				OffsetFieldName: "offset",
+				LimitFieldName:  "limit",
+			}),
+			response:    map[string]any{"data": items(10), "has_more": map[string]any{"nested": true}},
+			state:       &paginationState{Limit: 10},
+			wantHasMore: true,
+		},
+		{
+			name: "unset has_more_field_name leaves the heuristic in charge",
+			cfg: offsetLimitHasMoreConfig("", OffsetLimitPagination{
+				OffsetFieldName: "offset",
+				LimitFieldName:  "limit",
+			}),
+			// has_more present but not configured, so it is ignored.
+			response:    map[string]any{"data": items(10), "has_more": false},
+			state:       &paginationState{Limit: 10},
+			wantHasMore: true,
+		},
+		{
+			name: "page_size stops when has_more is false despite a full page",
+			cfg: &Config{
+				Pagination: PaginationConfig{
+					Mode:             paginationModePageSize,
+					HasMoreFieldName: "has_more",
+					PageSize:         PageSizePagination{PageNumFieldName: "page", PageSizeFieldName: "size"},
+				},
+			},
+			response:    map[string]any{"data": items(20), "has_more": false},
+			state:       &paginationState{CurrentPage: 1, PageSize: 20},
+			wantHasMore: false,
+		},
+		{
+			name: "page_size continues when has_more is true despite a short page",
+			cfg: &Config{
+				Pagination: PaginationConfig{
+					Mode:             paginationModePageSize,
+					HasMoreFieldName: "has_more",
+					PageSize:         PageSizePagination{PageNumFieldName: "page", PageSizeFieldName: "size"},
+				},
+			},
+			response:    map[string]any{"data": items(3), "has_more": true},
+			state:       &paginationState{CurrentPage: 1, PageSize: 20},
+			wantHasMore: true,
+		},
+		{
+			name: "has_more outranks total_pages_field_name",
+			cfg: &Config{
+				Pagination: PaginationConfig{
+					Mode:             paginationModePageSize,
+					HasMoreFieldName: "has_more",
+					PageSize: PageSizePagination{
+						PageNumFieldName:    "page",
+						PageSizeFieldName:   "size",
+						TotalPagesFieldName: "total_pages",
+					},
+				},
+			},
+			response:    map[string]any{"data": items(20), "total_pages": float64(50), "has_more": false},
+			state:       &paginationState{CurrentPage: 1, PageSize: 20},
+			wantHasMore: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			hasMore, err := parsePaginationResponse(tc.cfg, tc.response, testExtractData(tc.response), tc.state, zap.NewNop())
+			require.NoError(t, err)
+			require.Equal(t, tc.wantHasMore, hasMore)
+			if tc.wantToken != "" {
+				require.Equal(t, tc.wantToken, tc.state.CurrentOffsetToken)
+			}
 		})
 	}
 }

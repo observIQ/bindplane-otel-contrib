@@ -414,6 +414,9 @@ func (b *baseReceiver) paginationResponseFields() []string {
 	if b.cfg.Pagination.TotalRecordCountField != "" {
 		fields = append(fields, b.cfg.Pagination.TotalRecordCountField)
 	}
+	if b.cfg.Pagination.HasMoreFieldName != "" {
+		fields = append(fields, b.cfg.Pagination.HasMoreFieldName)
+	}
 
 	switch b.cfg.Pagination.Mode {
 	case paginationModeOffsetLimit:

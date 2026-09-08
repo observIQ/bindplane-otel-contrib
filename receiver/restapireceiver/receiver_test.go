@@ -2061,3 +2061,161 @@ func TestMetricsPoll_TailPreservesAndPersistsCursor(t *testing.T) {
 	require.Equal(t, "cursor-from-earlier-poll", saved.PaginationState.CurrentOffsetToken,
 		"the persisted checkpoint must carry the cursor the next poll resumes from")
 }
+
+// TestRESTAPILogsReceiver_HasMoreDrainsBacklogInOneCycle is the end-to-end case
+// pagination.has_more_field_name exists for: limit is deliberately set far above
+// the page size the API actually returns, which under the count heuristic makes
+// every page look partial and stops pagination after page one. With the API's
+// own has_more honored, the whole backlog drains within a single poll cycle.
+//
+// The poll intervals are long enough that only the initial poll can run inside
+// the assertion window, so three requests means three pages in one cycle rather
+// than one page across three cycles.
+func TestRESTAPILogsReceiver_HasMoreDrainsBacklogInOneCycle(t *testing.T) {
+	var requestCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		cursor := r.URL.Query().Get("cursor")
+
+		// Two records per page — well under the configured limit of 100.
+		var response map[string]any
+		switch cursor {
+		case "":
+			response = map[string]any{
+				"data":        []map[string]any{{"id": "1"}, {"id": "2"}},
+				"next_cursor": "cursor-2",
+				"has_more":    true,
+			}
+		case "cursor-2":
+			response = map[string]any{
+				"data":        []map[string]any{{"id": "3"}, {"id": "4"}},
+				"next_cursor": "cursor-3",
+				"has_more":    true,
+			}
+		default:
+			response = map[string]any{
+				"data":        []map[string]any{{"id": "5"}, {"id": "6"}},
+				"next_cursor": "cursor-4",
+				"has_more":    false,
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:           server.URL,
+		AuthMode:      authModeNone,
+		ResponseField: "data",
+		Pagination: PaginationConfig{
+			Mode:             paginationModeOffsetLimit,
+			HasMoreFieldName: "has_more",
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "cursor",
+				LimitFieldName:      "limit",
+				Limit:               100,
+				NextOffsetFieldName: "next_cursor",
+				OffsetType:          offsetTypeOpaque,
+			},
+		},
+		MinPollInterval: 30 * time.Second,
+		MaxPollInterval: 30 * time.Second,
+		ClientConfig:    confighttp.ClientConfig{},
+	}
+
+	// Validate applies the production defaults, notably backoff_multiplier. Left
+	// at its zero value the backoff would drive the poll interval to 0 and
+	// busy-loop, making the request counts below a race.
+	require.NoError(t, cfg.Validate())
+
+	sink := new(consumertest.LogsSink)
+	params := receivertest.NewNopSettings(metadata.Type)
+	receiver, err := newRESTAPILogsReceiver(params, cfg, sink)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, receiver.Start(ctx, componenttest.NewNopHost()))
+	defer func() {
+		require.NoError(t, receiver.Shutdown(ctx))
+	}()
+
+	require.Eventually(t, func() bool {
+		return logRecordCount(sink) >= 6
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// Exactly three requests: the cycle followed has_more twice and stopped when
+	// it went false, rather than paging on against a valid cursor.
+	require.Equal(t, int32(3), requestCount.Load())
+	require.Equal(t, 6, logRecordCount(sink))
+}
+
+// TestRESTAPILogsReceiver_HasMoreFromHeader covers has_more_field_name under
+// response_source: header, where the value arrives as the string "true" and has
+// to be injected alongside the cursor header for the pagination logic to see it.
+func TestRESTAPILogsReceiver_HasMoreFromHeader(t *testing.T) {
+	var requestCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		cursor := r.URL.Query().Get("cursor")
+
+		w.Header().Set("Content-Type", "application/json")
+		if cursor == "" {
+			w.Header().Set("X-Next-Cursor", "page-2")
+			w.Header().Set("X-Has-More", "true")
+			json.NewEncoder(w).Encode([]map[string]any{{"id": "1"}, {"id": "2"}})
+			return
+		}
+
+		w.Header().Set("X-Next-Cursor", "page-3")
+		w.Header().Set("X-Has-More", "false")
+		json.NewEncoder(w).Encode([]map[string]any{{"id": "3"}})
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:      server.URL,
+		AuthMode: authModeNone,
+		Pagination: PaginationConfig{
+			Mode:             paginationModeOffsetLimit,
+			ResponseSource:   responseSourceHeader,
+			HasMoreFieldName: "X-Has-More",
+			OffsetLimit: OffsetLimitPagination{
+				OffsetFieldName:     "cursor",
+				LimitFieldName:      "limit",
+				Limit:               50,
+				NextOffsetFieldName: "X-Next-Cursor",
+				OffsetType:          offsetTypeOpaque,
+			},
+		},
+		MinPollInterval: 30 * time.Second,
+		MaxPollInterval: 30 * time.Second,
+		ClientConfig:    confighttp.ClientConfig{},
+	}
+
+	// Validate applies the production defaults, notably backoff_multiplier. Left
+	// at its zero value the backoff would drive the poll interval to 0 and
+	// busy-loop, making the request counts below a race.
+	require.NoError(t, cfg.Validate())
+
+	sink := new(consumertest.LogsSink)
+	params := receivertest.NewNopSettings(metadata.Type)
+	receiver, err := newRESTAPILogsReceiver(params, cfg, sink)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, receiver.Start(ctx, componenttest.NewNopHost()))
+	defer func() {
+		require.NoError(t, receiver.Shutdown(ctx))
+	}()
+
+	require.Eventually(t, func() bool {
+		return logRecordCount(sink) >= 3
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// The string "true" in the header carried page one to page two; "false"
+	// stopped it there, despite a short page under a limit of 50.
+	require.Equal(t, int32(2), requestCount.Load())
+	require.Equal(t, 3, logRecordCount(sink))
+}
