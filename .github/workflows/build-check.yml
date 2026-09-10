@@ -67,7 +67,7 @@ jobs:
             exit 1
           fi
 
-          main_ver=$(curl -fsSL "https://raw.githubusercontent.com/observIQ/bindplane-otel-collector/main/${TOOLS_GOMOD}" 2>/dev/null \
+          main_ver=$(curl -fsSL --retry 3 --retry-delay 5 --retry-connrefused "https://raw.githubusercontent.com/observIQ/bindplane-otel-collector/main/${TOOLS_GOMOD}" 2>/dev/null \
             | extract_ver || true)
 
           if [ "$contrib_ver" = "$main_ver" ]; then
@@ -77,7 +77,30 @@ jobs:
           fi
 
           branch="deps/otel-${contrib_ver#v}"
-          if git ls-remote --exit-code --heads "$COLLECTOR" "$branch" >/dev/null 2>&1; then
+          # Query the remote for the coordination branch with bounded retry.
+          # git ls-remote --exit-code returns 2 when it connected fine but the
+          # branch does not exist (a deterministic answer we must not retry),
+          # versus other non-zero codes (e.g. 128) for transient network errors.
+          branch_exists=""
+          for i in 1 2 3; do
+            if git ls-remote --exit-code --heads "$COLLECTOR" "$branch" >/dev/null 2>&1; then
+              branch_exists=yes
+              break
+            else
+              rc=$?
+              if [ "$rc" -eq 2 ]; then
+                branch_exists=no
+                break
+              fi
+              echo "::warning title=Build Check::git ls-remote attempt ${i}/3 for '${branch}' failed (exit ${rc}); retrying." >&2
+              sleep $((i * 5))
+            fi
+          done
+          if [ -z "$branch_exists" ]; then
+            echo "::error title=Build Check::git ls-remote could not reach '${COLLECTOR}' after 3 attempts."
+            exit 1
+          fi
+          if [ "$branch_exists" = "yes" ]; then
             echo "ref=$branch" >> "$GITHUB_OUTPUT"
             echo "::notice title=Build Check::Contrib on ${contrib_ver}, collector main on ${main_ver:-unknown}; building against coordination branch '${branch}'."
           else
