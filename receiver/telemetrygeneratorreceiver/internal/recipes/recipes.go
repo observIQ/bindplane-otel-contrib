@@ -64,9 +64,9 @@ func (p Params) resolve(defaultWorkers int, defaultRate time.Duration) (int, tim
 }
 
 // Func is the contract every recipe implements. Construct and return
-// ProducerModules wired to the supplied consumer; the runner takes
-// over lifecycle from there.
-type Func func(*zap.Logger, embed.LogConsumer, Params) ([]embed.ProducerModule, error)
+// ProducerModules wired to the supplied consumer and self-telemetry
+// bundle; the runner takes over lifecycle from there.
+type Func func(*zap.Logger, embed.LogConsumer, Params, embed.TelemetrySettings) ([]embed.ProducerModule, error)
 
 // registry holds every recipe shipped with the receiver. Keys are the
 // names users reference in config (AdditionalConfig.recipe). The map is

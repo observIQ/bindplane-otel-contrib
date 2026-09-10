@@ -230,11 +230,11 @@ func TestMetricAdapter_PerPointResource_MergeLockAndGroup(t *testing.T) {
 	a := NewMetricAdapter(sink, resource, LockableAttrs{}, zaptest.NewLogger(t))
 	require.NoError(t, a.ConsumeMetrics(context.Background(), []embed.MetricPoint{
 		{Name: "a", Type: embed.MetricTypeGauge, IntValue: intPtr(1),
-			Metadata: embed.MetricPointMetadata{Resource: map[string]string{"host.name": "h1"}}},
+			Metadata: embed.MetricPointMetadata{Resource: map[string]any{"host.name": "h1"}}},
 		{Name: "b", Type: embed.MetricTypeGauge, IntValue: intPtr(2),
-			Metadata: embed.MetricPointMetadata{Resource: map[string]string{"host.name": "h2"}}},
+			Metadata: embed.MetricPointMetadata{Resource: map[string]any{"host.name": "h2"}}},
 		{Name: "c", Type: embed.MetricTypeGauge, IntValue: intPtr(3),
-			Metadata: embed.MetricPointMetadata{Resource: map[string]string{"host.name": "h1"}}},
+			Metadata: embed.MetricPointMetadata{Resource: map[string]any{"host.name": "h1"}}},
 	}))
 	metrics := sink.AllMetrics()
 	require.Len(t, metrics, 1)

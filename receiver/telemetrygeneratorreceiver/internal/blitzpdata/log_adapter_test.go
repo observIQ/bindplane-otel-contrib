@@ -272,7 +272,7 @@ func TestLogAdapter_PerRecordResource_MergesOverBase(t *testing.T) {
 	require.NoError(t, a.ConsumeLogs(context.Background(), []embed.LogRecord{{
 		Message: "x",
 		Metadata: embed.LogRecordMetadata{
-			Resource: map[string]string{
+			Resource: map[string]any{
 				"host.name":        "from-blitz", // overrides unlocked base
 				"telemetry.source": "nginx",      // new key, lands as-is
 			},
@@ -296,7 +296,7 @@ func TestLogAdapter_PerRecordResource_LockedKeyStays(t *testing.T) {
 	require.NoError(t, a.ConsumeLogs(context.Background(), []embed.LogRecord{{
 		Message: "x",
 		Metadata: embed.LogRecordMetadata{
-			Resource: map[string]string{"host.name": "blitz-host"},
+			Resource: map[string]any{"host.name": "blitz-host"},
 		},
 	}}))
 	resMap := sink.AllLogs()[0].ResourceLogs().At(0).Resource().Attributes().AsRaw()
@@ -334,7 +334,7 @@ func TestLogAdapter_NilAndEmptyMetadata_Identical(t *testing.T) {
 	// nil and empty Metadata maps both mean "no override".
 	for _, meta := range []embed.LogRecordMetadata{
 		{}, // nil maps
-		{Resource: map[string]string{}, Attributes: map[string]any{}}, // empty maps
+		{Resource: map[string]any{}, Attributes: map[string]any{}}, // empty maps
 	} {
 		sink := &consumertest.LogsSink{}
 		resource := LockableAttrs{Base: map[string]any{"host.name": "h"}}
@@ -358,9 +358,9 @@ func TestLogAdapter_ResourceGrouping_DistinctResources_Split(t *testing.T) {
 	sink := &consumertest.LogsSink{}
 	a := NewLogAdapter(sink, LockableAttrs{}, LockableAttrs{}, false, zaptest.NewLogger(t))
 	require.NoError(t, a.ConsumeLogs(context.Background(), []embed.LogRecord{
-		{Message: "a", Metadata: embed.LogRecordMetadata{Resource: map[string]string{"host.name": "h1"}}},
-		{Message: "b", Metadata: embed.LogRecordMetadata{Resource: map[string]string{"host.name": "h2"}}},
-		{Message: "c", Metadata: embed.LogRecordMetadata{Resource: map[string]string{"host.name": "h1"}}},
+		{Message: "a", Metadata: embed.LogRecordMetadata{Resource: map[string]any{"host.name": "h1"}}},
+		{Message: "b", Metadata: embed.LogRecordMetadata{Resource: map[string]any{"host.name": "h2"}}},
+		{Message: "c", Metadata: embed.LogRecordMetadata{Resource: map[string]any{"host.name": "h1"}}},
 	}))
 	logs := sink.AllLogs()
 	require.Len(t, logs, 1)
@@ -385,8 +385,8 @@ func TestLogAdapter_ResourceGrouping_LockedKeyCollapsesGroups(t *testing.T) {
 	}
 	a := NewLogAdapter(sink, resource, LockableAttrs{}, false, zaptest.NewLogger(t))
 	require.NoError(t, a.ConsumeLogs(context.Background(), []embed.LogRecord{
-		{Message: "a", Metadata: embed.LogRecordMetadata{Resource: map[string]string{"host.name": "h1"}}},
-		{Message: "b", Metadata: embed.LogRecordMetadata{Resource: map[string]string{"host.name": "h2"}}},
+		{Message: "a", Metadata: embed.LogRecordMetadata{Resource: map[string]any{"host.name": "h1"}}},
+		{Message: "b", Metadata: embed.LogRecordMetadata{Resource: map[string]any{"host.name": "h2"}}},
 	}))
 	logs := sink.AllLogs()
 	require.Len(t, logs, 1)
