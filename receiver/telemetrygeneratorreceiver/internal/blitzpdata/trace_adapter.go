@@ -72,7 +72,7 @@ func (a *TraceAdapter) ConsumeTraces(ctx context.Context, spans []embed.Span) er
 	groups := make(map[string]*group)
 	order := make([]string, 0)
 	for i := range spans {
-		merged := a.resource.MergeWithStringOverlay(spans[i].Metadata.Resource)
+		merged := a.resource.MergeWithAnyOverlay(spans[i].Metadata.Resource)
 		fp := FingerprintMap(merged)
 		g, exists := groups[fp]
 		if !exists {

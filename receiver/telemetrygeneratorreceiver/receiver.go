@@ -56,12 +56,17 @@ type telemetryGeneratorReceiver struct {
 	// on their own schedule and an unused ticker would just wake the
 	// downstream pipeline with empty payloads each interval.
 	hasTickerGenerators bool
+
+	// tel routes blitz's self-telemetry into this receiver's component
+	// telemetry. A zero value falls back to the globals.
+	tel embed.TelemetrySettings
 }
 
 // newTelemetryGeneratorReceiver creates a new telemetry generator receiver
-func newTelemetryGeneratorReceiver(_ context.Context, logger *zap.Logger, cfg *Config, tp telemetryProducer) telemetryGeneratorReceiver {
+func newTelemetryGeneratorReceiver(_ context.Context, tel embed.TelemetrySettings, cfg *Config, tp telemetryProducer) telemetryGeneratorReceiver {
 	return telemetryGeneratorReceiver{
-		logger:   logger,
+		logger:   tel.Logger,
+		tel:      tel,
 		cfg:      cfg,
 		doneChan: make(chan struct{}),
 		producer: tp,
@@ -121,7 +126,7 @@ func (r *telemetryGeneratorReceiver) Start(_ context.Context, _ component.Host) 
 	r.ctx, r.cancelFunc = context.WithCancelCause(context.Background())
 
 	if r.blitzRunner != nil {
-		if err := r.blitzRunner.Start(r.ctx, embed.Host{Logger: r.logger}); err != nil {
+		if err := r.blitzRunner.Start(r.ctx, embed.Host{Telemetry: r.tel}); err != nil {
 			r.cancelFunc(errors.New("blitz runner Start failed"))
 			close(r.doneChan)
 			return fmt.Errorf("start blitz runner: %w", err)

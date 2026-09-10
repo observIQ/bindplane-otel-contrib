@@ -168,11 +168,11 @@ func TestTraceAdapter_PerSpanResource_MergeLockAndGroup(t *testing.T) {
 	a := NewTraceAdapter(sink, resource, LockableAttrs{}, zaptest.NewLogger(t))
 	require.NoError(t, a.ConsumeTraces(context.Background(), []embed.Span{
 		{TraceID: testTraceID, SpanID: testSpanID, Name: "a",
-			Metadata: embed.SpanMetadata{Resource: map[string]string{"host.name": "h1"}}},
+			Metadata: embed.SpanMetadata{Resource: map[string]any{"host.name": "h1"}}},
 		{TraceID: testTraceID, SpanID: testParent, Name: "b",
-			Metadata: embed.SpanMetadata{Resource: map[string]string{"host.name": "h2"}}},
+			Metadata: embed.SpanMetadata{Resource: map[string]any{"host.name": "h2"}}},
 		{TraceID: testTraceID, SpanID: testSpanID, Name: "c",
-			Metadata: embed.SpanMetadata{Resource: map[string]string{"host.name": "h1"}}},
+			Metadata: embed.SpanMetadata{Resource: map[string]any{"host.name": "h1"}}},
 	}))
 	traces := sink.AllTraces()
 	require.Len(t, traces, 1)
