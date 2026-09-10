@@ -36,25 +36,27 @@ const redisDefaultLookupTimeout = 5 * time.Second
 // not set RedisConfig.DialTimeout.
 const redisDefaultDialTimeout = 2 * time.Second
 
-// redisBootPingTimeout bounds the startup Ping used to verify connectivity
-// and credentials. Failure here aborts source creation so a misconfigured
-// Redis surfaces immediately instead of after the first lookup.
+// redisBootPingTimeout bounds the startup Ping used to surface connectivity
+// and credential problems at boot. Failure is logged, not fatal: enrichment is
+// best-effort and a downed Redis must not keep the collector from starting.
 const redisBootPingTimeout = 2 * time.Second
 
 var errRedisKeyNotFound = errors.New("key not found in redis")
 
 // RedisSource implements LookupSource for Redis. Construction performs a
-// short Ping so configuration errors (bad address, auth) fail the source
-// immediately rather than masking the problem until the first lookup.
+// short Ping so configuration errors (bad address, auth) are reported at boot,
+// then the client connects lazily on the first lookup like the API source.
 type RedisSource struct {
 	client       *redis.Client
 	keyPrefix    string
 	lookupBudget time.Duration
 	logger       *zap.Logger
+	avail        *availability
 }
 
-// NewRedisSource creates a new RedisSource. Returns an error if the initial
-// Ping fails so a misconfigured Redis aborts processor start.
+// NewRedisSource creates a new RedisSource. An unreachable Redis is logged at
+// Warn and the source starts anyway; records pass through un-enriched until
+// the client can connect.
 func NewRedisSource(cfg *RedisConfig, logger *zap.Logger) (*RedisSource, error) {
 	dialTimeout := cfg.DialTimeout
 	if dialTimeout <= 0 {
@@ -80,29 +82,36 @@ func NewRedisSource(cfg *RedisConfig, logger *zap.Logger) (*RedisSource, error) 
 		}
 	}
 
-	client := redis.NewClient(opts)
-
-	pingCtx, cancel := context.WithTimeout(context.Background(), redisBootPingTimeout)
-	defer cancel()
-	if err := client.Ping(pingCtx).Err(); err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("redis ping failed for %s: %w", cfg.Address, err)
-	}
-
-	logger.Info("redis source ready", zap.String("address", cfg.Address))
-
-	return &RedisSource{
-		client:       client,
+	logger = logger.With(zap.String("address", cfg.Address))
+	src := &RedisSource{
+		client:       redis.NewClient(opts),
 		keyPrefix:    cfg.KeyPrefix,
 		lookupBudget: lookupBudget,
 		logger:       logger,
-	}, nil
+		avail:        newAvailability(logger, "redis"),
+	}
+
+	pingCtx, cancel := context.WithTimeout(context.Background(), redisBootPingTimeout)
+	defer cancel()
+	if err := src.client.Ping(pingCtx).Err(); err != nil {
+		src.avail.startDown()
+		logger.Warn("redis unreachable at startup; collector continues and records pass through un-enriched until redis is reachable", zap.Error(err))
+	} else {
+		logger.Info("redis source ready")
+	}
+
+	return src, nil
 }
 
 // Lookup retrieves data from Redis for the given key. Tries HGETALL first,
 // then falls back to GET with JSON decode if the key holds a string value.
-// Honors the caller's context and applies a per-call timeout.
+// Honors the caller's context and applies a per-call timeout. While Redis is
+// known to be down only one probe per retry window reaches the network.
 func (r *RedisSource) Lookup(ctx context.Context, key string) (map[string]string, error) {
+	if r.avail.skip() {
+		return nil, errSourceUnavailable
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, r.lookupBudget)
 	defer cancel()
 
@@ -110,8 +119,10 @@ func (r *RedisSource) Lookup(ctx context.Context, key string) (map[string]string
 
 	hashResult, err := r.client.HGetAll(ctx, redisKey).Result()
 	if err != nil && !isWrongTypeErr(err) {
+		r.avail.markDown(err)
 		return nil, fmt.Errorf("failed to execute HGETALL: %w", err)
 	}
+	r.avail.markUp()
 
 	if err == nil && len(hashResult) > 0 {
 		r.logger.Debug("redis hash lookup successful", zap.String("key", redisKey), zap.Int("fields", len(hashResult)))
@@ -123,6 +134,7 @@ func (r *RedisSource) Lookup(ctx context.Context, key string) (map[string]string
 		if errors.Is(err, redis.Nil) {
 			return nil, errRedisKeyNotFound
 		}
+		r.avail.markDown(err)
 		return nil, fmt.Errorf("failed to execute GET: %w", err)
 	}
 
