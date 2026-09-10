@@ -3,7 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/receiver/googlecloudstoragereh
 go 1.26.4
 
 require (
-	cloud.google.com/go/storage v1.64.0
+	cloud.google.com/go/storage v1.67.0
 	github.com/observiq/bindplane-otel-contrib/internal/blobconsume v1.14.0
 	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.14.0
 	github.com/stretchr/testify v1.12.1
