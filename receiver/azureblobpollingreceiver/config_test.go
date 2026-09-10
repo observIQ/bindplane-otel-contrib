@@ -224,6 +224,19 @@ func TestConfigValidate(t *testing.T) {
 			expectErr: nil,
 		},
 		{
+			desc: "Valid blob_format azure-flow-logs",
+			cfg: &Config{
+				ConnectionString: "connection_string",
+				Container:        "container",
+				RootFolder:       "root",
+				PollInterval:     5 * time.Minute,
+				BatchSize:        30,
+				PageSize:         1000,
+				BlobFormat:       BlobFormatAzureFlowLogs,
+			},
+			expectErr: nil,
+		},
+		{
 			desc: "Invalid blob_format",
 			cfg: &Config{
 				ConnectionString: "connection_string",
@@ -234,7 +247,7 @@ func TestConfigValidate(t *testing.T) {
 				PageSize:         1000,
 				BlobFormat:       "invalid",
 			},
-			expectErr: errors.New("blob_format must be one of: otlp, json, text, records-json"),
+			expectErr: errors.New("blob_format must be one of: otlp, json, text, records-json, azure-flow-logs"),
 		},
 	}
 

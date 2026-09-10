@@ -554,6 +554,12 @@ func TestNewLogsReceiver_BlobFormat(t *testing.T) {
 		require.NoError(t, err)
 		require.IsType(t, &blobconsume.RecordsJSONLogsConsumer{}, r.consumer)
 	})
+
+	t.Run("AzureFlowLogs format uses AzureFlowLogsConsumer", func(t *testing.T) {
+		r, err := newLogsReceiver(component.MustNewID("azureblobpolling"), zap.NewNop(), baseCfg(BlobFormatAzureFlowLogs), consumertest.NewNop())
+		require.NoError(t, err)
+		require.IsType(t, &blobconsume.AzureFlowLogsConsumer{}, r.consumer)
+	})
 }
 
 func TestNewLogsReceiver_RejectsUnsupportedFormat(t *testing.T) {

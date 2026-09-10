@@ -42,6 +42,11 @@ const (
 	// a top-level "records" array (e.g. Azure NSG flow logs and Azure diagnostic
 	// settings exports). Each element of the array becomes one log record.
 	BlobFormatRecordsJSON BlobFormat = "records-json"
+
+	// BlobFormatAzureFlowLogs indicates blobs contain Azure VNet/NSG flow logs,
+	// i.e. a "records" array whose nested flowRecords structure is unrolled into
+	// one log record per flow tuple
+	BlobFormatAzureFlowLogs BlobFormat = "azure-flow-logs"
 )
 
 // Config is the configuration for the azure blob polling receiver
@@ -123,7 +128,8 @@ type Config struct {
 	// BlobFormat specifies the format of blob contents.
 	// Supported values: "otlp" (default), "json" (NDJSON), "text" (raw text),
 	// "records-json" (single JSON document with a top-level "records" array,
-	// e.g. Azure NSG flow logs).
+	// e.g. Azure diagnostic settings exports), "azure-flow-logs" (Azure VNet/NSG
+	// flow logs, unrolled to one log record per flow tuple).
 	// Non-"otlp" formats are only supported for logs pipelines.
 	BlobFormat BlobFormat `mapstructure:"blob_format"`
 }
@@ -195,10 +201,10 @@ func (c *Config) Validate() error {
 	// Validate blob_format if set
 	if c.BlobFormat != "" {
 		switch c.BlobFormat {
-		case BlobFormatOTLP, BlobFormatJSON, BlobFormatText, BlobFormatRecordsJSON:
+		case BlobFormatOTLP, BlobFormatJSON, BlobFormatText, BlobFormatRecordsJSON, BlobFormatAzureFlowLogs:
 			// valid
 		default:
-			return fmt.Errorf("blob_format must be one of: %s, %s, %s, %s", BlobFormatOTLP, BlobFormatJSON, BlobFormatText, BlobFormatRecordsJSON)
+			return fmt.Errorf("blob_format must be one of: %s, %s, %s, %s, %s", BlobFormatOTLP, BlobFormatJSON, BlobFormatText, BlobFormatRecordsJSON, BlobFormatAzureFlowLogs)
 		}
 
 		// non-otlp formats are only supported for logs pipelines

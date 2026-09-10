@@ -107,11 +107,14 @@ func newLogsReceiver(id component.ID, logger *zap.Logger, cfg *Config, nextConsu
 	case BlobFormatRecordsJSON:
 		logger.Debug("Using records-json blob format consumer")
 		r.consumer = blobconsume.NewRecordsJSONLogsConsumer(nextConsumer, logger)
+	case BlobFormatAzureFlowLogs:
+		logger.Debug("Using Azure flow logs blob format consumer")
+		r.consumer = blobconsume.NewAzureFlowLogsConsumer(nextConsumer, logger)
 	case BlobFormatOTLP, "":
 		logger.Debug("Using OTLP blob format consumer")
 		r.consumer = blobconsume.NewLogsConsumer(nextConsumer)
 	default:
-		return nil, fmt.Errorf("unsupported blob_format %q, must be one of: %s, %s, %s, %s", cfg.BlobFormat, BlobFormatOTLP, BlobFormatJSON, BlobFormatText, BlobFormatRecordsJSON)
+		return nil, fmt.Errorf("unsupported blob_format %q, must be one of: %s, %s, %s, %s, %s", cfg.BlobFormat, BlobFormatOTLP, BlobFormatJSON, BlobFormatText, BlobFormatRecordsJSON, BlobFormatAzureFlowLogs)
 	}
 
 	return r, nil

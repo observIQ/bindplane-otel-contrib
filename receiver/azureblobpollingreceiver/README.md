@@ -71,7 +71,7 @@ This prevents duplicate processing of blobs and ensures data continuity across c
 | storage           | string   |                       | `false`  | The component ID of a storage extension. The storage extension persists checkpoint data across collector restarts, ensuring no data loss or duplication.                    |
 | batch_size        | int      | `30`                  | `false`  | The number of blobs to download and process in the pipeline simultaneously. This parameter directly impacts performance by controlling the concurrent blob download limit.  |
 | page_size         | int      | `1000`                | `false`  | The maximum number of blob information to request in a single API call.                                                                                                     |
-| blob_format       | string   | `otlp`                | `false`  | The format of blob contents. Supported values: `otlp`, `json`, `text`. See [Blob Format](#blob-format) below.                                                              |
+| blob_format       | string   | `otlp`                | `false`  | The format of blob contents. Supported values: `otlp`, `json`, `text`, `records-json`, `azure-flow-logs`. See [Blob Format](#blob-format) below.                                                              |
 
 ## Blob Format
 
@@ -82,7 +82,8 @@ By default, the receiver expects blobs to contain OTLP-formatted JSON (as writte
 | `otlp`         | (Default) OTLP JSON format. Blobs are unmarshaled using the standard OpenTelemetry `plog.JSONUnmarshaler`. Use this when blobs were written by the Azure Blob Exporter.                                                                                                                                                                |
 | `json`         | Newline-delimited JSON (NDJSON). Each line is parsed as a JSON object and becomes a separate log record with the parsed object as the body. Malformed lines are skipped with a warning.                                                                                                                                               |
 | `text`         | Raw text. The entire blob content is set as the body of a single log record.                                                                                                                                                                                                                                                          |
-| `records-json` | Single JSON document with a top-level `records` array. Each element of the array becomes one log record with the element as the body. Use this for Azure NSG flow logs and most Azure diagnostic-settings exports, which ship as `{"records":[...]}`. Malformed records are skipped; an invalid top-level document is an error. |
+| `records-json` | Single JSON document with a top-level `records` array. Each element of the array becomes one log record with the element as the body. Use this for most Azure diagnostic-settings exports, which ship as `{"records":[...]}`. Malformed records are skipped; an invalid top-level document is an error. |
+| `azure-flow-logs` | Azure VNet/NSG flow logs. Like `records-json`, but the nested `flowRecords.flows[].flowGroups[].flowTuples[]` structure is unrolled so that each flow tuple becomes its own log record. See [Azure Flow Logs](#azure-flow-logs) below. |
 
 Non-`otlp` formats are only supported on **logs** pipelines. Metrics and traces pipelines only support `otlp`.
 
@@ -158,7 +159,7 @@ azureblobpolling:
   root_folder: "flowLogResourceID=/*/*"      # one entry per NSG resource
   time_pattern: "y={year}/m={month}/d={day}/h={hour}/m={minute}"
   telemetry_type: "logs"
-  blob_format: "records-json"                 # unwrap the {"records":[...]} envelope
+  blob_format: "azure-flow-logs"              # one log per flow tuple
   filename_pattern: "PT1H\\.json$"            # only ingest the hourly flow-log file
   storage: "file_storage"
 ```
@@ -167,8 +168,59 @@ How the pieces fit together:
 
 - `root_folder: "flowLogResourceID=/*/*"` lists one directory per NSG (subscription/RG segment, then NSG segment). New NSGs added to Azure are picked up automatically on the next poll.
 - `time_pattern` extracts the timestamp from the `y=/m=/d=/h=/m=` segments. The matched `root_folder` is stripped before matching, so the same pattern works regardless of which NSG produced the blob.
-- `blob_format: "records-json"` unwraps the `{"records":[...]}` envelope so each flow record becomes a separate log. (Use `json` only if the blobs are already NDJSON; use the default `otlp` only for blobs written by the Azure Blob Exporter.)
+- `blob_format: "azure-flow-logs"` unwraps the `{"records":[...]}` envelope and the nested flow structure so each flow tuple becomes a separate log. (Use `records-json` if you would rather keep one log per flow record with the nesting intact; use `json` only if the blobs are already NDJSON; use the default `otlp` only for blobs written by the Azure Blob Exporter.)
 - `filename_pattern` keeps the receiver from picking up any non-`PT1H.json` files Azure may write alongside the records.
+
+### Azure Flow Logs
+
+Azure writes VNet and NSG flow logs as a `records` array in which each record holds a whole polling window for one resource, with the individual flows buried several levels deep:
+
+```json
+{"records":[{
+  "time":"2026-01-01T00:00:00.0000000Z",
+  "category":"FlowLogFlowEvent",
+  "flowLogVersion":4,
+  "flowRecords":{"flows":[
+    {"aclID":"00000000-0000-0000-0000-000000000000","flowGroups":[
+      {"rule":"PlatformRule","flowTuples":[
+        "1767225601000,10.0.1.4,10.0.0.10,42351,53,17,O,B,NX,0,0,0,0"]}]}]}
+}]}
+```
+
+With `records-json`, each of those records becomes a single log whose body holds hundreds of tuples under nested keys such as `flowRecords["flows"][0]["flowGroups"][0]["flowTuples"][7]`, which is difficult to search, filter, or route on.
+
+`blob_format: "azure-flow-logs"` emits one log record per flow tuple instead. Every emitted record keeps the root record's fields (everything except `flowRecords`), adds the owning flow's `aclID` and the owning flow group's `rule`, and adds the raw tuple plus its parsed fields. The example above produces:
+
+```json
+{
+  "time": "2026-01-01T00:00:00.0000000Z",
+  "category": "FlowLogFlowEvent",
+  "flowLogVersion": 4,
+  "aclID": "00000000-0000-0000-0000-000000000000",
+  "rule": "PlatformRule",
+  "flowTuple": "1767225601000,10.0.1.4,10.0.0.10,42351,53,17,O,B,NX,0,0,0,0",
+  "flowTimestamp": 1767225601000,
+  "sourceAddress": "10.0.1.4",
+  "destinationAddress": "10.0.0.10",
+  "sourcePort": 42351,
+  "destinationPort": 53,
+  "transportProtocol": 17,
+  "deviceDirection": "O",
+  "flowState": "B",
+  "flowEncryption": "NX",
+  "packetsSourceToDest": 0,
+  "bytesSourceToDest": 0,
+  "packetsDestToSource": 0,
+  "bytesDestToSource": 0
+}
+```
+
+Notes on the parsed fields:
+
+- The log record's timestamp is set from the tuple's own epoch-millisecond timestamp, so records are no longer stamped with the Unix epoch. If a tuple has no parseable timestamp, the record's `time` field is used; failing that, the ingestion time.
+- `flowEncryption` only exists in flow log version 4 and up, and the four counter fields are absent on tuples that carry no counts. Both are omitted from the body rather than being zero-filled.
+- Any trailing fields Azure adds to the tuple format in the future are preserved as a `flowTupleExtra` array rather than dropped.
+- A record that contains no flow tuples is still emitted, carrying just the flow log metadata.
 
 ## Example Configuration
 
