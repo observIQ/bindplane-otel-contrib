@@ -3,7 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/processor/threatenrichmentproc
 go 1.26.4
 
 require (
-	github.com/observiq/bindplane-otel-contrib/internal/amqfilter v1.13.0
+	github.com/observiq/bindplane-otel-contrib/internal/amqfilter v1.14.0
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/collector/component v1.66.0
 	go.opentelemetry.io/collector/consumer v1.66.0

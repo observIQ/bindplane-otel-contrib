@@ -10,7 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.46.7
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
-	github.com/observiq/bindplane-otel-contrib/internal/aws v1.13.0
+	github.com/observiq/bindplane-otel-contrib/internal/aws v1.14.0
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/collector/component v1.66.0
 	go.opentelemetry.io/collector/component/componenttest v0.160.0
