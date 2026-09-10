@@ -3,7 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/exporter/azureloganalyticsexpo
 go 1.26.4
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.0
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0
 	github.com/Azure/azure-sdk-for-go/sdk/monitor/ingestion/azlogs v1.1.0
 	github.com/observiq/bindplane-otel-contrib/internal/exporterutils v1.14.0
