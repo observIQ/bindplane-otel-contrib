@@ -1,0 +1,4 @@
+# Shell scripts must keep LF endings so they run under bash on Windows CI
+# runners, where Git's default core.autocrlf=true would otherwise rewrite them
+# to CRLF and break the shebang / line parsing.
+*.sh text eol=lf

@@ -15,14 +15,12 @@
 
 # retry.sh — run a command, retrying only on transient network/registry failures.
 #
-# Absorbs the CI flakes tracked in PIPE-1058 (Go module-proxy blips:
-# proxy.golang.org HTTP/2 stream errors, i/o timeouts) and PIPE-1092
-# (Docker Hub pull timeouts to registry-1.docker.io). Bounded, so a persistent
-# outage still fails the job after RETRY_MAX attempts.
+# Absorbs CI flakes from Go module-proxy blips (proxy.golang.org HTTP/2 stream
+# errors, i/o timeouts) and Docker Hub pull timeouts (registry-1.docker.io).
+# Bounded, so a persistent outage still fails the job after RETRY_MAX attempts.
 #
-# By default it retries ONLY when the command output matches a known transient
-# signature, so wrapping a build/test/install step never masks a real compile
-# or test failure. Set RETRY_ANY=1 to retry on any non-zero exit.
+# Retries only when the output carries a transient network signature, so a real
+# compile/test failure is never masked. RETRY_ANY=1 retries on any non-zero exit.
 #
 # Usage: bash .github/scripts/retry.sh <command> [args...]
 # Env:   RETRY_MAX (default 3), RETRY_DELAY base backoff seconds (default 10),
@@ -33,31 +31,38 @@ max="${RETRY_MAX:-3}"
 base_delay="${RETRY_DELAY:-10}"
 retry_any="${RETRY_ANY:-0}"
 
-# Signatures of transient network/registry failures that clear on a retry.
-transient_re='proxy\.golang\.org|sum\.golang\.org|registry-1\.docker\.io|registry\.docker\.io|i/o timeout|TLS handshake timeout|connection reset|connection refused|unexpected EOF|stream error|INTERNAL_ERROR|net/http: request canceled|Client\.Timeout exceeded|Service Unavailable|Bad Gateway|Gateway Time-?out|Too Many Requests|temporary failure|no such host'
+# Transient network/registry failures that clear on a retry. Match error
+# signatures, not bare hostnames: a permanent 404 names the same host as a
+# transient blip, so matching the host would wrongly retry it. A permanent error
+# carries no signature here, so it falls through and is not retried.
+transient_re='i/o timeout|TLS handshake timeout|connection reset|connection refused|unexpected EOF|EOF$|GOAWAY|http2:|stream error|INTERNAL_ERROR|net/http: request canceled|Client\.Timeout exceeded|Internal Server Error|Service Unavailable|Bad Gateway|Gateway Time-?out|Too Many Requests|temporary failure|no such host|Could not resolve host'
+
+# One temp file for the run. The EXIT trap clears it on every exit path; the
+# INT/TERM traps exit (which fires EXIT), so a cancelled job dies immediately
+# instead of the loop treating the killed command as a failed attempt and
+# launching another one.
+log="$(mktemp)"
+trap 'rm -f "$log"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 attempt=1
 while true; do
-  log="$(mktemp)"
   "$@" 2>&1 | tee "$log"
   status="${PIPESTATUS[0]}"
   if [ "$status" -eq 0 ]; then
-    rm -f "$log"
     exit 0
   fi
 
   if [ "$attempt" -ge "$max" ]; then
     echo "retry: '$*' failed after ${max} attempt(s) (exit ${status}); giving up." >&2
-    rm -f "$log"
     exit "$status"
   fi
 
   if [ "$retry_any" != "1" ] && ! grep -qiE "$transient_re" "$log"; then
     echo "retry: '$*' failed (exit ${status}) with no transient-network signature; not retrying." >&2
-    rm -f "$log"
     exit "$status"
   fi
-  rm -f "$log"
 
   delay=$(( base_delay * attempt ))
   echo "retry: transient failure on attempt ${attempt}/${max} (exit ${status}); retrying '$*' in ${delay}s..." >&2
