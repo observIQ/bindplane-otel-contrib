@@ -31,10 +31,10 @@ import (
 func fakeAvailability(t *testing.T) (*availability, *clockwork.FakeClock, *observer.ObservedLogs) {
 	t.Helper()
 	core, logs := observer.New(zapcore.DebugLevel)
-	clock := clockwork.NewFakeClock()
+	fakeClock := clockwork.NewFakeClock()
 	a := newAvailability(zap.New(core), "test")
-	a.clock = clock
-	return a, clock, logs
+	a.clock = fakeClock
+	return a, fakeClock, logs
 }
 
 func TestAvailability_UpNeverSkips(t *testing.T) {
@@ -47,7 +47,7 @@ func TestAvailability_UpNeverSkips(t *testing.T) {
 }
 
 func TestAvailability_DownSkipsUntilWindowThenOneProbe(t *testing.T) {
-	a, clock, logs := fakeAvailability(t)
+	a, fakeClock, logs := fakeAvailability(t)
 	boom := errors.New("boom")
 
 	a.markDown(boom)
@@ -55,10 +55,10 @@ func TestAvailability_DownSkipsUntilWindowThenOneProbe(t *testing.T) {
 	require.Len(t, logs.FilterLevelExact(zapcore.WarnLevel).All(), 1, "one Warn per outage")
 
 	require.True(t, a.skip(), "inside the window every caller skips")
-	clock.Advance(sourceRetryInterval - time.Millisecond)
+	fakeClock.Advance(sourceRetryInterval - time.Millisecond)
 	require.True(t, a.skip())
 
-	clock.Advance(time.Millisecond)
+	fakeClock.Advance(time.Millisecond)
 	require.False(t, a.skip(), "first caller after the window probes")
 	require.True(t, a.skip(), "second caller in the same window skips")
 
@@ -66,7 +66,7 @@ func TestAvailability_DownSkipsUntilWindowThenOneProbe(t *testing.T) {
 	require.True(t, a.skip(), "a failed probe opens a fresh window")
 	require.Len(t, logs.FilterLevelExact(zapcore.WarnLevel).All(), 1, "still one Warn")
 
-	clock.Advance(sourceRetryInterval)
+	fakeClock.Advance(sourceRetryInterval)
 	require.False(t, a.skip())
 	a.markUp()
 	require.False(t, a.skip(), "recovered source never skips")
@@ -74,9 +74,9 @@ func TestAvailability_DownSkipsUntilWindowThenOneProbe(t *testing.T) {
 }
 
 func TestAvailability_OneProbeAcrossConcurrentCallers(t *testing.T) {
-	a, clock, _ := fakeAvailability(t)
+	a, fakeClock, _ := fakeAvailability(t)
 	a.markDown(errors.New("boom"))
-	clock.Advance(sourceRetryInterval)
+	fakeClock.Advance(sourceRetryInterval)
 
 	var probes int
 	var mu sync.Mutex
