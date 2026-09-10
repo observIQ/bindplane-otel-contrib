@@ -42,7 +42,7 @@ type downstreamConnection struct {
 	logger    *zap.Logger
 
 	// ctx and cancel are created at construction so cancel is never nil, even when close()
-	// races the start goroutine (PIPE-1237). ctx governs the reader and writer.
+	// races the start goroutine. ctx governs the reader and writer.
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -79,7 +79,7 @@ func newDownstreamConnection(ctx context.Context, conn *websocket.Conn, telemetr
 // the connection will be stopped and the context will be cancelled.
 func (c *downstreamConnection) start(callbacks ConnectionCallbacks[*downstreamConnection]) {
 	// ctx and cancel are initialized in newDownstreamConnection, so a concurrent close()
-	// never observes a nil cancel (PIPE-1237).
+	// never observes a nil cancel.
 	ctx := c.ctx
 	defer c.cancel()
 

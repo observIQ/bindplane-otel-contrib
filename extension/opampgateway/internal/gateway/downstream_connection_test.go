@@ -22,7 +22,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// TestDownstreamConnectionCloseBeforeStart is a regression test for PIPE-1237. A downstream
+// TestDownstreamConnectionCloseBeforeStart is a regression test for the close-before-start race. A downstream
 // connection can be closed in the window between being registered and its start goroutine
 // running. Because ctx and cancel are created at construction, close() must be safe and must
 // cancel the connection context without depending on start() having run.
