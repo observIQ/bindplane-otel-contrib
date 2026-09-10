@@ -82,6 +82,11 @@ type Config struct {
 	// For example, if set to 1h, on first startup the receiver will look for blobs from the last hour.
 	InitialLookback time.Duration `mapstructure:"initial_lookback"`
 
+	// ProcessingDelay is how far the poll window trails the current time. (default: 0)
+	// A blob is only considered once its timestamp is older than this delay, which keeps the receiver from
+	// reading blobs that are still being written to, such as the hourly PT1H.json files Azure writes flow logs to.
+	ProcessingDelay time.Duration `mapstructure:"processing_delay"`
+
 	// DeleteOnRead indicates if a file should be deleted once it has been processed
 	// Default value of false
 	DeleteOnRead bool `mapstructure:"delete_on_read"`
@@ -158,6 +163,10 @@ func (c *Config) Validate() error {
 
 	if c.InitialLookback < 0 {
 		return errors.New("initial_lookback must be greater than or equal to 0")
+	}
+
+	if c.ProcessingDelay < 0 {
+		return errors.New("processing_delay must be greater than or equal to 0")
 	}
 
 	if c.PageSize < 1 {

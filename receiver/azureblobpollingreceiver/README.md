@@ -47,6 +47,7 @@ The receiver automatically manages time windows:
 - **First Poll**: Uses `initial_lookback` to determine how far back to look (e.g., if `initial_lookback: 1h`, it will process blobs from the last hour)
 - **Subsequent Polls**: Uses the timestamp of the last successful poll as the start time, and the current time as the end time
 - **After Restart**: If a checkpoint exists, resumes from the last poll time; otherwise, uses `initial_lookback` again
+- **Processing Delay**: When `processing_delay` is set, the end of every window trails the current time by that amount, so a blob is only considered once its timestamp is older than the delay. Use this for sources that keep appending to a blob after creating it (see [Azure NSG Flow Logs Example](#azure-nsg-flow-logs-example)).
 
 ### Checkpoint Management
 
@@ -67,6 +68,7 @@ This prevents duplicate processing of blobs and ensures data continuity across c
 | poll_interval     | duration |                       | `true`   | The interval at which to poll for new blobs. Must be at least 1 minute. The receiver will continuously poll at this interval and collect blobs created since the last poll. |
 | root_folder       | string   |                       | `false`  | The root folder that prefixes the blob path. Should match the `root_folder` value of the Azure Blob Exporter. Supports glob patterns (`*`, `?`, `[...]`) to match multiple directories — see [Glob Root Folders](#glob-root-folders). |
 | initial_lookback  | duration | same as poll_interval | `false`  | The duration to look back on the first poll when no checkpoint exists. For example, if set to `1h`, on first startup the receiver will look for blobs from the last hour.   |
+| processing_delay  | duration | `0`                   | `false`  | How far the poll window trails the current time. A blob is only considered once its timestamp is older than this delay. Set this when blobs are still being written to after they appear, such as Azure flow logs. |
 | delete_on_read    | bool     | `false`               | `false`  | If `true` the blob will be deleted after being processed.                                                                                                                   |
 | storage           | string   |                       | `false`  | The component ID of a storage extension. The storage extension persists checkpoint data across collector restarts, ensuring no data loss or duplication.                    |
 | batch_size        | int      | `30`                  | `false`  | The number of blobs to download and process in the pipeline simultaneously. This parameter directly impacts performance by controlling the concurrent blob download limit.  |
@@ -159,6 +161,7 @@ azureblobpolling:
   root_folder: "flowLogResourceID=/*/*"      # one entry per NSG resource
   time_pattern: "y={year}/m={month}/d={day}/h={hour}/m={minute}"
   telemetry_type: "logs"
+  processing_delay: 70m                       # wait for Azure to finish writing each hourly file
   blob_format: "azure-flow-logs"              # one log per flow tuple
   filename_pattern: "PT1H\\.json$"            # only ingest the hourly flow-log file
   storage: "file_storage"
@@ -170,6 +173,7 @@ How the pieces fit together:
 - `time_pattern` extracts the timestamp from the `y=/m=/d=/h=/m=` segments. The matched `root_folder` is stripped before matching, so the same pattern works regardless of which NSG produced the blob.
 - `blob_format: "azure-flow-logs"` unwraps the `{"records":[...]}` envelope and the nested flow structure so each flow tuple becomes a separate log. (Use `records-json` if you would rather keep one log per flow record with the nesting intact; use `json` only if the blobs are already NDJSON; use the default `otlp` only for blobs written by the Azure Blob Exporter.)
 - `filename_pattern` keeps the receiver from picking up any non-`PT1H.json` files Azure may write alongside the records.
+- `processing_delay: 70m` is required for flow logs. Azure keeps appending to each hour's `PT1H.json` for the whole hour, but the blob's path time is the start of the hour (`m=00`). Without a delay, the receiver reads the blob during the first poll of the hour, while it is still being written, and never looks at it again, so the rest of that hour's flows are lost. A delay of an hour plus a margin means each file is read once, after Azure has finished writing it. Events arrive up to about 70 minutes after they occur, plus `poll_interval`.
 
 ### Azure Flow Logs
 

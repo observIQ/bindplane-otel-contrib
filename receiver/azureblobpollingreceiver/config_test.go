@@ -237,6 +237,30 @@ func TestConfigValidate(t *testing.T) {
 			expectErr: nil,
 		},
 		{
+			desc: "Negative processing_delay",
+			cfg: &Config{
+				ConnectionString: "connection_string",
+				Container:        "container",
+				PollInterval:     5 * time.Minute,
+				ProcessingDelay:  -1 * time.Minute,
+				BatchSize:        30,
+				PageSize:         1000,
+			},
+			expectErr: errors.New("processing_delay must be greater than or equal to 0"),
+		},
+		{
+			desc: "Valid processing_delay",
+			cfg: &Config{
+				ConnectionString: "connection_string",
+				Container:        "container",
+				PollInterval:     5 * time.Minute,
+				ProcessingDelay:  70 * time.Minute,
+				BatchSize:        30,
+				PageSize:         1000,
+			},
+			expectErr: nil,
+		},
+		{
 			desc: "Invalid blob_format",
 			cfg: &Config{
 				ConnectionString: "connection_string",

@@ -276,25 +276,37 @@ func (r *pollingReceiver) pollLoop(ctx context.Context) {
 
 // runPoll executes a single poll operation with dynamic time window
 func (r *pollingReceiver) runPoll(ctx context.Context) {
-	now := time.Now().UTC()
+	// The window trails the current time by processing_delay so that blobs which are still
+	// being written to are not read until they have settled.
+	endingTime := time.Now().UTC().Add(-r.cfg.ProcessingDelay)
 
 	// Calculate time window
-	var startingTime, endingTime time.Time
+	var startingTime time.Time
 	if r.checkpoint.LastPollTime.IsZero() {
 		// First poll - use initial lookback
-		startingTime = now.Add(-r.initialLookback)
+		startingTime = endingTime.Add(-r.initialLookback)
 		r.logger.Info("First poll, using initial lookback",
 			zap.Time("starting_time", startingTime),
-			zap.Time("ending_time", now),
-			zap.Duration("lookback", r.initialLookback))
+			zap.Time("ending_time", endingTime),
+			zap.Duration("lookback", r.initialLookback),
+			zap.Duration("processing_delay", r.cfg.ProcessingDelay))
 	} else {
 		// Subsequent polls - use last poll time
 		startingTime = r.checkpoint.LastPollTime
 		r.logger.Debug("Polling with dynamic window",
 			zap.Time("starting_time", startingTime),
-			zap.Time("ending_time", now))
+			zap.Time("ending_time", endingTime))
 	}
-	endingTime = now
+
+	// The window is empty when processing_delay was raised after a checkpoint was written.
+	// Wait for the delayed window to catch up rather than moving the checkpoint backwards.
+	if !endingTime.After(startingTime) {
+		r.logger.Debug("Skipping poll, delayed window has not caught up to the last poll time",
+			zap.Time("starting_time", startingTime),
+			zap.Time("ending_time", endingTime),
+			zap.Duration("processing_delay", r.cfg.ProcessingDelay))
+		return
+	}
 
 	// Reset lastBlob tracking for this poll
 	r.lastBlob = nil
@@ -675,10 +687,9 @@ func (r *pollingReceiver) processBlobGoRoutine(ctx context.Context, blob *azureb
 // 2. Decompresses the blob if applicable
 // 3. Pass the blob to the consumer
 func (r *pollingReceiver) processBlob(ctx context.Context, blob *azureblob.BlobInfo) error {
-	// Allocate a buffer the size of the blob
-	blobBuffer := make([]byte, blob.Size)
-
-	size, err := r.azureClient.DownloadBlob(ctx, r.cfg.Container, blob.Name, blobBuffer)
+	// Download whatever the blob holds now rather than sizing a buffer from the listing, since
+	// blobs such as Azure flow logs keep growing after they are listed.
+	blobBuffer, err := r.azureClient.DownloadBlobContents(ctx, r.cfg.Container, blob.Name)
 	if err != nil {
 		return fmt.Errorf("download blob: %w", err)
 	}
@@ -687,7 +698,7 @@ func (r *pollingReceiver) processBlob(ctx context.Context, blob *azureblob.BlobI
 	ext := filepath.Ext(blob.Name)
 	switch {
 	case ext == ".gz":
-		blobBuffer, err = blobconsume.GzipDecompress(blobBuffer[:size])
+		blobBuffer, err = blobconsume.GzipDecompress(blobBuffer)
 		if err != nil {
 			return fmt.Errorf("gzip: %w", err)
 		}

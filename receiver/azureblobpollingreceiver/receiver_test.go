@@ -686,16 +686,14 @@ func TestPollingReceiver_MultiBatchNoDataLoss(t *testing.T) {
 		// Valid minimal OTLP JSON logs payload
 		validJSON := []byte(`{"resourceLogs":[]}`)
 
-		mockClient.On("DownloadBlob", mock.Anything, "test-container", mock.Anything, mock.Anything).
+		mockClient.On("DownloadBlobContents", mock.Anything, "test-container", mock.Anything).
 			Run(func(args mock.Arguments) {
 				blobName := args.Get(2).(string)
-				buf := args.Get(3).([]byte)
-				copy(buf, validJSON)
 				downloadMu.Lock()
 				downloadedBlobs[blobName] = true
 				downloadMu.Unlock()
 			}).
-			Return(int64(len(validJSON)), nil)
+			Return(validJSON, nil)
 
 		// Mock StreamBlobs to send 3 batches sequentially
 		mockClient.On("StreamBlobs", mock.Anything, "test-container", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -770,4 +768,93 @@ func TestPollingReceiver_trimMatchedRoot(t *testing.T) {
 		require.True(t, trimmed)
 		require.Equal(t, "2024/03/15/file.json", got)
 	})
+}
+
+func TestPollingReceiver_ProcessingDelay(t *testing.T) {
+	newReceiver := func(cfg *Config, checkpoint *PollingCheckPoint, client azureblob.BlobClient) *pollingReceiver {
+		return &pollingReceiver{
+			logger:          zap.NewNop(),
+			cfg:             cfg,
+			azureClient:     client,
+			checkpoint:      checkpoint,
+			pollInterval:    cfg.PollInterval,
+			initialLookback: cfg.InitialLookback,
+			mut:             &sync.Mutex{},
+			wg:              &sync.WaitGroup{},
+		}
+	}
+
+	t.Run("Window trails the current time by processing_delay", func(t *testing.T) {
+		cfg := &Config{
+			Container:       "test-container",
+			PollInterval:    5 * time.Minute,
+			InitialLookback: 5 * time.Minute,
+			ProcessingDelay: 70 * time.Minute,
+		}
+
+		mockClient := new(azureblob.MockBlobClient)
+		mockClient.On("StreamBlobs", mock.Anything, "test-container", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Run(func(args mock.Arguments) {
+				doneChan := args.Get(5).(chan struct{})
+				close(doneChan)
+			})
+
+		receiver := newReceiver(cfg, NewPollingCheckpoint(), mockClient)
+		receiver.runPoll(context.Background())
+
+		// The checkpoint records the end of the delayed window, not the wall clock.
+		require.WithinDuration(t, time.Now().UTC().Add(-70*time.Minute), receiver.checkpoint.LastPollTime, 5*time.Second)
+		mockClient.AssertExpectations(t)
+	})
+
+	t.Run("Skips the poll until the delayed window catches up to the checkpoint", func(t *testing.T) {
+		cfg := &Config{
+			Container:       "test-container",
+			PollInterval:    5 * time.Minute,
+			InitialLookback: 5 * time.Minute,
+			ProcessingDelay: 70 * time.Minute,
+		}
+
+		// A checkpoint written before processing_delay was enabled is ahead of the delayed window.
+		checkpoint := NewPollingCheckpoint()
+		lastPollTime := time.Now().UTC().Add(-1 * time.Minute)
+		checkpoint.UpdatePollTime(lastPollTime)
+
+		mockClient := new(azureblob.MockBlobClient)
+		receiver := newReceiver(cfg, checkpoint, mockClient)
+		receiver.runPoll(context.Background())
+
+		require.Equal(t, lastPollTime, receiver.checkpoint.LastPollTime)
+		mockClient.AssertNotCalled(t, "StreamBlobs", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+}
+
+func TestPollingReceiver_processBlob_BlobGrewSinceListing(t *testing.T) {
+	originalNewAzureBlobClient := newAzureBlobClient
+	defer func() { newAzureBlobClient = originalNewAzureBlobClient }()
+
+	mockClient := new(azureblob.MockBlobClient)
+	newAzureBlobClient = func(_ string, _ int, _ int, _ *zap.Logger) (azureblob.BlobClient, error) {
+		return mockClient, nil
+	}
+
+	cfg := &Config{
+		ConnectionString: "connection_string",
+		Container:        "test-container",
+		PollInterval:     5 * time.Minute,
+		BatchSize:        30,
+		PageSize:         1000,
+	}
+	sink := &consumertest.LogsSink{}
+	receiver, err := newLogsReceiver(component.MustNewID("azureblobpolling"), zap.NewNop(), cfg, sink)
+	require.NoError(t, err)
+
+	// The listing reported a much smaller size than the blob holds by the time it is downloaded,
+	// which is what happens when Azure appends to a flow log between the two calls.
+	payload := []byte(`{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"flow"}}]}]}]}`)
+	blob := &azureblob.BlobInfo{Name: "PT1H.json", Size: 10}
+	mockClient.On("DownloadBlobContents", mock.Anything, "test-container", "PT1H.json").Return(payload, nil)
+
+	require.NoError(t, receiver.processBlob(context.Background(), blob))
+	require.Equal(t, 1, sink.LogRecordCount())
 }

@@ -18,6 +18,7 @@ package azureblob //import "github.com/observiq/bindplane-otel-contrib/internal/
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -42,6 +43,11 @@ type BlobClient interface {
 	// It will return the count of bytes used in the buffer.
 	DownloadBlob(ctx context.Context, container, blobPath string, buf []byte) (int64, error)
 
+	// DownloadBlobContents downloads the full contents of the blob as they exist at the time of the request.
+	// Unlike DownloadBlob it does not need the blob size up front, so it is safe to use on blobs that are
+	// still being appended to after they were listed.
+	DownloadBlobContents(ctx context.Context, container, blobPath string) ([]byte, error)
+
 	// DeleteBlob deletes the blob in the specified container
 	DeleteBlob(ctx context.Context, container, blobPath string) error
 
@@ -57,6 +63,7 @@ type BlobClient interface {
 type blobClient interface {
 	NewListBlobsFlatPager(containerName string, options *azblob.ListBlobsFlatOptions) *runtime.Pager[azblob.ListBlobsFlatResponse]
 	DownloadBuffer(ctx context.Context, containerName string, blobPath string, buffer []byte, options *azblob.DownloadBufferOptions) (int64, error)
+	DownloadStream(ctx context.Context, containerName string, blobName string, options *azblob.DownloadStreamOptions) (azblob.DownloadStreamResponse, error)
 	DeleteBlob(ctx context.Context, containerName string, blobPath string, options *azblob.DeleteBlobOptions) (azblob.DeleteBlobResponse, error)
 }
 
@@ -171,6 +178,22 @@ func (a *AzureClient) DownloadBlob(ctx context.Context, container, blobPath stri
 	}
 
 	return bytesDownloaded, nil
+}
+
+// DownloadBlobContents downloads the full contents of the blob as they exist at the time of the request.
+func (a *AzureClient) DownloadBlobContents(ctx context.Context, container, blobPath string) ([]byte, error) {
+	resp, err := a.azClient.DownloadStream(ctx, container, blobPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("download: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	contents, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read: %w", err)
+	}
+
+	return contents, nil
 }
 
 // DeleteBlob deletes the blob in the specified container

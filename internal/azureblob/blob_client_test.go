@@ -15,8 +15,10 @@
 package azureblob
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
@@ -92,6 +94,39 @@ func TestDownloadBlob(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(len(testData)), bytesDownloaded)
 		require.Equal(t, string(testData), string(buf[:len(testData)]))
+	})
+}
+
+func TestDownloadBlobContents(t *testing.T) {
+	ctx := context.Background()
+	container := "testcontainer"
+	blobPath := "test/PT1H.json"
+
+	t.Run("returns everything the service sends", func(t *testing.T) {
+		mockClient := &mockAzureClient{}
+		client := &AzureClient{azClient: mockClient, logger: zap.NewNop()}
+
+		// The contents are not bounded by any previously listed size, which is what makes this
+		// safe for blobs that grow between listing and download.
+		testData := bytes.Repeat([]byte("flow log data "), 1024)
+		resp := azblob.DownloadStreamResponse{}
+		resp.Body = io.NopCloser(bytes.NewReader(testData))
+		mockClient.On("DownloadStream", mock.Anything, container, blobPath, mock.Anything).Return(resp, nil)
+
+		contents, err := client.DownloadBlobContents(ctx, container, blobPath)
+		require.NoError(t, err)
+		require.Equal(t, testData, contents)
+	})
+
+	t.Run("returns download errors", func(t *testing.T) {
+		mockClient := &mockAzureClient{}
+		client := &AzureClient{azClient: mockClient, logger: zap.NewNop()}
+
+		mockClient.On("DownloadStream", mock.Anything, container, blobPath, mock.Anything).Return(azblob.DownloadStreamResponse{}, errors.New("not found"))
+
+		contents, err := client.DownloadBlobContents(ctx, container, blobPath)
+		require.ErrorContains(t, err, "download: not found")
+		require.Nil(t, contents)
 	})
 }
 
@@ -238,6 +273,11 @@ func (m *mockAzureClient) NewListBlobsFlatPager(containerName string, options *a
 func (m *mockAzureClient) DownloadBuffer(ctx context.Context, containerName string, blobPath string, buffer []byte, options *azblob.DownloadBufferOptions) (int64, error) {
 	args := m.Called(ctx, containerName, blobPath, buffer, options)
 	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *mockAzureClient) DownloadStream(ctx context.Context, containerName string, blobName string, options *azblob.DownloadStreamOptions) (azblob.DownloadStreamResponse, error) {
+	args := m.Called(ctx, containerName, blobName, options)
+	return args.Get(0).(azblob.DownloadStreamResponse), args.Error(1)
 }
 
 func (m *mockAzureClient) DeleteBlob(ctx context.Context, containerName string, blobPath string, options *azblob.DeleteBlobOptions) (azblob.DeleteBlobResponse, error) {
