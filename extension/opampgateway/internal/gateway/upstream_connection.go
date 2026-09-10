@@ -56,8 +56,9 @@ type upstreamConnection struct {
 }
 
 type upstreamConnectionSettings struct {
-	endpoint string
-	headers  http.Header
+	endpoint  string
+	headers   http.Header
+	userAgent string
 }
 
 func newUpstreamConnection(dialer websocket.Dialer, telemetry *metadata.TelemetryBuilder, settings upstreamConnectionSettings, id string, logger *zap.Logger) *upstreamConnection {
@@ -354,5 +355,10 @@ func (c *upstreamConnection) header(id string) http.Header {
 		h = make(http.Header)
 	}
 	h.Set("X-Opamp-Gateway-Connection-Id", id)
+	// identify the gateway to the upstream server, leaving a configured
+	// User-Agent in place so it can be overridden.
+	if h.Get("User-Agent") == "" {
+		h.Set("User-Agent", c.settings.userAgent)
+	}
 	return h
 }

@@ -22,6 +22,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/observiq/bindplane-otel-contrib/extension/opampgateway/internal/metadata"
+	"github.com/observiq/bindplane-otel-contrib/extension/opampgateway/internal/version"
 	"go.uber.org/zap"
 )
 
@@ -44,6 +45,7 @@ type client struct {
 	callbacks ConnectionCallbacks[*upstreamConnection]
 
 	headers          http.Header
+	userAgent        string
 	upstreamEndpoint string
 	connectionCount  int
 
@@ -68,6 +70,7 @@ func newClient(settings Settings, telemetry *metadata.TelemetryBuilder, callback
 		connectionAssignments: connectionAssignments,
 		callbacks:             callbacks,
 		headers:               settings.Headers,
+		userAgent:             version.UserAgent(settings.BuildInfo),
 		upstreamEndpoint:      settings.UpstreamOpAMPAddress,
 		connectionCount:       settings.UpstreamConnections,
 		clientConnectionsWg:   &sync.WaitGroup{},
@@ -96,8 +99,9 @@ func (c *client) startClientConnections(ctx context.Context) {
 		id := fmt.Sprintf("upstream-%d", i)
 
 		clientConnection := newUpstreamConnection(c.dialer, c.telemetry, upstreamConnectionSettings{
-			endpoint: c.upstreamEndpoint,
-			headers:  c.headers,
+			endpoint:  c.upstreamEndpoint,
+			headers:   c.headers,
+			userAgent: c.userAgent,
 		}, id, c.logger)
 
 		c.pool.add(clientConnection)
