@@ -41,6 +41,59 @@ func toInt(v any) (int, bool) {
 	}
 }
 
+// toBool coerces a value to bool, handling native JSON booleans plus the string
+// spelling a header source always produces ("true") and the numeric spelling
+// some APIs use (1/0).
+// Returns (value, true) on success, (false, false) if the value cannot be converted.
+func toBool(v any) (bool, bool) {
+	switch val := v.(type) {
+	case bool:
+		return val, true
+	case string:
+		b, err := strconv.ParseBool(strings.TrimSpace(val))
+		return b, err == nil
+	case float64:
+		return val != 0, true
+	case int:
+		return val != 0, true
+	default:
+		return false, false
+	}
+}
+
+// explicitHasMore reads the API's own "there is more data" boolean, named by
+// pagination.has_more_field_name.
+//
+// Returns (value, true) only when the field is configured, present in this
+// response, and coercible to a bool. Every other case returns ok=false, leaving
+// the caller on the page-count heuristic: a response that omits the field says
+// nothing, and inventing a false there would end pagination early.
+func explicitHasMore(cfg *Config, response any, logger *zap.Logger) (bool, bool) {
+	if cfg.Pagination.HasMoreFieldName == "" {
+		return false, false
+	}
+
+	responseMap, ok := response.(map[string]any)
+	if !ok {
+		return false, false
+	}
+
+	val, exists := getNestedField(responseMap, cfg.Pagination.HasMoreFieldName)
+	if !exists || val == nil {
+		return false, false
+	}
+
+	hasMore, ok := toBool(val)
+	if !ok {
+		logger.Warn("has_more_field_name value is not a boolean, falling back to the page-size heuristic",
+			zap.String("field", cfg.Pagination.HasMoreFieldName),
+			zap.Any("value", val))
+		return false, false
+	}
+
+	return hasMore, true
+}
+
 // paginationState tracks the current state of pagination.
 type paginationState struct {
 	// For offset/limit pagination
@@ -213,10 +266,10 @@ func buildPaginationParams(cfg *Config, state *paginationState) url.Values {
 func parsePaginationResponse(cfg *Config, response any, extractedData []map[string]any, state *paginationState, logger *zap.Logger) (bool, error) {
 	switch cfg.Pagination.Mode {
 	case paginationModeOffsetLimit:
-		return parseOffsetLimitResponse(cfg, response, extractedData, state)
+		return parseOffsetLimitResponse(cfg, response, extractedData, state, logger)
 
 	case paginationModePageSize:
-		return parsePageSizeResponse(cfg, response, extractedData, state)
+		return parsePageSizeResponse(cfg, response, extractedData, state, logger)
 
 	case paginationModeTimestamp:
 		return parseTimestampResponse(cfg, extractedData, state, logger)
@@ -230,7 +283,7 @@ func parsePaginationResponse(cfg *Config, response any, extractedData []map[stri
 }
 
 // parseOffsetLimitResponse parses the response for offset/limit pagination.
-func parseOffsetLimitResponse(cfg *Config, response any, extractedData []map[string]any, state *paginationState) (bool, error) {
+func parseOffsetLimitResponse(cfg *Config, response any, extractedData []map[string]any, state *paginationState, logger *zap.Logger) (bool, error) {
 	// If NextOffsetFieldName is configured, use token-based offset extraction.
 	//
 	// Every "no next token" path below leaves CurrentOffsetToken untouched rather
@@ -271,9 +324,18 @@ func parseOffsetLimitResponse(cfg *Config, response any, extractedData []map[str
 		state.CurrentOffsetToken = tokenStr
 		state.PagesFetched++
 
-		// The token is a bookmark for resuming — always save it.
-		// But hasMore is determined by data count: a partial/empty page means
-		// we're caught up, even though the API returned a valid token.
+		// The token is a bookmark for resuming — always save it. Whether to
+		// follow it now is a separate question: an explicit has_more answers it,
+		// and otherwise data count stands in for the answer, a partial or empty
+		// page meaning we're caught up even though the token is valid.
+		//
+		// This sits below the "no next token" returns above on purpose. Those
+		// leave CurrentOffsetToken and PagesFetched untouched, so honoring a
+		// has_more of true there would re-request the same page forever.
+		if hasMore, ok := explicitHasMore(cfg, response, logger); ok {
+			return hasMore, nil
+		}
+
 		dataCount := len(extractedData)
 		return dataCount >= state.Limit, nil
 	}
@@ -287,6 +349,12 @@ func parseOffsetLimitResponse(cfg *Config, response any, extractedData []map[str
 				}
 			}
 		}
+	}
+
+	// An explicit has_more is the API's own answer — prefer it to both estimates
+	// below.
+	if hasMore, ok := explicitHasMore(cfg, response, logger); ok {
+		return hasMore, nil
 	}
 
 	// Determine if there are more records
@@ -309,7 +377,7 @@ func parseOffsetLimitResponse(cfg *Config, response any, extractedData []map[str
 }
 
 // parsePageSizeResponse parses the response for page/size pagination.
-func parsePageSizeResponse(cfg *Config, response any, extractedData []map[string]any, state *paginationState) (bool, error) {
+func parsePageSizeResponse(cfg *Config, response any, extractedData []map[string]any, state *paginationState, logger *zap.Logger) (bool, error) {
 	// Try to extract total pages if configured
 	if cfg.Pagination.PageSize.TotalPagesFieldName != "" {
 		if responseMap, ok := response.(map[string]any); ok {
@@ -319,6 +387,12 @@ func parsePageSizeResponse(cfg *Config, response any, extractedData []map[string
 				}
 			}
 		}
+	}
+
+	// An explicit has_more is the API's own answer — prefer it to both estimates
+	// below.
+	if hasMore, ok := explicitHasMore(cfg, response, logger); ok {
+		return hasMore, nil
 	}
 
 	// Determine if there are more pages

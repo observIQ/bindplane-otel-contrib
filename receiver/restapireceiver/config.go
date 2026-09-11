@@ -398,7 +398,7 @@ type PaginationConfig struct {
 	// "body" (default): extract from the response body (or NDJSON metadata line).
 	// "header": extract from HTTP response headers.
 	// Affects all response-based pagination fields: next_offset_field_name,
-	// total_record_count_field, and total_pages_field_name.
+	// total_record_count_field, total_pages_field_name, and has_more_field_name.
 	ResponseSource ResponseSource `mapstructure:"response_source"`
 
 	// OffsetLimit defines offset/limit pagination.
@@ -412,6 +412,21 @@ type PaginationConfig struct {
 
 	// TotalRecordCountField is the name of the field or header that contains the total record count.
 	TotalRecordCountField string `mapstructure:"total_record_count_field"`
+
+	// HasMoreFieldName is the name of the field or header holding the API's own
+	// "there is more data" boolean (e.g. Stripe's and OpenAI's has_more, Slack's
+	// has_more). Dot notation addresses a nested field; where the value is read
+	// from depends on pagination.response_source.
+	//
+	// When set and present in a response, it decides whether the receiver fetches
+	// another page, in place of the "a full page means there may be more" count
+	// heuristic — so limit / page_size stop being load-bearing for correctness
+	// and go back to being throughput knobs. When unset, or when a response omits
+	// the field, the heuristic applies unchanged.
+	//
+	// Only meaningful for the offset_limit and page_size modes: timestamp
+	// pagination advances by the newest record seen rather than by page counts.
+	HasMoreFieldName string `mapstructure:"has_more_field_name"`
 
 	// PageLimit is the maximum number of pages to fetch (0 = no limit).
 	PageLimit int `mapstructure:"page_limit"`
@@ -733,6 +748,14 @@ func (c *Config) Validate() error {
 		if c.Pagination.Timestamp.TimestampFieldName == "" {
 			return fmt.Errorf("timestamp_field_name is required when pagination.mode is timestamp")
 		}
+	}
+
+	// has_more_field_name replaces the page-count heuristic, which only the
+	// offset_limit and page_size modes have. Reject it elsewhere rather than
+	// accept a setting that would never be read.
+	if c.Pagination.HasMoreFieldName != "" &&
+		c.Pagination.Mode != paginationModeOffsetLimit && c.Pagination.Mode != paginationModePageSize {
+		return fmt.Errorf("has_more_field_name is only supported when pagination.mode is offset_limit or page_size")
 	}
 
 	if c.Pagination.OffsetLimit.Limit < 0 {

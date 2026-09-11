@@ -596,6 +596,69 @@ func TestConfig_Validate(t *testing.T) {
 			expectedErr: "",
 		},
 		{
+			// Timestamp pagination advances by the newest record seen, so it has
+			// no page-count heuristic for has_more to replace. Reject rather
+			// than accept a setting that would never be read.
+			name: "has_more_field_name rejected in timestamp mode",
+			config: &Config{
+				URL:                "https://api.example.com/data",
+				AuthMode:           authModeNone,
+				StartTimeParamName: "since",
+				Pagination: PaginationConfig{
+					Mode:             paginationModeTimestamp,
+					HasMoreFieldName: "has_more",
+					Timestamp: TimestampPagination{
+						TimestampFieldName: "created_at",
+					},
+				},
+			},
+			expectedErr: "has_more_field_name is only supported when pagination.mode is offset_limit or page_size",
+		},
+		{
+			name: "has_more_field_name rejected when pagination is disabled",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode:             paginationModeNone,
+					HasMoreFieldName: "has_more",
+				},
+			},
+			expectedErr: "has_more_field_name is only supported when pagination.mode is offset_limit or page_size",
+		},
+		{
+			name: "valid has_more_field_name with offset_limit",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode:             paginationModeOffsetLimit,
+					HasMoreFieldName: "has_more",
+					OffsetLimit: OffsetLimitPagination{
+						OffsetFieldName: "offset",
+						LimitFieldName:  "limit",
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name: "valid nested has_more_field_name with page_size",
+			config: &Config{
+				URL:      "https://api.example.com/data",
+				AuthMode: authModeNone,
+				Pagination: PaginationConfig{
+					Mode:             paginationModePageSize,
+					HasMoreFieldName: "response_metadata.has_more",
+					PageSize: PageSizePagination{
+						PageNumFieldName:  "page",
+						PageSizeFieldName: "size",
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
 			name: "valid page_size with header response_source",
 			config: &Config{
 				URL:      "https://api.example.com/data",
@@ -1636,6 +1699,8 @@ func TestLoadConfigFromYAML(t *testing.T) {
 	require.Equal(t, methodPOST, restapiCfg.Method)
 	require.Contains(t, restapiCfg.RequestBody, `"filter": "status:'new'"`)
 	require.Contains(t, restapiCfg.RequestBody, "{{ .PageSize }}")
+
+	require.Equal(t, "response_metadata.has_more", restapiCfg.Pagination.HasMoreFieldName)
 }
 
 func TestConfig_MethodDefault(t *testing.T) {
