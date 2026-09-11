@@ -29,9 +29,9 @@ func init() { register("pii-stress", piiStress) }
 // ~10 records/sec/worker — enough to exercise downstream PII-redaction
 // pipelines without saturating a developer machine. Users wanting a
 // truly stressful rate pass workers + rate explicitly.
-func piiStress(logger *zap.Logger, consumer embed.LogConsumer, p Params) ([]embed.ProducerModule, error) {
+func piiStress(logger *zap.Logger, consumer embed.LogConsumer, p Params, tel embed.TelemetrySettings) ([]embed.ProducerModule, error) {
 	workers, rate := p.resolve(2, 100*time.Millisecond)
-	gen, err := jsongen.New(logger, workers, rate, jsongen.LogTypePII, consumer)
+	gen, err := jsongen.New(logger, workers, rate, jsongen.LogTypePII, consumer, tel)
 	if err != nil {
 		return nil, err
 	}

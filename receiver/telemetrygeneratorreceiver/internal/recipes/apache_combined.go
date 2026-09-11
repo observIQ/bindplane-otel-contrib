@@ -24,9 +24,9 @@ import (
 
 func init() { register("apache-combined", apacheCombined) }
 
-func apacheCombined(logger *zap.Logger, consumer embed.LogConsumer, p Params) ([]embed.ProducerModule, error) {
+func apacheCombined(logger *zap.Logger, consumer embed.LogConsumer, p Params, tel embed.TelemetrySettings) ([]embed.ProducerModule, error) {
 	workers, rate := p.resolve(1, time.Second)
-	gen, err := apachecombinedgen.New(logger, workers, rate, consumer)
+	gen, err := apachecombinedgen.New(logger, workers, rate, consumer, tel)
 	if err != nil {
 		return nil, err
 	}

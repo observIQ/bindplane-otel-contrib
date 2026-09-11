@@ -21,7 +21,6 @@ import (
 	"github.com/observiq/blitz/embed"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pmetric"
-	"go.uber.org/zap"
 
 	"github.com/observiq/bindplane-otel-contrib/receiver/telemetrygeneratorreceiver/internal/blitzpdata"
 )
@@ -39,11 +38,12 @@ type metricsGeneratorReceiver struct {
 // telemetryGeneratorReceiver — the constructor's only job is to
 // populate the fields that lifecycle reads: hasTickerGenerators and
 // blitzRunner.
-func newMetricsReceiver(ctx context.Context, logger *zap.Logger, cfg *Config, nextConsumer consumer.Metrics) (*metricsGeneratorReceiver, error) {
+func newMetricsReceiver(ctx context.Context, tel embed.TelemetrySettings, cfg *Config, nextConsumer consumer.Metrics) (*metricsGeneratorReceiver, error) {
+	logger := tel.Logger
 	mr := &metricsGeneratorReceiver{
 		nextConsumer: nextConsumer,
 	}
-	r := newTelemetryGeneratorReceiver(ctx, logger, cfg, mr)
+	r := newTelemetryGeneratorReceiver(ctx, tel, cfg, mr)
 
 	mr.telemetryGeneratorReceiver = r
 
@@ -54,7 +54,7 @@ func newMetricsReceiver(ctx context.Context, logger *zap.Logger, cfg *Config, ne
 	}
 	mr.hasTickerGenerators = len(mr.generators) > 0
 
-	if err := mr.buildBlitzRunner(logger, cfg); err != nil {
+	if err := mr.buildBlitzRunner(tel, cfg); err != nil {
 		return nil, err
 	}
 
@@ -67,7 +67,8 @@ func newMetricsReceiver(ctx context.Context, logger *zap.Logger, cfg *Config, ne
 // modules built for that entry; the modules from every entry are
 // aggregated into a single Runner stored on the embedded base type so
 // the shared Start/Shutdown lifecycle owns it.
-func (r *metricsGeneratorReceiver) buildBlitzRunner(logger *zap.Logger, cfg *Config) error {
+func (r *metricsGeneratorReceiver) buildBlitzRunner(tel embed.TelemetrySettings, cfg *Config) error {
+	logger := tel.Logger
 	var modules []embed.ProducerModule
 	for i, g := range cfg.Generators {
 		if g.Type != generatorTypeBlitz {
@@ -84,7 +85,7 @@ func (r *metricsGeneratorReceiver) buildBlitzRunner(logger *zap.Logger, cfg *Con
 			return fmt.Errorf("blitz generator[%d]: %w", i, err)
 		}
 		adapter := blitzpdata.NewMetricAdapter(r.nextConsumer, resourceCfg, attrsCfg, logger)
-		mods, err := buildBlitzModules(logger, g, blitzConsumers{metrics: adapter})
+		mods, err := buildBlitzModules(tel, g, blitzConsumers{metrics: adapter})
 		if err != nil {
 			return fmt.Errorf("blitz generator[%d]: %w", i, err)
 		}
