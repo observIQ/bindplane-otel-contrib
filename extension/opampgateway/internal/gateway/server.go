@@ -274,7 +274,7 @@ func (s *server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	s.telemetry.OpampgatewayConnections.Add(context.Background(), 1, directionDownstream)
 
 	// create the downstream connection
-	c := newDownstreamConnection(conn, s.telemetry, upstreamConnection, id, s.logger)
+	c := newDownstreamConnection(s.shutdownCtx, conn, s.telemetry, upstreamConnection, id, s.logger)
 	s.addDownstreamConnection(id, c)
 
 	// start the connection in a goroutine to prevent blocking the handler
@@ -288,7 +288,7 @@ func (s *server) handleRequest(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("downstream connection removed before it could be started", zap.String("downstream_connection_id", id))
 			return
 		}
-		conn.start(s.shutdownCtx, s.callbacks)
+		conn.start(s.callbacks)
 	}()
 }
 
