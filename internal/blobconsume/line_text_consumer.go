@@ -40,10 +40,16 @@ func NewLineTextLogsConsumer(nextConsumer consumer.Logs) *LineTextLogsConsumer {
 	}
 }
 
-// Consume splits entityContent on newlines and emits one log record per non-empty
+// Consume implements Consumer; it discards ConsumeCounted's record counts.
+func (r *LineTextLogsConsumer) Consume(ctx context.Context, entityContent []byte) error {
+	_, _, err := r.ConsumeCounted(ctx, entityContent)
+	return err
+}
+
+// ConsumeCounted splits entityContent on newlines and emits one log record per non-empty
 // line. Empty or whitespace-only lines are skipped. Content with no non-empty line
 // produces no records and is not forwarded.
-func (r *LineTextLogsConsumer) Consume(ctx context.Context, entityContent []byte) error {
+func (r *LineTextLogsConsumer) ConsumeCounted(ctx context.Context, entityContent []byte) (int, int, error) {
 	logs := plog.NewLogs()
 	scopeLogs := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty()
 	logRecords := scopeLogs.LogRecords()
@@ -60,11 +66,12 @@ func (r *LineTextLogsConsumer) Consume(ctx context.Context, entityContent []byte
 	}
 
 	if logRecords.Len() == 0 {
-		return nil
+		return 0, 0, nil
 	}
 
+	// Every non-empty line becomes a record, so there is no malformed-drop on this path.
 	if err := r.nextConsumer.ConsumeLogs(ctx, logs); err != nil {
-		return fmt.Errorf("line text consume: %w: %w", ErrDownstream, err)
+		return logRecords.Len(), 0, fmt.Errorf("line text consume: %w: %w", ErrDownstream, err)
 	}
-	return nil
+	return logRecords.Len(), logRecords.Len(), nil
 }

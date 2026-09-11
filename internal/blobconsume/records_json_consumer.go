@@ -43,19 +43,25 @@ func NewRecordsJSONLogsConsumer(nextConsumer consumer.Logs, logger *zap.Logger) 
 	}
 }
 
-// Consume parses entityContent as a JSON object with a "records" array and
-// emits one log record per element.
+// Consume implements Consumer; it discards ConsumeCounted's record counts.
 func (r *RecordsJSONLogsConsumer) Consume(ctx context.Context, entityContent []byte) error {
+	_, _, err := r.ConsumeCounted(ctx, entityContent)
+	return err
+}
+
+// ConsumeCounted parses entityContent as a JSON object with a "records" array and
+// emits one log record per element.
+func (r *RecordsJSONLogsConsumer) ConsumeCounted(ctx context.Context, entityContent []byte) (int, int, error) {
 	var envelope struct {
 		Records []map[string]any `json:"records"`
 	}
 	if err := json.Unmarshal(entityContent, &envelope); err != nil {
-		return fmt.Errorf("records-json consume: unmarshal: %w", err)
+		return 0, 0, fmt.Errorf("records-json consume: unmarshal: %w", err)
 	}
 
 	if len(envelope.Records) == 0 {
 		r.logger.Debug("records-json blob contained no records")
-		return nil
+		return 0, 0, nil
 	}
 
 	logs := plog.NewLogs()
@@ -86,11 +92,11 @@ func (r *RecordsJSONLogsConsumer) Consume(ctx context.Context, entityContent []b
 	}
 
 	if logRecords.Len() == 0 {
-		return nil
+		return len(envelope.Records), 0, nil
 	}
 
 	if err := r.nextConsumer.ConsumeLogs(ctx, logs); err != nil {
-		return fmt.Errorf("records-json consume: %w: %w", ErrDownstream, err)
+		return len(envelope.Records), 0, fmt.Errorf("records-json consume: %w: %w", ErrDownstream, err)
 	}
-	return nil
+	return len(envelope.Records), logRecords.Len(), nil
 }
