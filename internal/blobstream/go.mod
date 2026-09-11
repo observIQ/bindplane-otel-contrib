@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	github.com/bodgit/sevenzip v1.6.5
 	github.com/gabriel-vasile/mimetype v1.4.15
-	github.com/klauspost/compress v1.19.2
+	github.com/klauspost/compress v1.20.0
 	github.com/linkedin/goavro/v2 v2.15.0
 	github.com/nwaples/rardecode/v2 v2.4.1
 	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.14.0
