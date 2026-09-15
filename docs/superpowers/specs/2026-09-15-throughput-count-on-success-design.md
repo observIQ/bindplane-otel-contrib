@@ -9,8 +9,8 @@ hands the payload to the next consumer. When the pipeline applies backpressure,
 the next consumer returns an error at once. The processor has already counted
 the payload. Throughput stays high while no data leaves the collector.
 
-Bindplane uses these measurements for the Data Summary graph and for billing.
-Under backpressure the graph must drop.
+Consumers of these measurements, such as an OpAMP server, read them as
+delivered throughput. Under backpressure the reported throughput must drop.
 
 ## Goal
 
@@ -25,8 +25,8 @@ return from the next consumer is acceptance. This holds in every configuration:
   processor does not count the payload as throughput.
 
 The behavior is unconditional. Every throughput processor in a collector gates
-on acceptance. This includes the source-side processors Bindplane renders, so
-ingress and egress both drop under backpressure.
+on acceptance. This includes processors placed early in a pipeline, so every
+measurement point in the pipeline drops under backpressure.
 
 Payloads the processor measured but the next consumer rejected go to a new set
 of rejected counters. Throughput plus rejected equals what arrived. A user can
@@ -35,13 +35,11 @@ detect backpressure from the processor's own metrics.
 ## Non-goals
 
 - No new configuration field. The behavior is always on.
-- The rejected counters do not go into the OpAMP report to Bindplane. They are
-  internal collector telemetry only. A later change can add them to the report
-  together with a server change.
+- The rejected counters do not go into the OpAMP report. They are internal
+  collector telemetry only. A later change can add them to the report once a
+  consumer needs them.
 - No per-exporter attribution when a pipeline fans out to more than one
-  exporter. Any non-nil error counts the whole payload as rejected. Bindplane
-  renders one exporter per pipeline, so this only affects hand-written
-  configurations.
+  exporter. Any non-nil error counts the whole payload as rejected.
 - No change to the processorhelper telemetry. `otelcol_processor_incoming_items`
   and `otelcol_processor_outgoing_items` keep their current meaning.
 
@@ -193,5 +191,5 @@ path under test.
 
 The change ships in the next `pkg/measurements` and processor module versions
 and reaches agents through the normal bindplane-otel-collector dependency bump.
-No server change is required. Bindplane dashboards built on the existing
-counters keep working and start to show drops under backpressure.
+Consumers of the existing counters need no change and start to see drops under
+backpressure.
