@@ -447,17 +447,14 @@ func (b *baseReceiver) handlePagination(fullResponse map[string]any, data []map[
 		return false, apiRequest{}
 	}
 
-	// Check page limit
-	if !checkPageLimit(b.cfg, b.paginationState) {
-		b.logger.Debug("page limit reached, stopping pagination")
-		return false, apiRequest{}
-	}
-
 	if !hasMore {
 		return false, apiRequest{}
 	}
 
-	// Update pagination state for next page
+	// Advance the pagination state past the page just consumed. This happens
+	// before the page-limit check on purpose: the position must move on
+	// regardless of whether this cycle keeps going, or the next cycle would
+	// re-request — and re-ingest — the page this one stopped on.
 	if b.cfg.Pagination.Mode == paginationModeOffsetLimit {
 		// When using tokenized offsets, the token and PagesFetched are already
 		// updated in parseOffsetLimitResponse — skip numeric increment.
@@ -472,6 +469,14 @@ func (b *baseReceiver) handlePagination(fullResponse map[string]any, data []map[
 		}
 	} else {
 		updatePaginationState(b.cfg, b.paginationState)
+	}
+
+	// The page limit only decides whether to keep fetching in this cycle. The
+	// advanced state is kept, and the next cycle resumes from it.
+	if !checkPageLimit(b.cfg, b.paginationState) {
+		b.logger.Debug("page limit reached, stopping pagination",
+			zap.Int("pages_fetched", b.paginationState.PagesFetched))
+		return false, apiRequest{}
 	}
 
 	// Rebuild the request from the advanced pagination state
@@ -515,18 +520,20 @@ func requestLogFields(req apiRequest) []zap.Field {
 	}
 }
 
-// resetTimestampPagination resets the pages fetched counter after a poll cycle.
-// The currentTimestamp is preserved so the next poll starts from where we left off,
-// preventing duplicate data from being fetched.
-func (b *baseReceiver) resetTimestampPagination() {
-	if b.cfg.Pagination.Mode == paginationModeTimestamp {
-		b.logger.Debug("resetting timestamp pagination state",
-			zap.Time("preserved_timestamp", b.paginationState.CurrentTimestamp),
-			zap.Int("pages_fetched_before_reset", b.paginationState.PagesFetched))
-		// Only reset the pages fetched counter, NOT the timestamp.
-		// The timestamp should persist between poll cycles to avoid re-fetching data.
-		b.paginationState.PagesFetched = 0
-	}
+// resetPagesFetched resets the per-cycle page counter at the end of a poll cycle.
+//
+// page_limit caps the pages fetched in one cycle, and checkPageLimit compares it
+// against PagesFetched, so the counter has to start every cycle at zero in every
+// pagination mode. Left to accumulate, the limit would latch once its lifetime
+// total was spent and every later cycle would stop after a single page.
+//
+// Only the counter is reset. The position — offset, page number, cursor, or
+// timestamp — is what the next cycle resumes from and must survive.
+func (b *baseReceiver) resetPagesFetched() {
+	b.logger.Debug("resetting pages fetched counter",
+		zap.Int("pages_fetched_before_reset", b.paginationState.PagesFetched),
+		zap.Time("preserved_timestamp", b.paginationState.CurrentTimestamp))
+	b.paginationState.PagesFetched = 0
 }
 
 // consumeFunc converts one page of records into a signal-specific payload and
@@ -686,7 +693,7 @@ func (b *baseReceiver) poll(ctx context.Context) (pollResult, error) {
 		zap.Bool("last_page_full", result.lastPageFull),
 		zap.Time("final_timestamp_state", b.paginationState.CurrentTimestamp))
 
-	b.resetTimestampPagination()
+	b.resetPagesFetched()
 
 	// Persist the end-of-cycle state. The mid-loop save above only runs when
 	// advancing to another page, so without this the final page of every cycle —

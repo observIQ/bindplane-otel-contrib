@@ -117,7 +117,13 @@ type paginationState struct {
 	// Metadata
 	TotalRecords int `json:"total_records,omitempty"`
 	TotalPages   int `json:"total_pages,omitempty"`
-	PagesFetched int `json:"pages_fetched,omitempty"`
+
+	// PagesFetched counts the pages fetched so far in the current poll cycle,
+	// for enforcing page_limit. It is reset at the end of every cycle and is
+	// deliberately kept out of the checkpoint: a per-cycle counter has no
+	// meaning across a restart, and persisting it would carry a spent page
+	// budget into the first cycle after startup.
+	PagesFetched int `json:"-"`
 }
 
 // newPaginationState creates a new pagination state based on the configuration.

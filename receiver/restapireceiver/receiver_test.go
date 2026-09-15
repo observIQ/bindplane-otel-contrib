@@ -2219,3 +2219,133 @@ func TestRESTAPILogsReceiver_HasMoreFromHeader(t *testing.T) {
 	require.Equal(t, int32(2), requestCount.Load())
 	require.Equal(t, 3, logRecordCount(sink))
 }
+
+// TestPoll_PageLimitResetsEveryCycle guards against page_limit latching. The
+// counter it is checked against is per cycle, so a receiver that stops on the
+// limit must fetch the same number of pages next cycle and keep advancing,
+// never re-request the page it stopped on.
+func TestPoll_PageLimitResetsEveryCycle(t *testing.T) {
+	const pageLimit = 2
+
+	testCases := []struct {
+		name       string
+		pagination PaginationConfig
+		pageParam  string // query parameter that identifies the requested page
+	}{
+		{
+			name: "numeric offset_limit",
+			pagination: PaginationConfig{
+				Mode: paginationModeOffsetLimit,
+				OffsetLimit: OffsetLimitPagination{
+					OffsetFieldName: "offset",
+					LimitFieldName:  "limit",
+					Limit:           2,
+				},
+				PageLimit: pageLimit,
+			},
+			pageParam: "offset",
+		},
+		{
+			name: "page_size",
+			pagination: PaginationConfig{
+				Mode: paginationModePageSize,
+				PageSize: PageSizePagination{
+					PageNumFieldName:  "page",
+					PageSizeFieldName: "per_page",
+					StartingPage:      1,
+					PageSize:          2,
+				},
+				PageLimit: pageLimit,
+			},
+			pageParam: "page",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var requested []int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				page, err := strconv.Atoi(r.URL.Query().Get(tc.pageParam))
+				require.NoError(t, err)
+				mu.Lock()
+				requested = append(requested, page)
+				mu.Unlock()
+
+				// Always a full page, so only page_limit ever ends a cycle.
+				w.Header().Set("Content-Type", "application/json")
+				require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+					"data": []map[string]any{{"id": "a"}, {"id": "b"}},
+				}))
+			}))
+			defer server.Close()
+
+			cfg := &Config{
+				URL:               server.URL,
+				AuthMode:          authModeNone,
+				ResponseField:     "data",
+				Pagination:        tc.pagination,
+				MinPollInterval:   10 * time.Second,
+				MaxPollInterval:   5 * time.Minute,
+				BackoffMultiplier: 2.0,
+				ClientConfig:      confighttp.ClientConfig{},
+			}
+
+			sink := new(consumertest.LogsSink)
+			r, err := newRESTAPILogsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+			require.NoError(t, err)
+
+			ctx := context.Background()
+			require.NoError(t, r.initializeClient(ctx, componenttest.NewNopHost()))
+			r.storageClient = newMemStorageClient()
+			r.initializePagination()
+
+			pagesInCycle := func() []int {
+				mu.Lock()
+				defer mu.Unlock()
+				pages := requested
+				requested = nil
+				return pages
+			}
+
+			result, err := r.poll(ctx)
+			require.NoError(t, err)
+			require.True(t, result.lastPageFull, "a cycle ended by page_limit must report a full last page")
+			require.Equal(t, 0, r.paginationState.PagesFetched, "the page counter must be reset at the end of a cycle")
+			first := pagesInCycle()
+			require.Len(t, first, pageLimit, "page_limit caps the pages fetched in one cycle")
+
+			result, err = r.poll(ctx)
+			require.NoError(t, err)
+			require.True(t, result.lastPageFull, "a cycle ended by page_limit must report a full last page")
+			require.Equal(t, 0, r.paginationState.PagesFetched, "the page counter must be reset at the end of a cycle")
+			second := pagesInCycle()
+
+			require.Len(t, second, len(first), "every cycle gets the same page budget")
+			require.Greater(t, second[0], first[len(first)-1],
+				"the second cycle must resume past the page the first one stopped on, not re-request it")
+			for i := 1; i < len(second); i++ {
+				require.Greater(t, second[i], second[i-1], "pages within a cycle must advance")
+			}
+		})
+	}
+}
+
+func TestCheckpoint_ExcludesPagesFetched(t *testing.T) {
+	// PagesFetched is a per-cycle counter, so it must not be persisted: a
+	// restart would otherwise resume with a partly or fully spent page budget.
+	checkpoint := checkpointData{
+		PaginationState: &paginationState{CurrentOffset: 40, PagesFetched: 5},
+	}
+	raw, err := json.Marshal(checkpoint)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "pages_fetched")
+
+	// A checkpoint written before the field was excluded is loaded with the
+	// counter zeroed rather than carried forward.
+	legacy := []byte(`{"pagination_state":{"current_offset":40,"pages_fetched":5}}`)
+	var loaded checkpointData
+	require.NoError(t, json.Unmarshal(legacy, &loaded))
+	require.Equal(t, 40, loaded.PaginationState.CurrentOffset)
+	require.Equal(t, 0, loaded.PaginationState.PagesFetched)
+}

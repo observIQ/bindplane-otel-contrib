@@ -428,7 +428,7 @@ type PaginationConfig struct {
 	// pagination advances by the newest record seen rather than by page counts.
 	HasMoreFieldName string `mapstructure:"has_more_field_name"`
 
-	// PageLimit is the maximum number of pages to fetch (0 = no limit).
+	// PageLimit is the maximum number of pages to fetch per poll cycle (0 = no limit).
 	PageLimit int `mapstructure:"page_limit"`
 
 	// ZeroBasedIndex indicates whether pagination starts at index 0 (true) or 1 (false).
