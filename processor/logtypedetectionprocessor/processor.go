@@ -24,6 +24,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -54,6 +55,7 @@ type logTypeDetectionProcessor struct {
 	fingerprintStorageClient storageclient.StorageClient
 	fingerprintPersistCancel context.CancelFunc
 	fingerprintPersistDone   chan struct{}
+	fingerprintsDirty        atomic.Bool
 
 	telemetry *metadata.TelemetryBuilder
 	logger    *zap.Logger
@@ -188,7 +190,11 @@ func (p *logTypeDetectionProcessor) fingerprintPersistLoop(ctx context.Context) 
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if !p.fingerprintsDirty.Swap(false) {
+				continue
+			}
 			if err := p.save(ctx); err != nil {
+				p.fingerprintsDirty.Store(true)
 				p.logger.Error("persist log types", zap.Error(err))
 			}
 		}
@@ -257,6 +263,7 @@ func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Log
 							}
 							logType := p.logType(ctx, body)
 							p.logTypes.Add(logFingerprint, logType)
+							p.fingerprintsDirty.Store(true)
 							return logType, nil
 						},
 					)
