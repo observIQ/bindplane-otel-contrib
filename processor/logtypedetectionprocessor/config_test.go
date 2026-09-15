@@ -25,6 +25,7 @@ func TestCreateDefaultProcessorConfig(t *testing.T) {
 	require.Equal(t, defaultFingerprintField, cfg.FingerprintField)
 	require.Equal(t, defaultLogTypeField, cfg.LogTypeField)
 	require.Len(t, cfg.Matchers, 0)
+	require.Equal(t, defaultMaxSavedFingerprints, cfg.MaxSavedFingerprints)
 }
 
 func TestConfig_Validate(t *testing.T) {
@@ -40,15 +41,24 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "missing fingerprint field is accepted",
 			config: &Config{
-				LogTypeField: "log_type_field",
+				LogTypeField:         "log_type_field",
+				MaxSavedFingerprints: defaultMaxSavedFingerprints,
 			},
 		},
 		{
 			name: "missing log type field",
 			config: &Config{
-				FingerprintField: "fingerprint_field",
+				FingerprintField:     "fingerprint_field",
+				MaxSavedFingerprints: defaultMaxSavedFingerprints,
 			},
 			err: errMissingLogTypeField,
+		},
+		{
+			name: "non-positive max saved fingerprints",
+			config: &Config{
+				LogTypeField: "log_type_field",
+			},
+			err: errInvalidMaxFingerprints,
 		},
 	}
 	for _, tc := range testCases {

@@ -83,7 +83,7 @@ type Storage struct {
 }
 
 // NewStorageClient creates a new StorageClient based on the storage and component IDs
-func NewStorageClient(ctx context.Context, host component.Host, storageID, componentID component.ID, pipelineSignal pipeline.Signal) (StorageClient, error) {
+func NewStorageClient(ctx context.Context, host component.Host, kind component.Kind, storageID, componentID component.ID, pipelineSignal pipeline.Signal) (StorageClient, error) {
 	extension, ok := host.GetExtensions()[storageID]
 	if !ok {
 		return nil, fmt.Errorf("storage extension '%s' not found", storageID)
@@ -94,7 +94,7 @@ func NewStorageClient(ctx context.Context, host component.Host, storageID, compo
 		return nil, fmt.Errorf("non-storage extension '%s' found", storageID)
 	}
 
-	client, err := storageExtension.GetClient(ctx, component.KindReceiver, componentID, pipelineSignal.String())
+	client, err := storageExtension.GetClient(ctx, kind, componentID, pipelineSignal.String())
 	if err != nil {
 		return nil, fmt.Errorf("get client: %w", err)
 	}

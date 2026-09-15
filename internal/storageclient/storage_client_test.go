@@ -76,7 +76,7 @@ func TestExtensionStorage(t *testing.T) {
 
 	// create a storage client with the extension
 	thisID := component.NewIDWithName(component.MustNewType("storage_client"), "test")
-	storage, err := NewStorageClient(context.Background(), host, id, thisID, pipeline.SignalLogs)
+	storage, err := NewStorageClient(context.Background(), host, component.KindReceiver, id, thisID, pipeline.SignalLogs)
 	require.NoError(t, err)
 
 	// save data

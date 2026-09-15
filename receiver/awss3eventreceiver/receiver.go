@@ -150,7 +150,13 @@ func (r *logsReceiver) Start(_ context.Context, host component.Host) error {
 
 	// Create offset storage
 	if r.cfg.StorageID != nil {
-		offsetStorage, err := storageclient.NewStorageClient(ctx, host, *r.cfg.StorageID, r.id, pipeline.SignalLogs)
+		offsetStorage, err := storageclient.NewStorageClient(
+			ctx,
+			host,
+			component.KindReceiver,
+			*r.cfg.StorageID,
+			r.id, pipeline.SignalLogs,
+		)
 		if err != nil {
 			return fmt.Errorf("failed to create offset storage: %w", err)
 		}
