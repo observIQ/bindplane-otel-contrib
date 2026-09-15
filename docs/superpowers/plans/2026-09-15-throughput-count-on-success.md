@@ -1513,7 +1513,7 @@ Expected: no output.
 Run: `cd processor/throughputmeasurementprocessor && go vet ./... && go test ./... -v 2>&1 | grep -E '^(--- |FAIL|ok|PASS)'`
 Expected: `go vet` clean and every test PASS. Then return to Task 4 Step 8 and Step 9 to commit.
 
-### Task 6: Rejected-only traffic does not report over OpAMP
+### Task 6: Rejected-only traffic reports no measurements over OpAMP
 
 **Files:**
 - Modify: `processor/throughputmeasurementprocessor/processor_test.go`
