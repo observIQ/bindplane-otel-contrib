@@ -78,7 +78,7 @@ func randomSampleLogs(originalLogs plog.Logs, n int, retentionPercent int) plog.
 
 			lrs := srcSL.LogRecords()
 			for li := 0; li < lrs.Len(); li++ {
-				if keep[flat] {
+				if flat < len(keep) && keep[flat] {
 					if !rlCreated {
 						dstRL = result.ResourceLogs().AppendEmpty()
 						srcRL.Resource().CopyTo(dstRL.Resource())
@@ -157,7 +157,7 @@ func randomSampleMetrics(originalMetrics pmetric.Metrics, n int, retentionPercen
 
 				dpCount := getDataPointCount(srcMetric)
 				for di := 0; di < dpCount; di++ {
-					if keep[flat] {
+					if flat < len(keep) && keep[flat] {
 						if !rmCreated {
 							dstRM = result.ResourceMetrics().AppendEmpty()
 							srcRM.Resource().CopyTo(dstRM.Resource())
@@ -257,7 +257,7 @@ func randomSampleTraces(originalTraces ptrace.Traces, n int, retentionPercent in
 
 			sps := srcSS.Spans()
 			for spi := 0; spi < sps.Len(); spi++ {
-				if keep[flat] {
+				if flat < len(keep) && keep[flat] {
 					if !rsCreated {
 						dstRS = result.ResourceSpans().AppendEmpty()
 						srcRS.Resource().CopyTo(dstRS.Resource())

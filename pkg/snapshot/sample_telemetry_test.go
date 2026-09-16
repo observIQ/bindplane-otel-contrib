@@ -622,3 +622,29 @@ func TestCopyDataPoint(t *testing.T) {
 		})
 	}
 }
+
+// TestRandomSampleUndercountDoesNotPanic guards the flat-index sampler against
+// a caller-supplied count smaller than the payload: extra items are dropped,
+// never indexed out of range.
+func TestRandomSampleUndercountDoesNotPanic(t *testing.T) {
+	ld := plog.NewLogs()
+	lrs := ld.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords()
+	for i := 0; i < 10; i++ {
+		lrs.AppendEmpty()
+	}
+	require.LessOrEqual(t, randomSampleLogs(ld, 4, 50).LogRecordCount(), 4)
+
+	md := pmetric.NewMetrics()
+	dps := md.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty().SetEmptyGauge().DataPoints()
+	for i := 0; i < 10; i++ {
+		dps.AppendEmpty()
+	}
+	require.LessOrEqual(t, randomSampleMetrics(md, 4, 50).DataPointCount(), 4)
+
+	td := ptrace.NewTraces()
+	sps := td.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans()
+	for i := 0; i < 10; i++ {
+		sps.AppendEmpty()
+	}
+	require.LessOrEqual(t, randomSampleTraces(td, 4, 50).SpanCount(), 4)
+}

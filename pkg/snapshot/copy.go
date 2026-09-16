@@ -25,7 +25,8 @@ import (
 // items of a payload without deep-copying the whole batch. Groups that are
 // copied in full take the pdata whole-group CopyTo fast path, which preserves
 // full fidelity; partially copied groups copy their resource, scope, and
-// schema URL explicitly.
+// schema URL explicitly. Groups with no items are never copied, so the store
+// cannot accumulate empty resources, scopes, or metrics.
 
 // copyLogsTail copies all log records after the first skip records from src
 // to dst. src is only read, never retained or mutated.
@@ -34,15 +35,15 @@ func copyLogsTail(src, dst plog.Logs, skip int) {
 	for ri := 0; ri < rls.Len(); ri++ {
 		srcRL := rls.At(ri)
 
-		// Nothing left to skip: copy the whole group.
-		if skip == 0 {
-			srcRL.CopyTo(dst.ResourceLogs().AppendEmpty())
+		// Group is entirely within the skipped range, or empty: skip it.
+		if count := resourceLogsRecordCount(srcRL); skip >= count {
+			skip -= count
 			continue
 		}
 
-		// Group is entirely within the skipped range.
-		if count := resourceLogsRecordCount(srcRL); skip >= count {
-			skip -= count
+		// Nothing left to skip: copy the whole group.
+		if skip == 0 {
+			srcRL.CopyTo(dst.ResourceLogs().AppendEmpty())
 			continue
 		}
 
@@ -55,14 +56,14 @@ func copyLogsTail(src, dst plog.Logs, skip int) {
 		for si := 0; si < sls.Len(); si++ {
 			srcSL := sls.At(si)
 
-			if skip == 0 {
-				srcSL.CopyTo(dstRL.ScopeLogs().AppendEmpty())
-				continue
-			}
-
 			lrs := srcSL.LogRecords()
 			if skip >= lrs.Len() {
 				skip -= lrs.Len()
+				continue
+			}
+
+			if skip == 0 {
+				srcSL.CopyTo(dstRL.ScopeLogs().AppendEmpty())
 				continue
 			}
 
@@ -97,15 +98,15 @@ func copyMetricsTail(src, dst pmetric.Metrics, skip int) {
 	for ri := 0; ri < rms.Len(); ri++ {
 		srcRM := rms.At(ri)
 
-		// Nothing left to skip: copy the whole group.
-		if skip == 0 {
-			srcRM.CopyTo(dst.ResourceMetrics().AppendEmpty())
+		// Group is entirely within the skipped range, or empty: skip it.
+		if count := resourceMetricsDataPointCount(srcRM); skip >= count {
+			skip -= count
 			continue
 		}
 
-		// Group is entirely within the skipped range.
-		if count := resourceMetricsDataPointCount(srcRM); skip >= count {
-			skip -= count
+		// Nothing left to skip: copy the whole group.
+		if skip == 0 {
+			srcRM.CopyTo(dst.ResourceMetrics().AppendEmpty())
 			continue
 		}
 
@@ -118,13 +119,13 @@ func copyMetricsTail(src, dst pmetric.Metrics, skip int) {
 		for si := 0; si < sms.Len(); si++ {
 			srcSM := sms.At(si)
 
-			if skip == 0 {
-				srcSM.CopyTo(dstRM.ScopeMetrics().AppendEmpty())
+			if count := scopeMetricsDataPointCount(srcSM); skip >= count {
+				skip -= count
 				continue
 			}
 
-			if count := scopeMetricsDataPointCount(srcSM); skip >= count {
-				skip -= count
+			if skip == 0 {
+				srcSM.CopyTo(dstRM.ScopeMetrics().AppendEmpty())
 				continue
 			}
 
@@ -136,14 +137,14 @@ func copyMetricsTail(src, dst pmetric.Metrics, skip int) {
 			for mi := 0; mi < ms.Len(); mi++ {
 				srcMetric := ms.At(mi)
 
-				if skip == 0 {
-					srcMetric.CopyTo(dstSM.Metrics().AppendEmpty())
-					continue
-				}
-
 				dpCount := getDataPointCount(srcMetric)
 				if skip >= dpCount {
 					skip -= dpCount
+					continue
+				}
+
+				if skip == 0 {
+					srcMetric.CopyTo(dstSM.Metrics().AppendEmpty())
 					continue
 				}
 
@@ -189,15 +190,15 @@ func copyTracesTail(src, dst ptrace.Traces, skip int) {
 	for ri := 0; ri < rss.Len(); ri++ {
 		srcRS := rss.At(ri)
 
-		// Nothing left to skip: copy the whole group.
-		if skip == 0 {
-			srcRS.CopyTo(dst.ResourceSpans().AppendEmpty())
+		// Group is entirely within the skipped range, or empty: skip it.
+		if count := resourceSpansSpanCount(srcRS); skip >= count {
+			skip -= count
 			continue
 		}
 
-		// Group is entirely within the skipped range.
-		if count := resourceSpansSpanCount(srcRS); skip >= count {
-			skip -= count
+		// Nothing left to skip: copy the whole group.
+		if skip == 0 {
+			srcRS.CopyTo(dst.ResourceSpans().AppendEmpty())
 			continue
 		}
 
@@ -210,14 +211,14 @@ func copyTracesTail(src, dst ptrace.Traces, skip int) {
 		for si := 0; si < sss.Len(); si++ {
 			srcSS := sss.At(si)
 
-			if skip == 0 {
-				srcSS.CopyTo(dstRS.ScopeSpans().AppendEmpty())
-				continue
-			}
-
 			sps := srcSS.Spans()
 			if skip >= sps.Len() {
 				skip -= sps.Len()
+				continue
+			}
+
+			if skip == 0 {
+				srcSS.CopyTo(dstRS.ScopeSpans().AppendEmpty())
 				continue
 			}
 

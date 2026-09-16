@@ -204,3 +204,55 @@ func TestCopyTracesTail(t *testing.T) {
 		assert.Equal(t, "https://example.com/scope-schema", dst.ResourceSpans().At(0).ScopeSpans().At(0).SchemaUrl())
 	})
 }
+
+// TestCopyTailSkipsEmptyGroups guards the store against accumulating empty
+// resource groups: the whole-group fast path must never copy a group that
+// carries no items.
+func TestCopyTailSkipsEmptyGroups(t *testing.T) {
+	t.Run("logs", func(t *testing.T) {
+		buf := NewLogBuffer(1, WithRefreshInterval(0))
+		for i := 0; i < 50; i++ {
+			ld := plog.NewLogs()
+			ld.ResourceLogs().AppendEmpty() // empty, before the record
+			ld.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty().Body().SetStr("r")
+			for j := 0; j < 20; j++ {
+				ld.ResourceLogs().AppendEmpty() // empty, after the record
+			}
+			buf.Add(ld)
+		}
+		require.Equal(t, 1, buf.Len())
+		require.Equal(t, 1, buf.store.ResourceLogs().Len())
+	})
+
+	t.Run("metrics", func(t *testing.T) {
+		buf := NewMetricBuffer(1, WithRefreshInterval(0))
+		for i := 0; i < 50; i++ {
+			md := pmetric.NewMetrics()
+			md.ResourceMetrics().AppendEmpty()
+			sm := md.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty()
+			sm.Metrics().AppendEmpty() // MetricTypeEmpty
+			sm.Metrics().AppendEmpty().SetEmptyGauge().DataPoints().AppendEmpty()
+			for j := 0; j < 20; j++ {
+				md.ResourceMetrics().AppendEmpty()
+			}
+			buf.Add(md)
+		}
+		require.Equal(t, 1, buf.Len())
+		require.Equal(t, 1, buf.store.ResourceMetrics().Len())
+	})
+
+	t.Run("traces", func(t *testing.T) {
+		buf := NewTraceBuffer(1, WithRefreshInterval(0))
+		for i := 0; i < 50; i++ {
+			td := ptrace.NewTraces()
+			td.ResourceSpans().AppendEmpty()
+			td.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+			for j := 0; j < 20; j++ {
+				td.ResourceSpans().AppendEmpty()
+			}
+			buf.Add(td)
+		}
+		require.Equal(t, 1, buf.Len())
+		require.Equal(t, 1, buf.store.ResourceSpans().Len())
+	})
+}
