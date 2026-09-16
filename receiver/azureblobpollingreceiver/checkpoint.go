@@ -66,7 +66,7 @@ type PollingCheckPoint struct {
 	LastPollTime time.Time `json:"last_poll_time"`
 
 	// Progress tracks per-blob incremental read progress for append-growable
-	// formats (records-json, json), keyed by blob name. For those formats
+	// formats (records-json, json, and per-line text), keyed by blob name. For those formats
 	// it replaces the name/wall-clock dedup: a blob is re-read whenever its
 	// LastModified changes, only its new bytes are consumed, and its fingerprint
 	// guards against a replaced blob resuming at a stale offset. Entries are

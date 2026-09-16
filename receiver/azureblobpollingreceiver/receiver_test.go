@@ -656,6 +656,15 @@ func TestNewLogsReceiver_BlobFormat(t *testing.T) {
 		require.IsType(t, &blobconsume.RawTextLogsConsumer{}, r.consumer)
 	})
 
+	t.Run("Text format with enable_per_line_text uses LineTextLogsConsumer", func(t *testing.T) {
+		cfg := baseCfg(BlobFormatText)
+		cfg.EnableIncrementalRead = true
+		cfg.EnablePerLineText = true
+		r, err := newLogsReceiver(component.MustNewID("azureblobpolling"), zap.NewNop(), cfg, consumertest.NewNop())
+		require.NoError(t, err)
+		require.IsType(t, &blobconsume.LineTextLogsConsumer{}, r.consumer)
+	})
+
 	t.Run("RecordsJSON format uses RecordsJSONLogsConsumer", func(t *testing.T) {
 		r, err := newLogsReceiver(component.MustNewID("azureblobpolling"), zap.NewNop(), baseCfg(BlobFormatRecordsJSON), consumertest.NewNop())
 		require.NoError(t, err)
@@ -1000,6 +1009,27 @@ func TestPollingReceiver_processBlob(t *testing.T) {
 		require.ErrorContains(t, err, "unsupported file type")
 	})
 
+	t.Run("text format accepts any extension on the whole-blob path", func(t *testing.T) {
+		// The text format is content-agnostic, so a .txt (or .log, extensionless) blob is
+		// read whole as one record with the flag off — matching the per-line text path and
+		// making enable_per_line_text round-trippable.
+		sink := new(consumertest.LogsSink)
+		mockClient := new(azureblob.MockBlobClient)
+		mockClient.EXPECT().
+			DownloadBlobStream(mock.Anything, "test-container", "flow/data.txt").
+			Return([]byte("line one\nline two\n"), nil)
+		r := &pollingReceiver{
+			logger:      zap.NewNop(),
+			cfg:         &Config{Container: "test-container", BlobFormat: BlobFormatText},
+			azureClient: mockClient,
+			consumer:    blobconsume.NewRawTextLogsConsumer(sink),
+			mut:         &sync.Mutex{},
+			wg:          &sync.WaitGroup{},
+		}
+		require.NoError(t, r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/data.txt"}))
+		require.Equal(t, 1, sink.LogRecordCount(), "the whole text blob becomes one record")
+	})
+
 	t.Run("consumer error is returned", func(t *testing.T) {
 		mockClient := new(azureblob.MockBlobClient)
 		mockClient.EXPECT().
@@ -1241,12 +1271,14 @@ func TestPollingReceiver_processBlobIncremental_Branches(t *testing.T) {
 		switch format {
 		case BlobFormatJSON:
 			consumer = blobconsume.NewNDJSONLogsConsumer(sink, zap.NewNop())
+		case BlobFormatText:
+			consumer = blobconsume.NewLineTextLogsConsumer(sink)
 		default:
 			consumer = blobconsume.NewRecordsJSONLogsConsumer(sink, zap.NewNop())
 		}
 		return &pollingReceiver{
 			logger:      zap.NewNop(),
-			cfg:         &Config{Container: "c", BlobFormat: format},
+			cfg:         &Config{Container: "c", BlobFormat: format, EnableIncrementalRead: true, EnablePerLineText: format == BlobFormatText},
 			azureClient: client,
 			checkpoint:  cp,
 			consumer:    consumer,
@@ -1374,6 +1406,19 @@ func TestPollingReceiver_processBlobIncremental_Branches(t *testing.T) {
 		content = []byte("{\"a\":1}\n{\"b\":2}\n{\"c\":3}\n")
 		require.NoError(t, procErr(r.processBlobIncremental(context.Background(), &azureblob.BlobInfo{Name: "b.json", Size: int64(len(content)), LastModified: lm.Add(time.Minute)})))
 		require.Equal(t, 3, sink.LogRecordCount(), "each line emitted exactly once")
+	})
+
+	t.Run("text blob emits one record per line", func(t *testing.T) {
+		content := []byte("line one\nline two\n")
+		mockClient := new(azureblob.MockBlobClient)
+		mockClient.EXPECT().DownloadBlobRange(mock.Anything, "c", "b.txt", mock.Anything, mock.Anything).
+			RunAndReturn(serve(&content))
+		cp := NewPollingCheckpoint()
+		sink := new(consumertest.LogsSink)
+		r := newReceiver(sink, cp, BlobFormatText, mockClient)
+
+		require.NoError(t, procErr(r.processBlobIncremental(context.Background(), &azureblob.BlobInfo{Name: "b.txt", Size: int64(len(content)), LastModified: lm})))
+		require.Equal(t, 2, sink.LogRecordCount(), "one record per line, not one per blob")
 	})
 }
 
@@ -1585,6 +1630,33 @@ func TestPollingReceiver_processBlobWholeTracked(t *testing.T) {
 		require.True(t, ok, "tracked as never-read so its drop is logged if it ages out")
 		require.NotEmpty(t, prog.LastReadError)
 	})
+}
+
+func TestPollingReceiver_processBlobWholeTracked_textGzip(t *testing.T) {
+	// The gzip whole-tracked path is also reachable for text + enable_per_line_text; exercise it so
+	// the per-line text consumer's handling on this path is covered, not only records-json/json.
+	mc := new(azureblob.MockBlobClient)
+	sink := new(consumertest.LogsSink)
+	gz := gzipBytes(t, []byte("line1\nline2\nline3\n"))
+	mc.EXPECT().DownloadBlobStream(mock.Anything, "c", "b.txt.gz").Return(gz, nil)
+	cp := NewPollingCheckpoint()
+	r := &pollingReceiver{
+		logger:      zap.NewNop(),
+		cfg:         &Config{Container: "c", BlobFormat: BlobFormatText, EnablePerLineText: true, EnableIncrementalRead: true},
+		azureClient: mc,
+		checkpoint:  cp,
+		consumer:    blobconsume.NewLineTextLogsConsumer(sink),
+		mut:         &sync.Mutex{},
+		wg:          &sync.WaitGroup{},
+	}
+	lm := time.Date(2026, 8, 31, 14, 0, 0, 0, time.UTC)
+	processed, err := r.processBlobWholeTracked(context.Background(), &azureblob.BlobInfo{Name: "b.txt.gz", Size: int64(len(gz)), LastModified: lm})
+	require.NoError(t, err)
+	require.True(t, processed)
+	require.Equal(t, 3, sink.LogRecordCount(), "each text line becomes one record on the gzip whole-tracked path")
+	prog, ok := cp.ProgressFor("b.txt.gz")
+	require.True(t, ok)
+	require.Equal(t, int64(len(gz)), prog.Offset)
 }
 
 func TestPollingReceiver_neverReadFailureTrackedAndLoggedAtAgeOut(t *testing.T) {
@@ -1970,6 +2042,46 @@ func TestPollingReceiver_finalizeAgedBlobs(t *testing.T) {
 		r.finalizeAgedBlobs(context.Background(), map[string]BlobProgress{"b.json": {Offset: 0, LastModified: time.Unix(100, 0)}})
 		mc.AssertNotCalled(t, "DeleteBlob")
 		got, ok := cp.ProgressFor("b.json")
+		require.True(t, ok, "re-tracked for retry, not deleted")
+		require.False(t, got.Quarantined)
+	})
+
+	t.Run("text: flushes an unterminated final line per line at seal", func(t *testing.T) {
+		mockClient := new(azureblob.MockBlobClient)
+		sink := new(consumertest.LogsSink)
+		mockClient.EXPECT().DownloadBlobRange(mock.Anything, "c", "b.txt", int64(10), int64(0)).
+			Return([]byte("last line, no trailing newline"), -1, nil)
+		mockClient.EXPECT().DeleteBlob(mock.Anything, "c", "b.txt").Return(nil).Maybe()
+		r := &pollingReceiver{
+			logger:      zap.NewNop(),
+			cfg:         &Config{Container: "c", BlobFormat: BlobFormatText, EnableIncrementalRead: true, EnablePerLineText: true},
+			azureClient: mockClient,
+			checkpoint:  NewPollingCheckpoint(),
+			consumer:    blobconsume.NewLineTextLogsConsumer(sink),
+			mut:         &sync.Mutex{},
+			wg:          &sync.WaitGroup{},
+		}
+		r.finalizeAgedBlobs(context.Background(), map[string]BlobProgress{"b.txt": {Offset: 10, LastModified: time.Unix(100, 0)}})
+		require.Equal(t, 1, sink.LogRecordCount(), "the unterminated final line is flushed as one record")
+	})
+
+	t.Run("text: a downstream consume failure at seal re-tracks, does not delete", func(t *testing.T) {
+		mc := new(azureblob.MockBlobClient)
+		mc.EXPECT().DownloadBlobRange(mock.Anything, "c", "b.txt", int64(0), int64(0)).
+			Return([]byte("a line\n"), -1, nil)
+		cp := NewPollingCheckpoint()
+		r := &pollingReceiver{
+			logger:      zap.NewNop(),
+			cfg:         &Config{Container: "c", BlobFormat: BlobFormatText, DeleteOnRead: true, EnableIncrementalRead: true, EnablePerLineText: true},
+			azureClient: mc,
+			checkpoint:  cp,
+			consumer:    blobconsume.NewLineTextLogsConsumer(consumertest.NewErr(errors.New("queue full"))),
+			mut:         &sync.Mutex{},
+			wg:          &sync.WaitGroup{},
+		}
+		r.finalizeAgedBlobs(context.Background(), map[string]BlobProgress{"b.txt": {Offset: 0, LastModified: time.Unix(100, 0)}})
+		mc.AssertNotCalled(t, "DeleteBlob")
+		got, ok := cp.ProgressFor("b.txt")
 		require.True(t, ok, "re-tracked for retry, not deleted")
 		require.False(t, got.Quarantined)
 	})
@@ -2866,6 +2978,9 @@ func TestPollingReceiver_processBlobIncremental_ErrorPaths(t *testing.T) {
 		{"ndjson consumer error", BlobFormatJSON, []byte("{\"a\":1}\n"), func(c consumertest.Consumer) blobconsume.Consumer {
 			return blobconsume.NewNDJSONLogsConsumer(c, zap.NewNop())
 		}},
+		{"text consumer error", BlobFormatText, []byte("a line\n"), func(c consumertest.Consumer) blobconsume.Consumer {
+			return blobconsume.NewLineTextLogsConsumer(c)
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mockClient := new(azureblob.MockBlobClient)
@@ -2873,7 +2988,7 @@ func TestPollingReceiver_processBlobIncremental_ErrorPaths(t *testing.T) {
 				Return(tc.content, -1, nil)
 			r := &pollingReceiver{
 				logger:      zap.NewNop(),
-				cfg:         &Config{Container: "c", BlobFormat: tc.format},
+				cfg:         &Config{Container: "c", BlobFormat: tc.format, EnableIncrementalRead: true, EnablePerLineText: tc.format == BlobFormatText},
 				azureClient: mockClient,
 				checkpoint:  NewPollingCheckpoint(),
 				consumer:    tc.newCons(consumertest.NewErr(errors.New("downstream boom"))),
@@ -3940,27 +4055,30 @@ func TestPollingReceiver_isIncrementalFormat_gatedByFlag(t *testing.T) {
 	// enable_incremental_read opt-in is set. Every other combination stays on the
 	// legacy whole-blob path.
 	cases := []struct {
-		format BlobFormat
-		enable bool
-		want   bool
+		format  BlobFormat
+		enable  bool
+		perLine bool
+		want    bool
 	}{
-		{BlobFormatRecordsJSON, true, true},
-		{BlobFormatJSON, true, true},
-		{BlobFormatText, true, false}, // text is gated behind a second flag (added later)
-		{BlobFormatOTLP, true, false},
-		{"", true, false},
-		{BlobFormatRecordsJSON, false, false}, // flag off => legacy path
-		{BlobFormatJSON, false, false},
-		{BlobFormatText, false, false},
-		{BlobFormatOTLP, false, false},
+		{BlobFormatRecordsJSON, true, false, true},
+		{BlobFormatJSON, true, false, true},
+		{BlobFormatText, true, false, false}, // text needs the second flag too
+		{BlobFormatText, true, true, true},   // ...which turns it on
+		{BlobFormatText, false, true, false}, // second flag alone does nothing
+		{BlobFormatOTLP, true, false, false},
+		{"", true, false, false},
+		{BlobFormatRecordsJSON, false, false, false}, // flag off => legacy path
+		{BlobFormatJSON, false, false, false},
+		{BlobFormatText, false, false, false},
+		{BlobFormatOTLP, false, false, false},
 	}
 	for _, tc := range cases {
-		r := &pollingReceiver{cfg: &Config{BlobFormat: tc.format, EnableIncrementalRead: tc.enable}}
+		r := &pollingReceiver{cfg: &Config{BlobFormat: tc.format, EnableIncrementalRead: tc.enable, EnablePerLineText: tc.perLine}}
 		require.Equalf(t, tc.want, r.isIncrementalFormat(),
-			"isIncrementalFormat: format=%q enable=%v", tc.format, tc.enable)
+			"isIncrementalFormat: format=%q enable=%v perLine=%v", tc.format, tc.enable, tc.perLine)
 		// useIncremental adds the gzip carve-out on top of the gate.
 		require.Equalf(t, tc.want, r.useIncremental("b.json"),
-			"useIncremental(plain): format=%q enable=%v", tc.format, tc.enable)
+			"useIncremental(plain): format=%q enable=%v perLine=%v", tc.format, tc.enable, tc.perLine)
 		require.False(t, r.useIncremental("b.json.gz"),
 			"gzip is never range-tailed regardless of gate")
 	}

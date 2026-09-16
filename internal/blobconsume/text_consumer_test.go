@@ -34,6 +34,7 @@ func Test_rawTextLogsConsumer(t *testing.T) {
 	require.Equal(t, 1, sink.LogRecordCount())
 	record := sink.AllLogs()[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
 	require.Equal(t, input, record.Body().Str())
+	require.NotZero(t, record.ObservedTimestamp(), "sets ObservedTimestamp like the per-line text consumer")
 }
 
 func Test_rawTextLogsConsumer_EmptyContent(t *testing.T) {
