@@ -16,6 +16,7 @@ package blobconsume //import "github.com/observiq/bindplane-otel-contrib/interna
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -27,20 +28,30 @@ func Test_rawTextLogsConsumer(t *testing.T) {
 	con := NewRawTextLogsConsumer(sink)
 
 	input := "This is some raw log text\nwith multiple lines\n"
-	err := con.Consume(context.Background(), []byte(input))
+	_, _, err := con.ConsumeCounted(context.Background(), []byte(input))
 	require.NoError(t, err)
 
 	require.Equal(t, 1, sink.LogRecordCount())
 	record := sink.AllLogs()[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
 	require.Equal(t, input, record.Body().Str())
+	require.NotZero(t, record.ObservedTimestamp(), "sets ObservedTimestamp like the per-line text consumer")
 }
 
 func Test_rawTextLogsConsumer_EmptyContent(t *testing.T) {
 	sink := &consumertest.LogsSink{}
 	con := NewRawTextLogsConsumer(sink)
 
-	err := con.Consume(context.Background(), []byte(""))
+	_, _, err := con.ConsumeCounted(context.Background(), []byte(""))
 	require.NoError(t, err)
 
 	require.Equal(t, 0, sink.LogRecordCount())
+}
+
+func Test_rawTextLogsConsumer_DownstreamError(t *testing.T) {
+	// A downstream ConsumeLogs failure is marked ErrDownstream so the receiver retries rather
+	// than quarantining.
+	con := NewRawTextLogsConsumer(consumertest.NewErr(errors.New("boom")))
+	_, _, err := con.ConsumeCounted(context.Background(), []byte("a line"))
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrDownstream)
 }

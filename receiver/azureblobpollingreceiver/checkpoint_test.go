@@ -22,6 +22,153 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPollingCheckpoint_Progress(t *testing.T) {
+	t.Run("ProgressFor and UpdateProgress", func(t *testing.T) {
+		cp := NewPollingCheckpoint()
+		_, ok := cp.ProgressFor("blob")
+		require.False(t, ok, "unknown blob has no progress")
+
+		ts := time.Date(2026, 8, 31, 14, 0, 0, 0, time.UTC)
+		cp.UpdateProgress("blob", BlobProgress{Offset: 128, Fingerprint: []byte("fp"), LastModified: ts})
+		got, ok := cp.ProgressFor("blob")
+		require.True(t, ok)
+		require.Equal(t, int64(128), got.Offset)
+		require.Equal(t, []byte("fp"), got.Fingerprint)
+		require.Equal(t, ts, got.LastModified)
+	})
+
+	t.Run("UpdateProgress lazily initializes a nil map", func(t *testing.T) {
+		// A checkpoint unmarshaled from an older payload has no progress map.
+		cp := &PollingCheckPoint{}
+		require.Nil(t, cp.Progress)
+		cp.UpdateProgress("blob", BlobProgress{Offset: 10})
+		got, ok := cp.ProgressFor("blob")
+		require.True(t, ok)
+		require.Equal(t, int64(10), got.Offset)
+	})
+
+	t.Run("AgedOutProgress removes and returns only aged-out entries", func(t *testing.T) {
+		cp := NewPollingCheckpoint()
+		cutoff := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+		cp.UpdateProgress("old", BlobProgress{Offset: 5, LastModified: cutoff.Add(-time.Hour)}) // before cutoff
+		cp.UpdateProgress("new", BlobProgress{Offset: 5, LastModified: cutoff.Add(time.Hour)})  // after cutoff
+		cp.UpdateProgress("edge", BlobProgress{Offset: 5, LastModified: cutoff})                // exactly cutoff, kept
+
+		aged, _ := cp.AgedOutProgress(cutoff, cutoff.Add(-quarantineRetention), cutoff.Add(-quarantineRetention))
+		require.Contains(t, aged, "old")
+		require.NotContains(t, aged, "new")
+		require.NotContains(t, aged, "edge")
+
+		_, ok := cp.ProgressFor("old")
+		require.False(t, ok, "aged-out entry removed")
+		_, ok = cp.ProgressFor("new")
+		require.True(t, ok, "in-horizon entry kept")
+		_, ok = cp.ProgressFor("edge")
+		require.True(t, ok, "entry exactly at cutoff kept")
+	})
+
+	t.Run("AgedOutProgress leaves quarantined entries in place", func(t *testing.T) {
+		cp := NewPollingCheckpoint()
+		cutoff := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+		old := cutoff.Add(-time.Hour)
+		cp.UpdateProgress("normal", BlobProgress{Offset: 5, LastModified: old})
+		cp.UpdateProgress("bad", BlobProgress{Offset: 0, LastModified: old, Quarantined: true})
+
+		aged, _ := cp.AgedOutProgress(cutoff, cutoff.Add(-quarantineRetention), cutoff.Add(-quarantineRetention))
+		require.Contains(t, aged, "normal")
+		require.NotContains(t, aged, "bad", "a quarantined entry is not aged out again")
+		_, ok := cp.ProgressFor("bad")
+		require.True(t, ok, "the quarantined entry stays in the map so the blob is ignored while unchanged")
+	})
+
+	t.Run("AgedOutProgress prunes a quarantined entry past the prune cutoff", func(t *testing.T) {
+		cp := NewPollingCheckpoint()
+		cutoff := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+		pruneCutoff := cutoff.Add(-quarantineRetention)
+		cp.UpdateProgress("bad", BlobProgress{Offset: 0, LastModified: pruneCutoff.Add(-time.Hour), Quarantined: true})
+
+		aged, _ := cp.AgedOutProgress(cutoff, pruneCutoff, pruneCutoff)
+		require.NotContains(t, aged, "bad", "a pruned quarantined entry is dropped, not flushed/deleted")
+		_, ok := cp.ProgressFor("bad")
+		require.False(t, ok, "the long-quarantined entry is pruned to bound the map")
+	})
+
+	t.Run("AgedOutProgress leaves sealed entries in place", func(t *testing.T) {
+		cp := NewPollingCheckpoint()
+		cutoff := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+		old := cutoff.Add(-time.Hour)
+		cp.UpdateProgress("sealed", BlobProgress{Offset: 42, LastModified: old, Sealed: true})
+
+		aged, _ := cp.AgedOutProgress(cutoff, cutoff.Add(-quarantineRetention), cutoff.Add(-quarantineRetention))
+		require.NotContains(t, aged, "sealed", "a sealed entry is not aged out again / re-flushed")
+		got, ok := cp.ProgressFor("sealed")
+		require.True(t, ok, "the sealed entry stays so a later resume reads from its offset")
+		require.Equal(t, int64(42), got.Offset)
+	})
+
+	t.Run("AgedOutProgress prunes a sealed entry past the prune cutoff", func(t *testing.T) {
+		cp := NewPollingCheckpoint()
+		cutoff := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+		pruneCutoff := cutoff.Add(-quarantineRetention)
+		cp.UpdateProgress("sealed", BlobProgress{Offset: 42, LastModified: pruneCutoff.Add(-time.Hour), Sealed: true})
+
+		cp.AgedOutProgress(cutoff, pruneCutoff, pruneCutoff)
+		_, ok := cp.ProgressFor("sealed")
+		require.False(t, ok, "a long-sealed entry is pruned to bound the map")
+	})
+
+	t.Run("AgedOutProgress gives up on a retried-and-failing entry past the retry budget", func(t *testing.T) {
+		// A persistently-failing finalize, once older than quarantineRetention before the aging
+		// cutoff, is dropped and reported in giveUp for the caller's drop log.
+		cp := NewPollingCheckpoint()
+		cutoff := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+		cp.UpdateProgress("stuck", BlobProgress{Offset: 5, LastModified: cutoff.Add(-quarantineRetention - time.Hour), FinalizeFailures: 2})
+
+		aged, giveUp := cp.AgedOutProgress(cutoff, cutoff.Add(-quarantineRetention), cutoff.Add(-quarantineRetention))
+		require.NotContains(t, aged, "stuck", "past the retry budget it is dropped, not retried again")
+		require.Contains(t, giveUp, "stuck", "and reported so the drop is logged")
+		_, ok := cp.ProgressFor("stuck")
+		require.False(t, ok, "and removed from the map to bound it")
+	})
+
+	t.Run("AgedOutProgress retries a just-failed entry despite a recent window-coupled prune cutoff", func(t *testing.T) {
+		// Regression: a revisit window >= quarantineRetention makes quarantinePruneCutoff newer than
+		// the aging cutoff. A just-aged-out entry must still be retried, not pruned on its first
+		// failure — the retry bound is anchored to the aging cutoff, not the window.
+		cp := NewPollingCheckpoint()
+		cutoff := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+		recentPruneCutoff := cutoff.Add(time.Hour) // window-coupled cutoff, newer than the aging cutoff
+		cp.UpdateProgress("stuck", BlobProgress{Offset: 5, LastModified: cutoff.Add(-time.Minute), FinalizeFailures: 1})
+
+		aged, giveUp := cp.AgedOutProgress(cutoff, recentPruneCutoff, recentPruneCutoff)
+		require.Contains(t, aged, "stuck", "a just-failed entry is retried, not collapsed to one attempt by a large window")
+		require.NotContains(t, giveUp, "stuck")
+	})
+
+	t.Run("AgedOutProgress finalizes a never-failed aged entry even past the prune cutoff", func(t *testing.T) {
+		// A first-seen blob whose mtime is already older than the prune cutoff (e.g. a large
+		// initial_lookback backfill) must be finalized (returned as aged), not silently dropped.
+		cp := NewPollingCheckpoint()
+		cutoff := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+		pruneCutoff := cutoff.Add(-quarantineRetention)
+		cp.UpdateProgress("fresh", BlobProgress{Offset: 5, LastModified: pruneCutoff.Add(-time.Hour)}) // FinalizeFailures 0
+
+		aged, _ := cp.AgedOutProgress(cutoff, pruneCutoff, pruneCutoff)
+		require.Contains(t, aged, "fresh", "a never-failed entry is finalized, not pruned")
+	})
+
+	t.Run("AgedOutProgress never seals a zero-LastModified entry", func(t *testing.T) {
+		cp := NewPollingCheckpoint()
+		cutoff := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+		cp.UpdateProgress("no-mtime", BlobProgress{Offset: 5}) // zero LastModified
+
+		aged, _ := cp.AgedOutProgress(cutoff, cutoff.Add(-quarantineRetention), cutoff.Add(-quarantineRetention))
+		require.NotContains(t, aged, "no-mtime", "a blob with unknown mtime is never sealed")
+		_, ok := cp.ProgressFor("no-mtime")
+		require.True(t, ok, "the entry is retained rather than sealed/deleted")
+	})
+}
+
 func TestPollingCheckpoint(t *testing.T) {
 	t.Run("NewPollingCheckpoint", func(t *testing.T) {
 		cp := NewPollingCheckpoint()

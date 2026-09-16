@@ -128,6 +128,135 @@ func (_c *MockBlobClient_DownloadBlob_Call) RunAndReturn(run func(context.Contex
 	return _c
 }
 
+// DownloadBlobRange provides a mock function with given fields: ctx, container, blobPath, offset, count
+func (_m *MockBlobClient) DownloadBlobRange(ctx context.Context, container string, blobPath string, offset int64, count int64) ([]byte, int64, error) {
+	ret := _m.Called(ctx, container, blobPath, offset, count)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DownloadBlobRange")
+	}
+
+	var r0 []byte
+	var r1 int64
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, int64, int64) ([]byte, int64, error)); ok {
+		return rf(ctx, container, blobPath, offset, count)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, int64, int64) []byte); ok {
+		r0 = rf(ctx, container, blobPath, offset, count)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, int64, int64) int64); ok {
+		r1 = rf(ctx, container, blobPath, offset, count)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context, string, string, int64, int64) error); ok {
+		r2 = rf(ctx, container, blobPath, offset, count)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
+// MockBlobClient_DownloadBlobRange_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DownloadBlobRange'
+type MockBlobClient_DownloadBlobRange_Call struct {
+	*mock.Call
+}
+
+// DownloadBlobRange is a helper method to define mock.On call
+//   - ctx context.Context
+//   - container string
+//   - blobPath string
+//   - offset int64
+//   - count int64
+func (_e *MockBlobClient_Expecter) DownloadBlobRange(ctx interface{}, container interface{}, blobPath interface{}, offset interface{}, count interface{}) *MockBlobClient_DownloadBlobRange_Call {
+	return &MockBlobClient_DownloadBlobRange_Call{Call: _e.mock.On("DownloadBlobRange", ctx, container, blobPath, offset, count)}
+}
+
+func (_c *MockBlobClient_DownloadBlobRange_Call) Run(run func(ctx context.Context, container string, blobPath string, offset int64, count int64)) *MockBlobClient_DownloadBlobRange_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(int64), args[4].(int64))
+	})
+	return _c
+}
+
+func (_c *MockBlobClient_DownloadBlobRange_Call) Return(data []byte, total int64, err error) *MockBlobClient_DownloadBlobRange_Call {
+	_c.Call.Return(data, total, err)
+	return _c
+}
+
+func (_c *MockBlobClient_DownloadBlobRange_Call) RunAndReturn(run func(context.Context, string, string, int64, int64) ([]byte, int64, error)) *MockBlobClient_DownloadBlobRange_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DownloadBlobStream provides a mock function with given fields: ctx, container, blobPath
+func (_m *MockBlobClient) DownloadBlobStream(ctx context.Context, container string, blobPath string) ([]byte, error) {
+	ret := _m.Called(ctx, container, blobPath)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DownloadBlobStream")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) ([]byte, error)); ok {
+		return rf(ctx, container, blobPath)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) []byte); ok {
+		r0 = rf(ctx, container, blobPath)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, container, blobPath)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockBlobClient_DownloadBlobStream_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DownloadBlobStream'
+type MockBlobClient_DownloadBlobStream_Call struct {
+	*mock.Call
+}
+
+// DownloadBlobStream is a helper method to define mock.On call
+//   - ctx context.Context
+//   - container string
+//   - blobPath string
+func (_e *MockBlobClient_Expecter) DownloadBlobStream(ctx interface{}, container interface{}, blobPath interface{}) *MockBlobClient_DownloadBlobStream_Call {
+	return &MockBlobClient_DownloadBlobStream_Call{Call: _e.mock.On("DownloadBlobStream", ctx, container, blobPath)}
+}
+
+func (_c *MockBlobClient_DownloadBlobStream_Call) Run(run func(ctx context.Context, container string, blobPath string)) *MockBlobClient_DownloadBlobStream_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockBlobClient_DownloadBlobStream_Call) Return(_a0 []byte, _a1 error) *MockBlobClient_DownloadBlobStream_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockBlobClient_DownloadBlobStream_Call) RunAndReturn(run func(context.Context, string, string) ([]byte, error)) *MockBlobClient_DownloadBlobStream_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListPrefixes provides a mock function with given fields: ctx, containerName, prefix
 func (_m *MockBlobClient) ListPrefixes(ctx context.Context, containerName string, prefix string) ([]string, error) {
 	ret := _m.Called(ctx, containerName, prefix)

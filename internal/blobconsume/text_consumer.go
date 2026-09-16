@@ -18,8 +18,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 )
 
@@ -35,11 +37,17 @@ func NewRawTextLogsConsumer(nextConsumer consumer.Logs) *RawTextLogsConsumer {
 	}
 }
 
-// Consume creates a single log record with the entire entityContent as a string body.
-// Empty content is skipped to avoid emitting empty log records.
+// Consume implements Consumer; it discards ConsumeCounted's record counts.
 func (r *RawTextLogsConsumer) Consume(ctx context.Context, entityContent []byte) error {
+	_, _, err := r.ConsumeCounted(ctx, entityContent)
+	return err
+}
+
+// ConsumeCounted creates a single log record with the entire entityContent as a string body.
+// Empty content is skipped to avoid emitting empty log records.
+func (r *RawTextLogsConsumer) ConsumeCounted(ctx context.Context, entityContent []byte) (int, int, error) {
 	if len(bytes.TrimSpace(entityContent)) == 0 {
-		return nil
+		return 0, 0, nil
 	}
 
 	logs := plog.NewLogs()
@@ -47,9 +55,10 @@ func (r *RawTextLogsConsumer) Consume(ctx context.Context, entityContent []byte)
 	scopeLogs := resourceLogs.ScopeLogs().AppendEmpty()
 	record := scopeLogs.LogRecords().AppendEmpty()
 	record.Body().SetStr(string(entityContent))
+	record.SetObservedTimestamp(pcommon.NewTimestampFromTime(time.Now()))
 
 	if err := r.nextConsumer.ConsumeLogs(ctx, logs); err != nil {
-		return fmt.Errorf("text consume: %w", err)
+		return 1, 0, fmt.Errorf("text consume: %w: %w", ErrDownstream, err)
 	}
-	return nil
+	return 1, 1, nil
 }
