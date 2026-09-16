@@ -5,8 +5,8 @@ go 1.26.4
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.0
-	github.com/observiq/bindplane-otel-contrib/internal/azureblob v1.14.0
-	github.com/observiq/bindplane-otel-contrib/internal/blobconsume v1.14.0
+	github.com/observiq/bindplane-otel-contrib/internal/azureblob v1.14.2
+	github.com/observiq/bindplane-otel-contrib/internal/blobconsume v1.14.2
 	github.com/observiq/bindplane-otel-contrib/internal/storageclient v1.14.0
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/collector/component v1.66.0
