@@ -91,7 +91,7 @@ func (n *NDJSONLogsConsumer) Consume(ctx context.Context, entityContent []byte) 
 	}
 
 	if err := n.nextConsumer.ConsumeLogs(ctx, logs); err != nil {
-		return fmt.Errorf("ndjson consume: %w", err)
+		return fmt.Errorf("ndjson consume: %w: %w", ErrDownstream, err)
 	}
 	return nil
 }

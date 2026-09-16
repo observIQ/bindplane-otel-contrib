@@ -126,6 +126,34 @@ type Config struct {
 	// e.g. Azure NSG flow logs).
 	// Non-"otlp" formats are only supported for logs pipelines.
 	BlobFormat BlobFormat `mapstructure:"blob_format"`
+
+	// EnableIncrementalRead opts a blob into incremental byte-offset reads for the
+	// "records-json" and "json" formats: the receiver tracks a per-blob offset and consumes
+	// only newly appended complete records/lines, revisiting the blob until it seals. When
+	// false (default) those formats parse the whole blob once per poll and dedupe by name,
+	// losing mid-hour appends to a growing blob. See the README for details.
+	//
+	// TEMPORARY: this will become the default and be removed once the incremental
+	// path is proven, at which point the legacy whole-blob behavior goes away.
+	EnableIncrementalRead bool `mapstructure:"enable_incremental_read"`
+
+	// IncrementalRevisitWindow bounds two things for the incremental path: how far back each
+	// poll re-lists blobs to pick up in-place appends, and how long after a blob's last
+	// observed change it is held before being treated as sealed. Default 2h; 0 selects it.
+	// Only consulted when EnableIncrementalRead is set.
+	IncrementalRevisitWindow time.Duration `mapstructure:"incremental_revisit_window"`
+
+	// FingerprintSize is the number of leading blob bytes used to identify an append-growable
+	// blob across reads, mirroring the filelog receiver's fingerprint_size. Only consulted
+	// when EnableIncrementalRead is set; 0 selects the default (512), any explicit value >= 16.
+	FingerprintSize int `mapstructure:"fingerprint_size"`
+
+	// AssumeAppendOnly skips the per-poll blob-identity read on the incremental path (halving
+	// the per-poll read operations for a growing blob). Only set this when blobs are guaranteed
+	// append-only: if a blob is ever replaced or truncated under the same name, the receiver
+	// emits stale bytes as records (replaced larger) or silently misses new content (replaced
+	// smaller). Only consulted when EnableIncrementalRead is set.
+	AssumeAppendOnly bool `mapstructure:"assume_append_only"`
 }
 
 // Validate validates the config
@@ -152,6 +180,28 @@ func (c *Config) Validate() error {
 
 	if c.InitialLookback < 0 {
 		return errors.New("initial_lookback must be greater than or equal to 0")
+	}
+
+	if c.IncrementalRevisitWindow < 0 {
+		return errors.New("incremental_revisit_window must be greater than or equal to 0")
+	}
+
+	// incremental_revisit_window only bounds the incremental path; without the opt-in it
+	// is a silent no-op, so reject it rather than let it look active.
+	if c.IncrementalRevisitWindow != 0 && !c.EnableIncrementalRead {
+		return errors.New("incremental_revisit_window has no effect without enable_incremental_read")
+	}
+
+	// The revisit window must cover at least one poll, or a still-growing blob can age out
+	// between polls and be re-read from byte 0 (duplication) or deleted mid-write (loss).
+	if c.EnableIncrementalRead {
+		window := c.IncrementalRevisitWindow
+		if window == 0 {
+			window = defaultIncrementalRevisitWindow
+		}
+		if window < c.PollInterval {
+			return fmt.Errorf("incremental_revisit_window (%s) must be at least poll_interval (%s)", window, c.PollInterval)
+		}
 	}
 
 	if c.PageSize < 1 {
@@ -206,6 +256,24 @@ func (c *Config) Validate() error {
 			c.TelemetryType != "" && c.TelemetryType != "logs" {
 			return fmt.Errorf("blob_format %q is only supported for logs pipelines, got telemetry_type %q", c.BlobFormat, c.TelemetryType)
 		}
+	}
+
+	// These only affect the incremental (append-growable logs) path. Set without their
+	// prerequisite they'd be silent no-ops, so reject each rather than let it look active.
+	if c.EnableIncrementalRead && (c.BlobFormat == BlobFormatOTLP || c.BlobFormat == "") {
+		return errors.New("enable_incremental_read has no effect with blob_format otlp; use json or records-json")
+	}
+	if c.EnableIncrementalRead && c.BlobFormat == BlobFormatText {
+		return errors.New("enable_incremental_read has no effect with blob_format text")
+	}
+	if c.FingerprintSize != 0 && !c.EnableIncrementalRead {
+		return errors.New("fingerprint_size has no effect without enable_incremental_read")
+	}
+	if c.FingerprintSize != 0 && c.FingerprintSize < minFingerprintSize {
+		return fmt.Errorf("fingerprint_size must be at least %d, or 0 for the default", minFingerprintSize)
+	}
+	if c.AssumeAppendOnly && !c.EnableIncrementalRead {
+		return errors.New("assume_append_only has no effect without enable_incremental_read")
 	}
 
 	return nil

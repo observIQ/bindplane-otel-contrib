@@ -16,6 +16,7 @@ package blobconsume //import "github.com/observiq/bindplane-otel-contrib/interna
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -43,4 +44,13 @@ func Test_rawTextLogsConsumer_EmptyContent(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, 0, sink.LogRecordCount())
+}
+
+func Test_rawTextLogsConsumer_DownstreamError(t *testing.T) {
+	// A downstream ConsumeLogs failure is marked ErrDownstream so the receiver retries rather
+	// than quarantining.
+	con := NewRawTextLogsConsumer(consumertest.NewErr(errors.New("boom")))
+	err := con.Consume(context.Background(), []byte("a line"))
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrDownstream)
 }

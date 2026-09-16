@@ -16,6 +16,7 @@ package blobconsume //import "github.com/observiq/bindplane-otel-contrib/interna
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -74,4 +75,13 @@ func Test_recordsJSONLogsConsumer_InvalidJSON(t *testing.T) {
 	err := con.Consume(context.Background(), input)
 	require.Error(t, err)
 	require.Equal(t, 0, sink.LogRecordCount())
+}
+
+func Test_recordsJSONLogsConsumer_DownstreamError(t *testing.T) {
+	// A downstream ConsumeLogs failure is marked ErrDownstream so the receiver treats it as
+	// transient (retry) rather than a content problem (quarantine).
+	con := NewRecordsJSONLogsConsumer(consumertest.NewErr(errors.New("boom")), zap.NewNop())
+	err := con.Consume(context.Background(), []byte(`{"records":[{"a":1}]}`))
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrDownstream)
 }
