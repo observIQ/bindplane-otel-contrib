@@ -190,56 +190,72 @@ func benchTraces(spans, attrs int) ptrace.Traces {
 	return td
 }
 
-// BenchmarkLogBufferAdd measures the buffer admission cost across payload
-// sizes. Payloads below the ideal size exercise the eviction loop and its
-// repeated Len() walks; payloads above it exercise the buffer-reset path.
+// benchAdmitModes are the two hot-path regimes: "steady" is the production
+// default, where a full buffer admits one payload per DefaultRefreshInterval
+// and nearly every call takes the rejected path; "admit_all" disables the rate
+// limit to measure the bounded copy an admitted payload costs.
+var benchAdmitModes = []struct {
+	name string
+	opt  Option
+}{
+	{name: "steady", opt: WithRefreshInterval(DefaultRefreshInterval)},
+	{name: "admit_all", opt: WithRefreshInterval(0)},
+}
+
+// BenchmarkLogBufferAdd measures the hot-path cost of Add across payload
+// sizes in both admission regimes.
 func BenchmarkLogBufferAdd(b *testing.B) {
-	for _, records := range []int{10, 100, 1_000, 10_000} {
-		b.Run("records="+strconv.Itoa(records), func(b *testing.B) {
-			buf := NewLogBuffer(benchIdealSize)
-			ld := benchLogs(records, 10, 256)
+	for _, mode := range benchAdmitModes {
+		for _, records := range []int{10, 100, 1_000, 10_000} {
+			b.Run(mode.name+"/records="+strconv.Itoa(records), func(b *testing.B) {
+				buf := NewLogBuffer(benchIdealSize, mode.opt)
+				ld := benchLogs(records, 10, 256)
 
-			benchGCMetrics(b, func() {
-				for i := 0; i < b.N; i++ {
-					buf.Add(ld)
-				}
+				benchGCMetrics(b, func() {
+					for i := 0; i < b.N; i++ {
+						buf.Add(ld)
+					}
+				})
 			})
-		})
+		}
 	}
 }
 
-// BenchmarkMetricBufferAdd measures the buffer admission cost across payload
-// sizes. Size accounting uses DataPointCount, which walks and type-switches
-// on every metric in every buffered payload.
+// BenchmarkMetricBufferAdd measures the hot-path cost of Add across payload
+// sizes in both admission regimes.
 func BenchmarkMetricBufferAdd(b *testing.B) {
-	for _, dataPoints := range []int{10, 100, 1_000, 10_000} {
-		b.Run("datapoints="+strconv.Itoa(dataPoints), func(b *testing.B) {
-			buf := NewMetricBuffer(benchIdealSize)
-			md := benchMetrics(dataPoints, 5)
+	for _, mode := range benchAdmitModes {
+		for _, dataPoints := range []int{10, 100, 1_000, 10_000} {
+			b.Run(mode.name+"/datapoints="+strconv.Itoa(dataPoints), func(b *testing.B) {
+				buf := NewMetricBuffer(benchIdealSize, mode.opt)
+				md := benchMetrics(dataPoints, 5)
 
-			benchGCMetrics(b, func() {
-				for i := 0; i < b.N; i++ {
-					buf.Add(md)
-				}
+				benchGCMetrics(b, func() {
+					for i := 0; i < b.N; i++ {
+						buf.Add(md)
+					}
+				})
 			})
-		})
+		}
 	}
 }
 
-// BenchmarkTraceBufferAdd measures the buffer admission cost across payload
-// sizes.
+// BenchmarkTraceBufferAdd measures the hot-path cost of Add across payload
+// sizes in both admission regimes.
 func BenchmarkTraceBufferAdd(b *testing.B) {
-	for _, spans := range []int{10, 100, 1_000, 10_000} {
-		b.Run("spans="+strconv.Itoa(spans), func(b *testing.B) {
-			buf := NewTraceBuffer(benchIdealSize)
-			td := benchTraces(spans, 10)
+	for _, mode := range benchAdmitModes {
+		for _, spans := range []int{10, 100, 1_000, 10_000} {
+			b.Run(mode.name+"/spans="+strconv.Itoa(spans), func(b *testing.B) {
+				buf := NewTraceBuffer(benchIdealSize, mode.opt)
+				td := benchTraces(spans, 10)
 
-			benchGCMetrics(b, func() {
-				for i := 0; i < b.N; i++ {
-					buf.Add(td)
-				}
+				benchGCMetrics(b, func() {
+					for i := 0; i < b.N; i++ {
+						buf.Add(td)
+					}
+				})
 			})
-		})
+		}
 	}
 }
 
@@ -248,7 +264,7 @@ func BenchmarkTraceBufferAdd(b *testing.B) {
 // buffered payloads via MoveAndAppendTo; sharing one payload across entries
 // would leave later entries empty.
 func seededLogBuffer(idealSize int) *LogBuffer {
-	buf := NewLogBuffer(idealSize)
+	buf := NewLogBuffer(idealSize, WithRefreshInterval(0))
 	const perAdd = 10
 	for i := 0; i < idealSize/perAdd; i++ {
 		buf.Add(benchLogs(perAdd, 10, 256))

@@ -41,7 +41,7 @@ func decompress(data []byte) ([]byte, error) {
 
 func TestNewLogBuffer(t *testing.T) {
 	idealSize := 100
-	actual := NewLogBuffer(idealSize)
+	actual := NewLogBuffer(idealSize, WithRefreshInterval(0))
 	require.Equal(t, 0, actual.Len())
 	require.Equal(t, idealSize, actual.idealSize)
 }
@@ -54,7 +54,7 @@ func TestLogBufferAdd(t *testing.T) {
 		{
 			desc: "Insert larger than idealSize",
 			testFunc: func(t *testing.T) {
-				logBuffer := NewLogBuffer(1)
+				logBuffer := NewLogBuffer(1, WithRefreshInterval(0))
 
 				// Seed buffer with one entry
 				initialBufferContents := plog.NewLogs()
@@ -80,7 +80,7 @@ func TestLogBufferAdd(t *testing.T) {
 		{
 			desc: "Insert + current size less than idealSize",
 			testFunc: func(t *testing.T) {
-				logBuffer := NewLogBuffer(5)
+				logBuffer := NewLogBuffer(5, WithRefreshInterval(0))
 
 				// Seed buffer with one entry
 				initialBufferContents := plog.NewLogs()
@@ -104,7 +104,7 @@ func TestLogBufferAdd(t *testing.T) {
 		{
 			desc: "Insert + current size more than idealSize, removing oldest is ok",
 			testFunc: func(t *testing.T) {
-				logBuffer := NewLogBuffer(4)
+				logBuffer := NewLogBuffer(4, WithRefreshInterval(0))
 
 				// Seed buffer with several payloads
 				initialBufferContents := plog.NewLogs()
@@ -132,7 +132,7 @@ func TestLogBufferAdd(t *testing.T) {
 		{
 			desc: "Insert + current size more than idealSize, evicts oldest overflow exactly",
 			testFunc: func(t *testing.T) {
-				logBuffer := NewLogBuffer(4)
+				logBuffer := NewLogBuffer(4, WithRefreshInterval(0))
 
 				// Seed buffer with several payloads
 				initialBufferContents := plog.NewLogs()
@@ -164,7 +164,7 @@ func TestLogBufferAdd(t *testing.T) {
 }
 
 func TestLogsBufferConstructPayload(t *testing.T) {
-	logBuffer := NewLogBuffer(4)
+	logBuffer := NewLogBuffer(4, WithRefreshInterval(0))
 
 	payloadOne := plog.NewLogs()
 	payloadOne.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
@@ -190,7 +190,7 @@ func TestLogsBufferConstructPayload(t *testing.T) {
 
 func TestLogsBufferConstructPayloadSampling(t *testing.T) {
 	t.Run("Samples when payload exceeds max size", func(t *testing.T) {
-		logBuffer := NewLogBuffer(2000)
+		logBuffer := NewLogBuffer(2000, WithRefreshInterval(0))
 
 		// Add many log records with unique content to prevent effective compression
 		payload := plog.NewLogs()
@@ -223,7 +223,7 @@ func TestLogsBufferConstructPayloadSampling(t *testing.T) {
 	})
 
 	t.Run("Returns error and clears buffer when too large even at 1%", func(t *testing.T) {
-		logBuffer := NewLogBuffer(10000)
+		logBuffer := NewLogBuffer(10000, WithRefreshInterval(0))
 
 		// Add a very large payload
 		payload := plog.NewLogs()
@@ -247,7 +247,7 @@ func TestLogsBufferConstructPayloadSampling(t *testing.T) {
 	})
 
 	t.Run("Empty buffer returns empty payload", func(t *testing.T) {
-		logBuffer := NewLogBuffer(100)
+		logBuffer := NewLogBuffer(100, WithRefreshInterval(0))
 		// ConstructPayload returns uncompressed data
 		payload, err := logBuffer.ConstructPayload(&plog.ProtoMarshaler{}, nil, nil, 1000)
 		require.NoError(t, err)
@@ -261,7 +261,7 @@ func TestLogsBufferConstructPayloadSampling(t *testing.T) {
 
 func TestNewMetricBuffer(t *testing.T) {
 	idealSize := 100
-	actual := NewMetricBuffer(idealSize)
+	actual := NewMetricBuffer(idealSize, WithRefreshInterval(0))
 	require.Equal(t, 0, actual.Len())
 	require.Equal(t, idealSize, actual.idealSize)
 }
@@ -274,7 +274,7 @@ func TestMetricBufferAdd(t *testing.T) {
 		{
 			desc: "Insert larger than idealSize",
 			testFunc: func(t *testing.T) {
-				metricBuffer := NewMetricBuffer(1)
+				metricBuffer := NewMetricBuffer(1, WithRefreshInterval(0))
 
 				// Seed buffer with one entry
 				initialBufferContents := pmetric.NewMetrics()
@@ -305,7 +305,7 @@ func TestMetricBufferAdd(t *testing.T) {
 		{
 			desc: "Insert + current size less than idealSize",
 			testFunc: func(t *testing.T) {
-				metricBuffer := NewMetricBuffer(5)
+				metricBuffer := NewMetricBuffer(5, WithRefreshInterval(0))
 
 				// Seed buffer with one entry
 				initialBufferContents := pmetric.NewMetrics()
@@ -334,7 +334,7 @@ func TestMetricBufferAdd(t *testing.T) {
 		{
 			desc: "Insert + current size more than idealSize, removing oldest is ok",
 			testFunc: func(t *testing.T) {
-				metricBuffer := NewMetricBuffer(4)
+				metricBuffer := NewMetricBuffer(4, WithRefreshInterval(0))
 
 				// Seed buffer with several payloads
 				initialBufferContents := pmetric.NewMetrics()
@@ -368,7 +368,7 @@ func TestMetricBufferAdd(t *testing.T) {
 		{
 			desc: "Insert + current size more than idealSize, evicts oldest overflow exactly",
 			testFunc: func(t *testing.T) {
-				metricBuffer := NewMetricBuffer(4)
+				metricBuffer := NewMetricBuffer(4, WithRefreshInterval(0))
 
 				// Seed buffer with several payloads
 				initialBufferContents := pmetric.NewMetrics()
@@ -403,7 +403,7 @@ func TestMetricBufferAdd(t *testing.T) {
 }
 
 func TestMetricBufferConstructPayload(t *testing.T) {
-	metricBuffer := NewMetricBuffer(4)
+	metricBuffer := NewMetricBuffer(4, WithRefreshInterval(0))
 
 	payloadOne := pmetric.NewMetrics()
 	pOneMetric := payloadOne.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
@@ -435,7 +435,7 @@ func TestMetricBufferConstructPayload(t *testing.T) {
 
 func TestMetricBufferConstructPayloadSampling(t *testing.T) {
 	t.Run("Samples when payload exceeds max size", func(t *testing.T) {
-		metricBuffer := NewMetricBuffer(1000)
+		metricBuffer := NewMetricBuffer(1000, WithRefreshInterval(0))
 
 		// Add many data points to create a large payload
 		payload := pmetric.NewMetrics()
@@ -469,7 +469,7 @@ func TestMetricBufferConstructPayloadSampling(t *testing.T) {
 	})
 
 	t.Run("Returns error and clears buffer when too large even at 1%", func(t *testing.T) {
-		metricBuffer := NewMetricBuffer(10000)
+		metricBuffer := NewMetricBuffer(10000, WithRefreshInterval(0))
 
 		// Add a very large payload
 		payload := pmetric.NewMetrics()
@@ -496,7 +496,7 @@ func TestMetricBufferConstructPayloadSampling(t *testing.T) {
 	})
 
 	t.Run("Empty buffer returns empty payload", func(t *testing.T) {
-		metricBuffer := NewMetricBuffer(100)
+		metricBuffer := NewMetricBuffer(100, WithRefreshInterval(0))
 		// ConstructPayload returns uncompressed data
 		payload, err := metricBuffer.ConstructPayload(&pmetric.ProtoMarshaler{}, nil, nil, 1000)
 		require.NoError(t, err)
@@ -510,7 +510,7 @@ func TestMetricBufferConstructPayloadSampling(t *testing.T) {
 
 func TestNewTraceBuffer(t *testing.T) {
 	idealSize := 100
-	actual := NewTraceBuffer(idealSize)
+	actual := NewTraceBuffer(idealSize, WithRefreshInterval(0))
 	require.Equal(t, 0, actual.Len())
 	require.Equal(t, idealSize, actual.idealSize)
 }
@@ -523,7 +523,7 @@ func TestTraceBufferAdd(t *testing.T) {
 		{
 			desc: "Insert larger than idealSize",
 			testFunc: func(t *testing.T) {
-				traceBuffer := NewTraceBuffer(1)
+				traceBuffer := NewTraceBuffer(1, WithRefreshInterval(0))
 
 				// Seed buffer with one entry
 				initialBufferContents := ptrace.NewTraces()
@@ -549,7 +549,7 @@ func TestTraceBufferAdd(t *testing.T) {
 		{
 			desc: "Insert + current size less than idealSize",
 			testFunc: func(t *testing.T) {
-				traceBuffer := NewTraceBuffer(5)
+				traceBuffer := NewTraceBuffer(5, WithRefreshInterval(0))
 
 				// Seed buffer with one entry
 				initialBufferContents := ptrace.NewTraces()
@@ -573,7 +573,7 @@ func TestTraceBufferAdd(t *testing.T) {
 		{
 			desc: "Insert + current size more than idealSize, removing oldest is ok",
 			testFunc: func(t *testing.T) {
-				traceBuffer := NewTraceBuffer(4)
+				traceBuffer := NewTraceBuffer(4, WithRefreshInterval(0))
 
 				// Seed buffer with several payloads
 				initialBufferContents := ptrace.NewTraces()
@@ -601,7 +601,7 @@ func TestTraceBufferAdd(t *testing.T) {
 		{
 			desc: "Insert + current size more than idealSize, evicts oldest overflow exactly",
 			testFunc: func(t *testing.T) {
-				traceBuffer := NewTraceBuffer(4)
+				traceBuffer := NewTraceBuffer(4, WithRefreshInterval(0))
 
 				// Seed buffer with several payloads
 				initialBufferContents := ptrace.NewTraces()
@@ -633,7 +633,7 @@ func TestTraceBufferAdd(t *testing.T) {
 }
 
 func TestTraceBufferConstructPayload(t *testing.T) {
-	traceBuffer := NewTraceBuffer(4)
+	traceBuffer := NewTraceBuffer(4, WithRefreshInterval(0))
 
 	payloadOne := ptrace.NewTraces()
 	payloadOne.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
@@ -659,7 +659,7 @@ func TestTraceBufferConstructPayload(t *testing.T) {
 
 func TestTraceBufferConstructPayloadSampling(t *testing.T) {
 	t.Run("Samples when payload exceeds max size", func(t *testing.T) {
-		traceBuffer := NewTraceBuffer(2000)
+		traceBuffer := NewTraceBuffer(2000, WithRefreshInterval(0))
 
 		// Add many spans with unique content to prevent effective compression
 		payload := ptrace.NewTraces()
@@ -691,7 +691,7 @@ func TestTraceBufferConstructPayloadSampling(t *testing.T) {
 	})
 
 	t.Run("Returns error and clears buffer when too large even at 1%", func(t *testing.T) {
-		traceBuffer := NewTraceBuffer(10000)
+		traceBuffer := NewTraceBuffer(10000, WithRefreshInterval(0))
 
 		// Add a very large payload
 		payload := ptrace.NewTraces()
@@ -715,7 +715,7 @@ func TestTraceBufferConstructPayloadSampling(t *testing.T) {
 	})
 
 	t.Run("Empty buffer returns empty payload", func(t *testing.T) {
-		traceBuffer := NewTraceBuffer(100)
+		traceBuffer := NewTraceBuffer(100, WithRefreshInterval(0))
 		// ConstructPayload returns uncompressed data
 		payload, err := traceBuffer.ConstructPayload(&ptrace.ProtoMarshaler{}, nil, nil, 1000)
 		require.NoError(t, err)
@@ -731,7 +731,7 @@ func TestTraceBufferConstructPayloadSampling(t *testing.T) {
 // concurrently. It exists to fail under -race if any of them touch the
 // buffer without synchronization.
 func TestLogBufferConcurrentAccess(t *testing.T) {
-	logBuffer := NewLogBuffer(10)
+	logBuffer := NewLogBuffer(10, WithRefreshInterval(0))
 
 	makeLogs := func(records int) plog.Logs {
 		ld := plog.NewLogs()
@@ -775,7 +775,7 @@ func TestLogBufferConcurrentAccess(t *testing.T) {
 
 func TestBufferZeroCountPayloadsAreDropped(t *testing.T) {
 	t.Run("logs", func(t *testing.T) {
-		logBuffer := NewLogBuffer(4)
+		logBuffer := NewLogBuffer(4, WithRefreshInterval(0))
 
 		// Fill the buffer to exactly idealSize so the eviction loop can never
 		// remove the head entry.
@@ -795,7 +795,7 @@ func TestBufferZeroCountPayloadsAreDropped(t *testing.T) {
 	})
 
 	t.Run("metrics", func(t *testing.T) {
-		metricBuffer := NewMetricBuffer(4)
+		metricBuffer := NewMetricBuffer(4, WithRefreshInterval(0))
 
 		seed := pmetric.NewMetrics()
 		m := seed.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
@@ -814,7 +814,7 @@ func TestBufferZeroCountPayloadsAreDropped(t *testing.T) {
 	})
 
 	t.Run("traces", func(t *testing.T) {
-		traceBuffer := NewTraceBuffer(4)
+		traceBuffer := NewTraceBuffer(4, WithRefreshInterval(0))
 
 		seed := ptrace.NewTraces()
 		ss := seed.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty()
@@ -835,7 +835,7 @@ func TestBufferZeroCountPayloadsAreDropped(t *testing.T) {
 // TestLogBufferEvictionOrder verifies that eviction drops the oldest records
 // first and the buffer retains the newest records in arrival order.
 func TestLogBufferEvictionOrder(t *testing.T) {
-	logBuffer := NewLogBuffer(3)
+	logBuffer := NewLogBuffer(3, WithRefreshInterval(0))
 
 	for i := 1; i <= 5; i++ {
 		ld := plog.NewLogs()
@@ -867,7 +867,7 @@ func TestLogBufferEvictionOrder(t *testing.T) {
 
 func TestBufferReset(t *testing.T) {
 	t.Run("logs", func(t *testing.T) {
-		logBuffer := NewLogBuffer(10)
+		logBuffer := NewLogBuffer(10, WithRefreshInterval(0))
 		ld := plog.NewLogs()
 		ld.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
 		logBuffer.Add(ld)
@@ -879,7 +879,7 @@ func TestBufferReset(t *testing.T) {
 	})
 
 	t.Run("metrics", func(t *testing.T) {
-		metricBuffer := NewMetricBuffer(10)
+		metricBuffer := NewMetricBuffer(10, WithRefreshInterval(0))
 		md := pmetric.NewMetrics()
 		m := md.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
 		m.SetEmptyGauge().DataPoints().AppendEmpty()
@@ -892,7 +892,7 @@ func TestBufferReset(t *testing.T) {
 	})
 
 	t.Run("traces", func(t *testing.T) {
-		traceBuffer := NewTraceBuffer(10)
+		traceBuffer := NewTraceBuffer(10, WithRefreshInterval(0))
 		td := ptrace.NewTraces()
 		td.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
 		traceBuffer.Add(td)
@@ -935,4 +935,24 @@ func TestCompress(t *testing.T) {
 		require.NoError(t, err)
 		require.Less(t, len(compressed), len(original))
 	})
+}
+
+func TestBufferNegativeIdealSizeStoresNothing(t *testing.T) {
+	lb := NewLogBuffer(-1, WithRefreshInterval(0))
+	ld := plog.NewLogs()
+	ld.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
+	lb.Add(ld)
+	require.Equal(t, 0, lb.Len())
+
+	mb := NewMetricBuffer(-1, WithRefreshInterval(0))
+	md := pmetric.NewMetrics()
+	md.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty().SetEmptyGauge().DataPoints().AppendEmpty()
+	mb.Add(md)
+	require.Equal(t, 0, mb.Len())
+
+	tb := NewTraceBuffer(-1, WithRefreshInterval(0))
+	td := ptrace.NewTraces()
+	td.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+	tb.Add(td)
+	require.Equal(t, 0, tb.Len())
 }

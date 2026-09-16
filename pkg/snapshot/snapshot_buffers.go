@@ -36,14 +36,22 @@ type LogBuffer struct {
 	// holding mutex and read lock-free by Len.
 	count     atomic.Int64
 	idealSize int
+	// admit rate-limits Add once the store is full.
+	admit admission
 }
 
 // NewLogBuffer creates a logBuffer with the ideal size set
-func NewLogBuffer(idealSize int) *LogBuffer {
-	return &LogBuffer{
+func NewLogBuffer(idealSize int, opts ...Option) *LogBuffer {
+	idealSize = max(idealSize, 0)
+	b := &LogBuffer{
 		store:     plog.NewLogs(),
 		idealSize: idealSize,
 	}
+	b.admit.init(DefaultRefreshInterval, idealSize)
+	for _, opt := range opts {
+		opt(&b.admit)
+	}
+	return b
 }
 
 // Len returns the number of log records in the buffer.
@@ -64,8 +72,13 @@ func (l *LogBuffer) Reset() {
 // Add copies at most idealSize of the newest log records out of ld into the
 // buffer, evicting the oldest buffered records to stay within the ideal
 // size. ld is never retained or mutated, so callers may pass pipeline
-// payloads directly.
+// payloads directly. About idealSize items are admitted per
+// DefaultRefreshInterval; payloads beyond that are ignored without being read.
 func (l *LogBuffer) Add(ld plog.Logs) {
+	if l.admit.exhausted() {
+		return
+	}
+
 	logSize := ld.LogRecordCount()
 	// Zero-count payloads contribute nothing to a snapshot.
 	if logSize == 0 {
@@ -77,6 +90,7 @@ func (l *LogBuffer) Add(ld plog.Logs) {
 	// happens before taking the lock so concurrent Adds do not serialize on
 	// the copy work.
 	kept := min(logSize, l.idealSize)
+	l.admit.charge(kept)
 	incoming := plog.NewLogs()
 	copyLogsTail(ld, incoming, logSize-kept)
 
@@ -128,13 +142,9 @@ func (l *LogBuffer) ConstructPayload(logsMarshaler plog.Marshaler, searchQuery *
 			break
 		}
 
-		// The uncompressed size is an upper bound on the compressed size, so
-		// a payload already under the limit needs no compression pass at all.
-		if len(payload) <= maximumPayloadSize {
-			return payload, nil
-		}
-
 		// Check the compressed size without retaining the compressed bytes.
+		// gzip can expand incompressible input slightly, so the uncompressed
+		// size is not a safe shortcut.
 		size, err := compressedSize(payload)
 		if err != nil {
 			lastError = fmt.Errorf("failed to compress payload: %w", err)
@@ -165,14 +175,22 @@ type MetricBuffer struct {
 	// holding mutex and read lock-free by Len.
 	count     atomic.Int64
 	idealSize int
+	// admit rate-limits Add once the store is full.
+	admit admission
 }
 
 // NewMetricBuffer creates a metricBuffer with the ideal size set
-func NewMetricBuffer(idealSize int) *MetricBuffer {
-	return &MetricBuffer{
+func NewMetricBuffer(idealSize int, opts ...Option) *MetricBuffer {
+	idealSize = max(idealSize, 0)
+	b := &MetricBuffer{
 		store:     pmetric.NewMetrics(),
 		idealSize: idealSize,
 	}
+	b.admit.init(DefaultRefreshInterval, idealSize)
+	for _, opt := range opts {
+		opt(&b.admit)
+	}
+	return b
 }
 
 // Len returns the number of data points in the buffer.
@@ -193,8 +211,13 @@ func (l *MetricBuffer) Reset() {
 // Add copies at most idealSize of the newest data points out of md into the
 // buffer, evicting the oldest buffered data points to stay within the ideal
 // size. md is never retained or mutated, so callers may pass pipeline
-// payloads directly.
+// payloads directly. About idealSize items are admitted per
+// DefaultRefreshInterval; payloads beyond that are ignored without being read.
 func (l *MetricBuffer) Add(md pmetric.Metrics) {
+	if l.admit.exhausted() {
+		return
+	}
+
 	metricSize := md.DataPointCount()
 	// Zero-count payloads contribute nothing to a snapshot.
 	if metricSize == 0 {
@@ -206,6 +229,7 @@ func (l *MetricBuffer) Add(md pmetric.Metrics) {
 	// happens before taking the lock so concurrent Adds do not serialize on
 	// the copy work.
 	kept := min(metricSize, l.idealSize)
+	l.admit.charge(kept)
 	incoming := pmetric.NewMetrics()
 	copyMetricsTail(md, incoming, metricSize-kept)
 
@@ -257,13 +281,9 @@ func (l *MetricBuffer) ConstructPayload(metricMarshaler pmetric.Marshaler, searc
 			break
 		}
 
-		// The uncompressed size is an upper bound on the compressed size, so
-		// a payload already under the limit needs no compression pass at all.
-		if len(payload) <= maximumPayloadSize {
-			return payload, nil
-		}
-
 		// Check the compressed size without retaining the compressed bytes.
+		// gzip can expand incompressible input slightly, so the uncompressed
+		// size is not a safe shortcut.
 		size, err := compressedSize(payload)
 		if err != nil {
 			lastError = fmt.Errorf("failed to compress payload: %w", err)
@@ -294,14 +314,22 @@ type TraceBuffer struct {
 	// mutex and read lock-free by Len.
 	count     atomic.Int64
 	idealSize int
+	// admit rate-limits Add once the store is full.
+	admit admission
 }
 
 // NewTraceBuffer creates a traceBuffer with the ideal size set
-func NewTraceBuffer(idealSize int) *TraceBuffer {
-	return &TraceBuffer{
+func NewTraceBuffer(idealSize int, opts ...Option) *TraceBuffer {
+	idealSize = max(idealSize, 0)
+	b := &TraceBuffer{
 		store:     ptrace.NewTraces(),
 		idealSize: idealSize,
 	}
+	b.admit.init(DefaultRefreshInterval, idealSize)
+	for _, opt := range opts {
+		opt(&b.admit)
+	}
+	return b
 }
 
 // Len returns the number of spans in the buffer.
@@ -322,8 +350,13 @@ func (l *TraceBuffer) Reset() {
 // Add copies at most idealSize of the newest spans out of td into the
 // buffer, evicting the oldest buffered spans to stay within the ideal size.
 // td is never retained or mutated, so callers may pass pipeline payloads
-// directly.
+// directly. About idealSize items are admitted per DefaultRefreshInterval;
+// payloads beyond that are ignored without being read.
 func (l *TraceBuffer) Add(td ptrace.Traces) {
+	if l.admit.exhausted() {
+		return
+	}
+
 	traceSize := td.SpanCount()
 	// Zero-count payloads contribute nothing to a snapshot.
 	if traceSize == 0 {
@@ -335,6 +368,7 @@ func (l *TraceBuffer) Add(td ptrace.Traces) {
 	// happens before taking the lock so concurrent Adds do not serialize on
 	// the copy work.
 	kept := min(traceSize, l.idealSize)
+	l.admit.charge(kept)
 	incoming := ptrace.NewTraces()
 	copyTracesTail(td, incoming, traceSize-kept)
 
@@ -386,13 +420,9 @@ func (l *TraceBuffer) ConstructPayload(traceMarshaler ptrace.Marshaler, searchQu
 			break
 		}
 
-		// The uncompressed size is an upper bound on the compressed size, so
-		// a payload already under the limit needs no compression pass at all.
-		if len(payload) <= maximumPayloadSize {
-			return payload, nil
-		}
-
 		// Check the compressed size without retaining the compressed bytes.
+		// gzip can expand incompressible input slightly, so the uncompressed
+		// size is not a safe shortcut.
 		size, err := compressedSize(payload)
 		if err != nil {
 			lastError = fmt.Errorf("failed to compress payload: %w", err)
