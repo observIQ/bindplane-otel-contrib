@@ -61,13 +61,11 @@ func compressedSize(data []byte) (int, error) {
 
 // Compress gzip compresses the input data. It is safe for concurrent use.
 func Compress(data []byte) ([]byte, error) {
-	// Pre-size the output buffer with a rough gzip ratio estimate to avoid
-	// growth reallocations while writing.
-	buf := bytes.NewBuffer(make([]byte, 0, len(data)/3+512))
+	var buf bytes.Buffer
 
 	w := gzipWriterPool.Get().(*gzip.Writer)
 	defer gzipWriterPool.Put(w)
-	w.Reset(buf)
+	w.Reset(&buf)
 
 	if _, err := w.Write(data); err != nil {
 		return nil, err
