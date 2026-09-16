@@ -49,7 +49,7 @@ func (r *RawTextLogsConsumer) Consume(ctx context.Context, entityContent []byte)
 	record.Body().SetStr(string(entityContent))
 
 	if err := r.nextConsumer.ConsumeLogs(ctx, logs); err != nil {
-		return fmt.Errorf("text consume: %w", err)
+		return fmt.Errorf("text consume: %w: %w", ErrDownstream, err)
 	}
 	return nil
 }

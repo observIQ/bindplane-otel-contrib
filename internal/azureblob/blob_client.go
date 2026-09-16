@@ -19,14 +19,57 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"go.uber.org/zap"
 )
+
+// IsRangeNotSatisfiable reports whether err is an Azure "invalid range" response,
+// which a range read returns when its start offset is at or past the blob's current
+// length. Callers tailing an append-growable blob use this to treat "offset already
+// at end" as "no new bytes" rather than a failure.
+func IsRangeNotSatisfiable(err error) bool {
+	return bloberror.HasCode(err, bloberror.InvalidRange)
+}
+
+// IsBlobNotFound reports whether err is an Azure "blob not found" response: BlobNotFound, or the
+// ResourceNotFound some endpoints (e.g. HNS/dfs) return for a missing blob. Callers treat a
+// vanished blob as "nothing to do" rather than retrying.
+func IsBlobNotFound(err error) bool {
+	return bloberror.HasCode(err, bloberror.BlobNotFound, bloberror.ResourceNotFound)
+}
+
+// IsPermanentError reports whether err is an Azure failure that will not clear on retry: an
+// authentication, authorization, or account-configuration problem (e.g. a 403 after an ACL
+// change). Callers stop retrying such an operation, while treating throttling, network, and
+// unknown errors as transient so a temporary outage does not quarantine a still-readable blob.
+func IsPermanentError(err error) bool {
+	return bloberror.HasCode(err,
+		bloberror.AuthenticationFailed,
+		bloberror.AuthorizationFailure,
+		bloberror.AuthorizationPermissionMismatch,
+		bloberror.AuthorizationProtocolMismatch,
+		bloberror.AuthorizationResourceTypeMismatch,
+		bloberror.AuthorizationServiceMismatch,
+		bloberror.AuthorizationSourceIPMismatch,
+		bloberror.InsufficientAccountPermissions,
+		bloberror.InvalidAuthenticationInfo,
+		bloberror.AccountIsDisabled,
+		// Missing/misnamed container: a per-blob read can't create it, so it can never succeed
+		// (near-unreachable per-blob since listing fails first, but classified here so it
+		// quarantines rather than retrying every poll if it ever does surface). A missing blob
+		// (ResourceNotFound) is handled as not-found, not permanent, so it ages out silently.
+		bloberror.ContainerNotFound,
+		bloberror.InvalidResourceName,
+	)
+}
 
 // BlobInfo contains the necessary info to process a blob
 type BlobInfo struct {
@@ -48,6 +91,14 @@ type BlobClient interface {
 	// so it is safe for blobs whose listed size is stale (e.g. Azure flow-log
 	// blobs that are grown in place all hour via PutBlock).
 	DownloadBlobStream(ctx context.Context, container, blobPath string) ([]byte, error)
+
+	// DownloadBlobRange downloads count bytes of the blob starting at the given
+	// byte offset and returns them. A count of 0 reads from the offset to the
+	// blob's current end. It is used for incremental reads of append-growable
+	// blobs (offset>0, count 0) and for reading a leading fingerprint (offset 0,
+	// count N). total is the blob's full current size (-1 if unknown), which the
+	// identity read uses to spot a replacement shorter than the stored offset.
+	DownloadBlobRange(ctx context.Context, container, blobPath string, offset, count int64) (data []byte, total int64, err error)
 
 	// DeleteBlob deletes the blob in the specified container
 	DeleteBlob(ctx context.Context, container, blobPath string) error
@@ -126,7 +177,12 @@ func (a *AzureClient) StreamBlobs(ctx context.Context, container string, prefix 
 
 		resp, err := pager.NextPage(ctx)
 		if err != nil {
-			errChan <- fmt.Errorf("error streaming blobs: %w", err)
+			// Select on ctx.Done so a cancelled poll (whose consumer has stopped draining)
+			// doesn't block this send forever.
+			select {
+			case errChan <- fmt.Errorf("error streaming blobs: %w", err):
+			case <-ctx.Done():
+			}
 			return
 		}
 
@@ -159,12 +215,20 @@ func (a *AzureClient) StreamBlobs(ctx context.Context, container string, prefix 
 			}
 			batch = append(batch, info)
 			if len(batch) == int(a.batchSize) {
-				blobChan <- batch
+				select {
+				case blobChan <- batch:
+				case <-ctx.Done():
+					return
+				}
 				batch = []*BlobInfo{}
 			}
 		}
 
-		blobChan <- batch
+		select {
+		case blobChan <- batch:
+		case <-ctx.Done():
+			return
+		}
 	}
 
 	close(doneChan)
@@ -181,23 +245,46 @@ func (a *AzureClient) DownloadBlob(ctx context.Context, container, blobPath stri
 	return bytesDownloaded, nil
 }
 
-// DownloadBlobStream downloads the full current contents of the blob by streaming,
-// avoiding the pre-sized buffer used by DownloadBlob. DownloadBuffer sizes its
-// destination from the listing's blob size, which is stale for blobs grown in
-// place (Azure NSG/VNet flow logs write one PT1H.json block blob per hour via
-// per-minute PutBlock), causing the SDK to error "not enough space for all bytes".
+// DownloadBlobStream reads the whole blob via DownloadBlobRange(offset 0, count 0). See the
+// interface method for why the stale-listed-size case needs it.
 func (a *AzureClient) DownloadBlobStream(ctx context.Context, container, blobPath string) ([]byte, error) {
-	resp, err := a.azClient.DownloadStream(ctx, container, blobPath, nil)
+	data, _, err := a.DownloadBlobRange(ctx, container, blobPath, 0, 0)
+	return data, err
+}
+
+// DownloadBlobRange reads count bytes from offset (count 0 reads to the blob's end). See the
+// interface method for the delta and fingerprint use cases and what total reports.
+func (a *AzureClient) DownloadBlobRange(ctx context.Context, container, blobPath string, offset, count int64) (data []byte, total int64, err error) {
+	opts := &azblob.DownloadStreamOptions{
+		Range: blob.HTTPRange{Offset: offset, Count: count},
+	}
+	resp, err := a.azClient.DownloadStream(ctx, container, blobPath, opts)
 	if err != nil {
-		return nil, fmt.Errorf("download stream: %w", err)
+		return nil, 0, fmt.Errorf("download stream: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read blob stream: %w", err)
+		return nil, 0, fmt.Errorf("read blob stream: %w", err)
 	}
-	return data, nil
+	return data, blobTotalSize(resp.ContentRange, resp.ContentLength), nil
+}
+
+// blobTotalSize returns the blob's full size (not the returned byte count): a ranged read's
+// "Content-Range: bytes a-b/total", else a full read's Content-Length, else -1 for unknown.
+func blobTotalSize(contentRange *string, contentLength *int64) int64 {
+	if contentRange != nil {
+		if slash := strings.LastIndex(*contentRange, "/"); slash >= 0 {
+			if total, err := strconv.ParseInt(strings.TrimSpace((*contentRange)[slash+1:]), 10, 64); err == nil {
+				return total
+			}
+		}
+	}
+	if contentLength != nil {
+		return *contentLength
+	}
+	return -1
 }
 
 // DeleteBlob deletes the blob in the specified container
