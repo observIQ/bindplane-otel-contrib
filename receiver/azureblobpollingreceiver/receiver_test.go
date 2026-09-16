@@ -35,6 +35,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/pipeline"
 	"go.uber.org/goleak"
@@ -883,7 +884,7 @@ func TestPollingReceiver_processBlob_DownloadsFullContentDespiteStaleSize(t *tes
 		wg:          &sync.WaitGroup{},
 	}
 
-	err := receiver.processBlob(context.Background(), &azureblob.BlobInfo{
+	_, err := receiver.processBlob(context.Background(), &azureblob.BlobInfo{
 		Name: "flow/PT1H.json",
 		Size: staleSize,
 	})
@@ -930,7 +931,7 @@ func TestPollingReceiver_processBlob(t *testing.T) {
 			mut:         &sync.Mutex{},
 			wg:          &sync.WaitGroup{},
 		}
-		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/PT1H.json.GZ"})
+		_, err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/PT1H.json.GZ"})
 		require.NoError(t, err, "an uppercase .GZ blob is gunzipped, not read as raw bytes")
 		require.Equal(t, 2, sink.LogRecordCount())
 	})
@@ -949,7 +950,7 @@ func TestPollingReceiver_processBlob(t *testing.T) {
 			mut:         &sync.Mutex{},
 			wg:          &sync.WaitGroup{},
 		}
-		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/PT1H.json"})
+		_, err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/PT1H.json"})
 		require.ErrorContains(t, err, "blob download failed")
 	})
 
@@ -968,7 +969,7 @@ func TestPollingReceiver_processBlob(t *testing.T) {
 			mut:         &sync.Mutex{},
 			wg:          &sync.WaitGroup{},
 		}
-		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/PT1H.json.gz"})
+		_, err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/PT1H.json.gz"})
 		require.NoError(t, err)
 		require.Equal(t, 2, sink.LogRecordCount())
 	})
@@ -987,7 +988,7 @@ func TestPollingReceiver_processBlob(t *testing.T) {
 			mut:         &sync.Mutex{},
 			wg:          &sync.WaitGroup{},
 		}
-		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/PT1H.json.gz"})
+		_, err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/PT1H.json.gz"})
 		require.ErrorContains(t, err, "gzip")
 	})
 
@@ -1005,7 +1006,7 @@ func TestPollingReceiver_processBlob(t *testing.T) {
 			mut:         &sync.Mutex{},
 			wg:          &sync.WaitGroup{},
 		}
-		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/data.txt"})
+		_, err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/data.txt"})
 		require.ErrorContains(t, err, "unsupported file type")
 	})
 
@@ -1026,7 +1027,8 @@ func TestPollingReceiver_processBlob(t *testing.T) {
 			mut:         &sync.Mutex{},
 			wg:          &sync.WaitGroup{},
 		}
-		require.NoError(t, r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/data.txt"}))
+		_, err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/data.txt"})
+		require.NoError(t, err)
 		require.Equal(t, 1, sink.LogRecordCount(), "the whole text blob becomes one record")
 	})
 
@@ -1044,7 +1046,7 @@ func TestPollingReceiver_processBlob(t *testing.T) {
 			mut:         &sync.Mutex{},
 			wg:          &sync.WaitGroup{},
 		}
-		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/PT1H.json"})
+		_, err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/PT1H.json"})
 		require.ErrorContains(t, err, "consume")
 	})
 
@@ -1067,7 +1069,7 @@ func TestPollingReceiver_processBlob(t *testing.T) {
 			mut:         &sync.Mutex{},
 			wg:          &sync.WaitGroup{},
 		}
-		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/otlp.json", Size: int64(len(otlp))})
+		_, err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/otlp.json", Size: int64(len(otlp))})
 		require.NoError(t, err)
 		mockClient.AssertExpectations(t)
 		mockClient.AssertNotCalled(t, "DownloadBlobStream")
@@ -1086,7 +1088,7 @@ func TestPollingReceiver_processBlob(t *testing.T) {
 			mut:         &sync.Mutex{},
 			wg:          &sync.WaitGroup{},
 		}
-		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/otlp.json", Size: 10})
+		_, err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/otlp.json", Size: 10})
 		// The otlp path is not tracked/quarantined, so it does not carry the transient
 		// sentinel (only the append-growable branch does); the download error surfaces plainly.
 		require.ErrorContains(t, err, "download: network error")
@@ -1208,6 +1210,10 @@ func TestPollingReceiver_Incremental_ConcurrentBlobsNoRace(t *testing.T) {
 		mut:                &sync.Mutex{},
 		wg:                 &sync.WaitGroup{},
 	}
+	// Wire real telemetry so the per-goroutine record path (consume -> counter Add) runs under -race.
+	tt := componenttest.NewTelemetry()
+	t.Cleanup(func() { require.NoError(t, tt.Shutdown(context.Background())) })
+	require.NoError(t, r.initTelemetry(tt.NewTelemetrySettings()))
 	mockClient.EXPECT().
 		DownloadBlobRange(mock.Anything, "c", mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ context.Context, _ string, name string, _, _ int64) ([]byte, int64, error) {
@@ -1530,6 +1536,36 @@ func TestPollingReceiver_processBlobWholeTracked(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, int64(len(gz)), prog.Offset, "recorded as fully consumed")
 	require.Equal(t, lm, prog.LastModified)
+
+	t.Run("gzip with only malformed lines is recorded consumed but not counted as processed", func(t *testing.T) {
+		// Every line fails to parse, so the NDJSON consumer emits nothing and returns
+		// (attempted, 0, nil). The whole-tracked path must report processed=false: counting a
+		// zero-record read inflates total_processed and suppresses the poll-summary "nothing
+		// parsed" warn (self-telemetry must stay accurate). The blob is still recorded consumed
+		// so the mtime gate does not re-read it.
+		mc := new(azureblob.MockBlobClient)
+		sink2 := new(consumertest.LogsSink)
+		gzBad := gzipBytes(t, []byte("not json\nstill not json\n"))
+		mc.EXPECT().DownloadBlobStream(mock.Anything, "c", "bad.json.gz").Return(gzBad, nil)
+		cp2 := NewPollingCheckpoint()
+		r2 := &pollingReceiver{
+			logger:      zap.NewNop(),
+			cfg:         &Config{Container: "c", BlobFormat: BlobFormatJSON},
+			azureClient: mc,
+			checkpoint:  cp2,
+			consumer:    blobconsume.NewNDJSONLogsConsumer(sink2, zap.NewNop()),
+			mut:         &sync.Mutex{},
+			wg:          &sync.WaitGroup{},
+		}
+		processed, err := r2.processBlobWholeTracked(context.Background(),
+			&azureblob.BlobInfo{Name: "bad.json.gz", Size: int64(len(gzBad)), LastModified: lm})
+		require.NoError(t, err)
+		require.False(t, processed, "no records emitted, so not counted as processed")
+		require.Equal(t, 0, sink2.LogRecordCount())
+		prog, ok := cp2.ProgressFor("bad.json.gz")
+		require.True(t, ok, "still recorded consumed so the mtime gate skips it")
+		require.Equal(t, int64(len(gzBad)), prog.Offset)
+	})
 
 	t.Run("a grown gzip blob re-emits already-consumed records (at-least-once; gzip cannot be range-tailed)", func(t *testing.T) {
 		// Documented limitation: a gzip blob grown in place (here, rewritten with more records)
@@ -2773,7 +2809,7 @@ func TestPollingReceiver_finalizeAgedBlobs(t *testing.T) {
 	})
 
 	t.Run("json: a consumer error during seal flush re-tracks and skips delete", func(t *testing.T) {
-		// The line-format seal path emits the tail via consumeContent; a downstream error
+		// The line-format seal path emits the tail via consume; a downstream error
 		// must re-track (transient) and skip the delete, not drop the tail.
 		mockClient := new(azureblob.MockBlobClient)
 		mockClient.EXPECT().DownloadBlobRange(mock.Anything, "c", "b.json", int64(7), int64(0)).
@@ -3936,6 +3972,12 @@ func TestPollingReceiver_Shutdown_TimesOutWaitingForPollLoop(t *testing.T) {
 		mut:             &sync.Mutex{},
 		wg:              &sync.WaitGroup{},
 	}
+	// Wire telemetry so the timeout path exercises the deferred telemetryBuilder.Shutdown();
+	// it must run even though Shutdown returns early, so meter registrations don't leak on the
+	// reload-while-stuck path.
+	tt := componenttest.NewTelemetry()
+	t.Cleanup(func() { require.NoError(t, tt.Shutdown(context.Background())) })
+	require.NoError(t, r.initTelemetry(tt.NewTelemetrySettings()))
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	require.ErrorContains(t, r.Shutdown(ctx), "shutdown timeout waiting for poll loop")
@@ -3959,6 +4001,10 @@ func TestPollingReceiver_Shutdown_JoinsPollLoop(t *testing.T) {
 		mut:             &sync.Mutex{},
 		wg:              &sync.WaitGroup{},
 	}
+	// Real telemetry so Shutdown exercises the telemetryBuilder.Shutdown() path.
+	tt := componenttest.NewTelemetry()
+	t.Cleanup(func() { require.NoError(t, tt.Shutdown(context.Background())) })
+	require.NoError(t, r.initTelemetry(tt.NewTelemetrySettings()))
 	require.NoError(t, r.Start(context.Background(), nil))
 	require.Eventually(t, func() bool { return store.saveCount() > 0 }, 2*time.Second, time.Millisecond, "the poll loop ran at least one poll")
 	require.NoError(t, r.Shutdown(context.Background()))

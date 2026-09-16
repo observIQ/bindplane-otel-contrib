@@ -28,7 +28,7 @@ func Test_rawTextLogsConsumer(t *testing.T) {
 	con := NewRawTextLogsConsumer(sink)
 
 	input := "This is some raw log text\nwith multiple lines\n"
-	err := con.Consume(context.Background(), []byte(input))
+	_, _, err := con.ConsumeCounted(context.Background(), []byte(input))
 	require.NoError(t, err)
 
 	require.Equal(t, 1, sink.LogRecordCount())
@@ -41,7 +41,7 @@ func Test_rawTextLogsConsumer_EmptyContent(t *testing.T) {
 	sink := &consumertest.LogsSink{}
 	con := NewRawTextLogsConsumer(sink)
 
-	err := con.Consume(context.Background(), []byte(""))
+	_, _, err := con.ConsumeCounted(context.Background(), []byte(""))
 	require.NoError(t, err)
 
 	require.Equal(t, 0, sink.LogRecordCount())
@@ -51,7 +51,7 @@ func Test_rawTextLogsConsumer_DownstreamError(t *testing.T) {
 	// A downstream ConsumeLogs failure is marked ErrDownstream so the receiver retries rather
 	// than quarantining.
 	con := NewRawTextLogsConsumer(consumertest.NewErr(errors.New("boom")))
-	err := con.Consume(context.Background(), []byte("a line"))
+	_, _, err := con.ConsumeCounted(context.Background(), []byte("a line"))
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrDownstream)
 }

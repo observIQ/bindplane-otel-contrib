@@ -81,7 +81,7 @@ Gzip-compressed blobs cannot be range-read, so they are read whole; incremental 
 
 `otlp` blobs are written once rather than grown, so they too are read whole.
 
-Delivery is **at-least-once**: no record is lost, though a record may be delivered more than once (for example after a restart without a storage extension, or if a blob is rewritten). Use a [storage extension](#using-storage-extension-configuration) to persist per-blob progress across restarts.
+Delivery is **at-least-once**: no *valid* record is lost, though a record may be delivered more than once (for example after a restart without a storage extension, or if a blob is rewritten). Data that cannot be parsed or delivered is dropped as described in [Invalid data and dropped blobs](#invalid-data-and-dropped-blobs). Use a [storage extension](#using-storage-extension-configuration) to persist per-blob progress across restarts.
 
 ### Checkpoint Management
 
@@ -92,6 +92,30 @@ The receiver uses a checkpoint to track:
 - `Progress`: for the append-growable formats, the per-blob read offset, leading-byte fingerprint, and last-modified time used for [incremental reading](#incremental-reading-of-append-growable-blobs).
 
 This prevents duplicate processing and, with a storage extension, preserves incremental read progress across collector restarts.
+
+## Internal Telemetry
+
+The receiver emits two internal metrics (see [documentation.md](./documentation.md)), both counters attributed by `blob_format`:
+
+- `azureblobpolling.records.consumed` — records parsed from blobs (attempted).
+- `azureblobpolling.records.emitted` — records successfully forwarded to the next consumer.
+
+These are the instrument names; the collector's Prometheus exporter renders them as `otelcol_azureblobpolling_records_consumed` and `otelcol_azureblobpolling_records_emitted`.
+
+The gap between them (`consumed - emitted`) is the number of records dropped as malformed during per-line framing (the `json`/NDJSON format, where an unparseable line is skipped). For `records-json` a malformed element quarantines the whole blob instead (logged; see below), so it does not show up as a gap. A downstream delivery failure does not widen the gap either: on an error neither counter is recorded, and those bytes are re-read and re-counted on a later successful poll. Alert on that gap to catch a source producing bad records; break it down by `blob_format` to localize which format is dropping.
+
+## Invalid data and dropped blobs
+
+The at-least-once guarantee covers *valid* data: any record the receiver successfully parses is delivered at least once and never silently dropped. Data that cannot be parsed or delivered is handled as follows, and every case is logged so a drop is never silent.
+
+| Situation | Handling | Logged as |
+| --- | --- | --- |
+| A malformed record inside an otherwise-valid blob (an unparseable JSON line) | Skipped; the rest of the blob is still ingested | `Warn` "Skipping malformed JSON line" / "Skipped malformed lines during NDJSON parsing"; also visible as the `records.consumed - records.emitted` gap |
+| A blob that can never be framed or parsed (a bad `records-json` envelope or a non-object element, a truncated/unparseable final record, a corrupt gzip) | Quarantined: kept (never deleted), ignored while unchanged, and re-read if its `LastModified` later changes | `Warn` "Quarantining blob..." / "records-json blob cannot be parsed (bad envelope or a non-object element)..." |
+| A blob whose reads or downstream delivery fail on every attempt until it ages out of the revisit window | Dropped (records not ingested); the blob itself is not deleted | `Warn` "Dropping blob that aged out without a successful read", with the last error |
+| A wrong file type for the format, or a blob with no parseable time | Skipped | `Warn` about the unsupported type / likely time-source misconfiguration |
+
+Quarantined and dropped blobs are never deleted under `delete_on_read`, so no unread data is removed from storage.
 
 ## Configuration
 

@@ -57,7 +57,14 @@ func createMetricsReceiver(_ context.Context, params receiver.Settings, conf com
 		return nil, errImproperCfgType
 	}
 
-	return newMetricsReceiver(params.ID, params.Logger, cfg, con)
+	r, err := newMetricsReceiver(params.ID, params.Logger, cfg, con)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.initTelemetry(params.TelemetrySettings); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // createLogsReceiver creates a logs receiver
@@ -67,7 +74,14 @@ func createLogsReceiver(_ context.Context, params receiver.Settings, conf compon
 		return nil, errImproperCfgType
 	}
 
-	return newLogsReceiver(params.ID, params.Logger, cfg, con)
+	r, err := newLogsReceiver(params.ID, params.Logger, cfg, con)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.initTelemetry(params.TelemetrySettings); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // createTracesReceiver creates a traces receiver
@@ -77,5 +91,12 @@ func createTracesReceiver(_ context.Context, params receiver.Settings, conf comp
 		return nil, errImproperCfgType
 	}
 
-	return newTracesReceiver(params.ID, params.Logger, cfg, con)
+	r, err := newTracesReceiver(params.ID, params.Logger, cfg, con)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.initTelemetry(params.TelemetrySettings); err != nil {
+		return nil, err
+	}
+	return r, nil
 }

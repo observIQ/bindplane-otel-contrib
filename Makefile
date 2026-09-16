@@ -357,6 +357,7 @@ gosec:
 			./exporter/googlecloudstorageexporter) EXCLUDES="-exclude-dir=internal/metadata" ;; \
 			./exporter/awssecuritylakeexporter) EXCLUDES="-exclude-dir=internal/metadata" ;; \
 			./processor/logtypedetectionprocessor) EXCLUDES="-exclude-dir=internal/metadata" ;; \
+			./receiver/azureblobpollingreceiver) EXCLUDES="-exclude-dir=internal/metadata" ;; \
 			./receiver/awss3eventreceiver) EXCLUDES="-exclude-dir=internal/metadata" ;; \
 			./receiver/gcspubsubeventreceiver) EXCLUDES="-exclude-dir=internal/metadata" ;; \
 			./receiver/pcapreceiver) EXCLUDES="-exclude-dir=internal/metadata" ;; \

@@ -28,16 +28,22 @@ import (
 // ErrDownstream marks an error as coming from the next consumer in the pipeline (a full
 // sending queue, memory limiter, exporter backpressure) rather than from parsing the blob
 // content, so a caller can tell a transient downstream failure apart from a permanent
-// content error and retry instead of quarantining the blob. The append-growable consumers
-// wrap their ConsumeLogs errors with it.
+// content error and retry instead of quarantining the blob. Every consumer's ConsumeCounted
+// wraps its next-consumer error with it.
 var ErrDownstream = errors.New("downstream consumer failed")
 
 // Consumer is responsible for turning entities into OTLP data and sending to the next consumer.
 //
 //go:generate mockery --name Consumer --inpackage --with-expecter --filename mock_consumer.go --structname MockConsumer
 type Consumer interface {
-	// Consume consumes entity contents at the path and unmarshals it.
+	// Consume turns entity contents into OTLP data and forwards it to the next consumer,
+	// reporting only whether the operation failed. Callers that need the record counts use
+	// ConsumeCounted; this is the simple form the rehydration receivers call.
 	Consume(ctx context.Context, entityContent []byte) error
+	// ConsumeCounted is Consume that also reports how many records it parsed (consumed) and how
+	// many it forwarded downstream (emitted); consumed minus emitted is the records dropped as
+	// malformed or not sent because of a downstream error.
+	ConsumeCounted(ctx context.Context, entityContent []byte) (consumed int, emitted int, err error)
 }
 
 // MetricsConsumer consumes rehydrated metric entities and marshals them into pdata structures
@@ -55,14 +61,23 @@ func NewMetricsConsumer(nextConsumer consumer.Metrics) *MetricsConsumer {
 	}
 }
 
-// Consume unmarshals entityContent into pmetrics and consumes it
+// Consume implements Consumer; it discards ConsumeCounted's record counts.
 func (m *MetricsConsumer) Consume(ctx context.Context, entityContent []byte) error {
+	_, _, err := m.ConsumeCounted(ctx, entityContent)
+	return err
+}
+
+// ConsumeCounted unmarshals entityContent into pmetrics and consumes it, counting data points.
+func (m *MetricsConsumer) ConsumeCounted(ctx context.Context, entityContent []byte) (int, int, error) {
 	payload, err := m.unmarshaler.UnmarshalMetrics(entityContent)
 	if err != nil {
-		return fmt.Errorf("metrics consume: %w", err)
+		return 0, 0, fmt.Errorf("metrics consume: %w", err)
 	}
-
-	return m.nextConsumer.ConsumeMetrics(ctx, payload)
+	n := payload.DataPointCount()
+	if err := m.nextConsumer.ConsumeMetrics(ctx, payload); err != nil {
+		return n, 0, fmt.Errorf("metrics consume: %w: %w", ErrDownstream, err)
+	}
+	return n, n, nil
 }
 
 // LogsConsumer consumes rehydrated log entities and marshals them into pdata structures
@@ -80,14 +95,23 @@ func NewLogsConsumer(nextConsumer consumer.Logs) *LogsConsumer {
 	}
 }
 
-// Consume unmarshals entityContent into plogs and consumes it
+// Consume implements Consumer; it discards ConsumeCounted's record counts.
 func (l *LogsConsumer) Consume(ctx context.Context, entityContent []byte) error {
+	_, _, err := l.ConsumeCounted(ctx, entityContent)
+	return err
+}
+
+// ConsumeCounted unmarshals entityContent into plogs and consumes it, counting log records.
+func (l *LogsConsumer) ConsumeCounted(ctx context.Context, entityContent []byte) (int, int, error) {
 	payload, err := l.unmarshaler.UnmarshalLogs(entityContent)
 	if err != nil {
-		return fmt.Errorf("logs consume: %w", err)
+		return 0, 0, fmt.Errorf("logs consume: %w", err)
 	}
-
-	return l.nextConsumer.ConsumeLogs(ctx, payload)
+	n := payload.LogRecordCount()
+	if err := l.nextConsumer.ConsumeLogs(ctx, payload); err != nil {
+		return n, 0, fmt.Errorf("logs consume: %w: %w", ErrDownstream, err)
+	}
+	return n, n, nil
 }
 
 // TracesConsumer consumes rehydrated trace entities and marshals them into pdata structures
@@ -105,12 +129,21 @@ func NewTracesConsumer(nextConsumer consumer.Traces) *TracesConsumer {
 	}
 }
 
-// Consume unmarshals entityContent into ptrace and consumes it
+// Consume implements Consumer; it discards ConsumeCounted's record counts.
 func (l *TracesConsumer) Consume(ctx context.Context, entityContent []byte) error {
+	_, _, err := l.ConsumeCounted(ctx, entityContent)
+	return err
+}
+
+// ConsumeCounted unmarshals entityContent into ptrace and consumes it, counting spans.
+func (l *TracesConsumer) ConsumeCounted(ctx context.Context, entityContent []byte) (int, int, error) {
 	payload, err := l.unmarshaler.UnmarshalTraces(entityContent)
 	if err != nil {
-		return fmt.Errorf("traces consume: %w", err)
+		return 0, 0, fmt.Errorf("traces consume: %w", err)
 	}
-
-	return l.nextConsumer.ConsumeTraces(ctx, payload)
+	n := payload.SpanCount()
+	if err := l.nextConsumer.ConsumeTraces(ctx, payload); err != nil {
+		return n, 0, fmt.Errorf("traces consume: %w: %w", ErrDownstream, err)
+	}
+	return n, n, nil
 }

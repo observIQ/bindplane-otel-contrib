@@ -68,6 +68,70 @@ func (_c *MockConsumer_Consume_Call) RunAndReturn(run func(context.Context, []by
 	return _c
 }
 
+// ConsumeCounted provides a mock function with given fields: ctx, entityContent
+func (_m *MockConsumer) ConsumeCounted(ctx context.Context, entityContent []byte) (int, int, error) {
+	ret := _m.Called(ctx, entityContent)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ConsumeCounted")
+	}
+
+	var r0 int
+	var r1 int
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) (int, int, error)); ok {
+		return rf(ctx, entityContent)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) int); ok {
+		r0 = rf(ctx, entityContent)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []byte) int); ok {
+		r1 = rf(ctx, entityContent)
+	} else {
+		r1 = ret.Get(1).(int)
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context, []byte) error); ok {
+		r2 = rf(ctx, entityContent)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
+// MockConsumer_ConsumeCounted_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ConsumeCounted'
+type MockConsumer_ConsumeCounted_Call struct {
+	*mock.Call
+}
+
+// ConsumeCounted is a helper method to define mock.On call
+//   - ctx context.Context
+//   - entityContent []byte
+func (_e *MockConsumer_Expecter) ConsumeCounted(ctx interface{}, entityContent interface{}) *MockConsumer_ConsumeCounted_Call {
+	return &MockConsumer_ConsumeCounted_Call{Call: _e.mock.On("ConsumeCounted", ctx, entityContent)}
+}
+
+func (_c *MockConsumer_ConsumeCounted_Call) Run(run func(ctx context.Context, entityContent []byte)) *MockConsumer_ConsumeCounted_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]byte))
+	})
+	return _c
+}
+
+func (_c *MockConsumer_ConsumeCounted_Call) Return(consumed int, emitted int, err error) *MockConsumer_ConsumeCounted_Call {
+	_c.Call.Return(consumed, emitted, err)
+	return _c
+}
+
+func (_c *MockConsumer_ConsumeCounted_Call) RunAndReturn(run func(context.Context, []byte) (int, int, error)) *MockConsumer_ConsumeCounted_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockConsumer creates a new instance of MockConsumer. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockConsumer(t interface {
