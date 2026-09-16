@@ -15,6 +15,8 @@
 package azureblobpollingreceiver //import "github.com/observiq/bindplane-otel-contrib/receiver/azureblobpollingreceiver"
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"sync"
@@ -680,6 +682,7 @@ func TestPollingReceiver_MultiBatchNoDataLoss(t *testing.T) {
 		// Valid minimal OTLP JSON logs payload
 		validJSON := []byte(`{"resourceLogs":[]}`)
 
+		// otlp uses the buffered download path.
 		mockClient.On("DownloadBlob", mock.Anything, "test-container", mock.Anything, mock.Anything).
 			Run(func(args mock.Arguments) {
 				blobName := args.Get(2).(string)
@@ -722,6 +725,191 @@ func TestPollingReceiver_MultiBatchNoDataLoss(t *testing.T) {
 		// Checkpoint LastTs should be set to the latest timestamp (blob-latest.json)
 		require.NotNil(t, receiver.lastBlobTime)
 		require.Equal(t, now.Add(-1*time.Second), *receiver.lastBlobTime)
+	})
+}
+
+func TestPollingReceiver_processBlob_DownloadsFullContentDespiteStaleSize(t *testing.T) {
+	// Azure grows an hourly flow-log blob all hour via PutBlock, so the size
+	// reported by the listing (blob.Size) is stale and understates the blob's
+	// current content. processBlob must stream the whole current blob rather
+	// than pre-sizing a buffer from the stale size, which the SDK overflows
+	// ("not enough space for all bytes"). The stream download ignores blob.Size
+	// entirely, so a stale (too-small) size no longer drops content.
+	logger := zap.NewNop()
+	sink := new(consumertest.LogsSink)
+
+	// Two records; content (29 bytes) far exceeds the stale listed size.
+	fullContent := []byte(`{"records":[{"a":1},{"b":2}]}`)
+	const staleSize = 5
+
+	mockClient := new(azureblob.MockBlobClient)
+	mockClient.EXPECT().
+		DownloadBlobStream(mock.Anything, "test-container", "flow/PT1H.json").
+		Return(fullContent, nil)
+
+	receiver := &pollingReceiver{
+		logger:      logger,
+		cfg:         &Config{Container: "test-container", BlobFormat: BlobFormatRecordsJSON},
+		azureClient: mockClient,
+		consumer:    blobconsume.NewRecordsJSONLogsConsumer(sink, logger),
+		mut:         &sync.Mutex{},
+		wg:          &sync.WaitGroup{},
+	}
+
+	err := receiver.processBlob(context.Background(), &azureblob.BlobInfo{
+		Name: "flow/PT1H.json",
+		Size: staleSize,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, sink.LogRecordCount(), "both records from the full blob content should be consumed")
+	mockClient.AssertExpectations(t)
+}
+
+func gzipBytes(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	_, err := gw.Write(data)
+	require.NoError(t, err)
+	require.NoError(t, gw.Close())
+	return buf.Bytes()
+}
+
+func TestPollingReceiver_processBlob(t *testing.T) {
+	records := []byte(`{"records":[{"a":1},{"b":2}]}`)
+
+	t.Run("download error is returned", func(t *testing.T) {
+		mockClient := new(azureblob.MockBlobClient)
+		mockClient.EXPECT().
+			DownloadBlobStream(mock.Anything, "test-container", "flow/PT1H.json").
+			Return(nil, errors.New("network error"))
+
+		r := &pollingReceiver{
+			logger:      zap.NewNop(),
+			cfg:         &Config{Container: "test-container", BlobFormat: BlobFormatRecordsJSON},
+			azureClient: mockClient,
+			consumer:    blobconsume.NewRecordsJSONLogsConsumer(new(consumertest.LogsSink), zap.NewNop()),
+			mut:         &sync.Mutex{},
+			wg:          &sync.WaitGroup{},
+		}
+		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/PT1H.json"})
+		require.ErrorContains(t, err, "download blob")
+	})
+
+	t.Run("gzipped blob is decompressed and consumed", func(t *testing.T) {
+		sink := new(consumertest.LogsSink)
+		mockClient := new(azureblob.MockBlobClient)
+		mockClient.EXPECT().
+			DownloadBlobStream(mock.Anything, "test-container", "flow/PT1H.json.gz").
+			Return(gzipBytes(t, records), nil)
+
+		r := &pollingReceiver{
+			logger:      zap.NewNop(),
+			cfg:         &Config{Container: "test-container", BlobFormat: BlobFormatRecordsJSON},
+			azureClient: mockClient,
+			consumer:    blobconsume.NewRecordsJSONLogsConsumer(sink, zap.NewNop()),
+			mut:         &sync.Mutex{},
+			wg:          &sync.WaitGroup{},
+		}
+		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/PT1H.json.gz"})
+		require.NoError(t, err)
+		require.Equal(t, 2, sink.LogRecordCount())
+	})
+
+	t.Run("corrupt gzip returns error", func(t *testing.T) {
+		mockClient := new(azureblob.MockBlobClient)
+		mockClient.EXPECT().
+			DownloadBlobStream(mock.Anything, "test-container", "flow/PT1H.json.gz").
+			Return([]byte("not gzip"), nil)
+
+		r := &pollingReceiver{
+			logger:      zap.NewNop(),
+			cfg:         &Config{Container: "test-container", BlobFormat: BlobFormatRecordsJSON},
+			azureClient: mockClient,
+			consumer:    blobconsume.NewRecordsJSONLogsConsumer(new(consumertest.LogsSink), zap.NewNop()),
+			mut:         &sync.Mutex{},
+			wg:          &sync.WaitGroup{},
+		}
+		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/PT1H.json.gz"})
+		require.ErrorContains(t, err, "gzip")
+	})
+
+	t.Run("unsupported extension returns error", func(t *testing.T) {
+		mockClient := new(azureblob.MockBlobClient)
+		mockClient.EXPECT().
+			DownloadBlobStream(mock.Anything, "test-container", "flow/data.txt").
+			Return(records, nil)
+
+		r := &pollingReceiver{
+			logger:      zap.NewNop(),
+			cfg:         &Config{Container: "test-container", BlobFormat: BlobFormatRecordsJSON},
+			azureClient: mockClient,
+			consumer:    blobconsume.NewRecordsJSONLogsConsumer(new(consumertest.LogsSink), zap.NewNop()),
+			mut:         &sync.Mutex{},
+			wg:          &sync.WaitGroup{},
+		}
+		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/data.txt"})
+		require.ErrorContains(t, err, "unsupported file type")
+	})
+
+	t.Run("consumer error is returned", func(t *testing.T) {
+		mockClient := new(azureblob.MockBlobClient)
+		mockClient.EXPECT().
+			DownloadBlobStream(mock.Anything, "test-container", "flow/PT1H.json").
+			Return([]byte("{not valid json"), nil)
+
+		r := &pollingReceiver{
+			logger:      zap.NewNop(),
+			cfg:         &Config{Container: "test-container", BlobFormat: BlobFormatRecordsJSON},
+			azureClient: mockClient,
+			consumer:    blobconsume.NewRecordsJSONLogsConsumer(new(consumertest.LogsSink), zap.NewNop()),
+			mut:         &sync.Mutex{},
+			wg:          &sync.WaitGroup{},
+		}
+		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/PT1H.json"})
+		require.ErrorContains(t, err, "consume")
+	})
+
+	t.Run("otlp uses the buffered (parallel, exact-size) download, not the stream", func(t *testing.T) {
+		// otlp blobs are written once with an accurate listed size, so they keep the
+		// SDK's parallel buffered download; the stream path is reserved for the
+		// append-growable formats whose listed size is stale.
+		otlp := []byte(`{"resourceLogs":[]}`)
+		mockClient := new(azureblob.MockBlobClient)
+		mockClient.EXPECT().
+			DownloadBlob(mock.Anything, "test-container", "flow/otlp.json", mock.Anything).
+			RunAndReturn(func(_ context.Context, _, _ string, buf []byte) (int64, error) {
+				return int64(copy(buf, otlp)), nil
+			})
+		r := &pollingReceiver{
+			logger:      zap.NewNop(),
+			cfg:         &Config{Container: "test-container", BlobFormat: BlobFormatOTLP},
+			azureClient: mockClient,
+			consumer:    blobconsume.NewLogsConsumer(new(consumertest.LogsSink)),
+			mut:         &sync.Mutex{},
+			wg:          &sync.WaitGroup{},
+		}
+		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/otlp.json", Size: int64(len(otlp))})
+		require.NoError(t, err)
+		mockClient.AssertExpectations(t)
+		mockClient.AssertNotCalled(t, "DownloadBlobStream")
+	})
+
+	t.Run("otlp buffered download error is returned", func(t *testing.T) {
+		mockClient := new(azureblob.MockBlobClient)
+		mockClient.EXPECT().
+			DownloadBlob(mock.Anything, "test-container", "flow/otlp.json", mock.Anything).
+			Return(int64(0), errors.New("network error"))
+		r := &pollingReceiver{
+			logger:      zap.NewNop(),
+			cfg:         &Config{Container: "test-container", BlobFormat: BlobFormatOTLP},
+			azureClient: mockClient,
+			consumer:    blobconsume.NewLogsConsumer(new(consumertest.LogsSink)),
+			mut:         &sync.Mutex{},
+			wg:          &sync.WaitGroup{},
+		}
+		err := r.processBlob(context.Background(), &azureblob.BlobInfo{Name: "flow/otlp.json", Size: 10})
+		require.ErrorContains(t, err, "download blob")
 	})
 }
 

@@ -34,7 +34,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// newAzureBlobClient is the function use to create new Azure Blob Clients.
+// newAzureBlobClient is the function used to create new Azure Blob Clients.
 // Meant to be overwritten for tests
 var newAzureBlobClient = azureblob.NewAzureBlobClient
 
@@ -672,23 +672,34 @@ func (r *pollingReceiver) processBlobGoRoutine(ctx context.Context, blob *azureb
 // 2. Decompresses the blob if applicable
 // 3. Pass the blob to the consumer
 func (r *pollingReceiver) processBlob(ctx context.Context, blob *azureblob.BlobInfo) error {
-	// Allocate a buffer the size of the blob
-	blobBuffer := make([]byte, blob.Size)
-
-	size, err := r.azureClient.DownloadBlob(ctx, r.cfg.Container, blob.Name, blobBuffer)
-	if err != nil {
-		return fmt.Errorf("download blob: %w", err)
+	var blobBuffer []byte
+	var err error
+	// otlp blobs are written once, so their listed size is accurate: use the SDK's
+	// parallel, exactly-sized buffered download. The append-growable formats
+	// (json/text/records-json) are grown in place, so their listed size is stale and
+	// would overflow a pre-sized buffer; stream those instead.
+	if r.cfg.BlobFormat == BlobFormatOTLP || r.cfg.BlobFormat == "" {
+		buf := make([]byte, blob.Size)
+		n, derr := r.azureClient.DownloadBlob(ctx, r.cfg.Container, blob.Name, buf)
+		if derr != nil {
+			return fmt.Errorf("download blob: %w", derr)
+		}
+		blobBuffer = buf[:n]
+	} else {
+		blobBuffer, err = r.azureClient.DownloadBlobStream(ctx, r.cfg.Container, blob.Name)
+		if err != nil {
+			return fmt.Errorf("download blob: %w", err)
+		}
 	}
 
 	// Check file extension to see if we need to decompress
-	ext := filepath.Ext(blob.Name)
-	switch {
-	case ext == ".gz":
-		blobBuffer, err = blobconsume.GzipDecompress(blobBuffer[:size])
+	switch ext := filepath.Ext(blob.Name); ext {
+	case ".gz":
+		blobBuffer, err = blobconsume.GzipDecompress(blobBuffer)
 		if err != nil {
 			return fmt.Errorf("gzip: %w", err)
 		}
-	case ext == ".json":
+	case ".json":
 		// Do nothing for json files
 	default:
 		return fmt.Errorf("unsupported file type: %s", ext)
