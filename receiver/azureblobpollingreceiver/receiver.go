@@ -30,9 +30,12 @@ import (
 	"github.com/observiq/bindplane-otel-contrib/internal/azureblob"
 	"github.com/observiq/bindplane-otel-contrib/internal/blobconsume"
 	"github.com/observiq/bindplane-otel-contrib/internal/storageclient"
+	"github.com/observiq/bindplane-otel-contrib/receiver/azureblobpollingreceiver/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pipeline"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 )
 
@@ -83,8 +86,12 @@ type pollingReceiver struct {
 	azureClient        azureblob.BlobClient
 	supportedTelemetry pipeline.Signal
 	consumer           blobconsume.Consumer
-	checkpoint         *PollingCheckPoint
-	checkpointStore    storageclient.StorageClient
+	telemetryBuilder   *metadata.TelemetryBuilder
+	// recordAttrs is the fixed blob_format attribute set for the record counters, precomputed
+	// in initTelemetry because cfg.BlobFormat never changes after construction.
+	recordAttrs     metric.MeasurementOption
+	checkpoint      *PollingCheckPoint
+	checkpointStore storageclient.StorageClient
 
 	pollInterval    time.Duration
 	initialLookback time.Duration
@@ -264,6 +271,12 @@ func (r *pollingReceiver) Start(ctx context.Context, host component.Host) error 
 func (r *pollingReceiver) Shutdown(ctx context.Context) error {
 	if r.cancelFunc != nil {
 		r.cancelFunc()
+	}
+
+	// Shut down the telemetry builder on every exit path (including the timeout returns below).
+	// A no-op today (only sync counters), but stays correct if an observable instrument is added.
+	if r.telemetryBuilder != nil {
+		defer r.telemetryBuilder.Shutdown()
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -826,7 +839,7 @@ func (r *pollingReceiver) processBlobGoRoutine(ctx context.Context, blob *azureb
 	case r.isIncrementalFormat():
 		processed, err = r.processBlobWholeTracked(ctx, blob)
 	default:
-		err = r.processBlob(ctx, blob)
+		_, err = r.processBlob(ctx, blob)
 	}
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
@@ -918,10 +931,11 @@ func (r *pollingReceiver) consumeDelta(ctx context.Context, delta []byte, atStar
 		if reframed == nil {
 			return bytesConsumed, false, nil
 		}
-		if err := r.consumer.Consume(ctx, reframed); err != nil {
-			return 0, false, fmt.Errorf("consume: %w", err)
+		emitted, err := r.consume(ctx, reframed)
+		if err != nil {
+			return 0, false, err // the consumer already tags this "records-json consume: ..."
 		}
-		return bytesConsumed, true, nil
+		return bytesConsumed, emitted > 0, nil
 	}
 
 	// json (NDJSON) and text are newline-delimited; consume only up to the last
@@ -930,20 +944,47 @@ func (r *pollingReceiver) consumeDelta(ctx context.Context, delta []byte, atStar
 	if bytesConsumed == 0 {
 		return 0, false, nil
 	}
-	if err := r.consumeContent(ctx, complete); err != nil {
+	emitted, err := r.consume(ctx, complete)
+	if err != nil {
 		return 0, false, err
 	}
-	return bytesConsumed, len(bytes.TrimSpace(complete)) > 0, nil
+	return bytesConsumed, emitted > 0, nil
 }
 
-// consumeContent hands newline-delimited content to the consumer, which splits it
-// into one log record per line: the NDJSON consumer for json, and the line-text
-// consumer for text when enable_per_line_text is set (the only way text reaches
-// the incremental path).
-func (r *pollingReceiver) consumeContent(ctx context.Context, content []byte) error {
-	if err := r.consumer.Consume(ctx, content); err != nil {
-		return fmt.Errorf("consume: %w", err)
+// consume forwards content to the consumer and records consumed/emitted counts to telemetry
+// (attributed by blob_format), returning the emitted count so callers can tell a real emission
+// from a no-op. telemetryBuilder is nil in unit tests, where recording is skipped.
+//
+// Recording only on success (err==nil): a failed read leaves the offset unadvanced and re-reads
+// the same bytes next poll, so counting the failure would re-count on every retry and open a false
+// "dropped" gap. Genuine malformed drops still count (they return err==nil with emitted<consumed).
+func (r *pollingReceiver) consume(ctx context.Context, content []byte) (int, error) {
+	consumed, emitted, err := r.consumer.ConsumeCounted(ctx, content)
+	if err == nil && r.telemetryBuilder != nil {
+		r.telemetryBuilder.AzureblobpollingRecordsConsumed.Add(ctx, int64(consumed), r.recordAttrs)
+		r.telemetryBuilder.AzureblobpollingRecordsEmitted.Add(ctx, int64(emitted), r.recordAttrs)
 	}
+	return emitted, err
+}
+
+// blobFormatAttr is the blob_format value recorded on the record counters; the empty default
+// format is reported as otlp.
+func (r *pollingReceiver) blobFormatAttr() string {
+	if r.cfg.BlobFormat == "" {
+		return string(BlobFormatOTLP)
+	}
+	return string(r.cfg.BlobFormat)
+}
+
+// initTelemetry builds the receiver's record counters from the component telemetry settings and
+// precomputes the blob_format attribute set. The factory calls it after construction.
+func (r *pollingReceiver) initTelemetry(set component.TelemetrySettings) error {
+	tb, err := metadata.NewTelemetryBuilder(set)
+	if err != nil {
+		return fmt.Errorf("build telemetry: %w", err)
+	}
+	r.telemetryBuilder = tb
+	r.recordAttrs = metric.WithAttributes(attribute.String("blob_format", r.blobFormatAttr()))
 	return nil
 }
 
@@ -1177,7 +1218,8 @@ var errBlobDownloadTransient = errors.New("blob download failed")
 // append-growable config and records it consumed so the mtime gate skips it, re-reading only
 // when LastModified changes. Reports whether records were emitted.
 func (r *pollingReceiver) processBlobWholeTracked(ctx context.Context, blob *azureblob.BlobInfo) (bool, error) {
-	if err := r.processBlob(ctx, blob); err != nil {
+	emitted, err := r.processBlob(ctx, blob)
+	if err != nil {
 		// Transient (download/downstream): if the blob was never read successfully, track it as
 		// never-read so its drop is logged at age-out (the LastReadError bypass keeps retrying a
 		// static-mtime gzip). Don't clobber a prior successful entry (Offset>0): a rewritten blob
@@ -1203,14 +1245,19 @@ func (r *pollingReceiver) processBlobWholeTracked(ctx context.Context, blob *azu
 	// range-tailed, so this value never drives a range read. It uses the listed size (not the
 	// actual decompressed/streamed length), which is fine for that marker purpose.
 	r.saveProgress(blob.Name, BlobProgress{Offset: blob.Size, LastModified: blob.LastModified})
-	return true, nil
+	// Report processed only when records were actually emitted. A blob whose lines all fail to
+	// parse is read and recorded consumed, but counting it processed would inflate total_processed
+	// and suppress the poll-summary "nothing parsed" warn.
+	return emitted > 0, nil
 }
 
 // processBlob does the following:
 // 1. Downloads the blob
 // 2. Decompresses the blob if applicable
-// 3. Pass the blob to the consumer
-func (r *pollingReceiver) processBlob(ctx context.Context, blob *azureblob.BlobInfo) error {
+// 3. Passes the blob to the consumer
+// It returns the number of records emitted downstream so a caller can tell a real emission from a
+// zero-record read (e.g. a whole blob whose lines all fail to parse).
+func (r *pollingReceiver) processBlob(ctx context.Context, blob *azureblob.BlobInfo) (int, error) {
 	var blobBuffer []byte
 	var err error
 	// otlp blobs are written once, so their listed size is accurate: use the SDK's
@@ -1223,7 +1270,7 @@ func (r *pollingReceiver) processBlob(ctx context.Context, blob *azureblob.BlobI
 		if derr != nil {
 			// Plain error: otlp is not tracked, so nothing classifies it (the append-growable
 			// branch below wraps errBlobDownloadTransient, which processBlobWholeTracked keys on).
-			return fmt.Errorf("download: %w", derr)
+			return 0, fmt.Errorf("download: %w", derr)
 		}
 		blobBuffer = buf[:n]
 	} else {
@@ -1232,9 +1279,9 @@ func (r *pollingReceiver) processBlob(ctx context.Context, blob *azureblob.BlobI
 			// A permanent read failure (auth/config, e.g. 403) re-errors every poll, so return it
 			// unwrapped and let processBlobWholeTracked quarantine it, as the incremental path does.
 			if azureblob.IsPermanentError(err) {
-				return fmt.Errorf("download: %w", err)
+				return 0, fmt.Errorf("download: %w", err)
 			}
-			return fmt.Errorf("%w: %w", errBlobDownloadTransient, err)
+			return 0, fmt.Errorf("%w: %w", errBlobDownloadTransient, err)
 		}
 	}
 
@@ -1244,7 +1291,7 @@ func (r *pollingReceiver) processBlob(ctx context.Context, blob *azureblob.BlobI
 	case ".gz":
 		blobBuffer, err = blobconsume.GzipDecompress(blobBuffer)
 		if err != nil {
-			return fmt.Errorf("gzip: %w", err)
+			return 0, fmt.Errorf("gzip: %w", err)
 		}
 	case ".json":
 		// Uncompressed; nothing to decompress.
@@ -1252,14 +1299,15 @@ func (r *pollingReceiver) processBlob(ctx context.Context, blob *azureblob.BlobI
 		// The text format is content-agnostic, so accept any extension (as the per-line
 		// text path does); the structured formats still require .json/.gz.
 		if r.cfg.BlobFormat != BlobFormatText {
-			return fmt.Errorf("unsupported file type: %s", ext)
+			return 0, fmt.Errorf("unsupported file type: %s", ext)
 		}
 	}
 
-	if err := r.consumer.Consume(ctx, blobBuffer); err != nil {
-		return fmt.Errorf("consume: %w", err)
+	emitted, err := r.consume(ctx, blobBuffer)
+	if err != nil {
+		return 0, err // the consumer already tags this "<format> consume: ..."
 	}
-	return nil
+	return emitted, nil
 }
 
 // checkpointStorageKey the key used for storing the checkpoint
@@ -1510,7 +1558,7 @@ func (r *pollingReceiver) flushSealedBlob(ctx context.Context, name string, prog
 		// dropped and deleted like the legacy path, so a later completed write is re-read.
 		complete, bytesConsumed := blobconsume.SplitLineDelta(tail)
 		if bytesConsumed > 0 {
-			if err := r.consumeContent(ctx, complete); err != nil {
+			if _, err := r.consume(ctx, complete); err != nil {
 				return offset, fingerprint, fmt.Errorf("seal consume: %w", err)
 			}
 		}
@@ -1524,13 +1572,13 @@ func (r *pollingReceiver) flushSealedBlob(ctx context.Context, name string, prog
 		if !blobconsume.IsJSONObject(trailing) {
 			return offset + int64(bytesConsumed), fingerprint, errSealedBlobUnparseable
 		}
-		if err := r.consumeContent(ctx, trailing); err != nil {
+		if _, err := r.consume(ctx, trailing); err != nil {
 			return offset + int64(bytesConsumed), fingerprint, fmt.Errorf("seal consume: %w", err)
 		}
 		return offset + int64(len(tail)), fingerprint, nil
 	}
 	// text has no parse-failure mode, so the whole tail is emitted.
-	if err := r.consumeContent(ctx, tail); err != nil {
+	if _, err := r.consume(ctx, tail); err != nil {
 		return offset, fingerprint, fmt.Errorf("seal consume: %w", err)
 	}
 	return offset + int64(len(tail)), fingerprint, nil

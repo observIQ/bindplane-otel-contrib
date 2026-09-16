@@ -8,6 +8,34 @@ status:
   stability:
     beta: [metrics, logs, traces]
 
+telemetry:
+  metrics:
+    azureblobpolling.records.consumed:
+      enabled: true
+      stability: alpha
+      description: Number of records parsed from blobs (attempted). On metrics and traces pipelines the count is data points and spans respectively.
+      unit: "{record}"
+      sum:
+        value_type: int
+        monotonic: true
+      attributes:
+        - blob_format
+    azureblobpolling.records.emitted:
+      enabled: true
+      stability: alpha
+      description: Number of records successfully forwarded to the next consumer. The gap below records.consumed is malformed records dropped during json/NDJSON line framing (records-json quarantines a bad blob instead). On metrics and traces pipelines the count is data points and spans respectively.
+      unit: "{record}"
+      sum:
+        value_type: int
+        monotonic: true
+      attributes:
+        - blob_format
+
+attributes:
+  blob_format:
+    description: The configured blob payload format the records were read from.
+    type: string
+
 tests:
   config:
     connection_string: DefaultEndpointsProtocol=https;AccountName=accountName;AccountKey=+idLkHYcL0MUWIKYHm2j4Q==;EndpointSuffix=core.windows.net

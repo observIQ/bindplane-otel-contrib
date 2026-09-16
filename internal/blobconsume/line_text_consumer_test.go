@@ -29,7 +29,10 @@ func Test_lineTextLogsConsumer(t *testing.T) {
 
 	// Blank and whitespace-only lines are skipped; each remaining line is its own record.
 	input := "line one\n\nline two\n   \nline three"
-	require.NoError(t, con.Consume(context.Background(), []byte(input)))
+	consumed, emitted, err := con.ConsumeCounted(context.Background(), []byte(input))
+	require.NoError(t, err)
+	require.Equal(t, 3, consumed, "three non-empty lines consumed")
+	require.Equal(t, 3, emitted, "and all three emitted (text has no malformed drop)")
 
 	require.Equal(t, 3, sink.LogRecordCount())
 	records := sink.AllLogs()[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
@@ -45,7 +48,9 @@ func Test_lineTextLogsConsumer_CRLF(t *testing.T) {
 	sink := &consumertest.LogsSink{}
 	con := NewLineTextLogsConsumer(sink)
 
-	require.NoError(t, con.Consume(context.Background(), []byte("line one\r\nline two\r\n")))
+	_, emitted, err := con.ConsumeCounted(context.Background(), []byte("line one\r\nline two\r\n"))
+	require.NoError(t, err)
+	require.Equal(t, 2, emitted)
 
 	require.Equal(t, 2, sink.LogRecordCount())
 	records := sink.AllLogs()[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
@@ -57,16 +62,19 @@ func Test_lineTextLogsConsumer_EmptyContent(t *testing.T) {
 	sink := &consumertest.LogsSink{}
 	con := NewLineTextLogsConsumer(sink)
 
-	require.NoError(t, con.Consume(context.Background(), []byte("")))
-	require.NoError(t, con.Consume(context.Background(), []byte("\n  \n\n")))
-	require.NoError(t, con.Consume(context.Background(), []byte("\r\n")))
+	for _, in := range []string{"", "\n  \n\n", "\r\n"} {
+		consumed, emitted, err := con.ConsumeCounted(context.Background(), []byte(in))
+		require.NoError(t, err)
+		require.Zero(t, consumed)
+		require.Zero(t, emitted)
+	}
 	require.Equal(t, 0, sink.LogRecordCount())
 }
 
 func Test_lineTextLogsConsumer_DownstreamError(t *testing.T) {
 	con := NewLineTextLogsConsumer(consumertest.NewErr(errors.New("boom")))
 
-	err := con.Consume(context.Background(), []byte("a line"))
+	_, _, err := con.ConsumeCounted(context.Background(), []byte("a line"))
 	require.ErrorContains(t, err, "line text consume")
 	require.ErrorIs(t, err, ErrDownstream)
 }

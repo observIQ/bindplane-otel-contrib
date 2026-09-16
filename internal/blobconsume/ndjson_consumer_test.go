@@ -30,7 +30,7 @@ func Test_ndjsonLogsConsumer_SingleLine(t *testing.T) {
 	con := NewNDJSONLogsConsumer(sink, zap.NewNop())
 
 	input := []byte(`{"host":"server1","message":"hello"}`)
-	err := con.Consume(context.Background(), input)
+	_, _, err := con.ConsumeCounted(context.Background(), input)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, sink.LogRecordCount())
@@ -49,7 +49,7 @@ func Test_ndjsonLogsConsumer_MultiLine(t *testing.T) {
 {"host":"server2","message":"line2"}
 {"host":"server3","message":"line3"}`)
 
-	err := con.Consume(context.Background(), input)
+	_, _, err := con.ConsumeCounted(context.Background(), input)
 	require.NoError(t, err)
 
 	require.Equal(t, 3, sink.LogRecordCount())
@@ -65,7 +65,7 @@ func Test_ndjsonLogsConsumer_EmptyLines(t *testing.T) {
 
 `)
 
-	err := con.Consume(context.Background(), input)
+	_, _, err := con.ConsumeCounted(context.Background(), input)
 	require.NoError(t, err)
 
 	require.Equal(t, 2, sink.LogRecordCount())
@@ -80,8 +80,10 @@ func Test_ndjsonLogsConsumer_MalformedLinesSkipped(t *testing.T) {
 not valid json
 {"host":"server2"}`)
 
-	err := con.Consume(context.Background(), input)
+	consumed, emitted, err := con.ConsumeCounted(context.Background(), input)
 	require.NoError(t, err)
+	require.Equal(t, 3, consumed, "three non-empty lines attempted")
+	require.Equal(t, 2, emitted, "one malformed line dropped, so emitted < consumed")
 
 	require.Equal(t, 2, sink.LogRecordCount())
 }
@@ -93,8 +95,10 @@ func Test_ndjsonLogsConsumer_AllMalformed(t *testing.T) {
 	input := []byte(`not json
 also not json`)
 
-	err := con.Consume(context.Background(), input)
+	consumed, emitted, err := con.ConsumeCounted(context.Background(), input)
 	require.NoError(t, err)
+	require.Equal(t, 2, consumed, "both lines attempted")
+	require.Equal(t, 0, emitted, "both dropped as malformed")
 
 	require.Equal(t, 0, sink.LogRecordCount())
 }
@@ -103,7 +107,7 @@ func Test_ndjsonLogsConsumer_EmptyContent(t *testing.T) {
 	sink := &consumertest.LogsSink{}
 	con := NewNDJSONLogsConsumer(sink, zap.NewNop())
 
-	err := con.Consume(context.Background(), []byte(""))
+	_, _, err := con.ConsumeCounted(context.Background(), []byte(""))
 	require.NoError(t, err)
 
 	require.Equal(t, 0, sink.LogRecordCount())
@@ -113,7 +117,7 @@ func Test_ndjsonLogsConsumer_DownstreamError(t *testing.T) {
 	// A downstream ConsumeLogs failure is marked ErrDownstream so the receiver retries rather
 	// than quarantining.
 	con := NewNDJSONLogsConsumer(consumertest.NewErr(errors.New("boom")), zap.NewNop())
-	err := con.Consume(context.Background(), []byte(`{"a":1}`))
+	_, _, err := con.ConsumeCounted(context.Background(), []byte(`{"a":1}`))
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrDownstream)
 }

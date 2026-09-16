@@ -41,9 +41,15 @@ func NewNDJSONLogsConsumer(nextConsumer consumer.Logs, logger *zap.Logger) *NDJS
 	}
 }
 
-// Consume splits entityContent by newlines, parses each line as JSON,
-// and sends the resulting log records to the next consumer.
+// Consume implements Consumer; it discards ConsumeCounted's record counts.
 func (n *NDJSONLogsConsumer) Consume(ctx context.Context, entityContent []byte) error {
+	_, _, err := n.ConsumeCounted(ctx, entityContent)
+	return err
+}
+
+// ConsumeCounted splits entityContent by newlines, parses each line as JSON,
+// and sends the resulting log records to the next consumer.
+func (n *NDJSONLogsConsumer) ConsumeCounted(ctx context.Context, entityContent []byte) (int, int, error) {
 	logs := plog.NewLogs()
 	resourceLogs := logs.ResourceLogs().AppendEmpty()
 	scopeLogs := resourceLogs.ScopeLogs().AppendEmpty()
@@ -52,12 +58,14 @@ func (n *NDJSONLogsConsumer) Consume(ctx context.Context, entityContent []byte) 
 	now := pcommon.NewTimestampFromTime(time.Now())
 	lines := bytes.Split(entityContent, []byte("\n"))
 	skipped := 0
+	attempted := 0
 
 	for i, line := range lines {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue
 		}
+		attempted++
 
 		var parsed map[string]any
 		if err := json.Unmarshal(line, &parsed); err != nil {
@@ -87,11 +95,11 @@ func (n *NDJSONLogsConsumer) Consume(ctx context.Context, entityContent []byte) 
 	}
 
 	if logRecords.Len() == 0 {
-		return nil
+		return attempted, 0, nil
 	}
 
 	if err := n.nextConsumer.ConsumeLogs(ctx, logs); err != nil {
-		return fmt.Errorf("ndjson consume: %w: %w", ErrDownstream, err)
+		return attempted, 0, fmt.Errorf("ndjson consume: %w: %w", ErrDownstream, err)
 	}
-	return nil
+	return attempted, logRecords.Len(), nil
 }
