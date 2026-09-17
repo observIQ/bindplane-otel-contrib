@@ -15,10 +15,9 @@
 package snapshot
 
 import (
-	"bytes"
-	"compress/gzip"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -26,97 +25,157 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
-// LogBuffer is a buffer for plog.Logs
+// LogBuffer is a buffer for plog.Logs. It owns a single bounded store of at
+// most idealSize log records: there is no list of payload entries to grow,
+// re-count, or pin evicted payloads.
 type LogBuffer struct {
-	mutex     sync.Mutex
-	buffer    []plog.Logs
+	mutex sync.Mutex
+	// store holds the retained records, oldest first, capped at idealSize.
+	store plog.Logs
+	// count is the number of log records in store. It is written while
+	// holding mutex and read lock-free by Len.
+	count     atomic.Int64
 	idealSize int
+	// admit rate-limits Add once the store is full.
+	admit admission
 }
 
 // NewLogBuffer creates a logBuffer with the ideal size set
-func NewLogBuffer(idealSize int) *LogBuffer {
-	return &LogBuffer{
-		buffer:    make([]plog.Logs, 0),
+func NewLogBuffer(idealSize int, opts ...Option) *LogBuffer {
+	idealSize = max(idealSize, 0)
+	b := &LogBuffer{
+		store:     plog.NewLogs(),
 		idealSize: idealSize,
 	}
+	b.admit.init(DefaultRefreshInterval, idealSize)
+	for _, opt := range opts {
+		opt(&b.admit)
+	}
+	return b
 }
 
-// Len counts the number of log records in all Log payloads in buffer
+// Len returns the number of log records in the buffer.
+// It is lock-free and safe for concurrent use.
 func (l *LogBuffer) Len() int {
-	size := 0
-	for _, ld := range l.buffer {
-		size += ld.LogRecordCount()
+	return int(l.count.Load())
+}
+
+// Reset drops all buffered log records, releasing the retained telemetry.
+// It is safe for concurrent use.
+func (l *LogBuffer) Reset() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.store = plog.NewLogs()
+	l.count.Store(0)
+}
+
+// Add copies at most idealSize of the newest log records out of ld into the
+// buffer, evicting the oldest buffered records to stay within the ideal
+// size. ld is never retained or mutated, so callers may pass pipeline
+// payloads directly. About idealSize items are admitted per
+// DefaultRefreshInterval; payloads beyond that are ignored without being read.
+// A buffer on a pipeline that sustains many buffers' worth of records per
+// second switches to on-demand mode and ignores everything until a request
+// arms it (see admission).
+func (l *LogBuffer) Add(ld plog.Logs) {
+	if !l.admit.collecting.Load() {
+		return
+	}
+	logSize := ld.LogRecordCount()
+	switch l.admit.decide(logSize) {
+	case reject:
+		return
+	case enterOnDemand:
+		// The pipeline is fast enough for just-in-time collection: drop the
+		// store and stop collecting until a request arms the buffer.
+		l.Reset()
+		return
+	}
+	// Zero-count payloads contribute nothing to a snapshot.
+	if logSize == 0 {
+		return
 	}
 
-	return size
-}
+	// Copy only what the buffer can retain. This bounds the per-Add copy cost
+	// by idealSize regardless of how large the incoming payload is. The copy
+	// happens before taking the lock so concurrent Adds do not serialize on
+	// the copy work.
+	kept := min(logSize, l.idealSize)
+	l.admit.charge(kept)
+	incoming := plog.NewLogs()
+	copyLogsTail(ld, incoming, logSize-kept)
 
-// Add adds the new log payload and adjust buffer to keep ideal size
-func (l *LogBuffer) Add(ld plog.Logs) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	logSize := ld.LogRecordCount()
-	bufferSize := l.Len()
-	switch {
-	// The number of logs is more than idealSize so reset this to just this log set
-	case logSize > l.idealSize:
-		l.buffer = []plog.Logs{ld}
-
-	// Haven't reached idealSize yet so add this
-	case logSize+bufferSize < l.idealSize:
-		l.buffer = append(l.buffer, ld)
-
-	// Adding this will put us over idealSize so and add the new logs.
-	// Only remove the oldest if it does not bring buffer under idealSize
-	case logSize+bufferSize >= l.idealSize:
-		l.buffer = append(l.buffer, ld)
-
-		// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
-		for {
-			newBufferSize := l.Len()
-			oldest := l.buffer[0]
-
-			// If removing this one will put us under ideal size then break
-			if newBufferSize-oldest.LogRecordCount() < l.idealSize {
-				break
-			}
-
-			// Remove the oldest
-			l.buffer = l.buffer[1:]
-		}
+	// Append the copied records and evict the oldest overflow, so the store
+	// never holds more than idealSize records.
+	incoming.ResourceLogs().MoveAndAppendTo(l.store.ResourceLogs())
+	total := int(l.count.Load()) + kept
+	if over := total - l.idealSize; over > 0 {
+		dropOldestLogRecords(l.store, over)
+		total = l.idealSize
 	}
+	l.count.Store(int64(total))
+	if total >= l.idealSize && l.admit.armed.Load() {
+		l.admit.full()
+	}
+}
+
+// copyStore returns a copy of the store for a snapshot request. In on-demand
+// mode the request first arms the buffer, drops whatever the store held, and
+// waits for it to fill (or for the wait to expire); afterwards the last
+// in-flight request disarms the buffer and drops the store again.
+func (l *LogBuffer) copyStore() plog.Logs {
+	filled, armed := l.admit.beginRequest()
+	filledInTime := true
+	if filled != nil {
+		if armed {
+			l.Reset()
+		}
+		filledInTime = l.admit.awaitFill(filled)
+	}
+
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	if filled != nil {
+		defer func() {
+			if l.admit.endRequest(filledInTime) {
+				l.store = plog.NewLogs()
+				l.count.Store(0)
+			}
+		}()
+	}
+	payloadCopy := plog.NewLogs()
+	l.store.CopyTo(payloadCopy)
+	return payloadCopy
 }
 
 // ConstructPayload condenses the buffer and serializes to protobuf. Does not compress the payload to be compatible with both the snapshot reporter and the snapshot processor.
-// It ensures that the payload is less than the maximum payload size returning an error if it cannot sample logs within the maximum payload size.
-// Uses an increasing retention approach to sample the logs, starting at 1% and increasing by 25% until we reach the maximum payload size allowed.
+// In on-demand mode it first collects just in time, blocking for up to one second while the store fills.
+// It ensures that the payload's compressed size is less than the maximum payload size, returning an error if it cannot sample logs within the maximum payload size.
+// Samples with decreasing retention (100%, 75%, 50%, 25%, 1%) and returns the first payload that fits, so the common case costs a single marshal.
 // Clears the buffer if it cannot sample logs within the maximum payload size. This should allow the next snapshot to have a valid payload size.
 func (l *LogBuffer) ConstructPayload(logsMarshaler plog.Marshaler, searchQuery *string, minimumTimestamp *time.Time, maximumPayloadSize int) ([]byte, error) {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
-	payloadLogs := plog.NewLogs()
-	for _, ld := range l.buffer {
-		ld.ResourceLogs().MoveAndAppendTo(payloadLogs.ResourceLogs())
-	}
-
-	// update the buffer to retain the current logs which were moved to the new payload
-	l.buffer = []plog.Logs{payloadLogs}
+	// Copy the buffered records while holding the lock, then release it so
+	// filtering, sampling, marshaling, and compression never stall the
+	// pipelines feeding Add. The copy is bounded by idealSize.
+	payloadCopy := l.copyStore()
 
 	// Filter the payload
-	filteredPayload := filterLogs(payloadLogs, searchQuery, minimumTimestamp)
+	filteredPayload := filterLogs(payloadCopy, searchQuery, minimumTimestamp)
 
-	// Generate the positions of the log records in the payload
-	logPositions := generateLogPositions(filteredPayload)
+	// Count the log records in the filtered payload once; sampling identifies
+	// records by their flat position in traversal order.
+	recordCount := filteredPayload.LogRecordCount()
 
 	var lastError error
-	lastPayload := []byte{}
 
-	// Try marshaling & compressing with increasing retention: 1%, 25%, 50%, 75%, 100%
-	for retentionPercent := 0; retentionPercent <= 100; retentionPercent += 25 {
-		// Sample the logs based on the positions and the retention percentage
-		logsToMarshal := randomSampleLogs(filteredPayload, logPositions, retentionPercent)
+	// Walk retention from highest to lowest and return the first payload that
+	// fits within the maximum payload size once compressed.
+	for _, retentionPercent := range []int{100, 75, 50, 25, 1} {
+		// Sample the logs based on the retention percentage
+		logsToMarshal := randomSampleLogs(filteredPayload, recordCount, retentionPercent)
 
 		payload, err := logsMarshaler.MarshalLogs(logsToMarshal)
 		if err != nil {
@@ -124,124 +183,176 @@ func (l *LogBuffer) ConstructPayload(logsMarshaler plog.Marshaler, searchQuery *
 			break
 		}
 
-		// Compress and check size
-		compressedPayload, err := compress(payload)
+		// Check the compressed size without retaining the compressed bytes.
+		// gzip can expand incompressible input slightly, so the uncompressed
+		// size is not a safe shortcut.
+		size, err := compressedSize(payload)
 		if err != nil {
 			lastError = fmt.Errorf("failed to compress payload: %w", err)
 			break
 		}
 
-		if len(compressedPayload) > maximumPayloadSize {
-			lastError = fmt.Errorf("snapshot buffer is too large to construct payload")
-			break
+		if size <= maximumPayloadSize {
+			return payload, nil
 		}
 
-		// If under max size, set the lastPayload and attempt the next retention percentage
-		lastPayload = payload
-	}
-
-	// If we found a payload that is under the maximum payload size return it regardless of the lastError
-	if len(lastPayload) > 0 {
-		return lastPayload, nil
+		lastError = fmt.Errorf("snapshot buffer is too large to construct payload")
 	}
 
 	// Encountered an error or we've tried all retentions and still can't fit the payload
 	// so clear the buffer and return the last error seen
-	l.buffer = []plog.Logs{}
+	l.Reset()
 	return nil, lastError
 }
 
-// MetricBuffer is a buffer for pmetric.Metrics
+// MetricBuffer is a buffer for pmetric.Metrics. It owns a single bounded
+// store of at most idealSize data points: there is no list of payload
+// entries to grow, re-count, or pin evicted payloads.
 type MetricBuffer struct {
-	mutex     sync.Mutex
-	buffer    []pmetric.Metrics
+	mutex sync.Mutex
+	// store holds the retained data points, oldest first, capped at idealSize.
+	store pmetric.Metrics
+	// count is the number of data points in store. It is written while
+	// holding mutex and read lock-free by Len.
+	count     atomic.Int64
 	idealSize int
+	// admit rate-limits Add once the store is full.
+	admit admission
 }
 
 // NewMetricBuffer creates a metricBuffer with the ideal size set
-func NewMetricBuffer(idealSize int) *MetricBuffer {
-	return &MetricBuffer{
-		buffer:    make([]pmetric.Metrics, 0),
+func NewMetricBuffer(idealSize int, opts ...Option) *MetricBuffer {
+	idealSize = max(idealSize, 0)
+	b := &MetricBuffer{
+		store:     pmetric.NewMetrics(),
 		idealSize: idealSize,
 	}
+	b.admit.init(DefaultRefreshInterval, idealSize)
+	for _, opt := range opts {
+		opt(&b.admit)
+	}
+	return b
 }
 
-// Len counts the number of data points in all Metric payloads in buffer
+// Len returns the number of data points in the buffer.
+// It is lock-free and safe for concurrent use.
 func (l *MetricBuffer) Len() int {
-	size := 0
-	for _, md := range l.buffer {
-		size += md.DataPointCount()
+	return int(l.count.Load())
+}
+
+// Reset drops all buffered data points, releasing the retained telemetry.
+// It is safe for concurrent use.
+func (l *MetricBuffer) Reset() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.store = pmetric.NewMetrics()
+	l.count.Store(0)
+}
+
+// Add copies at most idealSize of the newest data points out of md into the
+// buffer, evicting the oldest buffered data points to stay within the ideal
+// size. md is never retained or mutated, so callers may pass pipeline
+// payloads directly. About idealSize items are admitted per
+// DefaultRefreshInterval; payloads beyond that are ignored without being read.
+func (l *MetricBuffer) Add(md pmetric.Metrics) {
+	if !l.admit.collecting.Load() {
+		return
+	}
+	metricSize := md.DataPointCount()
+	switch l.admit.decide(metricSize) {
+	case reject:
+		return
+	case enterOnDemand:
+		// The pipeline is fast enough for just-in-time collection: drop the
+		// store and stop collecting until a request arms the buffer.
+		l.Reset()
+		return
+	}
+	// Zero-count payloads contribute nothing to a snapshot.
+	if metricSize == 0 {
+		return
 	}
 
-	return size
-}
+	// Copy only what the buffer can retain. This bounds the per-Add copy cost
+	// by idealSize regardless of how large the incoming payload is. The copy
+	// happens before taking the lock so concurrent Adds do not serialize on
+	// the copy work.
+	kept := min(metricSize, l.idealSize)
+	l.admit.charge(kept)
+	incoming := pmetric.NewMetrics()
+	copyMetricsTail(md, incoming, metricSize-kept)
 
-// Add adds the new metric payload and adjust buffer to keep ideal size
-func (l *MetricBuffer) Add(md pmetric.Metrics) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	metricSize := md.DataPointCount()
-	bufferSize := l.Len()
-	switch {
-	// The number of metrics is more than idealSize so reset this to just this metric set
-	case metricSize > l.idealSize:
-		l.buffer = []pmetric.Metrics{md}
-
-	// Haven't reached idealSize yet so add this
-	case metricSize+bufferSize < l.idealSize:
-		l.buffer = append(l.buffer, md)
-
-	// Adding this will put us over idealSize so and add the new metrics.
-	// Only remove the oldest if it does not bring buffer under idealSize
-	case metricSize+bufferSize >= l.idealSize:
-		l.buffer = append(l.buffer, md)
-
-		// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
-		for {
-			newBufferSize := l.Len()
-			oldest := l.buffer[0]
-
-			// If removing this one will put us under ideal size then break
-			if newBufferSize-oldest.DataPointCount() < l.idealSize {
-				break
-			}
-
-			// Remove the oldest
-			l.buffer = l.buffer[1:]
-		}
+	// Append the copied data points and evict the oldest overflow, so the
+	// store never holds more than idealSize data points.
+	incoming.ResourceMetrics().MoveAndAppendTo(l.store.ResourceMetrics())
+	total := int(l.count.Load()) + kept
+	if over := total - l.idealSize; over > 0 {
+		dropOldestDataPoints(l.store, over)
+		total = l.idealSize
 	}
+	l.count.Store(int64(total))
+	if total >= l.idealSize && l.admit.armed.Load() {
+		l.admit.full()
+	}
+}
+
+// copyStore returns a copy of the store for a snapshot request. In on-demand
+// mode the request first arms the buffer, drops whatever the store held, and
+// waits for it to fill (or for the wait to expire); afterwards the last
+// in-flight request disarms the buffer and drops the store again.
+func (l *MetricBuffer) copyStore() pmetric.Metrics {
+	filled, armed := l.admit.beginRequest()
+	filledInTime := true
+	if filled != nil {
+		if armed {
+			l.Reset()
+		}
+		filledInTime = l.admit.awaitFill(filled)
+	}
+
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	if filled != nil {
+		defer func() {
+			if l.admit.endRequest(filledInTime) {
+				l.store = pmetric.NewMetrics()
+				l.count.Store(0)
+			}
+		}()
+	}
+	payloadCopy := pmetric.NewMetrics()
+	l.store.CopyTo(payloadCopy)
+	return payloadCopy
 }
 
 // ConstructPayload condenses the buffer and serializes to protobuf. Does not compress the payload to be compatible with both the snapshot reporter and the snapshot processor.
-// It ensures that the payload is less than the maximum payload size returning an error if it cannot sample metrics within the maximum payload size.
-// Uses an increasing retention approach to sample the metrics, starting at 1% and increasing by 25% until we reach the maximum payload size allowed.
+// In on-demand mode it first collects just in time, blocking for up to one second while the store fills.
+// It ensures that the payload's compressed size is less than the maximum payload size, returning an error if it cannot sample metrics within the maximum payload size.
+// Samples with decreasing retention (100%, 75%, 50%, 25%, 1%) and returns the first payload that fits, so the common case costs a single marshal.
 // Clears the buffer if it cannot sample metrics within the maximum payload size. This should allow the next snapshot to have a valid payload size.
 func (l *MetricBuffer) ConstructPayload(metricMarshaler pmetric.Marshaler, searchQuery *string, minimumTimestamp *time.Time, maximumPayloadSize int) ([]byte, error) {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
-	payloadMetrics := pmetric.NewMetrics()
-	for _, md := range l.buffer {
-		md.ResourceMetrics().MoveAndAppendTo(payloadMetrics.ResourceMetrics())
-	}
-
-	// update the buffer to retain the current metrics which were moved to the new payload
-	l.buffer = []pmetric.Metrics{payloadMetrics}
+	// Copy the buffered data points while holding the lock, then release it so
+	// filtering, sampling, marshaling, and compression never stall the
+	// pipelines feeding Add. The copy is bounded by idealSize.
+	payloadCopy := l.copyStore()
 
 	// filter the payload
-	filteredPayload := filterMetrics(payloadMetrics, searchQuery, minimumTimestamp)
+	filteredPayload := filterMetrics(payloadCopy, searchQuery, minimumTimestamp)
 
-	// Generate the positions of the data points in the payload
-	dataPointPositions := generateDataPointPositions(filteredPayload)
+	// Count the data points in the filtered payload once; sampling identifies
+	// data points by their flat position in traversal order.
+	dataPointCount := filteredPayload.DataPointCount()
 
 	var lastError error
-	lastPayload := []byte{}
 
-	// Try marshaling & compressing with increasing retention: 1%, 25%, 50%, 75%, 100%
-	for retentionPercent := 0; retentionPercent <= 100; retentionPercent += 25 {
-		// Sample the metrics based on the positions and the retention percentage
-		metricsToMarshal := randomSampleMetrics(filteredPayload, dataPointPositions, retentionPercent)
+	// Walk retention from highest to lowest and return the first payload that
+	// fits within the maximum payload size once compressed.
+	for _, retentionPercent := range []int{100, 75, 50, 25, 1} {
+		// Sample the metrics based on the retention percentage
+		metricsToMarshal := randomSampleMetrics(filteredPayload, dataPointCount, retentionPercent)
 
 		payload, err := metricMarshaler.MarshalMetrics(metricsToMarshal)
 		if err != nil {
@@ -249,124 +360,176 @@ func (l *MetricBuffer) ConstructPayload(metricMarshaler pmetric.Marshaler, searc
 			break
 		}
 
-		// Compress and check size
-		compressedPayload, err := compress(payload)
+		// Check the compressed size without retaining the compressed bytes.
+		// gzip can expand incompressible input slightly, so the uncompressed
+		// size is not a safe shortcut.
+		size, err := compressedSize(payload)
 		if err != nil {
 			lastError = fmt.Errorf("failed to compress payload: %w", err)
 			break
 		}
 
-		if len(compressedPayload) > maximumPayloadSize {
-			lastError = fmt.Errorf("snapshot buffer is too large to construct payload")
-			break
+		if size <= maximumPayloadSize {
+			return payload, nil
 		}
 
-		// If under max size, set the lastPayload and attempt the next retention percentage
-		lastPayload = payload
-	}
-
-	// If we found a payload that is under the maximum payload size return it regardless of the lastError
-	if len(lastPayload) > 0 {
-		return lastPayload, nil
+		lastError = fmt.Errorf("snapshot buffer is too large to construct payload")
 	}
 
 	// Encountered an error or we've tried all retentions and still can't fit the payload
 	// so clear the buffer and return the last error seen
-	l.buffer = []pmetric.Metrics{}
+	l.Reset()
 	return nil, lastError
 }
 
-// TraceBuffer is a buffer for ptrace.Traces
+// TraceBuffer is a buffer for ptrace.Traces. It owns a single bounded store
+// of at most idealSize spans: there is no list of payload entries to grow,
+// re-count, or pin evicted payloads.
 type TraceBuffer struct {
-	mutex     sync.Mutex
-	buffer    []ptrace.Traces
+	mutex sync.Mutex
+	// store holds the retained spans, oldest first, capped at idealSize.
+	store ptrace.Traces
+	// count is the number of spans in store. It is written while holding
+	// mutex and read lock-free by Len.
+	count     atomic.Int64
 	idealSize int
+	// admit rate-limits Add once the store is full.
+	admit admission
 }
 
 // NewTraceBuffer creates a traceBuffer with the ideal size set
-func NewTraceBuffer(idealSize int) *TraceBuffer {
-	return &TraceBuffer{
-		buffer:    make([]ptrace.Traces, 0),
+func NewTraceBuffer(idealSize int, opts ...Option) *TraceBuffer {
+	idealSize = max(idealSize, 0)
+	b := &TraceBuffer{
+		store:     ptrace.NewTraces(),
 		idealSize: idealSize,
 	}
+	b.admit.init(DefaultRefreshInterval, idealSize)
+	for _, opt := range opts {
+		opt(&b.admit)
+	}
+	return b
 }
 
-// Len counts the number of spans in all Traces payloads in buffer
+// Len returns the number of spans in the buffer.
+// It is lock-free and safe for concurrent use.
 func (l *TraceBuffer) Len() int {
-	size := 0
-	for _, td := range l.buffer {
-		size += td.SpanCount()
+	return int(l.count.Load())
+}
+
+// Reset drops all buffered spans, releasing the retained telemetry.
+// It is safe for concurrent use.
+func (l *TraceBuffer) Reset() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.store = ptrace.NewTraces()
+	l.count.Store(0)
+}
+
+// Add copies at most idealSize of the newest spans out of td into the
+// buffer, evicting the oldest buffered spans to stay within the ideal size.
+// td is never retained or mutated, so callers may pass pipeline payloads
+// directly. About idealSize items are admitted per DefaultRefreshInterval;
+// payloads beyond that are ignored without being read.
+func (l *TraceBuffer) Add(td ptrace.Traces) {
+	if !l.admit.collecting.Load() {
+		return
+	}
+	traceSize := td.SpanCount()
+	switch l.admit.decide(traceSize) {
+	case reject:
+		return
+	case enterOnDemand:
+		// The pipeline is fast enough for just-in-time collection: drop the
+		// store and stop collecting until a request arms the buffer.
+		l.Reset()
+		return
+	}
+	// Zero-count payloads contribute nothing to a snapshot.
+	if traceSize == 0 {
+		return
 	}
 
-	return size
-}
+	// Copy only what the buffer can retain. This bounds the per-Add copy cost
+	// by idealSize regardless of how large the incoming payload is. The copy
+	// happens before taking the lock so concurrent Adds do not serialize on
+	// the copy work.
+	kept := min(traceSize, l.idealSize)
+	l.admit.charge(kept)
+	incoming := ptrace.NewTraces()
+	copyTracesTail(td, incoming, traceSize-kept)
 
-// Add adds the new trace payload and adjust buffer to keep ideal size
-func (l *TraceBuffer) Add(td ptrace.Traces) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	traceSize := td.SpanCount()
-	bufferSize := l.Len()
-	switch {
-	// The number of traces is more than idealSize so reset this to just this trace set
-	case traceSize > l.idealSize:
-		l.buffer = []ptrace.Traces{td}
-
-	// Haven't reached idealSize yet so add this
-	case traceSize+bufferSize < l.idealSize:
-		l.buffer = append(l.buffer, td)
-
-	// Adding this will put us over idealSize so and add the new traces.
-	// Only remove the oldest if it does not bring buffer under idealSize
-	case traceSize+bufferSize >= l.idealSize:
-		l.buffer = append(l.buffer, td)
-
-		// Remove items from the buffer until we find one that if we remove it will put us under the ideal size
-		for {
-			newBufferSize := l.Len()
-			oldest := l.buffer[0]
-
-			// If removing this one will put us under ideal size then break
-			if newBufferSize-oldest.SpanCount() < l.idealSize {
-				break
-			}
-
-			// Remove the oldest
-			l.buffer = l.buffer[1:]
-		}
+	// Append the copied spans and evict the oldest overflow, so the store
+	// never holds more than idealSize spans.
+	incoming.ResourceSpans().MoveAndAppendTo(l.store.ResourceSpans())
+	total := int(l.count.Load()) + kept
+	if over := total - l.idealSize; over > 0 {
+		dropOldestSpans(l.store, over)
+		total = l.idealSize
 	}
+	l.count.Store(int64(total))
+	if total >= l.idealSize && l.admit.armed.Load() {
+		l.admit.full()
+	}
+}
+
+// copyStore returns a copy of the store for a snapshot request. In on-demand
+// mode the request first arms the buffer, drops whatever the store held, and
+// waits for it to fill (or for the wait to expire); afterwards the last
+// in-flight request disarms the buffer and drops the store again.
+func (l *TraceBuffer) copyStore() ptrace.Traces {
+	filled, armed := l.admit.beginRequest()
+	filledInTime := true
+	if filled != nil {
+		if armed {
+			l.Reset()
+		}
+		filledInTime = l.admit.awaitFill(filled)
+	}
+
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	if filled != nil {
+		defer func() {
+			if l.admit.endRequest(filledInTime) {
+				l.store = ptrace.NewTraces()
+				l.count.Store(0)
+			}
+		}()
+	}
+	payloadCopy := ptrace.NewTraces()
+	l.store.CopyTo(payloadCopy)
+	return payloadCopy
 }
 
 // ConstructPayload condenses the buffer and serializes to protobuf. Does not compress the payload to be compatible with both the snapshot reporter and the snapshot processor.
-// It ensures that the payload is less than the maximum payload size returning an error if it cannot sample traces within the maximum payload size.
-// Uses an increasing retention approach to sample the traces, starting at 1% and increasing by 25% until we reach the maximum payload size allowed.
+// In on-demand mode it first collects just in time, blocking for up to one second while the store fills.
+// It ensures that the payload's compressed size is less than the maximum payload size, returning an error if it cannot sample traces within the maximum payload size.
+// Samples with decreasing retention (100%, 75%, 50%, 25%, 1%) and returns the first payload that fits, so the common case costs a single marshal.
 // Clears the buffer if it cannot sample traces within the maximum payload size. This should allow the next snapshot to have a valid payload size.
 func (l *TraceBuffer) ConstructPayload(traceMarshaler ptrace.Marshaler, searchQuery *string, minimumTimestamp *time.Time, maximumPayloadSize int) ([]byte, error) {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
-	payloadTraces := ptrace.NewTraces()
-	for _, md := range l.buffer {
-		md.ResourceSpans().MoveAndAppendTo(payloadTraces.ResourceSpans())
-	}
-
-	// update the buffer to retain the current traces which were moved to the new payload
-	l.buffer = []ptrace.Traces{payloadTraces}
+	// Copy the buffered spans while holding the lock, then release it so
+	// filtering, sampling, marshaling, and compression never stall the
+	// pipelines feeding Add. The copy is bounded by idealSize.
+	payloadCopy := l.copyStore()
 
 	// Filter the payload
-	filteredPayload := filterTraces(payloadTraces, searchQuery, minimumTimestamp)
+	filteredPayload := filterTraces(payloadCopy, searchQuery, minimumTimestamp)
 
-	// Generate the positions of the spans in the payload
-	spanPositions := generateSpanPositions(filteredPayload)
+	// Count the spans in the filtered payload once; sampling identifies spans
+	// by their flat position in traversal order.
+	spanCount := filteredPayload.SpanCount()
 
 	var lastError error
-	lastPayload := []byte{}
 
-	// Try marshaling & compressing with increasing retention: 1%, 25%, 50%, 75%, 100%
-	for retentionPercent := 0; retentionPercent <= 100; retentionPercent += 25 {
-		// Sample the traces based on the positions and the retention percentage
-		tracesToMarshal := randomSampleTraces(filteredPayload, spanPositions, retentionPercent)
+	// Walk retention from highest to lowest and return the first payload that
+	// fits within the maximum payload size once compressed.
+	for _, retentionPercent := range []int{100, 75, 50, 25, 1} {
+		// Sample the traces based on the retention percentage
+		tracesToMarshal := randomSampleTraces(filteredPayload, spanCount, retentionPercent)
 
 		payload, err := traceMarshaler.MarshalTraces(tracesToMarshal)
 		if err != nil {
@@ -374,45 +537,24 @@ func (l *TraceBuffer) ConstructPayload(traceMarshaler ptrace.Marshaler, searchQu
 			break
 		}
 
-		// Compress and check size
-		compressedPayload, err := compress(payload)
+		// Check the compressed size without retaining the compressed bytes.
+		// gzip can expand incompressible input slightly, so the uncompressed
+		// size is not a safe shortcut.
+		size, err := compressedSize(payload)
 		if err != nil {
 			lastError = fmt.Errorf("failed to compress payload: %w", err)
 			break
 		}
 
-		if len(compressedPayload) > maximumPayloadSize {
-			lastError = fmt.Errorf("snapshot buffer is too large to construct payload")
-			break
+		if size <= maximumPayloadSize {
+			return payload, nil
 		}
 
-		// If under max size, set the lastPayload and attempt the next retention percentage
-		lastPayload = payload
-	}
-
-	// If we found a payload that is under the maximum payload size return it regardless of the lastError
-	if len(lastPayload) > 0 {
-		return lastPayload, nil
+		lastError = fmt.Errorf("snapshot buffer is too large to construct payload")
 	}
 
 	// Encountered an error or we've tried all retentions and still can't fit the payload
 	// so clear the buffer and return the last error seen
-	l.buffer = []ptrace.Traces{}
+	l.Reset()
 	return nil, lastError
-}
-
-// compress gzip compresses the data
-func compress(data []byte) ([]byte, error) {
-	var b bytes.Buffer
-	w := gzip.NewWriter(&b)
-	_, err := w.Write(data)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
-
-	return b.Bytes(), nil
 }

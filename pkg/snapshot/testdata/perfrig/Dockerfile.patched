@@ -1,0 +1,35 @@
+# Copyright  observIQ, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Drop-in replacement for observiq/bindplane-agent:1.107.0 built from the
+# locally compiled locally compiled patched binary (amd64). Mirrors docker/Dockerfile.scratch's
+# layout so the rig's /etc/otel/config.yaml mount works unchanged.
+FROM alpine:3.20 AS stage
+RUN addgroup -S -g 10005 otel && adduser -S -u 10005 -G otel otel \
+ && apk add --no-cache ca-certificates \
+ && mkdir -p /etc/otel/storage && chown -R otel:otel /etc/otel
+COPY logging.yaml /etc/otel/logging.yaml
+
+FROM scratch
+COPY --from=stage /etc/passwd /etc/passwd
+COPY --from=stage /etc/group /etc/group
+COPY --from=stage /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=stage --chown=otel:otel /etc/otel /etc/otel
+ARG BIN=collector_linux_amd64_budget
+COPY ${BIN} /collector/observiq-otel-collector
+ENV BINDPLANE_COLLECTOR_HOME=/etc/otel
+ENV BINDPLANE_COLLECTOR_STORAGE=/etc/otel/storage
+USER otel
+WORKDIR /etc/otel
+ENTRYPOINT ["/collector/observiq-otel-collector"]

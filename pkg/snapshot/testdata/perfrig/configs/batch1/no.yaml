@@ -1,0 +1,33 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors: {}
+
+exporters:
+  nop: {}
+
+extensions:
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+service:
+  extensions: [pprof]
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: []
+      exporters: [nop]
+  telemetry:
+    logs:
+      level: warn
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
