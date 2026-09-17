@@ -21,13 +21,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
-	"github.com/observiq/bindplane-otel-contrib/internal/storageclient"
+	"github.com/hashicorp/go-version"
 	"github.com/open-telemetry/opamp-go/client/types"
 	"github.com/open-telemetry/opamp-go/protobufs"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages"
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/pipeline"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -42,9 +40,7 @@ const (
 	opampRequestRetryInterval = 5 * time.Second
 )
 
-// matchersMessage is the payload of every message in the capability. A request
-// carries the version the processor already has, and the server answers with
-// either a newer set or matchersUpToDate.
+// matchersMessage is the payload of every message in the capability.
 type matchersMessage struct {
 	Processor component.ID    `yaml:"processor"`
 	Version   string          `yaml:"version"`
@@ -68,12 +64,9 @@ func (m *persistedMatchers) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, m)
 }
 
-// startOpAMP applies any locally stored matchers, then registers the custom
-// capability and asks the server for a newer version. With a stored copy in
-// hand the check runs in the background; without one it holds up startup so no
-// logs are processed before matchers arrive.
+// startOpAMP applies stored matchers, registers the capability, and asks the server for newer ones.
 func (p *logTypeDetectionProcessor) startOpAMP(ctx context.Context, host component.Host) error {
-	if err := p.startMatcherStorage(ctx, host); err != nil {
+	if err := p.loadStoredMatchers(ctx); err != nil {
 		return err
 	}
 
@@ -95,49 +88,16 @@ func (p *logTypeDetectionProcessor) startOpAMP(ctx context.Context, host compone
 
 	p.opampWg.Add(1)
 	go p.processOpAMPMessages()
-
-	if p.currentVersion() == "" {
-		return p.awaitMatchers(ctx)
-	}
-
-	p.opampWg.Go(func() {
-		if err := p.awaitMatchers(context.Background()); err != nil {
-			p.logger.Error("Failed to check for new matchers.", zap.Error(err))
-		}
-	})
+	p.opampWg.Go(p.awaitMatchers)
 
 	return nil
 }
 
-// startMatcherStorage opens the matcher storage and applies what it holds. The
-// fingerprint client is reused when both point at the same extension, since a
-// storage extension hands out one client per component and signal.
-func (p *logTypeDetectionProcessor) startMatcherStorage(ctx context.Context, host component.Host) error {
-	if p.cfg.MatcherStorageID == nil {
-		return nil
-	}
-
-	if p.cfg.FingerprintStorageID != nil && *p.cfg.MatcherStorageID == *p.cfg.FingerprintStorageID {
-		p.matcherStorageClient = p.fingerprintStorageClient
-	} else {
-		client, err := storageclient.NewStorageClient(
-			ctx,
-			host,
-			component.KindProcessor,
-			*p.cfg.MatcherStorageID,
-			p.id,
-			pipeline.SignalLogs,
-		)
-		if err != nil {
-			return fmt.Errorf("create matcher storage client: %w", err)
-		}
-		p.matcherStorageClient = client
-		p.matcherStorageOwned = true
-	}
-
+// loadStoredMatchers applies the matchers held in storage, if any.
+func (p *logTypeDetectionProcessor) loadStoredMatchers(ctx context.Context) error {
 	saved := persistedMatchers{}
-	if err := p.matcherStorageClient.LoadStorageData(ctx, matcherStorageKey, &saved); err != nil {
-		return errors.Join(fmt.Errorf("load matchers: %w", err), p.closeMatcherStorage(ctx))
+	if err := p.storageClient.LoadStorageData(ctx, matcherStorageKey, &saved); err != nil {
+		return fmt.Errorf("load matchers: %w", err)
 	}
 
 	if saved.Version == "" {
@@ -154,22 +114,9 @@ func (p *logTypeDetectionProcessor) startMatcherStorage(ctx context.Context, hos
 	return nil
 }
 
-func (p *logTypeDetectionProcessor) closeMatcherStorage(ctx context.Context) error {
-	if !p.matcherStorageOwned {
-		return nil
-	}
-
-	p.matcherStorageOwned = false
-	return p.matcherStorageClient.Close(ctx)
-}
-
 func (p *logTypeDetectionProcessor) saveMatchers(ctx context.Context, version string, matchers []MatcherConfig) error {
-	if p.matcherStorageClient == nil {
-		return nil
-	}
-
 	state := persistedMatchers{Version: version, Matchers: matchers}
-	if err := p.matcherStorageClient.SaveStorageData(ctx, matcherStorageKey, &state); err != nil {
+	if err := p.storageClient.SaveStorageData(ctx, matcherStorageKey, &state); err != nil {
 		return fmt.Errorf("save matchers: %w", err)
 	}
 
@@ -177,23 +124,23 @@ func (p *logTypeDetectionProcessor) saveMatchers(ctx context.Context, version st
 }
 
 func (p *logTypeDetectionProcessor) stopOpAMP() {
+	p.opampCancel()
 	if p.opampHandler == nil {
 		return
 	}
 
-	close(p.opampDone)
 	p.opampWg.Wait()
 	p.opampHandler.Unregister()
+	p.matchersDone()
 }
 
-// awaitMatchers asks the server for matchers newer than the version held and
-// waits for its answer, re-asking until it arrives, the timeout elapses, or the
-// collector shuts down. A zero timeout waits indefinitely. A timeout is not
-// fatal: the processor carries on with the matchers it already has.
-func (p *logTypeDetectionProcessor) awaitMatchers(ctx context.Context) error {
+// awaitMatchers re-asks the server for newer matchers until it answers, the timeout elapses, or shutdown.
+func (p *logTypeDetectionProcessor) awaitMatchers() {
 	request, err := yaml.Marshal(matchersMessage{Processor: p.id, Version: p.currentVersion()})
 	if err != nil {
-		return fmt.Errorf("encode matchers request: %w", err)
+		p.logger.Error("Failed to encode matchers request.", zap.Error(err))
+		p.matchersDone()
+		return
 	}
 
 	var timedOut <-chan time.Time
@@ -207,41 +154,40 @@ func (p *logTypeDetectionProcessor) awaitMatchers(ctx context.Context) error {
 	defer retry.Stop()
 
 	for {
-		p.sendOpAMPMessage(requestMatchersType, request)
+		if err := p.sendOpAMPMessage(requestMatchersType, request); err != nil {
+			p.logger.Debug("Failed to request matchers, will retry.", zap.Error(err))
+		}
 
 		select {
 		case <-p.matchersReady:
-			return nil
+			return
 		case <-retry.C:
 			p.logger.Debug("Still waiting on the opamp server, asking again.")
 		case <-timedOut:
 			p.logger.Warn("Timed out waiting for matchers from the opamp server.",
 				zap.Duration("timeout", p.cfg.OpAMPRequestTimeout))
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-p.opampDone:
-			return nil
+			p.matchersDone()
+			return
+		case <-p.opampCtx.Done():
+			return
 		}
 	}
 }
 
-func (p *logTypeDetectionProcessor) sendOpAMPMessage(messageType string, payload []byte) {
+func (p *logTypeDetectionProcessor) sendOpAMPMessage(messageType string, payload []byte) error {
 	for {
 		sending, err := p.opampHandler.SendMessage(messageType, payload)
 		switch {
 		case err == nil:
-			return
+			return nil
 		case errors.Is(err, types.ErrCustomMessagePending):
 			select {
 			case <-sending:
-			case <-p.opampDone:
-				return
+			case <-p.opampCtx.Done():
+				return p.opampCtx.Err()
 			}
 		default:
-			p.logger.Error("Failed to send opamp message.",
-				zap.String("messageType", messageType), zap.Error(err))
-			return
+			return err
 		}
 	}
 }
@@ -260,7 +206,7 @@ func (p *logTypeDetectionProcessor) processOpAMPMessages() {
 			default:
 				p.logger.Warn("Received message of unknown type.", zap.String("messageType", msg.Type))
 			}
-		case <-p.opampDone:
+		case <-p.opampCtx.Done():
 			return
 		}
 	}
@@ -271,19 +217,18 @@ func (p *logTypeDetectionProcessor) handleUpdateMatchers(msg *protobufs.CustomMe
 	if !ok {
 		return
 	}
+	defer p.matchersDone()
 
 	applied, err := p.applyMatchers(update.Version, update.Matchers)
 	if err != nil {
 		p.logger.Warn("Ignoring matchers from the opamp server.",
 			zap.String("version", update.Version), zap.Error(err))
-		p.matchersDone()
 		return
 	}
 
 	if !applied {
-		p.logger.Debug("Offered matchers are not newer than the ones in use.",
-			zap.String("version", update.Version))
-		p.matchersDone()
+		p.logger.Info("Offered matchers are not newer than the ones in use.",
+			zap.String("offered", update.Version), zap.String("held", p.currentVersion()))
 		return
 	}
 
@@ -291,7 +236,6 @@ func (p *logTypeDetectionProcessor) handleUpdateMatchers(msg *protobufs.CustomMe
 		p.logger.Error("Failed to store matchers from the opamp server.", zap.Error(err))
 	}
 
-	p.matchersDone()
 	p.logger.Info("Applied matchers from the opamp server.",
 		zap.String("version", update.Version), zap.Int("matchers", len(update.Matchers)))
 }
@@ -313,35 +257,38 @@ func (p *logTypeDetectionProcessor) decodeMatchersMessage(msg *protobufs.CustomM
 	}
 
 	if decoded.Processor != p.id {
+		p.logger.Debug("Ignoring matchers message for another processor.", zap.Stringer("processor", decoded.Processor))
 		return matchersMessage{}, false
 	}
 
 	return decoded, true
 }
 
-// matchersDone releases a startup that is waiting on the server.
+// matchersDone ends the wait on the server and settles any held-back log types.
 func (p *logTypeDetectionProcessor) matchersDone() {
-	p.matchersOnce.Do(func() { close(p.matchersReady) })
+	p.matchersOnce.Do(func() {
+		close(p.matchersReady)
+		p.matcherMux.Lock()
+		defer p.matcherMux.Unlock()
+		p.resolvePendingLogTypes()
+	})
 }
 
-// applyMatchers validates a versioned matcher set and puts it in use,
-// reporting whether it was taken up. Only a higher version of the same major is
-// accepted; a major bump is a breaking change the running processor may not
-// understand, so it is refused. Anything is accepted when no version is held.
-func (p *logTypeDetectionProcessor) applyMatchers(version string, matchers []MatcherConfig) (bool, error) {
-	offered, err := semver.NewVersion(version)
+// applyMatchers puts a newer version of the same major in use, reporting whether it did.
+func (p *logTypeDetectionProcessor) applyMatchers(ver string, matchers []MatcherConfig) (bool, error) {
+	offered, err := version.NewVersion(ver)
 	if err != nil {
-		return false, fmt.Errorf("parse version %q: %w", version, err)
+		return false, fmt.Errorf("parse version %q: %w", ver, err)
 	}
 
 	if current := p.currentVersion(); current != "" {
-		held, err := semver.NewVersion(current)
+		held, err := version.NewVersion(current)
 		if err != nil {
 			return false, fmt.Errorf("parse held version %q: %w", current, err)
 		}
 
-		if offered.Major() != held.Major() {
-			return false, fmt.Errorf("version %s is a breaking change from %s", version, current)
+		if offered.Segments()[0] != held.Segments()[0] {
+			return false, fmt.Errorf("version %s is a breaking change from %s", ver, current)
 		}
 
 		if !offered.GreaterThan(held) {
@@ -355,7 +302,7 @@ func (p *logTypeDetectionProcessor) applyMatchers(version string, matchers []Mat
 		}
 	}
 
-	if err := p.setServerMatchers(version, matchers); err != nil {
+	if err := p.setServerMatchers(ver, matchers); err != nil {
 		return false, err
 	}
 

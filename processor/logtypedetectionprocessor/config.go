@@ -35,7 +35,6 @@ var (
 	errInvalidPersistInterval = errors.New("fingerprint_persist_interval must be > 0")
 	errInvalidMaxFingerprints = errors.New("max_saved_fingerprints must be > 0")
 	errInvalidOpAMPTimeout    = errors.New("opamp_request_timeout must be >= 0")
-	errMatcherStorageNoOpAMP  = errors.New("matcher_storage requires opamp to be set")
 )
 
 // Config is the config of the processor.
@@ -44,8 +43,8 @@ type Config struct {
 	FingerprintField string          `mapstructure:"fingerprint_field"`
 	LogTypeField     string          `mapstructure:"log_type_field"`
 
-	// FingerprintStorageID is the storage extension used to persist the fingerprint map.
-	FingerprintStorageID *component.ID `mapstructure:"fingerprint_storage"`
+	// StorageID is the storage extension used to persist the fingerprint map and opamp matchers.
+	StorageID *component.ID `mapstructure:"storage"`
 
 	// FingerprintPersistInterval is how often the fingerprint map is persisted.
 	FingerprintPersistInterval time.Duration `mapstructure:"fingerprint_persist_interval"`
@@ -58,9 +57,6 @@ type Config struct {
 
 	// How long startup waits for the opamp server to send matchers, 0 to wait indefinitely
 	OpAMPRequestTimeout time.Duration `mapstructure:"opamp_request_timeout"`
-
-	// ID of the storage extension used to persist matchers received over opamp
-	MatcherStorageID *component.ID `mapstructure:"matcher_storage"`
 }
 
 func createDefaultConfig() component.Config {
@@ -80,7 +76,7 @@ func (c Config) Validate() error {
 		return errMissingLogTypeField
 	}
 
-	if c.FingerprintStorageID != nil && c.FingerprintPersistInterval <= 0 {
+	if c.StorageID != nil && c.FingerprintPersistInterval <= 0 {
 		return errInvalidPersistInterval
 	}
 
@@ -90,10 +86,6 @@ func (c Config) Validate() error {
 
 	if c.OpAMP != nil && c.OpAMPRequestTimeout < 0 {
 		return errInvalidOpAMPTimeout
-	}
-
-	if c.MatcherStorageID != nil && c.OpAMP == nil {
-		return errMatcherStorageNoOpAMP
 	}
 
 	for _, m := range c.Matchers {
