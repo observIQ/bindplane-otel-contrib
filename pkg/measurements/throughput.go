@@ -38,155 +38,125 @@ type ThroughputMeasurementsRegistry interface {
 }
 
 // ThroughputMeasurements represents all captured throughput metrics.
-// It allows for incrementing and querying the current values of throughtput metrics
+// It allows for incrementing and querying the current values of throughput metrics.
+// Delivered counters hold payloads the next consumer accepted.
+// Rejected counters hold payloads the next consumer refused.
 type ThroughputMeasurements struct {
 	logSize, metricSize, traceSize      *int64Counter
 	logCount, datapointCount, spanCount *int64Counter
 	logRawBytes                         *int64Counter
-	attributes                          attribute.Set
-	collectionSequenceNumber            atomic.Int64
+
+	logSizeRejected, metricSizeRejected, traceSizeRejected      *int64Counter
+	logCountRejected, datapointCountRejected, spanCountRejected *int64Counter
+	logRawBytesRejected                                         *int64Counter
+
+	attributes               attribute.Set
+	collectionSequenceNumber atomic.Int64
 }
 
 // NewThroughputMeasurements initializes a new ThroughputMeasurements, adding metrics for the measurements to the meter provider.
 func NewThroughputMeasurements(mp metric.MeterProvider, processorID string, extraAttributes map[string]string) (*ThroughputMeasurements, error) {
 	meter := mp.Meter("github.com/observiq/bindplane-otel-contrib/pkg/measurements")
-
-	logSize, err := meter.Int64Counter(
-		metricName("log_data_size"),
-		metric.WithDescription("Size of the log package passed to the processor"),
-		metric.WithUnit("By"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create log_data_size counter: %w", err)
-	}
-
-	metricSize, err := meter.Int64Counter(
-		metricName("metric_data_size"),
-		metric.WithDescription("Size of the metric package passed to the processor"),
-		metric.WithUnit("By"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create metric_data_size counter: %w", err)
-	}
-
-	traceSize, err := meter.Int64Counter(
-		metricName("trace_data_size"),
-		metric.WithDescription("Size of the trace package passed to the processor"),
-		metric.WithUnit("By"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create trace_data_size counter: %w", err)
-	}
-
-	logCount, err := meter.Int64Counter(
-		metricName("log_count"),
-		metric.WithDescription("Count of the number log records passed to the processor"),
-		metric.WithUnit("{logs}"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create log_count counter: %w", err)
-	}
-
-	datapointCount, err := meter.Int64Counter(
-		metricName("metric_count"),
-		metric.WithDescription("Count of the number datapoints passed to the processor"),
-		metric.WithUnit("{datapoints}"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create metric_count counter: %w", err)
-	}
-
-	spanCount, err := meter.Int64Counter(
-		metricName("trace_count"),
-		metric.WithDescription("Count of the number spans passed to the processor"),
-		metric.WithUnit("{spans}"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create trace_count counter: %w", err)
-	}
-
-	logRawBytes, err := meter.Int64Counter(
-		metricName("log_raw_bytes"),
-		metric.WithDescription("Size of the original log content in bytes"),
-		metric.WithUnit("By"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create log_raw_bytes gauge: %w", err)
-	}
-
 	attrs := createMeasurementsAttributeSet(processorID, extraAttributes)
 
-	return &ThroughputMeasurements{
-		logSize:                  newInt64Counter(logSize, attrs),
-		logCount:                 newInt64Counter(logCount, attrs),
-		metricSize:               newInt64Counter(metricSize, attrs),
-		datapointCount:           newInt64Counter(datapointCount, attrs),
-		traceSize:                newInt64Counter(traceSize, attrs),
-		spanCount:                newInt64Counter(spanCount, attrs),
-		logRawBytes:              newInt64Counter(logRawBytes, attrs),
-		attributes:               attrs,
-		collectionSequenceNumber: atomic.Int64{},
-	}, nil
-}
+	tm := &ThroughputMeasurements{attributes: attrs}
 
-// AddLogs records throughput metrics for the provided logs.
-func (tm *ThroughputMeasurements) AddLogs(ctx context.Context, l plog.Logs, measureLogRawBytes bool) {
-	tm.collectionSequenceNumber.Add(1)
+	counters := []struct {
+		dst  **int64Counter
+		name string
+		desc string
+		unit string
+	}{
+		{&tm.logSize, "log_data_size", "Size of the log payloads accepted downstream of the processor", "By"},
+		{&tm.metricSize, "metric_data_size", "Size of the metric payloads accepted downstream of the processor", "By"},
+		{&tm.traceSize, "trace_data_size", "Size of the trace payloads accepted downstream of the processor", "By"},
+		{&tm.logCount, "log_count", "Count of the log records accepted downstream of the processor", "{logs}"},
+		{&tm.datapointCount, "metric_count", "Count of the datapoints accepted downstream of the processor", "{datapoints}"},
+		{&tm.spanCount, "trace_count", "Count of the spans accepted downstream of the processor", "{spans}"},
+		{&tm.logRawBytes, "log_raw_bytes", "Size of the original log content accepted downstream of the processor", "By"},
 
-	// Calculate total size using full log size
-	sizer := plog.ProtoMarshaler{}
-	totalSize := int64(sizer.LogsSize(l))
-
-	if measureLogRawBytes {
-		logRawBytes := int64(0)
-		resourceLogs := l.ResourceLogs()
-		for i := 0; i < resourceLogs.Len(); i++ {
-			resourceLog := resourceLogs.At(i)
-			scopeLogs := resourceLog.ScopeLogs()
-			for j := 0; j < scopeLogs.Len(); j++ {
-				scopeLog := scopeLogs.At(j)
-				logRecords := scopeLog.LogRecords()
-				for k := 0; k < logRecords.Len(); k++ {
-					logRecord := logRecords.At(k)
-
-					// Record log raw bytes if log.record.original is present
-					if original, ok := logRecord.Attributes().Get("log.record.original"); ok {
-						logRecordLogRawBytes := int64(len(original.Str()))
-
-						logRawBytes += logRecordLogRawBytes
-					} else {
-						// If log.record.original is not present, use the body as the raw bytes
-						body := logRecord.Body().AsString()
-						logRecordLogRawBytes := int64(len(body))
-						logRawBytes += logRecordLogRawBytes
-					}
-				}
-			}
-		}
-		// logRawBytes is the sum of all log raw bytes
-		tm.logRawBytes.Add(ctx, logRawBytes)
+		{&tm.logSizeRejected, "log_data_size_rejected", "Size of the log payloads refused downstream of the processor", "By"},
+		{&tm.metricSizeRejected, "metric_data_size_rejected", "Size of the metric payloads refused downstream of the processor", "By"},
+		{&tm.traceSizeRejected, "trace_data_size_rejected", "Size of the trace payloads refused downstream of the processor", "By"},
+		{&tm.logCountRejected, "log_count_rejected", "Count of the log records refused downstream of the processor", "{logs}"},
+		{&tm.datapointCountRejected, "metric_count_rejected", "Count of the datapoints refused downstream of the processor", "{datapoints}"},
+		{&tm.spanCountRejected, "trace_count_rejected", "Count of the spans refused downstream of the processor", "{spans}"},
+		{&tm.logRawBytesRejected, "log_raw_bytes_rejected", "Size of the original log content refused downstream of the processor", "By"},
 	}
 
-	tm.logSize.Add(ctx, totalSize)
-	tm.logCount.Add(ctx, int64(l.LogRecordCount()))
+	for _, c := range counters {
+		counter, err := meter.Int64Counter(
+			metricName(c.name),
+			metric.WithDescription(c.desc),
+			metric.WithUnit(c.unit),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("create %s counter: %w", c.name, err)
+		}
+		*c.dst = newInt64Counter(counter, attrs)
+	}
+
+	return tm, nil
 }
 
-// AddMetrics records throughput metrics for the provided metrics.
+// AddLogs measures the logs payload and records it as delivered.
+func (tm *ThroughputMeasurements) AddLogs(ctx context.Context, l plog.Logs, measureLogRawBytes bool) {
+	tm.RecordLogs(ctx, MeasureLogs(l, measureLogRawBytes))
+}
+
+// AddMetrics measures the metrics payload and records it as delivered.
 func (tm *ThroughputMeasurements) AddMetrics(ctx context.Context, m pmetric.Metrics) {
-	sizer := pmetric.ProtoMarshaler{}
-	tm.collectionSequenceNumber.Add(1)
-
-	tm.metricSize.Add(ctx, int64(sizer.MetricsSize(m)))
-	tm.datapointCount.Add(ctx, int64(m.DataPointCount()))
+	tm.RecordMetrics(ctx, MeasureMetrics(m))
 }
 
-// AddTraces records throughput metrics for the provided traces.
+// AddTraces measures the traces payload and records it as delivered.
 func (tm *ThroughputMeasurements) AddTraces(ctx context.Context, t ptrace.Traces) {
-	sizer := ptrace.ProtoMarshaler{}
-	tm.collectionSequenceNumber.Add(1)
+	tm.RecordTraces(ctx, MeasureTraces(t))
+}
 
-	tm.traceSize.Add(ctx, int64(sizer.TracesSize(t)))
-	tm.spanCount.Add(ctx, int64(t.SpanCount()))
+// RecordLogs records a logs measurement as delivered and advances the sequence number.
+func (tm *ThroughputMeasurements) RecordLogs(ctx context.Context, m Measurement) {
+	tm.collectionSequenceNumber.Add(1)
+	if m.HasRawBytes {
+		tm.logRawBytes.Add(ctx, m.RawBytes)
+	}
+	tm.logSize.Add(ctx, m.Size)
+	tm.logCount.Add(ctx, m.Count)
+}
+
+// RecordRejectedLogs records a logs measurement as rejected. It does not advance the sequence number.
+func (tm *ThroughputMeasurements) RecordRejectedLogs(ctx context.Context, m Measurement) {
+	if m.HasRawBytes {
+		tm.logRawBytesRejected.Add(ctx, m.RawBytes)
+	}
+	tm.logSizeRejected.Add(ctx, m.Size)
+	tm.logCountRejected.Add(ctx, m.Count)
+}
+
+// RecordMetrics records a metrics measurement as delivered and advances the sequence number.
+func (tm *ThroughputMeasurements) RecordMetrics(ctx context.Context, m Measurement) {
+	tm.collectionSequenceNumber.Add(1)
+	tm.metricSize.Add(ctx, m.Size)
+	tm.datapointCount.Add(ctx, m.Count)
+}
+
+// RecordRejectedMetrics records a metrics measurement as rejected. It does not advance the sequence number.
+func (tm *ThroughputMeasurements) RecordRejectedMetrics(ctx context.Context, m Measurement) {
+	tm.metricSizeRejected.Add(ctx, m.Size)
+	tm.datapointCountRejected.Add(ctx, m.Count)
+}
+
+// RecordTraces records a traces measurement as delivered and advances the sequence number.
+func (tm *ThroughputMeasurements) RecordTraces(ctx context.Context, m Measurement) {
+	tm.collectionSequenceNumber.Add(1)
+	tm.traceSize.Add(ctx, m.Size)
+	tm.spanCount.Add(ctx, m.Count)
+}
+
+// RecordRejectedTraces records a traces measurement as rejected. It does not advance the sequence number.
+func (tm *ThroughputMeasurements) RecordRejectedTraces(ctx context.Context, m Measurement) {
+	tm.traceSizeRejected.Add(ctx, m.Size)
+	tm.spanCountRejected.Add(ctx, m.Count)
 }
 
 // SequenceNumber returns the current sequence number of this ThroughputMeasurements.
