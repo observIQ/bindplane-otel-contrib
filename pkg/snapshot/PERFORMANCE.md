@@ -190,7 +190,8 @@ allocation come from the collector's own `otelcol_process_cpu_seconds` and
 (stock) and drop-in images built from this branch (`docker/Dockerfile.scratch`
 layout).
 
-Apple M-series host (arm64), Docker Desktop:
+The rig is checked in under `testdata/perfrig` (README there). Apple M-series
+host (arm64), Docker Desktop:
 
 | Scenario                 | Build     | CPU µs/rec (with · without) | Δ CPU  | Alloc KB/rec (with · without) | Δ alloc | processLogs cum % |
 |--------------------------|-----------|-----------------------------|--------|-------------------------------|---------|-------------------|
@@ -225,17 +226,35 @@ measurement for that.
 
 ## 6. GCP VM (Linux x86-64)
 
-Not run at the time of writing: the author's account had only `roles/viewer`
-on compute in the available project, so `gcloud compute instances create` was
-denied. The rig is staged for an `n2-standard-4` (4 vCPU) Ubuntu 22.04 VM:
-amd64 collector binaries for the budget and on-demand builds, an amd64
-telemetrygen image, the same compose/configs/run.sh with a `CPUS` knob and
-exact `_total`-tolerant metric parsing, and a step-by-step runbook. Once
-`roles/compute.instanceAdmin.v1` is granted the four to six 90 s runs take
-about 20 minutes; results belong in the table above with an "x86-64 VM"
-label. One caveat noted in advance: two collectors at 2 CPUs each plus two
-generators exceed a 4 vCPU box, so a generator-bound result should be rerun on
-a larger machine or with the generators on a second VM.
+Same rig (`testdata/perfrig`, `RUNBOOK.md` there has every command) on a GCP
+`n2-standard-8` VM: Intel Xeon 2.80 GHz, 8 vCPU on 4 physical cores, 31 GB,
+Ubuntu 22.04, Docker 29.8; collectors still capped at 2 CPUs each. The box,
+not the collector quota, limited throughput to ~8–9.7k records/s (peak
+collector CPU 167 % of 200 %); a probe with 50 % more offered load moved the
+stock overhead from +27.7 % to +28.9 % CPU and left the allocation overhead
+unchanged, so the ratios below are robust to the load level. Absolute
+µs/record is ~2.5–3× the Apple host; compare within a pair, not across hosts.
+
+| Scenario            | Build     | CPU µs/rec (with · without) | Δ CPU   | Alloc KB/rec (with · without) | Δ alloc | processLogs cum % | LogBuffer.Add cum % |
+|---------------------|-----------|-----------------------------|---------|-------------------------------|---------|-------------------|---------------------|
+| 1 record/batch      | stock     | 185.9 · 145.6               | +27.7 % | 11.96 · 9.56                  | +25.1 % | 12.00 %           | 8.57 %              |
+| 1 record/batch      | budget    | 156.5 · 147.5               | +6.2 %  | 9.81 · 9.55                   | +2.7 %  | 0.80 %            | 0.41 %              |
+| 1 record/batch      | on-demand | 157.3 · 147.1               | +7.0 %  | 9.79 · 9.56                   | +2.4 %  | 0.34 %            | 0.072 %             |
+| 1,000 records/batch | stock     | 156.8 · 149.1               | +5.2 %  | 11.50 · 9.58                  | +20.0 % | 3.02 %            | 0.17 %              |
+| 1,000 records/batch | budget    | 150.5 · 150.2               | +0.2 %  | 9.59 · 9.57                   | +0.2 %  | absent            | absent              |
+| 1,000 records/batch | on-demand | 150.8 · 150.6               | +0.1 %  | 9.59 · 9.57                   | +0.2 %  | 0.049 %           | 0.049 %             |
+
+Reading it: the stock processor costs a quarter more CPU and allocation on a
+1-record-batch pipeline on x86-64 (the `Len()` re-walk is 8.6 % of collector
+CPU by itself), and even with 1,000-record batches it still adds 20 % to
+allocation because the whole batch is copied. Both fixed builds are inside
+run-to-run noise at 1,000-record batches and within ~1 % of each other at
+1-record batches. `plog.Logs.CopyTo` disappears from the snapshot path in both
+fixed builds; `admission.decide` never appears in any profile, and in the
+on-demand build `LogBuffer.Add` is a few hundredths of a percent (one or two
+10 ms samples in a 42 s profile at 1,000-record batches). The stock processor
+also cost throughput: 8,145 records/s with vs 9,688 without at 1-record
+batches, an asymmetry that vanishes in both fixed builds.
 
 ## 7. End-to-end checks
 
