@@ -30,12 +30,11 @@ on each log record.
 | log_type_field    | string | `log_type`      | Attribute the detected log type is written to. Required. Every log record receives this attribute, including those detected as `unknown`.                  |
 | fingerprint_field | string | `fingerprint`   | Attribute the log's structure fingerprint is written to, hex encoded. Set to an empty string to omit it. |
 | matchers          | list   | `[]`            | Matchers tested against each log body with a unique structure. See [Matchers](#matchers). When empty, all log records are detected as `unknown`.                                   |
-| fingerprint_storage | component ID | | ID of a storage extension used to persist the fingerprint-to-log-type map across restarts. The map is loaded on startup, saved periodically, and saved on shutdown. The persisted map is tied to the `matchers` it was detected with, so editing, renaming, reordering, or removing a matcher discards it and log types are detected again from scratch. |
-| fingerprint_persist_interval | duration | `5m` | How often the fingerprint map is written to the storage extension. Only used when `fingerprint_storage` is set. |
-| max_saved_fingerprints | int | `10000` | Maximum number of fingerprint-to-log-type mappings cached in memory. Once full, the least recently seen fingerprint is evicted. Evicted mappings are also dropped from `fingerprint_storage` on the next save. |
+| storage | component ID | | ID of a storage extension used to persist state across restarts: the fingerprint-to-log-type map and, with `opamp`, the matchers received from the server. The map is loaded on startup, saved periodically, and saved on shutdown. The persisted map is tied to the `matchers` it was detected with, so editing, renaming, reordering, or removing a matcher discards it and log types are detected again from scratch. |
+| fingerprint_persist_interval | duration | `5m` | How often the fingerprint map is written to the storage extension. Only used when `storage` is set. |
+| max_saved_fingerprints | int | `10000` | Maximum number of fingerprint-to-log-type mappings cached in memory. Once full, the least recently seen fingerprint is evicted. Evicted mappings are also dropped from `storage` on the next save. |
 | opamp | component ID | | ID of an opamp extension. When set, the processor asks the opamp server for matchers on startup and merges them with the `matchers` below. See [OpAMP Matchers](#opamp-matchers). |
-| opamp_request_timeout | duration | `30s` | How long startup waits for the opamp server to answer. Set to `0` to wait indefinitely. Only used when `opamp` is set, and only when no matchers are stored locally. |
-| matcher_storage | component ID | | ID of a storage extension used to persist the matchers received over opamp, with the version they came with. Requires `opamp`. Without it the matchers are fetched again on every startup. |
+| opamp_request_timeout | duration | `30s` | How long the processor keeps asking the opamp server for matchers after startup. Set to `0` to keep asking indefinitely. Only used when `opamp` is set. |
 
 ### Matchers
 
@@ -67,6 +66,10 @@ When no version is held yet, whatever the server offers is accepted. The version
 check is the only exchange: the server is asked at startup and does not push
 matchers at other times, so a matcher change takes effect on the next restart.
 
+Versions only move forward. A lower version is never taken up, including after
+a restart when matchers are stored, so to roll back publish the previous
+matchers under a new, higher version.
+
 Matchers from the server are merged with the `matchers` in the config and the
 combined set is ordered by `priority` as usual. Matchers of equal priority keep
 config-first order. Server matchers are validated the same way configured ones
@@ -75,22 +78,22 @@ use.
 
 #### Startup
 
-With `matcher_storage` set, the stored matchers are put in use before startup
-finishes and the version check runs in the background, so a restart is not
-delayed and an unreachable server does not hold up the collector.
+With `storage` set, the matchers received on the last run are put in use
+before startup finishes. Either way the request to the server runs in the background and never
+holds up the collector: the processor starts with the matchers it has (from
+config, plus any stored ones) and asks the server every 5s until it answers,
+`opamp_request_timeout` elapses (`0` keeps asking indefinitely), or the
+collector shuts down. The opamp connection is only established once the
+collector is up, so the first few requests on a fresh install are expected to
+fail and be retried. Logs read before the server answers are labelled with the
+matchers in hand; if the server's set differs, log types detected so far are
+discarded and detected again.
 
-With nothing stored — no `matcher_storage`, or the first ever start — startup
-blocks until the server answers, retrying every 5s up to
-`opamp_request_timeout` (`0` waits indefinitely; shutdown still interrupts it).
-The collector starts receivers after processors, so no logs are read while this
-waits and none are labelled with an incomplete matcher set. A timeout is not
-fatal: the processor starts with the matchers from its config and applies the
-server's whenever they arrive.
-
-When `fingerprint_storage` is also set, the persisted fingerprint map is held
-back until the matcher set is final and then restored, so a restart does not
-relabel log structures that were already detected. Pointing `matcher_storage`
-and `fingerprint_storage` at the same extension is supported.
+The matchers are stored alongside the fingerprint map, so a restart restores
+both together. If the map was detected
+with matchers that are not in hand at startup, it is held back until the
+exchange with the server ends (an answer or the timeout) and then restored only
+if the matcher set it was detected with is the one in use.
 
 #### Messages
 
@@ -151,7 +154,7 @@ processors:
       - name: k8s_audit
         method: regex
         value: '"kind"\s*:\s*"Event".*"apiVersion"\s*:\s*"audit\.k8s\.io'
-    fingerprint_storage: file_storage
+    storage: file_storage
     fingerprint_persist_interval: 5m
 exporters:
   debug:

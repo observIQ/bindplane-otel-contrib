@@ -122,9 +122,8 @@ func opampConfig(matchers []MatcherConfig) *Config {
 	return cfg
 }
 
-// Startup must not finish until the server's matchers are in place, otherwise
-// logs are processed with an incomplete matcher set.
-func TestOpAMPMatchersLoadedBeforeStartReturns(t *testing.T) {
+// Matchers are requested in the background so startup never waits on the server.
+func TestOpAMPMatchersRequestedOnStart(t *testing.T) {
 	ctx := context.Background()
 	id := component.MustNewID("logtypedetection")
 
@@ -141,6 +140,7 @@ func TestOpAMPMatchersLoadedBeforeStartReturns(t *testing.T) {
 	require.NoError(t, p.start(ctx, host))
 	defer func() { require.NoError(t, p.stop(ctx)) }()
 
+	waitForMatchers(t, p)
 	requests := mock.sentRequests()
 	require.Len(t, requests, 1)
 	require.Equal(t, id, requests[0].Processor)
@@ -176,6 +176,7 @@ func TestOpAMPMatchersMergeWithConfig(t *testing.T) {
 	require.NoError(t, p.start(ctx, host))
 	defer func() { require.NoError(t, p.stop(ctx)) }()
 
+	waitForMatchers(t, p)
 	require.Equal(t, []string{"from_config", "from_server", "from_config_last"}, matcherNames(p))
 
 	out, err := p.processLogs(ctx, logsFromBodies(`{"beta":1}`))
@@ -203,6 +204,7 @@ func TestOpAMPMatchersUpdateInvalidatesCache(t *testing.T) {
 	require.NoError(t, p.start(ctx, host))
 	defer func() { require.NoError(t, p.stop(ctx)) }()
 
+	waitForMatchers(t, p)
 	_, err := p.processLogs(ctx, logsFromBodies("GET /index.html 200"))
 	require.NoError(t, err)
 	require.Equal(t, 1, p.logTypes.Len())
@@ -238,9 +240,10 @@ func TestOpAMPMatchersForOtherProcessorIgnored(t *testing.T) {
 	cfg.OpAMPRequestTimeout = 100 * time.Millisecond
 
 	p := newOpAMPProcessor(t, cfg, id)
-	require.NoError(t, p.start(ctx, host), "a timeout must not fail startup")
+	require.NoError(t, p.start(ctx, host))
 	defer func() { require.NoError(t, p.stop(ctx)) }()
 
+	waitForMatchers(t, p)
 	require.Equal(t, []string{"mine"}, matcherNames(p))
 }
 
@@ -265,6 +268,7 @@ func TestOpAMPInvalidMatchersRejected(t *testing.T) {
 	require.NoError(t, p.start(ctx, host))
 	defer func() { require.NoError(t, p.stop(ctx)) }()
 
+	waitForMatchers(t, p)
 	require.Equal(t, []string{"mine"}, matcherNames(p))
 }
 
@@ -273,6 +277,15 @@ func TestOpAMPMissingExtension(t *testing.T) {
 	err := p.start(context.Background(), &testHost{components: map[component.ID]component.Component{}})
 	require.ErrorContains(t, err, `opamp extension "opamp" does not exist`)
 	require.NoError(t, p.stop(context.Background()))
+}
+
+func waitForMatchers(t *testing.T, p *logTypeDetectionProcessor) {
+	t.Helper()
+	select {
+	case <-p.matchersReady:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for the matcher exchange to finish")
+	}
 }
 
 func matcherNames(p *logTypeDetectionProcessor) []string {
@@ -315,7 +328,7 @@ func TestOpAMPRestartKeepsPersistedLogTypes(t *testing.T) {
 
 	newRun := func(mock *mockOpAMPExtension) (*logTypeDetectionProcessor, component.Host) {
 		cfg := opampConfig(nil)
-		cfg.FingerprintStorageID = &storageID
+		cfg.StorageID = &storageID
 		host := &testHost{components: map[component.ID]component.Component{
 			storageID: ext,
 			opampID:   mock,
@@ -325,6 +338,7 @@ func TestOpAMPRestartKeepsPersistedLogTypes(t *testing.T) {
 
 	first, host := newRun(newMock())
 	require.NoError(t, first.start(ctx, host))
+	waitForMatchers(t, first)
 	_, err = first.processLogs(ctx, logsFromBodies("GET /index.html 200"))
 	require.NoError(t, err)
 	require.Equal(t, 1, first.logTypes.Len())
@@ -334,8 +348,53 @@ func TestOpAMPRestartKeepsPersistedLogTypes(t *testing.T) {
 	require.NoError(t, second.start(ctx, host))
 	defer func() { require.NoError(t, second.stop(ctx)) }()
 
+	waitForMatchers(t, second)
 	require.Equal(t, []string{"nginx"}, matcherNames(second))
 	require.Equal(t, 1, second.logTypes.Len(), "persisted log types should be restored once the server's matchers are in place")
+}
+
+// Held-back log types are settled when the server never answers, not left to be overwritten.
+func TestOpAMPTimeoutResolvesPendingLogTypes(t *testing.T) {
+	ctx := context.Background()
+	id := component.MustNewID("logtypedetection")
+
+	factory := filestorage.NewFactory()
+	storageCfg := factory.CreateDefaultConfig().(*filestorage.Config)
+	storageCfg.Directory = t.TempDir()
+	storageID := component.NewIDWithName(component.MustNewType("file_storage"), "test")
+	ext, err := factory.Create(ctx, extension.Settings{ID: storageID, TelemetrySettings: componenttest.NewNopTelemetrySettings()}, storageCfg)
+	require.NoError(t, err)
+	require.NoError(t, ext.Start(ctx, componenttest.NewNopHost()))
+	defer func() { require.NoError(t, ext.Shutdown(ctx)) }()
+
+	matchers := []MatcherConfig{{Name: "nginx", Method: MatcherTypeStartsWith, Value: "GET "}}
+	newRun := func(cfg *Config) (*logTypeDetectionProcessor, component.Host) {
+		cfg.StorageID = &storageID
+		host := &testHost{components: map[component.ID]component.Component{
+			storageID: ext,
+			opampID:   &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)},
+		}}
+		return newOpAMPProcessor(t, cfg, id), host
+	}
+
+	first, host := newRun(createDefaultConfig().(*Config))
+	require.NoError(t, first.start(ctx, host))
+	_, err = first.processLogs(ctx, logsFromBodies("GET /index.html 200"))
+	require.NoError(t, err)
+	require.Equal(t, 1, first.logTypes.Len())
+	require.NoError(t, first.stop(ctx))
+
+	cfg := opampConfig(matchers)
+	cfg.OpAMPRequestTimeout = 50 * time.Millisecond
+	second, host := newRun(cfg)
+	require.NoError(t, second.start(ctx, host))
+	defer func() { require.NoError(t, second.stop(ctx)) }()
+
+	waitForMatchers(t, second)
+	second.matcherMux.RLock()
+	defer second.matcherMux.RUnlock()
+	require.Nil(t, second.pendingLogTypes)
+	require.Equal(t, 0, second.logTypes.Len(), "detected under different matchers, so discarded")
 }
 
 // matcherStorageHost sets up a storage extension plus a mock opamp server.
@@ -379,10 +438,11 @@ func TestOpAMPStoredMatchersReusedAcrossRestart(t *testing.T) {
 	host, storageID := matcherStorageHost(t, first)
 
 	cfg := opampConfig(nil)
-	cfg.MatcherStorageID = storageID
+	cfg.StorageID = storageID
 
 	p := newOpAMPProcessor(t, cfg, id)
 	require.NoError(t, p.start(ctx, host))
+	waitForMatchers(t, p)
 	require.Equal(t, []string{"nginx"}, matcherNames(p))
 	require.Equal(t, "1.2.3", p.currentVersion())
 	require.NoError(t, p.stop(ctx))
@@ -458,24 +518,4 @@ func TestOpAMPVersionAcceptance(t *testing.T) {
 			}
 		})
 	}
-}
-
-// Matchers stored under one storage extension while fingerprints go to another.
-func TestOpAMPSharedStorageExtension(t *testing.T) {
-	ctx := context.Background()
-	id := component.MustNewID("logtypedetection")
-
-	mock := versionedMock(id, "1.0.0", []MatcherConfig{{Name: "nginx", Method: MatcherTypeStartsWith, Value: "GET "}})
-	host, storageID := matcherStorageHost(t, mock)
-
-	cfg := opampConfig(nil)
-	cfg.MatcherStorageID = storageID
-	cfg.FingerprintStorageID = storageID
-
-	p := newOpAMPProcessor(t, cfg, id)
-	require.NoError(t, p.start(ctx, host), "one extension for both must not deadlock on itself")
-	defer func() { require.NoError(t, p.stop(ctx)) }()
-
-	require.Equal(t, []string{"nginx"}, matcherNames(p))
-	require.Equal(t, "1.0.0", p.currentVersion())
 }

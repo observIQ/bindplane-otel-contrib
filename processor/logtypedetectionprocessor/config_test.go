@@ -55,15 +55,6 @@ func TestConfig_Validate(t *testing.T) {
 			err: errMissingLogTypeField,
 		},
 		{
-			name: "matcher storage without opamp",
-			config: &Config{
-				LogTypeField:         "log_type_field",
-				MaxSavedFingerprints: defaultMaxSavedFingerprints,
-				MatcherStorageID:     &opampID,
-			},
-			err: errMatcherStorageNoOpAMP,
-		},
-		{
 			name: "negative opamp request timeout",
 			config: &Config{
 				LogTypeField:         "log_type_field",

@@ -278,7 +278,7 @@ func TestFingerprintMapPersistence(t *testing.T) {
 	host := &testHost{components: map[component.ID]component.Component{fingerprintStorageID: ext}}
 
 	cfg := createDefaultConfig().(*Config)
-	cfg.FingerprintStorageID = &fingerprintStorageID
+	cfg.StorageID = &fingerprintStorageID
 	cfg.Matchers = []MatcherConfig{{Name: "nginx", Method: MatcherTypeStartsWith, Value: "GET "}}
 
 	newProcessor := func() *logTypeDetectionProcessor {
@@ -328,7 +328,7 @@ func TestFingerprintMapPeriodicPersist(t *testing.T) {
 	host := &testHost{components: map[component.ID]component.Component{fingerprintStorageID: ext}}
 
 	cfg := createDefaultConfig().(*Config)
-	cfg.FingerprintStorageID = &fingerprintStorageID
+	cfg.StorageID = &fingerprintStorageID
 	cfg.FingerprintPersistInterval = 10 * time.Millisecond
 	cfg.Matchers = []MatcherConfig{{Name: "nginx", Method: MatcherTypeStartsWith, Value: "GET "}}
 
@@ -343,7 +343,7 @@ func TestFingerprintMapPeriodicPersist(t *testing.T) {
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		saved := persistedFingerprints{}
-		assert.NoError(c, p.fingerprintStorageClient.LoadStorageData(ctx, fingerprintStorageKey, &saved))
+		assert.NoError(c, p.storageClient.LoadStorageData(ctx, fingerprintStorageKey, &saved))
 		assert.Len(c, saved.LogTypes, 1)
 	}, time.Second, 10*time.Millisecond)
 
@@ -356,7 +356,7 @@ func TestStopAfterFailedStart(t *testing.T) {
 
 	missingStorageID := component.MustNewIDWithName("file_storage", "missing")
 	cfg := createDefaultConfig().(*Config)
-	cfg.FingerprintStorageID = &missingStorageID
+	cfg.StorageID = &missingStorageID
 
 	tb, err := metadata.NewTelemetryBuilder(componenttest.NewNopTelemetrySettings())
 	require.NoError(t, err)
@@ -384,7 +384,7 @@ func TestPersistedLogTypesDiscardedWhenMatchersChange(t *testing.T) {
 
 	newProcessor := func(matchers []MatcherConfig) *logTypeDetectionProcessor {
 		cfg := createDefaultConfig().(*Config)
-		cfg.FingerprintStorageID = &fingerprintStorageID
+		cfg.StorageID = &fingerprintStorageID
 		cfg.Matchers = matchers
 		tb, err := metadata.NewTelemetryBuilder(componenttest.NewNopTelemetrySettings())
 		require.NoError(t, err)
