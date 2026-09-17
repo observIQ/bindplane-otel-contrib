@@ -22,6 +22,7 @@
 - `AddLogs`, `AddMetrics`, `AddTraces` keep their signatures and observable behavior.
 - The processor module resolves `pkg/measurements` through a `replace` directive to `../../pkg/measurements`, so no version bump is needed between the branches.
 - Run tests per module: `cd pkg/measurements && go test ./...` and `cd processor/throughputmeasurementprocessor && go test ./...`. Run `gofmt -l .` in each module before every commit.
+- Benchmarks: the spec branch holds `processor_benchmark_test.go` and the before numbers. The benchmark uses only the public factory API, so it must compile unchanged on every branch of the stack. Run it with `go test -run '^$' -bench BenchmarkProcessor -benchmem -count=10 ./...` from the processor module and compare sides with `go run golang.org/x/perf/cmd/benchstat@latest before.txt after.txt`. Raw output files live in the scratchpad, not the repo.
 
 ---
 
@@ -39,6 +40,277 @@
 | `processor/throughputmeasurementprocessor/factory.go` (modify) | Pass-through process functions; wrap `nextConsumer` before handing it to processorhelper. |
 | `processor/throughputmeasurementprocessor/processor_test.go` (modify) | Route existing tests through the wrappers; add rejected-only OpAMP report test. |
 | `processor/throughputmeasurementprocessor/README.md` (modify) | Document new semantics and rejected counters. |
+| `processor/throughputmeasurementprocessor/processor_benchmark_test.go` (create, spec branch) | Factory-driven benchmark: 3 signals, golden and synthetic payloads, accepting and rejecting consumer. Compiles before and after the change. |
+| `docs/superpowers/specs/2026-09-15-throughput-count-on-success-benchmarks.md` (create on spec branch, modify on processor branch) | Environment, commands, before table, after table, benchstat delta. |
+
+---
+
+## Branch 0: `briangardner/bpop-5831-count-throughput-bytes-only-after-successful-exporter` (spec branch)
+
+This branch is `main` plus the spec, the plan, the benchmark, and the before numbers. It has no code change, so it is the before side of the benchmark.
+
+### Task 0: Benchmark harness and before run
+
+**Files:**
+- Create: `processor/throughputmeasurementprocessor/processor_benchmark_test.go`
+- Create: `docs/superpowers/specs/2026-09-15-throughput-count-on-success-benchmarks.md`
+
+- [ ] **Step 1: Check out the spec branch**
+
+```bash
+cd ~/git/bindplane-otel-contrib.worktrees/briangardner/bpop-5831-throughput-count-on-success
+git checkout briangardner/bpop-5831-count-throughput-bytes-only-after-successful-exporter
+```
+
+- [ ] **Step 2: Write the benchmark**
+
+The benchmark builds the processor with `NewFactory()` and nop settings, swaps in a real SDK meter provider, and consumes one payload per iteration. It uses no unexported symbol that changes between branches. Write `processor/throughputmeasurementprocessor/processor_benchmark_test.go`:
+
+```go
+// Copyright observIQ, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package throughputmeasurementprocessor
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"sync/atomic"
+	"testing"
+
+	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden"
+	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/consumer/consumertest"
+	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/processor"
+	"go.opentelemetry.io/collector/processor/processortest"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+)
+
+// The benchmark drives the processor through the public factory only. The same
+// file compiles before and after the count-on-success change, so one benchmark
+// measures both sides. See docs/superpowers/specs/2026-09-15-throughput-count-on-success-design.md.
+
+// benchConsumers holds the two next-consumer outcomes. The accepting consumer
+// returns nil on every call. The rejecting consumer returns an error on every call.
+var benchConsumers = []struct {
+	name string
+	next consumertest.Consumer
+}{
+	{name: "accepted", next: consumertest.NewNop()},
+	{name: "rejected", next: consumertest.NewErr(errors.New("rejected"))},
+}
+
+// benchProcessorSeq gives each benchmark processor a unique component ID, so
+// the package-level processor registry never hands back a shared instance.
+var benchProcessorSeq atomic.Int64
+
+// benchSettings returns processor settings with a real OTel SDK meter provider.
+// Counter adds then cost what they cost in a collector. The reader is never
+// collected; the SDK still aggregates on every add.
+func benchSettings(b *testing.B) processor.Settings {
+	b.Helper()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	b.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+
+	set := processortest.NewNopSettings(componentType)
+	set.ID = component.NewIDWithName(componentType, fmt.Sprintf("bench%d", benchProcessorSeq.Add(1)))
+	set.TelemetrySettings.MeterProvider = mp
+	return set
+}
+
+// benchConfig enables the processor, samples every payload, and sets no
+// OpAMP extension, so the benchmark needs no host and no Start call.
+func benchConfig() *Config {
+	return &Config{Enabled: true, SamplingRatio: 1}
+}
+
+// syntheticLogs builds one resource and one scope with n log records.
+func syntheticLogs(n int) plog.Logs {
+	logs := plog.NewLogs()
+	sl := logs.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty()
+	for i := 0; i < n; i++ {
+		lr := sl.LogRecords().AppendEmpty()
+		lr.Body().SetStr("benchmark log message with a body of moderate length")
+		lr.Attributes().PutInt("index", int64(i))
+	}
+	return logs
+}
+
+// BenchmarkProcessor measures one ConsumeX call per iteration for each signal,
+// payload, and next-consumer outcome. Sub-benchmark names are stable so that
+// benchstat pairs the before and after rows.
+func BenchmarkProcessor(b *testing.B) {
+	b.Run("logs", benchmarkLogs)
+	b.Run("metrics", benchmarkMetrics)
+	b.Run("traces", benchmarkTraces)
+}
+
+func benchmarkLogs(b *testing.B) {
+	goldenLogs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	payloads := []struct {
+		name string
+		logs plog.Logs
+	}{
+		{name: "golden", logs: goldenLogs},
+		{name: "100", logs: syntheticLogs(100)},
+		{name: "1000", logs: syntheticLogs(1000)},
+		{name: "10000", logs: syntheticLogs(10000)},
+	}
+
+	for _, p := range payloads {
+		for _, c := range benchConsumers {
+			b.Run(p.name+"/"+c.name, func(b *testing.B) {
+				ctx := context.Background()
+				proc, err := NewFactory().CreateLogs(ctx, benchSettings(b), benchConfig(), c.next)
+				if err != nil {
+					b.Fatal(err)
+				}
+				b.Cleanup(func() { _ = proc.Shutdown(ctx) })
+
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					_ = proc.ConsumeLogs(ctx, p.logs)
+				}
+			})
+		}
+	}
+}
+
+func benchmarkMetrics(b *testing.B) {
+	goldenMetrics, err := golden.ReadMetrics(filepath.Join("testdata", "metrics", "host-metrics.yaml"))
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	for _, c := range benchConsumers {
+		b.Run("golden/"+c.name, func(b *testing.B) {
+			ctx := context.Background()
+			proc, err := NewFactory().CreateMetrics(ctx, benchSettings(b), benchConfig(), c.next)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.Cleanup(func() { _ = proc.Shutdown(ctx) })
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = proc.ConsumeMetrics(ctx, goldenMetrics)
+			}
+		})
+	}
+}
+
+func benchmarkTraces(b *testing.B) {
+	goldenTraces, err := golden.ReadTraces(filepath.Join("testdata", "traces", "bindplane-traces.yaml"))
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	for _, c := range benchConsumers {
+		b.Run("golden/"+c.name, func(b *testing.B) {
+			ctx := context.Background()
+			proc, err := NewFactory().CreateTraces(ctx, benchSettings(b), benchConfig(), c.next)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.Cleanup(func() { _ = proc.Shutdown(ctx) })
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = proc.ConsumeTraces(ctx, goldenTraces)
+			}
+		})
+	}
+}
+```
+
+- [ ] **Step 3: Compile and smoke-run every cell once**
+
+```bash
+cd processor/throughputmeasurementprocessor
+gofmt -l .
+go vet ./...
+go test -run '^$' -bench 'BenchmarkProcessor' -benchtime=1x -benchmem ./...
+```
+Expected: no gofmt output, twelve `BenchmarkProcessor/...` lines, `ok`.
+
+- [ ] **Step 4: Confirm the file compiles on the top of the stack**
+
+```bash
+SCR=$(mktemp -d)
+git worktree add "$SCR/after" briangardner/bpop-5831-processor-count-on-success
+cp processor_benchmark_test.go "$SCR/after/processor/throughputmeasurementprocessor/"
+(cd "$SCR/after/processor/throughputmeasurementprocessor" && go vet ./... && go test -run '^$' -bench 'BenchmarkProcessor/logs/golden' -benchtime=1x ./...)
+git worktree remove --force "$SCR/after"
+```
+Expected: `ok`. Skip this step when the upper branches do not exist yet; Task 7b compiles the file again on the after side.
+
+- [ ] **Step 5: Run the before benchmarks**
+
+Run with nothing else heavy on the machine. Output goes to a scratch directory.
+
+```bash
+SCR=$(mktemp -d)
+(cd processor/throughputmeasurementprocessor && go test -run '^$' -bench 'BenchmarkProcessor' -benchmem -count=10 ./... > "$SCR/before-processor.txt")
+(cd pkg/measurements && go test -run '^$' -bench 'BenchmarkAddLogsMeasureLogRawBytes' -benchmem -count=10 ./... > "$SCR/before-measurements.txt")
+go run golang.org/x/perf/cmd/benchstat@latest "$SCR/before-processor.txt"
+go run golang.org/x/perf/cmd/benchstat@latest "$SCR/before-measurements.txt"
+```
+Expected: two benchstat tables with a `sec/op`, `B/op`, and `allocs/op` column and a confidence interval per row.
+
+- [ ] **Step 6: Write the results document**
+
+Write `docs/superpowers/specs/2026-09-15-throughput-count-on-success-benchmarks.md` with these sections:
+
+- Purpose: one paragraph linking to the spec Performance section.
+- Environment: Go version, CPU, core count, OS, and the commit SHA of each side. Leave the after SHA to Task 7b.
+- Commands: the exact commands from Step 5 and the benchstat compare command.
+- Before: the two benchstat tables from Step 5, pasted as fenced text.
+- After: one sentence that states the processor branch adds this section.
+
+- [ ] **Step 7: Commit in two parts**
+
+```bash
+gofmt -l processor/throughputmeasurementprocessor
+git add processor/throughputmeasurementprocessor/processor_benchmark_test.go
+git commit -m "test(throughputmeasurement): benchmark the processor through the factory
+
+Assisted-by: Claude Fable 5.1"
+git add docs/superpowers/specs/2026-09-15-throughput-count-on-success-benchmarks.md
+git commit -m "docs(throughputmeasurement): record before benchmarks for BPOP-5831
+
+Assisted-by: Claude Fable 5.1"
+```
+
+- [ ] **Step 8: Restack the upper branches**
+
+```bash
+gh stack rebase --no-trunk
+gh stack view
+```
+Expected: each upper branch has the new spec-branch commits in its history. Resolve conflicts if any, then `gh stack rebase --continue`.
 
 ---
 
@@ -1358,6 +1630,47 @@ git commit -m "docs(throughputmeasurement): document delivered and rejected coun
 Assisted-by: Claude Fable 5.1"
 ```
 
+### Task 7b: After benchmark run and results update
+
+**Files:**
+- Modify: `docs/superpowers/specs/2026-09-15-throughput-count-on-success-benchmarks.md`
+
+- [ ] **Step 1: Run the after benchmarks on the processor branch**
+
+```bash
+git checkout briangardner/bpop-5831-processor-count-on-success
+SCR=$(mktemp -d)
+(cd processor/throughputmeasurementprocessor && go test -run '^$' -bench 'BenchmarkProcessor' -benchmem -count=10 ./... > "$SCR/after-processor.txt")
+(cd pkg/measurements && go test -run '^$' -bench 'BenchmarkAddLogsMeasureLogRawBytes' -benchmem -count=10 ./... > "$SCR/after-measurements.txt")
+```
+
+- [ ] **Step 2: Compare sides**
+
+Use the before files from Task 0 Step 5. If they are gone, re-run Task 0 Step 5 on the spec branch first.
+
+```bash
+go run golang.org/x/perf/cmd/benchstat@latest "$SCR/before-processor.txt" "$SCR/after-processor.txt"
+go run golang.org/x/perf/cmd/benchstat@latest "$SCR/before-measurements.txt" "$SCR/after-measurements.txt"
+```
+Expected: rows for every cell with a delta column. The accepting cells show `~` (no significant change) or a delta inside noise. Any significant change on a rejecting cell gets an explanation in the results document.
+
+- [ ] **Step 3: Update the results document**
+
+In `docs/superpowers/specs/2026-09-15-throughput-count-on-success-benchmarks.md`:
+
+- Fill the after commit SHA in Environment.
+- Replace the one-sentence After section with the two benchstat comparison tables as fenced text.
+- Add a Reading section: two to five sentences that state whether the acceptance criteria in the spec Performance section hold, and explain any significant row.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add docs/superpowers/specs/2026-09-15-throughput-count-on-success-benchmarks.md
+git commit -m "docs(throughputmeasurement): record after benchmarks for BPOP-5831
+
+Assisted-by: Claude Fable 5.1"
+```
+
 ### Task 8: Full verification and stack push
 
 - [ ] **Step 1: Run both modules with the race detector**
@@ -1366,8 +1679,9 @@ Assisted-by: Claude Fable 5.1"
 cd ~/git/bindplane-otel-contrib.worktrees/briangardner/bpop-5831-throughput-count-on-success
 (cd pkg/measurements && go vet ./... && go test -race -count=1 ./...)
 (cd processor/throughputmeasurementprocessor && go vet ./... && go test -race -count=1 ./...)
+(cd processor/throughputmeasurementprocessor && go test -run '^$' -bench 'BenchmarkProcessor' -benchtime=1x ./...)
 ```
-Expected: `ok` for both.
+Expected: `ok` for both modules and twelve benchmark lines.
 
 - [ ] **Step 2: Lint the two modules the way CI does, if the tools are installed**
 
@@ -1390,6 +1704,6 @@ Do not run `gh stack submit`. Opening the draft PRs needs the PR template sectio
 
 ## Self-Review Notes
 
-- Spec coverage: measure/record split (Task 1, 2), rejected counters (Task 2), sequence rule (Task 2, 3, 6), OpAMP exclusion (Task 3), wrapper with sample before measure (Task 4, 5), MoveAndAppendTo case (Task 4, 5), disabled and zero sampling (Task 4), reporter rejected-only (Task 6), README and descriptions (Task 2, 7).
+- Spec coverage: measure/record split (Task 1, 2), rejected counters (Task 2), sequence rule (Task 2, 3, 6), OpAMP exclusion (Task 3), wrapper with sample before measure (Task 4, 5), MoveAndAppendTo case (Task 4, 5), disabled and zero sampling (Task 4), reporter rejected-only (Task 6), README and descriptions (Task 2, 7), Performance benchmark and results (Task 0, 7b).
 - Type consistency: `Measurement` fields `Size`, `Count`, `RawBytes`, `HasRawBytes` are used with those exact names in every task. Wrapper constructors are `newLogsConsumer`, `newMetricsConsumer`, `newTracesConsumer` throughout.
 - Known compile gap: Task 4 and Task 5 must land together for the package to build. The plan states this in Task 4 Step 7 and folds both into one commit.

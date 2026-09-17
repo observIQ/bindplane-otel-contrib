@@ -187,6 +187,63 @@ The processor tests build the consumer through the factory with a
 `consumertest` sink or a custom failing consumer, so the wrapper path is the
 path under test.
 
+## Performance
+
+### Expected cost
+
+The change moves the measurement from the processorhelper process function to
+a consumer wrapper. On the delivered path the processor does the same work as
+before plus one copy of a `Measurement` value, four words on the stack. The
+counter adds are the same in number and kind. On the rejected path the
+processor adds to the rejected counters instead of the delivered counters, so
+the number of counter adds is again unchanged. The expected impact on the hot
+path is at or below benchstat noise.
+
+### Benchmark
+
+A benchmark in `processor/throughputmeasurementprocessor/processor_benchmark_test.go`
+drives the processor through the public factory only, so the same file compiles
+before and after the change. Each cell builds one processor with `NewFactory()`
+and nop settings, replaces the meter provider with a real OTel SDK meter
+provider backed by a manual reader, and consumes one payload per iteration.
+The processor is enabled with sampling ratio 1 and no OpAMP extension.
+
+The matrix is 12 cells:
+
+| Signal  | Payload                              | Consumer            |
+| ------- | ------------------------------------ | ------------------- |
+| logs    | golden `w3c-logs.yaml`               | accepting, rejecting |
+| logs    | synthetic 100 records                | accepting, rejecting |
+| logs    | synthetic 1000 records               | accepting, rejecting |
+| logs    | synthetic 10000 records              | accepting, rejecting |
+| metrics | golden `host-metrics.yaml`           | accepting, rejecting |
+| traces  | golden `bindplane-traces.yaml`       | accepting, rejecting |
+
+The accepting consumer is `consumertest.NewNop()`. The rejecting consumer is
+`consumertest.NewErr(...)`. Sub-benchmark names follow
+`BenchmarkProcessor/logs/golden/accepted`, so benchstat pairs the before and
+after rows by name.
+
+The existing `pkg/measurements` benchmark for `AddLogs` runs on both sides as a
+secondary check. `AddLogs` keeps its signature and becomes measure then record.
+
+### Method
+
+Run each side ten times with `-count=10 -benchmem` and compare with benchstat.
+The before side is the spec branch, which is `main` plus documents and the
+benchmark file. The after side is the top of the stack.
+
+Results go in `docs/superpowers/specs/2026-09-15-throughput-count-on-success-benchmarks.md`.
+The spec branch records the environment, the commands, and the before table.
+The processor branch adds the after table and the benchstat delta.
+
+### Acceptance
+
+- The accepting cells show no regression beyond benchstat noise at every
+  payload size.
+- Any measured change on the rejecting cells is explained in the results
+  document.
+
 ## Rollout
 
 The change ships in the next `pkg/measurements` and processor module versions
