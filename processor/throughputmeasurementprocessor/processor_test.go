@@ -30,6 +30,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest/ptracetest"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric"
@@ -59,11 +60,12 @@ func TestProcessor_Logs(t *testing.T) {
 	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
 	require.NoError(t, err)
 
-	processedLogs, err := tmp.processLogs(context.Background(), logs)
-	require.NoError(t, err)
+	sink := new(consumertest.LogsSink)
+	require.NoError(t, newLogsConsumer(tmp, sink).ConsumeLogs(context.Background(), logs))
 
 	// Output logs should be the same as input logs (passthrough check)
-	require.NoError(t, plogtest.CompareLogs(logs, processedLogs))
+	require.Len(t, sink.AllLogs(), 1)
+	require.NoError(t, plogtest.CompareLogs(logs, sink.AllLogs()[0]))
 
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, manualReader.Collect(context.Background(), &rm))
@@ -122,11 +124,12 @@ func TestProcessor_Metrics(t *testing.T) {
 	metrics, err := golden.ReadMetrics(filepath.Join("testdata", "metrics", "host-metrics.yaml"))
 	require.NoError(t, err)
 
-	processedMetrics, err := tmp.processMetrics(context.Background(), metrics)
-	require.NoError(t, err)
+	sink := new(consumertest.MetricsSink)
+	require.NoError(t, newMetricsConsumer(tmp, sink).ConsumeMetrics(context.Background(), metrics))
 
-	// Output metrics should be the same as input logs (passthrough check)
-	require.NoError(t, pmetrictest.CompareMetrics(metrics, processedMetrics))
+	// Output metrics should be the same as input metrics (passthrough check)
+	require.Len(t, sink.AllMetrics(), 1)
+	require.NoError(t, pmetrictest.CompareMetrics(metrics, sink.AllMetrics()[0]))
 
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, manualReader.Collect(context.Background(), &rm))
@@ -185,11 +188,12 @@ func TestProcessor_Traces(t *testing.T) {
 	traces, err := golden.ReadTraces(filepath.Join("testdata", "traces", "bindplane-traces.yaml"))
 	require.NoError(t, err)
 
-	processedTraces, err := tmp.processTraces(context.Background(), traces)
-	require.NoError(t, err)
+	sink := new(consumertest.TracesSink)
+	require.NoError(t, newTracesConsumer(tmp, sink).ConsumeTraces(context.Background(), traces))
 
 	// Output traces should be the same as input logs (passthrough check)
-	require.NoError(t, ptracetest.CompareTraces(traces, processedTraces))
+	require.Len(t, sink.AllTraces(), 1)
+	require.NoError(t, ptracetest.CompareTraces(traces, sink.AllTraces()[0]))
 
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, manualReader.Collect(context.Background(), &rm))
@@ -257,10 +261,10 @@ func TestProcessor_Logs_TwoInstancesSameID(t *testing.T) {
 	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
 	require.NoError(t, err)
 
-	_, err = tmp1.processLogs(context.Background(), logs)
+	err = newLogsConsumer(tmp1, consumertest.NewNop()).ConsumeLogs(context.Background(), logs)
 	require.NoError(t, err)
 
-	_, err = tmp2.processLogs(context.Background(), logs)
+	err = newLogsConsumer(tmp2, consumertest.NewNop()).ConsumeLogs(context.Background(), logs)
 	require.NoError(t, err)
 
 	var rm metricdata.ResourceMetrics
@@ -341,13 +345,13 @@ func TestProcessor_Logs_TwoInstancesDifferentID(t *testing.T) {
 	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
 	require.NoError(t, err)
 
-	_, err = tmp1.processLogs(context.Background(), logs)
+	err = newLogsConsumer(tmp1, consumertest.NewNop()).ConsumeLogs(context.Background(), logs)
 	require.NoError(t, err)
 
 	// Ingest twice on the second processor so we get a different count for proc2
-	_, err = tmp2.processLogs(context.Background(), logs)
+	err = newLogsConsumer(tmp2, consumertest.NewNop()).ConsumeLogs(context.Background(), logs)
 	require.NoError(t, err)
-	_, err = tmp2.processLogs(context.Background(), logs)
+	err = newLogsConsumer(tmp2, consumertest.NewNop()).ConsumeLogs(context.Background(), logs)
 	require.NoError(t, err)
 
 	var rm metricdata.ResourceMetrics
@@ -432,7 +436,7 @@ func TestProcessor_ReportsMeasurementsOverOpAMP(t *testing.T) {
 	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
 	require.NoError(t, err)
 
-	_, err = tmp.processLogs(context.Background(), logs)
+	err = newLogsConsumer(tmp, consumertest.NewNop()).ConsumeLogs(context.Background(), logs)
 	require.NoError(t, err)
 
 	require.NoError(t, tmp.start(context.Background(), mh))
@@ -564,11 +568,11 @@ func TestProcessor_AggregatesMeasurementsOverOpAMP(t *testing.T) {
 	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
 	require.NoError(t, err)
 
-	_, err = tmp1.processLogs(context.Background(), logs)
+	err = newLogsConsumer(tmp1, consumertest.NewNop()).ConsumeLogs(context.Background(), logs)
 	require.NoError(t, err)
-	_, err = tmp2.processLogs(context.Background(), logs)
+	err = newLogsConsumer(tmp2, consumertest.NewNop()).ConsumeLogs(context.Background(), logs)
 	require.NoError(t, err)
-	_, err = tmp3.processLogs(context.Background(), logs)
+	err = newLogsConsumer(tmp3, consumertest.NewNop()).ConsumeLogs(context.Background(), logs)
 	require.NoError(t, err)
 
 	require.NoError(t, tmp1.start(context.Background(), mh))
@@ -654,7 +658,7 @@ func TestProcessor_GlobalExtraAttributesMerge(t *testing.T) {
 	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
 	require.NoError(t, err)
 
-	_, err = tmp.processLogs(context.Background(), logs)
+	err = newLogsConsumer(tmp, consumertest.NewNop()).ConsumeLogs(context.Background(), logs)
 	require.NoError(t, err)
 
 	require.NoError(t, tmp.start(context.Background(), mh))
@@ -729,7 +733,7 @@ func TestProcessor_GlobalLastOneWins(t *testing.T) {
 	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
 	require.NoError(t, err)
 
-	_, err = tmp1.processLogs(context.Background(), logs)
+	err = newLogsConsumer(tmp1, consumertest.NewNop()).ConsumeLogs(context.Background(), logs)
 	require.NoError(t, err)
 
 	require.NoError(t, tmp1.start(context.Background(), mh))
@@ -904,6 +908,53 @@ func TestProcessor_BindplaneExtensionMissing_FallsBackToAgentRegistry(t *testing
 	// extension; startup must succeed and fall back to the v1 agent registry.
 	require.NoError(t, tmp.start(context.Background(), mockHost{}))
 	require.Error(t, measurements.BindplaneAgentThroughputMeasurementsRegistry.RegisterThroughputMeasurements(processorID.String(), tmp.measurements))
+
+	require.NoError(t, tmp.shutdown(context.Background()))
+}
+
+// Rejected payloads do not advance the sequence number, so the report sent
+// after rejected-only traffic carries no measurements. The reporter still
+// sends on every tick; only the payload is empty.
+func TestProcessor_RejectedOnlyReportsNoMeasurementsOverOpAMP(t *testing.T) {
+	mp := metric.NewMeterProvider()
+	defer mp.Shutdown(context.Background())
+
+	processorID := component.MustNewIDWithName("throughputmeasurement", "rejected")
+	opampID := component.MustNewID("opamp")
+
+	tmp, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
+		Enabled:       true,
+		SamplingRatio: 1,
+		OpAMP:         opampID,
+		Global:        &GlobalConfig{Interval: 50 * time.Millisecond},
+	}, processorID)
+	require.NoError(t, err)
+
+	mockOpamp := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
+	mh := mockHost{
+		extMap: map[component.ID]component.Component{
+			opampID: mockOpamp,
+		},
+	}
+
+	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
+	require.NoError(t, err)
+
+	err = newLogsConsumer(tmp, consumertest.NewErr(errDownstream)).ConsumeLogs(context.Background(), logs)
+	require.ErrorIs(t, err, errDownstream)
+
+	require.NoError(t, tmp.start(context.Background(), mh))
+	require.Eventually(t, func() bool {
+		return mockOpamp.GotMessage()
+	}, 5*time.Second, 10*time.Millisecond)
+
+	decoded, err := snappy.Decode(nil, mockOpamp.sentMessage)
+	require.NoError(t, err)
+
+	unmarshaler := pmetric.ProtoUnmarshaler{}
+	m, err := unmarshaler.UnmarshalMetrics(decoded)
+	require.NoError(t, err)
+	require.Equal(t, 0, m.DataPointCount(), "rejected-only traffic must not be reported as throughput")
 
 	require.NoError(t, tmp.shutdown(context.Background()))
 }
