@@ -33,24 +33,24 @@ func TestAdmission(t *testing.T) {
 		var a admission
 		a.init(0, 3)
 		a.charge(100)
-		require.False(t, a.exhausted())
+		require.Equal(t, admit, a.decide(1))
 	})
 
 	t.Run("budget per window", func(t *testing.T) {
 		var a admission
 		a.init(time.Hour, 3)
-		require.False(t, a.exhausted())
+		require.Equal(t, admit, a.decide(1))
 		a.charge(3)
-		require.True(t, a.exhausted())
-		require.True(t, a.exhausted())
+		require.Equal(t, reject, a.decide(1))
+		require.Equal(t, reject, a.decide(1))
 
 		// Rewind the window past the interval: budget resets.
 		a.windowNs.Store(0)
-		require.False(t, a.exhausted())
+		require.Equal(t, admit, a.decide(1))
 		a.charge(1)
-		require.False(t, a.exhausted())
+		require.Equal(t, admit, a.decide(1))
 		a.charge(2)
-		require.True(t, a.exhausted())
+		require.Equal(t, reject, a.decide(1))
 	})
 
 	t.Run("concurrent rollover is race free and bounded", func(t *testing.T) {
@@ -65,7 +65,7 @@ func TestAdmission(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				if !a.exhausted() {
+				if a.decide(1) == admit {
 					admitted.Add(1)
 					a.charge(1)
 				}
@@ -116,7 +116,7 @@ func TestBufferAddBudgetPerInterval(t *testing.T) {
 		buf.Add(ld)
 		require.Equal(t, 3, buf.Len())
 		require.Equal(t, int64(3), buf.admit.used.Load())
-		require.True(t, buf.admit.exhausted())
+		require.Equal(t, reject, buf.admit.decide(1))
 	})
 
 	t.Run("metrics", func(t *testing.T) {
@@ -127,9 +127,9 @@ func TestBufferAddBudgetPerInterval(t *testing.T) {
 		buf.Add(md)
 		buf.Add(md)
 		require.Equal(t, 2, buf.Len())
-		require.True(t, buf.admit.exhausted())
+		require.Equal(t, reject, buf.admit.decide(1))
 		buf.admit.windowNs.Store(0)
-		require.False(t, buf.admit.exhausted())
+		require.Equal(t, admit, buf.admit.decide(1))
 		buf.Add(md)
 		require.Equal(t, 2, buf.Len())
 	})
@@ -142,7 +142,7 @@ func TestBufferAddBudgetPerInterval(t *testing.T) {
 		buf.Add(td)
 		buf.Add(td)
 		require.Equal(t, 2, buf.Len())
-		require.True(t, buf.admit.exhausted())
+		require.Equal(t, reject, buf.admit.decide(1))
 	})
 
 	t.Run("defaults are applied", func(t *testing.T) {
@@ -154,9 +154,9 @@ func TestBufferAddBudgetPerInterval(t *testing.T) {
 	})
 }
 
-// TestBufferAddRejectedDoesNotReadPayload guards the cheap rejected path: a
-// rejected payload must not be walked or copied, so it stays O(1).
-func TestBufferAddRejectedDoesNotReadPayload(t *testing.T) {
+// TestBufferAddRejectedDoesNotCopyPayload guards the cheap rejected path: a
+// rejected payload is only counted, never copied, so it allocates nothing.
+func TestBufferAddRejectedDoesNotCopyPayload(t *testing.T) {
 	buf := NewLogBuffer(1, WithRefreshInterval(time.Hour))
 	buf.Add(logsWithBody("fill"))
 

@@ -103,8 +103,9 @@ func BenchmarkLogBufferFreshness(b *testing.B) {
 			buf := NewLogBuffer(benchIdealSize)
 			stop := make(chan struct{})
 			done := benchProducer(buf, 100, rate, stop)
-			// Let the buffer reach its steady state before measuring.
-			time.Sleep(1500 * time.Millisecond)
+			// Let the buffer reach its steady state before measuring: a fast
+			// pipeline needs a few full windows to switch to on-demand mode.
+			time.Sleep(3500 * time.Millisecond)
 
 			var totalAge time.Duration
 			var totalRecords int
@@ -134,29 +135,47 @@ func BenchmarkLogBufferFreshness(b *testing.B) {
 	}
 }
 
-// BenchmarkLogBufferRetainedHeap reports the live heap one full buffer holds
-// at rest: fill a buffer to its ideal size with 256-byte bodies and ten
-// attributes per record, force a GC, and attribute the heap growth. Every
-// Bindplane pipeline carries three such buffers per signal.
+// BenchmarkLogBufferRetainedHeap reports the live heap one buffer holds at
+// rest. "continuous" fills a buffer to its ideal size with 256-byte bodies and
+// ten attributes per record; "on_demand_idle" is a buffer that switched to
+// on-demand mode and dropped its store. Every Bindplane pipeline carries three
+// such buffers per signal.
 func BenchmarkLogBufferRetainedHeap(b *testing.B) {
-	buffers := make([]*LogBuffer, 0, b.N)
 	ld := benchLogs(benchIdealSize, 10, 256)
-
-	var before, after runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&before)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		buf := NewLogBuffer(benchIdealSize, WithRefreshInterval(0))
-		buf.Add(ld)
-		buffers = append(buffers, buf)
+	modes := []struct {
+		name string
+		make func() *LogBuffer
+	}{
+		{name: "continuous", make: func() *LogBuffer {
+			buf := NewLogBuffer(benchIdealSize, WithRefreshInterval(0))
+			buf.Add(ld)
+			return buf
+		}},
+		{name: "on_demand_idle", make: func() *LogBuffer {
+			buf := NewLogBuffer(benchIdealSize)
+			forceOnDemand(b, buf)
+			buf.Add(ld) // ignored: idle on-demand buffers collect nothing
+			return buf
+		}},
 	}
-	b.StopTimer()
+	for _, mode := range modes {
+		b.Run(mode.name, func(b *testing.B) {
+			buffers := make([]*LogBuffer, 0, b.N)
+			var before, after runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&before)
 
-	runtime.GC()
-	runtime.ReadMemStats(&after)
-	retained := float64(after.HeapAlloc) - float64(before.HeapAlloc)
-	b.ReportMetric(retained/1024/float64(b.N), "retained-KB/op")
-	runtime.KeepAlive(buffers)
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				buffers = append(buffers, mode.make())
+			}
+			b.StopTimer()
+
+			runtime.GC()
+			runtime.ReadMemStats(&after)
+			retained := float64(after.HeapAlloc) - float64(before.HeapAlloc)
+			b.ReportMetric(retained/1024/float64(b.N), "retained-KB/op")
+			runtime.KeepAlive(buffers)
+		})
+	}
 }
