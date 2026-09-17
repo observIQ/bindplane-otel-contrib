@@ -79,7 +79,7 @@ func (a *MetricAdapter) ConsumeMetrics(ctx context.Context, points []embed.Metri
 	groups := make(map[string]*group)
 	order := make([]string, 0)
 	for i := range points {
-		merged := a.resource.MergeWithStringOverlay(points[i].Metadata.Resource)
+		merged := a.resource.MergeWithAnyOverlay(points[i].Metadata.Resource)
 		fp := FingerprintMap(merged)
 		g, exists := groups[fp]
 		if !exists {

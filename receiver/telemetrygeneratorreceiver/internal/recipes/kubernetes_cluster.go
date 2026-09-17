@@ -30,17 +30,17 @@ func init() { register("kubernetes-cluster", kubernetesCluster) }
 // application web tier (apache common), and structured JSON service
 // logs. The blend approximates the spread of formats a real cluster's
 // node-agent log shipper would see.
-func kubernetesCluster(logger *zap.Logger, consumer embed.LogConsumer, p Params) ([]embed.ProducerModule, error) {
+func kubernetesCluster(logger *zap.Logger, consumer embed.LogConsumer, p Params, tel embed.TelemetrySettings) ([]embed.ProducerModule, error) {
 	workers, rate := p.resolve(1, time.Second)
-	k8s, err := k8sgen.New(logger, workers, rate, "", consumer) // empty format → blitz default (cri-o)
+	k8s, err := k8sgen.New(logger, workers, rate, "", consumer, tel) // empty format → blitz default (cri-o)
 	if err != nil {
 		return nil, err
 	}
-	apache, err := apachegen.New(logger, workers, rate, consumer)
+	apache, err := apachegen.New(logger, workers, rate, consumer, tel)
 	if err != nil {
 		return nil, err
 	}
-	json, err := jsongen.New(logger, workers, rate, jsongen.LogTypeDefault, consumer)
+	json, err := jsongen.New(logger, workers, rate, jsongen.LogTypeDefault, consumer, tel)
 	if err != nil {
 		return nil, err
 	}

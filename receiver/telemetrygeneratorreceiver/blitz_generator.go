@@ -25,7 +25,6 @@ import (
 	"github.com/observiq/blitz/embed"
 	"github.com/observiq/blitz/generator/filegen/embeddedlibrary"
 	"go.opentelemetry.io/collector/pdata/pcommon"
-	"go.uber.org/zap"
 
 	"github.com/observiq/bindplane-otel-contrib/receiver/telemetrygeneratorreceiver/internal/blitzpdata"
 	"github.com/observiq/bindplane-otel-contrib/receiver/telemetrygeneratorreceiver/internal/recipes"
@@ -193,7 +192,8 @@ type blitzConsumers struct {
 // non-embed-eligible generator rejections (winevt, nop) from blitz's
 // LoadModules reach the receiver. The receiver surfaces those errors
 // verbatim.
-func buildBlitzModules(logger *zap.Logger, g GeneratorConfig, consumers blitzConsumers) ([]embed.ProducerModule, error) {
+func buildBlitzModules(tel embed.TelemetrySettings, g GeneratorConfig, consumers blitzConsumers) ([]embed.ProducerModule, error) {
+	logger := tel.Logger
 	if name, ok := g.AdditionalConfig[blitzKeyRecipe].(string); ok && name != "" {
 		// All curated recipes are log recipes; metric/trace generators
 		// are reachable via blitz_yaml only (recipes are an optional
@@ -210,7 +210,7 @@ func buildBlitzModules(logger *zap.Logger, g GeneratorConfig, consumers blitzCon
 		if err != nil {
 			return nil, err
 		}
-		return fn(logger, consumers.logs, params)
+		return fn(logger, consumers.logs, params, tel)
 	}
 
 	raw, ok := g.AdditionalConfig[blitzKeyBlitzYAML].(string)
@@ -229,5 +229,6 @@ func buildBlitzModules(logger *zap.Logger, g GeneratorConfig, consumers blitzCon
 		// syntax at collector-config time (the substitution expands
 		// before the YAML string reaches the receiver).
 		EnvOverrides: nil,
+		Telemetry:    tel,
 	})
 }

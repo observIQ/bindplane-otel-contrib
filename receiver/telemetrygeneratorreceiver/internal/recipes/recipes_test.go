@@ -57,7 +57,7 @@ func TestEveryRegisteredRecipe_BuildsAtLeastOneModule(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fn, ok := Get(name)
 			require.True(t, ok)
-			mods, err := fn(logger, consumer, Params{})
+			mods, err := fn(logger, consumer, Params{}, embed.NopTelemetry())
 			require.NoError(t, err)
 			require.NotEmpty(t, mods, "recipe %q returned zero modules", name)
 			for _, m := range mods {
@@ -71,7 +71,7 @@ func TestKubernetesCluster_BuildsThreeModules(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 	fn, ok := Get("kubernetes-cluster")
 	require.True(t, ok)
-	mods, err := fn(logger, nopLogConsumer{}, Params{})
+	mods, err := fn(logger, nopLogConsumer{}, Params{}, embed.NopTelemetry())
 	require.NoError(t, err)
 	assert.Len(t, mods, 3, "kubernetes-cluster should bundle k8s + apache + json")
 }
@@ -106,7 +106,7 @@ func TestRecipe_RespectsParamOverrides(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 	fn, ok := Get("apache")
 	require.True(t, ok)
-	mods, err := fn(logger, nopLogConsumer{}, Params{Workers: 5, Rate: 50 * time.Millisecond})
+	mods, err := fn(logger, nopLogConsumer{}, Params{Workers: 5, Rate: 50 * time.Millisecond}, embed.NopTelemetry())
 	require.NoError(t, err)
 	require.Len(t, mods, 1)
 }

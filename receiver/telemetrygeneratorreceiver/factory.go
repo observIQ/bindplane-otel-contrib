@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/observiq/bindplane-otel-contrib/receiver/telemetrygeneratorreceiver/internal/metadata"
+	"github.com/observiq/blitz/embed"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/receiver"
@@ -27,6 +28,18 @@ import (
 
 // errImproperCfgType error for when an invalid config type is passed to receiver creation funcs
 var errImproperCfgType = errors.New("improper config type")
+
+// blitzTelemetry routes blitz's self-telemetry into this receiver's
+// component telemetry, not the data pipeline or the process globals
+// (PIPE-1066). LoggerProvider stays nil; component.TelemetrySettings
+// has none.
+func blitzTelemetry(params receiver.Settings) embed.TelemetrySettings {
+	return embed.TelemetrySettings{
+		Logger:         params.Logger,
+		MeterProvider:  params.MeterProvider,
+		TracerProvider: params.TracerProvider,
+	}
+}
 
 // NewFactory creates a new receiver factory
 func NewFactory() receiver.Factory {
@@ -56,7 +69,7 @@ func createMetricsReceiver(ctx context.Context, params receiver.Settings, conf c
 		return nil, err
 	}
 
-	return newMetricsReceiver(ctx, params.Logger, cfg, nextConsumer)
+	return newMetricsReceiver(ctx, blitzTelemetry(params), cfg, nextConsumer)
 }
 
 // createLogsReceiver creates a logs receiver
@@ -66,7 +79,7 @@ func createLogsReceiver(ctx context.Context, params receiver.Settings, conf comp
 		return nil, errImproperCfgType
 	}
 
-	return newLogsReceiver(ctx, params.Logger, cfg, nextConsumer)
+	return newLogsReceiver(ctx, blitzTelemetry(params), cfg, nextConsumer)
 }
 
 // createTracesReceiver creates a traces receiver
@@ -79,7 +92,7 @@ func createTracesReceiver(ctx context.Context, params receiver.Settings, conf co
 		return nil, err
 	}
 
-	return newTracesReceiver(ctx, params.Logger, cfg, nextConsumer)
+	return newTracesReceiver(ctx, blitzTelemetry(params), cfg, nextConsumer)
 }
 
 // rejectBlitzOnNonLogsSignal fails fast if a Type: "blitz" generator
