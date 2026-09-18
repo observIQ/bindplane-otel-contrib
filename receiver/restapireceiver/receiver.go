@@ -15,8 +15,10 @@
 package restapireceiver
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -365,25 +367,42 @@ func (b *baseReceiver) saveCheckpoint(ctx context.Context) error {
 // Returns the response metadata (for pagination), extracted data, and any error.
 // When response_source is "header", pagination attributes are extracted from
 // response headers and injected into the metadata map for the pagination logic.
-func (b *baseReceiver) fetchDataPage(ctx context.Context, req apiRequest) (map[string]any, []map[string]any, error) {
+func (b *baseReceiver) fetchDataPage(ctx context.Context, req apiRequest) (map[string]any, []map[string]any, [][]byte, error) {
 	var metadata map[string]any
 	var data []map[string]any
+	var originals [][]byte
 	var respHeaders http.Header
 
 	if b.cfg.ResponseFormat == responseFormatNDJSON {
 		var err error
 		metadataInBody := b.cfg.Pagination.ResponseSource != responseSourceHeader
-		data, metadata, respHeaders, err = b.client.FetchNDJSON(ctx, req, metadataInBody)
+		data, originals, metadata, respHeaders, err = b.client.FetchNDJSON(ctx, req, metadataInBody)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get NDJSON response: %w", err)
+			return nil, nil, nil, fmt.Errorf("failed to get NDJSON response: %w", err)
 		}
 	} else {
 		var err error
-		metadata, respHeaders, err = b.client.FetchFullResponse(ctx, req)
+		var rawBody []byte
+		metadata, rawBody, respHeaders, err = b.client.FetchFullResponse(ctx, req)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get full response: %w", err)
+			return nil, nil, nil, fmt.Errorf("failed to get full response: %w", err)
 		}
 		data = extractDataFromResponse(metadata, b.cfg.ResponseField, b.logger)
+		if b.cfg.needsOriginal() {
+			originals = extractOriginals(rawBody, b.cfg.ResponseField, b.logger)
+		}
+	}
+
+	// The parsed records and their original text are produced by two different
+	// walks of the response, so pair them only when both walks agree on how many
+	// records the page holds. Dropping the originals degrades to today's behavior;
+	// keeping a misaligned slice would attach one record's text to another.
+	if originals != nil && len(originals) != len(data) {
+		b.logger.Warn("original record text does not line up with the parsed records; "+
+			"dropping it for this page",
+			zap.Int("parsed_records", len(data)),
+			zap.Int("original_records", len(originals)))
+		originals = nil
 	}
 
 	// When response_source is "header", extract configured pagination fields from
@@ -401,7 +420,7 @@ func (b *baseReceiver) fetchDataPage(ctx context.Context, req apiRequest) (map[s
 		}
 	}
 
-	return metadata, data, nil
+	return metadata, data, originals, nil
 }
 
 // paginationResponseFields returns the names of all configured pagination fields
@@ -540,7 +559,7 @@ func (b *baseReceiver) resetPagesFetched() {
 // hands it to the next consumer. It reports how many records the page yielded —
 // returned even alongside a consume error, so a poll cycle still accounts for
 // what it pulled from the API.
-type consumeFunc func(ctx context.Context, data []map[string]any) (int, error)
+type consumeFunc func(ctx context.Context, data []map[string]any, originals [][]byte) (int, error)
 
 // startBase brings up the shared receiver machinery and starts polling. The logs
 // and metrics receivers start identically; only the consumeFunc their
@@ -627,7 +646,7 @@ func (b *baseReceiver) poll(ctx context.Context) (pollResult, error) {
 	pageNum := 0
 	for {
 		pageNum++
-		fullResponse, data, err := b.fetchDataPage(ctx, req)
+		fullResponse, data, originals, err := b.fetchDataPage(ctx, req)
 		if err != nil {
 			return result, err
 		}
@@ -658,7 +677,7 @@ func (b *baseReceiver) poll(ctx context.Context) (pollResult, error) {
 		}
 
 		// Convert to the receiver's signal type and consume
-		count, err := b.consume(ctx, data)
+		count, err := b.consume(ctx, data, originals)
 		result.recordCount += count
 		if err != nil {
 			return result, err
@@ -744,8 +763,8 @@ func (r *restAPILogsReceiver) Shutdown(ctx context.Context) error {
 
 // consumeLogs converts a page of records into logs and passes them to the next
 // consumer. It is the logs receiver's consumeFunc.
-func (r *restAPILogsReceiver) consumeLogs(ctx context.Context, data []map[string]any) (int, error) {
-	logs := convertJSONToLogs(data, r.logger)
+func (r *restAPILogsReceiver) consumeLogs(ctx context.Context, data []map[string]any, originals [][]byte) (int, error) {
+	logs := convertJSONToLogs(data, originals, r.cfg, r.logger)
 	count := logs.LogRecordCount()
 	if count == 0 {
 		return 0, nil
@@ -895,6 +914,124 @@ func extractDataFromResponse(response map[string]any, responseField string, logg
 	return result
 }
 
+// extractOriginals walks the raw response body to the same item array
+// extractDataFromResponse selects, returning each item's exact bytes.
+//
+// It re-walks the body rather than re-encoding the parsed values because
+// re-marshaling a map[string]any does not round-trip: keys come back in a
+// different order and JSON numbers normalize to float64. Only the bytes the
+// server actually sent are the "original" the log.record.original attribute
+// is meant to carry.
+//
+// Returns nil when the array cannot be located unambiguously. The caller
+// checks the result against the parsed records and drops it on any length
+// mismatch, so a disagreement between the two walks costs the originals
+// rather than pairing a record with another record's text.
+func extractOriginals(body []byte, responseField string, logger *zap.Logger) [][]byte {
+	target, ok := locateRawArray(json.RawMessage(body), responseField)
+	if !ok {
+		logger.Warn("unable to locate the record array in the raw response; "+
+			"original text is unavailable for this page",
+			zap.String("response_field", responseField))
+		return nil
+	}
+
+	var items []json.RawMessage
+	if err := jsoniter.Unmarshal(target, &items); err != nil {
+		logger.Warn("raw response field is not an array; original text is unavailable for this page",
+			zap.String("response_field", responseField), zap.Error(err))
+		return nil
+	}
+
+	originals := make([][]byte, 0, len(items))
+	for _, item := range items {
+		trimmed := bytes.TrimSpace(item)
+		// extractDataFromResponse drops non-object items; skip the same ones here
+		// so the two slices stay positionally aligned.
+		if len(trimmed) == 0 || trimmed[0] != '{' {
+			continue
+		}
+		originals = append(originals, trimmed)
+	}
+	return originals
+}
+
+// locateRawArray finds the raw JSON value holding the record array, mirroring
+// the selection extractDataFromResponse makes on the parsed response.
+func locateRawArray(body json.RawMessage, responseField string) (json.RawMessage, bool) {
+	if responseField != "" {
+		return getNestedFieldRaw(body, responseField)
+	}
+
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return nil, false
+	}
+	// A top-level array is what FetchFullResponse wraps as {"data": ...}.
+	if trimmed[0] == '[' {
+		return trimmed, true
+	}
+
+	var fields map[string]json.RawMessage
+	if err := jsoniter.Unmarshal(trimmed, &fields); err != nil {
+		return nil, false
+	}
+	if data, ok := fields["data"]; ok {
+		return data, true
+	}
+
+	// extractDataFromResponse falls back to "any array field", which ranges over a
+	// Go map and so has no defined order. Only accept that fallback when exactly
+	// one field is an array, which is the case where both walks must agree.
+	var found json.RawMessage
+	count := 0
+	for _, v := range fields {
+		if t := bytes.TrimSpace(v); len(t) > 0 && t[0] == '[' {
+			found = v
+			count++
+		}
+	}
+	if count != 1 {
+		return nil, false
+	}
+	return found, true
+}
+
+// getNestedFieldRaw is the raw-bytes analogue of getNestedField: it walks the
+// same dot-notation path, with the same array-index support, over undecoded
+// JSON so the leaf keeps the server's exact bytes.
+func getNestedFieldRaw(data json.RawMessage, path string) (json.RawMessage, bool) {
+	current := data
+
+	for _, part := range strings.Split(path, ".") {
+		name, indices, ok := parsePathSegment(part)
+		if !ok {
+			return nil, false
+		}
+
+		var fields map[string]json.RawMessage
+		if err := jsoniter.Unmarshal(current, &fields); err != nil {
+			return nil, false
+		}
+		current, ok = fields[name]
+		if !ok {
+			return nil, false
+		}
+
+		for _, idx := range indices {
+			var arr []json.RawMessage
+			if err := jsoniter.Unmarshal(current, &arr); err != nil {
+				return nil, false
+			}
+			if idx >= len(arr) {
+				return nil, false
+			}
+			current = arr[idx]
+		}
+	}
+	return current, true
+}
+
 // restAPIMetricsReceiver is a receiver that pulls metrics from a REST API.
 type restAPIMetricsReceiver struct {
 	baseReceiver
@@ -933,7 +1070,8 @@ func (r *restAPIMetricsReceiver) Shutdown(ctx context.Context) error {
 
 // consumeMetrics converts a page of records into metrics and passes them to the
 // next consumer. It is the metrics receiver's consumeFunc.
-func (r *restAPIMetricsReceiver) consumeMetrics(ctx context.Context, data []map[string]any) (int, error) {
+// originals is unused: the body options shape log records only.
+func (r *restAPIMetricsReceiver) consumeMetrics(ctx context.Context, data []map[string]any, _ [][]byte) (int, error) {
 	metrics := convertJSONToMetrics(data, &r.cfg.Metrics, r.logger)
 	count := metrics.MetricCount()
 	if count == 0 {

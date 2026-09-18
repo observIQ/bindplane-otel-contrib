@@ -31,6 +31,7 @@ import (
 	"go.opentelemetry.io/collector/config/confighttp"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/extension/xextension/storage"
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/receiver/receivertest"
 	"go.uber.org/zap"
 )
@@ -2348,4 +2349,265 @@ func TestCheckpoint_ExcludesPagesFetched(t *testing.T) {
 	require.NoError(t, json.Unmarshal(legacy, &loaded))
 	require.Equal(t, 40, loaded.PaginationState.CurrentOffset)
 	require.Equal(t, 0, loaded.PaginationState.PagesFetched)
+}
+
+// TestExtractOriginals covers locating the record array in the undecoded body
+// across the same response shapes extractDataFromResponse handles.
+func TestExtractOriginals(t *testing.T) {
+	testCases := []struct {
+		name          string
+		body          string
+		responseField string
+		want          []string
+	}{
+		{
+			name: "top-level array",
+			body: `[{"id":"1"},{"id":"2"}]`,
+			want: []string{`{"id":"1"}`, `{"id":"2"}`},
+		},
+		{
+			name: "data field",
+			body: `{"data":[{"id":"1"}],"next":"abc"}`,
+			want: []string{`{"id":"1"}`},
+		},
+		{
+			name:          "explicit response field",
+			body:          `{"results":[{"id":"1"},{"id":"2"}]}`,
+			responseField: "results",
+			want:          []string{`{"id":"1"}`, `{"id":"2"}`},
+		},
+		{
+			name:          "nested response field",
+			body:          `{"response":{"data":[{"id":"1"}]}}`,
+			responseField: "response.data",
+			want:          []string{`{"id":"1"}`},
+		},
+		{
+			name:          "response field with array index",
+			body:          `{"intervals":[{"readings":[{"id":"1"}]}]}`,
+			responseField: "intervals[0].readings",
+			want:          []string{`{"id":"1"}`},
+		},
+		{
+			name:          "non-object items are skipped, matching the parsed walk",
+			body:          `{"results":[{"id":"1"},"scalar",42,{"id":"2"}]}`,
+			responseField: "results",
+			want:          []string{`{"id":"1"}`, `{"id":"2"}`},
+		},
+		{
+			name:          "single array field is unambiguous without a response field",
+			body:          `{"items":[{"id":"1"}],"count":1}`,
+			responseField: "",
+			want:          []string{`{"id":"1"}`},
+		},
+		{
+			// Picking between these would mean ranging over a Go map, which has no
+			// defined order, so the two walks could disagree. Give up instead.
+			name:          "ambiguous multiple arrays yield no originals",
+			body:          `{"items":[{"id":"1"}],"others":[{"id":"2"}]}`,
+			responseField: "",
+			want:          nil,
+		},
+		{
+			name:          "missing response field yields no originals",
+			body:          `{"results":[{"id":"1"}]}`,
+			responseField: "absent",
+			want:          nil,
+		},
+		{
+			name:          "response field that is not an array yields no originals",
+			body:          `{"results":{"id":"1"}}`,
+			responseField: "results",
+			want:          nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractOriginals([]byte(tc.body), tc.responseField, zap.NewNop())
+
+			if tc.want == nil {
+				require.Nil(t, got)
+				return
+			}
+			as := make([]string, 0, len(got))
+			for _, b := range got {
+				as = append(as, string(b))
+			}
+			require.Equal(t, tc.want, as)
+		})
+	}
+}
+
+// TestExtractOriginalsIsByteExact is the reason the receiver re-walks the body
+// instead of re-encoding the parsed records: re-marshaling a map[string]any
+// reorders keys and pushes large integers through float64, so it cannot
+// reproduce what the server sent.
+func TestExtractOriginalsIsByteExact(t *testing.T) {
+	const body = `{"data":[{"z":1,"a":2,"id":12345678901234567890,"nested":{"b":1,"a":2}}]}`
+
+	originals := extractOriginals([]byte(body), "data", zap.NewNop())
+	require.Len(t, originals, 1)
+	require.Equal(t, `{"z":1,"a":2,"id":12345678901234567890,"nested":{"b":1,"a":2}}`, string(originals[0]))
+
+	// The same record after a parse/re-encode round trip differs, which is what
+	// the log.record.original attribute must not carry.
+	parsed := extractDataFromResponse(
+		map[string]any{"data": []any{map[string]any{"z": 1.0, "a": 2.0}}}, "data", zap.NewNop())
+	reencoded, err := json.Marshal(parsed[0])
+	require.NoError(t, err)
+	require.NotEqual(t, string(originals[0]), string(reencoded))
+}
+
+// TestExtractOriginalsAlignsWithParsedRecords pins the invariant the receiver
+// relies on: originals[i] is the text record data[i] was decoded from. A
+// mismatch here would attach one record's text to another.
+func TestExtractOriginalsAlignsWithParsedRecords(t *testing.T) {
+	bodies := []struct {
+		body          string
+		responseField string
+	}{
+		{`[{"id":"1"},{"id":"2"},{"id":"3"}]`, ""},
+		{`{"data":[{"id":"1"},{"id":"2"}]}`, ""},
+		{`{"results":[{"id":"1"},"skipme",{"id":"2"}]}`, "results"},
+		{`{"response":{"data":[{"id":"1"}]}}`, "response.data"},
+		{`{"data":[]}`, ""},
+	}
+
+	for _, b := range bodies {
+		t.Run(b.body, func(t *testing.T) {
+			// Mirror FetchFullResponse, which wraps a top-level array as {"data": ...}.
+			var decoded any
+			require.NoError(t, json.Unmarshal([]byte(b.body), &decoded))
+			response, ok := decoded.(map[string]any)
+			if !ok {
+				response = map[string]any{"data": decoded.([]any)}
+			}
+
+			parsed := extractDataFromResponse(response, b.responseField, zap.NewNop())
+			originals := extractOriginals([]byte(b.body), b.responseField, zap.NewNop())
+
+			require.Len(t, originals, len(parsed))
+			for i := range parsed {
+				var fromOriginal map[string]any
+				require.NoError(t, json.Unmarshal(originals[i], &fromOriginal))
+				require.Equal(t, parsed[i], fromOriginal)
+			}
+		})
+	}
+}
+
+// TestPoll_BodyOptionsEndToEnd drives the real poll path for both response
+// formats, proving the original text survives from the HTTP response through to
+// the emitted log records — including the large integer and key order a
+// parse/re-encode round trip would destroy.
+func TestPoll_BodyOptionsEndToEnd(t *testing.T) {
+	const jsonRecord = `{"z":"last","id":12345678901234567890,"a":"first"}`
+
+	testCases := []struct {
+		name           string
+		responseFormat ResponseFormat
+		responseField  string
+		payload        string
+		contentType    string
+	}{
+		{
+			name:           "json",
+			responseFormat: responseFormatJSON,
+			responseField:  "data",
+			payload:        `{"data":[` + jsonRecord + `]}`,
+			contentType:    "application/json",
+		},
+		{
+			name:           "ndjson",
+			responseFormat: responseFormatNDJSON,
+			payload:        jsonRecord + "\n" + `{"done":true}`,
+			contentType:    "application/x-ndjson",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(string(tc.name), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", tc.contentType)
+				_, _ = w.Write([]byte(tc.payload))
+			}))
+			defer server.Close()
+
+			cfg := &Config{
+				URL:                      server.URL,
+				AuthMode:                 authModeNone,
+				ResponseFormat:           tc.responseFormat,
+				ResponseField:            tc.responseField,
+				Raw:                      true,
+				IncludeLogRecordOriginal: true,
+				Pagination:               PaginationConfig{Mode: paginationModeNone},
+				MinPollInterval:          10 * time.Second,
+				MaxPollInterval:          5 * time.Minute,
+				BackoffMultiplier:        2.0,
+			}
+
+			sink := new(consumertest.LogsSink)
+			r, err := newRESTAPILogsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+			require.NoError(t, err)
+
+			ctx := context.Background()
+			require.NoError(t, r.initializeClient(ctx, componenttest.NewNopHost()))
+			r.storageClient = newMemStorageClient()
+			r.initializePagination()
+
+			result, err := r.poll(ctx)
+			require.NoError(t, err)
+			require.Equal(t, 1, result.recordCount)
+			require.Len(t, sink.AllLogs(), 1)
+
+			record := sink.AllLogs()[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+
+			require.Equal(t, pcommon.ValueTypeStr, record.Body().Type())
+			require.Equal(t, jsonRecord, record.Body().Str(),
+				"raw mode must emit the exact bytes the API returned")
+
+			original, ok := record.Attributes().Get(logRecordOriginalAttribute)
+			require.True(t, ok)
+			require.Equal(t, jsonRecord, original.Str())
+		})
+	}
+}
+
+// TestPoll_BodyOptionsDisabledByDefault pins that a config that does not opt in
+// is byte-for-byte the behavior that shipped before the options existed.
+func TestPoll_BodyOptionsDisabledByDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"1"}]}`))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:               server.URL,
+		AuthMode:          authModeNone,
+		ResponseField:     "data",
+		Pagination:        PaginationConfig{Mode: paginationModeNone},
+		MinPollInterval:   10 * time.Second,
+		MaxPollInterval:   5 * time.Minute,
+		BackoffMultiplier: 2.0,
+	}
+
+	sink := new(consumertest.LogsSink)
+	r, err := newRESTAPILogsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, r.initializeClient(ctx, componenttest.NewNopHost()))
+	r.storageClient = newMemStorageClient()
+	r.initializePagination()
+
+	_, err = r.poll(ctx)
+	require.NoError(t, err)
+	require.Len(t, sink.AllLogs(), 1)
+
+	record := sink.AllLogs()[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+	require.Equal(t, pcommon.ValueTypeMap, record.Body().Type())
+	require.Equal(t, "1", record.Body().Map().AsRaw()["id"])
+	require.Equal(t, 0, record.Attributes().Len())
 }

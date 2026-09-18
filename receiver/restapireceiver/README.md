@@ -35,6 +35,8 @@ Beta:
 | `request_body`       | string    |         | `false`  | A Go template rendering to the JSON request body sent with each request. Only valid when `method` is `post`. See [Request Body Templating](#request-body-templating). **Not masked in logs or configuration dumps — do not put credentials here; use `auth_mode` or `sensitive_headers`.** |
 | `response_format`    | string    | `json`  | `false`  | Response body format: `json` (standard JSON array/object) or `ndjson` (newline-delimited JSON). In NDJSON mode, each line is a separate JSON object; the last line is treated as metadata (e.g., containing pagination cursors) and is not emitted as data. |
 | `response_field`     | string    |         | `false`  | The name of the field in the response that contains the array of items. If empty, the response is assumed to be a top-level array. For nested fields, use dot notation (e.g., `response.data`). Array elements can be selected by non-negative index (e.g., `intervals[0].readings`, `matrix[0][1]`). Not used when `response_format` is `ndjson`.                |
+| `raw`                | bool      | `false` | `false`  | Emit each record's original JSON text as the log body instead of the parsed structure. Records are still selected the same way; only the body rendering differs. Logs only. See [Raw and Original Text](#raw-and-original-text).                                                                                                                                  |
+| `include_log_record_original` | bool | `false` | `false`  | Additionally record each record's original text on the `log.record.original` attribute, leaving the body as-is. Logs only. See [Raw and Original Text](#raw-and-original-text).                                                                                                                                                                               |
 | `metrics`            | object    |         | `false`  | Metrics configuration (see below)                                                                                                                                                                                                                           |
 | `auth_mode`          | string    | `none`  | `false`  | Authentication mode: `none`, `apikey`, `bearer`, `basic`, `oauth2`, or `akamai_edgegrid`                                                                                                                                                                    |
 | `apikey`             | object    |         | `false`  | API Key configuration (see below)                                                                                                                                                                                                                           |
@@ -116,6 +118,45 @@ Request signing uses the [official Akamai EdgeGrid Go library](https://github.co
 | `client_token`  | string |         | `true`   | Akamai EdgeGrid client token                                                                                                                                                                  |
 | `client_secret` | string |         | `true`   | Akamai EdgeGrid client secret                                                                                                                                                                 |
 | `account_key`   | string |         | `false`  | Optional `accountSwitchKey`. When set, it is added as a query parameter on every request so partners can make calls against a managed account. See Akamai's docs on `accountSwitchKey` usage. |
+
+### Raw and Original Text
+
+By default each record becomes a structured log body: the JSON object is parsed into a map.
+Two options change that.
+
+- `raw` emits each record's **original JSON text** as the body (a string) instead of the parsed
+  map. Use it when a downstream system expects the payload exactly as the API returned it, or
+  when parsing loses something you need.
+- `include_log_record_original` leaves the body alone and writes the original text to the
+  `log.record.original` attribute. This is the attribute Bindplane generates for stanza-based
+  sources.
+
+The two are orthogonal. With both set, the body and the attribute intentionally hold the same
+text.
+
+```yaml
+restapi:
+  url: https://api.example.com/v1/events
+  auth_mode: none
+  response_field: data
+  raw: true
+  include_log_record_original: true
+```
+
+The original text is the exact bytes the API sent, not a re-encoding of the parsed record, so
+key order and full numeric precision are preserved. Timestamp extraction still reads the parsed
+record, so turning `raw` on does not change event timestamps.
+
+Both options apply to the **logs** pipeline only; they have no effect on extracted metrics.
+
+> [!NOTE]
+> To attach original text the receiver must locate the record array in the undecoded response.
+> It does this for a top-level array, a `data` field, an explicit `response_field` (including
+> dot notation and array indexes), and for a response whose only array field is the record
+> array. If the array is ambiguous — no `response_field` is set and the response has several
+> array fields — the receiver logs a warning and falls back to the parsed body for that page
+> rather than risk pairing a record with another record's text. Setting `response_field`
+> resolves this.
 
 ### TLS Configuration
 

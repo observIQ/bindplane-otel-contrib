@@ -42,7 +42,7 @@ import (
 // response the same way the receiver does, so the auth-mode tests below cover
 // the production request path.
 func fetchDataArray(ctx context.Context, c restAPIClient, requestURL string, params url.Values) ([]map[string]any, error) {
-	resp, _, err := c.FetchFullResponse(ctx, apiRequest{URL: requestURL, Query: params})
+	resp, _, _, err := c.FetchFullResponse(ctx, apiRequest{URL: requestURL, Query: params})
 	if err != nil {
 		return nil, err
 	}
@@ -892,7 +892,7 @@ func TestRESTAPIClient_GetFullResponse_CustomHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL, Query: params})
+	data, _, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL, Query: params})
 	require.NoError(t, err)
 	require.NotNil(t, data)
 }
@@ -970,7 +970,7 @@ func TestRESTAPIClient_GetFullResponse_SensitiveHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL, Query: params})
+	data, _, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL, Query: params})
 	require.NoError(t, err)
 	require.NotNil(t, data)
 }
@@ -1007,7 +1007,7 @@ func TestRESTAPIClient_GetNDJSON(t *testing.T) {
 	require.NoError(t, err)
 
 	params := url.Values{}
-	data, metadata, _, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: params}, true)
+	data, _, metadata, _, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: params}, true)
 	require.NoError(t, err)
 	require.Len(t, data, 3)
 	require.Equal(t, "1", data[0]["id"])
@@ -1038,7 +1038,7 @@ func TestRESTAPIClient_GetNDJSON_EmptyResponse(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, metadata, _, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, true)
+	data, _, metadata, _, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, true)
 	require.NoError(t, err)
 	require.Len(t, data, 0)
 	require.Empty(t, metadata)
@@ -1065,7 +1065,7 @@ func TestRESTAPIClient_GetNDJSON_MetadataOnly(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, metadata, _, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, true)
+	data, _, metadata, _, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, true)
 	require.NoError(t, err)
 	require.Len(t, data, 0)
 	require.Equal(t, "xyz", metadata["offset"])
@@ -1092,7 +1092,7 @@ func TestRESTAPIClient_GetNDJSON_HTTPError(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, metadata, _, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, true)
+	data, _, metadata, _, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "403")
 	require.Nil(t, data)
@@ -1186,7 +1186,7 @@ func TestParseNDJSON(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			data, metadata, err := parseNDJSON([]byte(tc.body), tc.metadataInBody, logger)
+			data, _, metadata, err := parseNDJSON([]byte(tc.body), tc.metadataInBody, false, logger)
 			if tc.expectErr {
 				require.Error(t, err)
 				return
@@ -1228,7 +1228,7 @@ func TestRESTAPIClient_GetNDJSON_MetadataInHeader(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, metadata, headers, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, false)
+	data, _, metadata, headers, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, false)
 	require.NoError(t, err)
 	require.Len(t, data, 3)
 	require.Equal(t, "1", data[0]["id"])
@@ -1260,7 +1260,7 @@ func TestRESTAPIClient_GetNDJSON_ReturnsHeaders(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, metadata, headers, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, true)
+	data, _, metadata, headers, err := client.FetchNDJSON(ctx, apiRequest{URL: server.URL, Query: url.Values{}}, true)
 	require.NoError(t, err)
 	require.Len(t, data, 1)
 	require.Equal(t, "body-offset", metadata["offset"])
@@ -1293,7 +1293,7 @@ func TestRESTAPIClient_GetFullResponse_ReturnsHeaders(t *testing.T) {
 	client, err := newRESTAPIClient(ctx, settings, cfg, host)
 	require.NoError(t, err)
 
-	data, headers, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL, Query: url.Values{}})
+	data, _, headers, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL, Query: url.Values{}})
 	require.NoError(t, err)
 	require.NotNil(t, data)
 	require.Equal(t, "page2", headers.Get("X-Next-Cursor"))
@@ -1366,7 +1366,7 @@ func TestRESTAPIClient_Post_Body(t *testing.T) {
 	}
 	client := newTestClient(ctx, t, cfg)
 
-	resp, _, err := client.FetchFullResponse(ctx, apiRequest{
+	resp, _, _, err := client.FetchFullResponse(ctx, apiRequest{
 		URL:  server.URL,
 		Body: []byte(`{"filter":"status:'new'","limit":100,"after":"0012345"}`),
 	})
@@ -1403,7 +1403,7 @@ func TestRESTAPIClient_Post_EmptyBody(t *testing.T) {
 	}
 	client := newTestClient(ctx, t, cfg)
 
-	_, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL})
+	_, _, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL})
 	require.NoError(t, err)
 
 	// A nil body must encode as an empty object, not the literal "null".
@@ -1435,7 +1435,7 @@ func TestRESTAPIClient_Get_UnsetMethodSendsNoBody(t *testing.T) {
 	}
 	client := newTestClient(ctx, t, cfg)
 
-	_, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL})
+	_, _, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL})
 	require.NoError(t, err)
 
 	require.Equal(t, http.MethodGet, gotMethod)
@@ -1487,7 +1487,7 @@ func TestRESTAPIClient_Post_ContentTypeOverride(t *testing.T) {
 			}
 			client := newTestClient(ctx, t, cfg)
 
-			_, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL})
+			_, _, _, err := client.FetchFullResponse(ctx, apiRequest{URL: server.URL})
 			require.NoError(t, err)
 			require.Equal(t, tc.expected, gotContentType)
 		})
@@ -1512,7 +1512,7 @@ func TestRESTAPIClient_Post_NoHTMLEscaping(t *testing.T) {
 	client := newTestClient(ctx, t, cfg)
 
 	// FQL filters contain comparison operators; they must not be escaped.
-	_, _, err := client.FetchFullResponse(ctx, apiRequest{
+	_, _, _, err := client.FetchFullResponse(ctx, apiRequest{
 		URL:  server.URL,
 		Body: []byte(`{"filter":"created_timestamp:>'2025-01-01'+severity:<50"}`),
 	})
@@ -1540,7 +1540,7 @@ func TestRESTAPIClient_Post_EpochBodyValueIsExact(t *testing.T) {
 	}
 	client := newTestClient(ctx, t, cfg)
 
-	_, _, err := client.FetchFullResponse(ctx, apiRequest{
+	_, _, _, err := client.FetchFullResponse(ctx, apiRequest{
 		URL:  server.URL,
 		Body: []byte(`{"since":1704067200123456789}`),
 	})
@@ -1571,7 +1571,7 @@ func TestRESTAPIClient_Post_QueryAndBody(t *testing.T) {
 	}
 	client := newTestClient(ctx, t, cfg)
 
-	_, _, err := client.FetchFullResponse(ctx, apiRequest{
+	_, _, _, err := client.FetchFullResponse(ctx, apiRequest{
 		URL:   server.URL,
 		Query: url.Values{"offset": []string{"20"}, "limit": []string{"10"}},
 		Body:  []byte(`{"filter":"status:'new'"}`),
@@ -1608,7 +1608,7 @@ func TestRESTAPIClient_Post_Redirect(t *testing.T) {
 	}
 	client := newTestClient(ctx, t, cfg)
 
-	_, _, err := client.FetchFullResponse(ctx, apiRequest{
+	_, _, _, err := client.FetchFullResponse(ctx, apiRequest{
 		URL:  server.URL,
 		Body: []byte(`{"filter":"status:'new'"}`),
 	})
@@ -1646,13 +1646,13 @@ func TestRESTAPIClient_Post_AkamaiEdgeGridSignsBody(t *testing.T) {
 	}
 	client := newTestClient(ctx, t, cfg)
 
-	_, _, err := client.FetchFullResponse(ctx, apiRequest{
+	_, _, _, err := client.FetchFullResponse(ctx, apiRequest{
 		URL:  server.URL,
 		Body: []byte(`{"filter":"a"}`),
 	})
 	require.NoError(t, err)
 
-	_, _, err = client.FetchFullResponse(ctx, apiRequest{
+	_, _, _, err = client.FetchFullResponse(ctx, apiRequest{
 		URL:  server.URL,
 		Body: []byte(`{"filter":"b"}`),
 	})

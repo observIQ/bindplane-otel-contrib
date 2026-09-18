@@ -30,7 +30,7 @@ func TestConvertJSONToLogs_SimpleArray(t *testing.T) {
 	}
 
 	logger := zap.NewNop()
-	logs := convertJSONToLogs(data, logger)
+	logs := convertJSONToLogs(data, nil, &Config{}, logger)
 
 	require.Equal(t, 1, logs.ResourceLogs().Len())
 	require.Equal(t, 1, logs.ResourceLogs().At(0).ScopeLogs().Len())
@@ -58,7 +58,7 @@ func TestConvertJSONToLogs_SimpleArray(t *testing.T) {
 func TestConvertJSONToLogs_EmptyArray(t *testing.T) {
 	data := []map[string]any{}
 	logger := zap.NewNop()
-	logs := convertJSONToLogs(data, logger)
+	logs := convertJSONToLogs(data, nil, &Config{}, logger)
 
 	require.Equal(t, 1, logs.ResourceLogs().Len())
 	require.Equal(t, 1, logs.ResourceLogs().At(0).ScopeLogs().Len())
@@ -78,7 +78,7 @@ func TestConvertJSONToLogs_WithTimestamp(t *testing.T) {
 	}
 
 	logger := zap.NewNop()
-	logs := convertJSONToLogs(data, logger)
+	logs := convertJSONToLogs(data, nil, &Config{}, logger)
 
 	record := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
 
@@ -104,7 +104,7 @@ func TestConvertJSONToLogs_WithNestedFields(t *testing.T) {
 	}
 
 	logger := zap.NewNop()
-	logs := convertJSONToLogs(data, logger)
+	logs := convertJSONToLogs(data, nil, &Config{}, logger)
 
 	record := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
 	body := record.Body()
@@ -127,7 +127,7 @@ func TestConvertJSONToLogs_ObservedTimestamp(t *testing.T) {
 	}
 
 	logger := zap.NewNop()
-	logs := convertJSONToLogs(data, logger)
+	logs := convertJSONToLogs(data, nil, &Config{}, logger)
 
 	record := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
 
@@ -145,7 +145,7 @@ func TestConvertJSONToLogs_MultipleRecords(t *testing.T) {
 	}
 
 	logger := zap.NewNop()
-	logs := convertJSONToLogs(data, logger)
+	logs := convertJSONToLogs(data, nil, &Config{}, logger)
 
 	require.Equal(t, 5, logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().Len())
 
@@ -171,7 +171,7 @@ func TestConvertJSONToLogs_WithNumericValues(t *testing.T) {
 	}
 
 	logger := zap.NewNop()
-	logs := convertJSONToLogs(data, logger)
+	logs := convertJSONToLogs(data, nil, &Config{}, logger)
 
 	record := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
 	body := record.Body()
@@ -196,11 +196,113 @@ func TestConvertJSONToLogs_InvalidTimestamp(t *testing.T) {
 	}
 
 	logger := zap.NewNop()
-	logs := convertJSONToLogs(data, logger)
+	logs := convertJSONToLogs(data, nil, &Config{}, logger)
 
 	record := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
 
 	// Should still have timestamps (observed time as fallback)
 	require.Greater(t, record.Timestamp(), pcommon.Timestamp(0))
 	require.Greater(t, record.ObservedTimestamp(), pcommon.Timestamp(0))
+}
+
+// TestConvertJSONToLogs_BodyOptions covers `raw` and `include_log_record_original`
+// in every combination. The two are orthogonal, so with both set the body and the
+// attribute intentionally carry the same text.
+func TestConvertJSONToLogs_BodyOptions(t *testing.T) {
+	data := []map[string]any{
+		{"id": "1", "message": "first"},
+		{"id": "2", "message": "second"},
+	}
+	originals := [][]byte{
+		[]byte(`{"id":"1","message":"first"}`),
+		[]byte(`{"id":"2","message":"second"}`),
+	}
+
+	testCases := []struct {
+		name         string
+		cfg          *Config
+		wantBodyStr  bool
+		wantOriginal bool
+	}{
+		{
+			name: "defaults leave the parsed body untouched",
+			cfg:  &Config{},
+		},
+		{
+			name:        "raw replaces the body with the original text",
+			cfg:         &Config{Raw: true},
+			wantBodyStr: true,
+		},
+		{
+			name:         "include_log_record_original adds the attribute and keeps the map body",
+			cfg:          &Config{IncludeLogRecordOriginal: true},
+			wantOriginal: true,
+		},
+		{
+			name:         "both options together",
+			cfg:          &Config{Raw: true, IncludeLogRecordOriginal: true},
+			wantBodyStr:  true,
+			wantOriginal: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := convertJSONToLogs(data, originals, tc.cfg, zap.NewNop())
+
+			records := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
+			require.Equal(t, len(data), records.Len())
+
+			for i := 0; i < records.Len(); i++ {
+				record := records.At(i)
+				want := string(originals[i])
+
+				if tc.wantBodyStr {
+					require.Equal(t, pcommon.ValueTypeStr, record.Body().Type())
+					require.Equal(t, want, record.Body().Str())
+				} else {
+					require.Equal(t, pcommon.ValueTypeMap, record.Body().Type())
+					require.Equal(t, data[i]["id"], record.Body().Map().AsRaw()["id"])
+				}
+
+				original, ok := record.Attributes().Get(logRecordOriginalAttribute)
+				if tc.wantOriginal {
+					require.True(t, ok)
+					require.Equal(t, want, original.Str())
+				} else {
+					require.False(t, ok)
+				}
+			}
+		})
+	}
+}
+
+// TestConvertJSONToLogs_BodyOptionsWithoutOriginals covers the degraded path: the
+// options are on but the receiver could not recover the original text, so records
+// fall back to the parsed body rather than a re-encoded approximation.
+func TestConvertJSONToLogs_BodyOptionsWithoutOriginals(t *testing.T) {
+	data := []map[string]any{{"id": "1"}}
+	cfg := &Config{Raw: true, IncludeLogRecordOriginal: true}
+
+	logs := convertJSONToLogs(data, nil, cfg, zap.NewNop())
+
+	record := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+	require.Equal(t, pcommon.ValueTypeMap, record.Body().Type())
+	require.Equal(t, "1", record.Body().Map().AsRaw()["id"])
+	_, ok := record.Attributes().Get(logRecordOriginalAttribute)
+	require.False(t, ok)
+}
+
+// TestConvertJSONToLogs_RawPreservesTimestamps pins that raw mode still reads the
+// parsed record for the timestamp, so switching it on does not change event times.
+func TestConvertJSONToLogs_RawPreservesTimestamps(t *testing.T) {
+	data := []map[string]any{{"id": "1", "timestamp": "2024-03-18T15:25:43Z"}}
+	originals := [][]byte{[]byte(`{"id":"1","timestamp":"2024-03-18T15:25:43Z"}`)}
+
+	logs := convertJSONToLogs(data, originals, &Config{Raw: true}, zap.NewNop())
+
+	record := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+	want, err := time.Parse(time.RFC3339, "2024-03-18T15:25:43Z")
+	require.NoError(t, err)
+	require.Equal(t, pcommon.NewTimestampFromTime(want), record.Timestamp())
 }

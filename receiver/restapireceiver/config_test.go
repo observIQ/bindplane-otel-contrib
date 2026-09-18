@@ -2024,3 +2024,66 @@ func TestEnums_RejectedWhenDecoded(t *testing.T) {
 		})
 	}
 }
+
+// TestConfigUnmarshalBodyOptions proves the two body options survive the YAML ->
+// confmap -> Config decode. Config.Unmarshal ends in conf.Unmarshal with
+// confmap.WithIgnoreUnused(), so a mistyped mapstructure tag would not error —
+// the option would just silently never take effect.
+func TestConfigUnmarshalBodyOptions(t *testing.T) {
+	testCases := []struct {
+		name                string
+		raw                 any
+		includeOriginal     any
+		wantRaw             bool
+		wantIncludeOriginal bool
+		wantNeedsOriginal   bool
+	}{
+		{
+			name:              "unset defaults to off",
+			wantNeedsOriginal: false,
+		},
+		{
+			name:              "raw only",
+			raw:               true,
+			wantRaw:           true,
+			wantNeedsOriginal: true,
+		},
+		{
+			name:                "include_log_record_original only",
+			includeOriginal:     true,
+			wantIncludeOriginal: true,
+			wantNeedsOriginal:   true,
+		},
+		{
+			name:                "both",
+			raw:                 true,
+			includeOriginal:     true,
+			wantRaw:             true,
+			wantIncludeOriginal: true,
+			wantNeedsOriginal:   true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := map[string]any{
+				"url":       "https://api.example.com/data",
+				"auth_mode": "none",
+			}
+			if tc.raw != nil {
+				raw["raw"] = tc.raw
+			}
+			if tc.includeOriginal != nil {
+				raw["include_log_record_original"] = tc.includeOriginal
+			}
+
+			cfg := createDefaultConfig().(*Config)
+			require.NoError(t, confmap.NewFromStringMap(raw).Unmarshal(cfg))
+
+			require.Equal(t, tc.wantRaw, cfg.Raw)
+			require.Equal(t, tc.wantIncludeOriginal, cfg.IncludeLogRecordOriginal)
+			require.Equal(t, tc.wantNeedsOriginal, cfg.needsOriginal())
+			require.NoError(t, cfg.Validate())
+		})
+	}
+}
