@@ -3,7 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/receiver/pcapreceiver
 go 1.26.4
 
 require (
-	github.com/gopacket/gopacket v1.7.1
+	github.com/gopacket/gopacket v1.7.2
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden v0.160.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest v0.160.0
 	github.com/stretchr/testify v1.12.1
