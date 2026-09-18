@@ -3,7 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/exporter/awssecuritylakeexport
 go 1.26.4
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.46.0
+	github.com/aws/aws-sdk-go-v2 v1.47.0
 	github.com/aws/aws-sdk-go-v2/config v1.33.3
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.3
 	github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.4.3
