@@ -20,10 +20,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -31,6 +34,7 @@ import (
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/confighttp"
 	"go.opentelemetry.io/collector/config/configopaque"
+	"go.opentelemetry.io/collector/config/configtls"
 	"go.uber.org/zap"
 )
 
@@ -1663,4 +1667,86 @@ func TestRESTAPIClient_Post_AkamaiEdgeGridSignsBody(t *testing.T) {
 
 	// EdgeGrid consumes and replaces req.Body; the server must still get it all.
 	require.Equal(t, []string{`{"filter":"a"}`, `{"filter":"b"}`}, bodies)
+}
+
+// writeCertPEM writes srv's self-signed certificate to a PEM file and returns
+// its path, standing in for the CA bundle an operator would point ca_file at.
+func writeCertPEM(t *testing.T, srv *httptest.Server) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "ca.crt")
+	pemBytes := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: srv.Certificate().Raw,
+	})
+	require.NotNil(t, pemBytes)
+	require.NoError(t, os.WriteFile(path, pemBytes, 0600))
+	return path
+}
+
+// TestClientTLS covers the self-signed-certificate case: the receiver squashes
+// confighttp.ClientConfig, so its `tls` block reaches the HTTP transport without
+// any receiver-specific plumbing. These tests pin that behavior so a future
+// refactor of client construction cannot silently drop it.
+func TestClientTLS(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"1"}]}`))
+	}))
+	defer server.Close()
+
+	caFile := writeCertPEM(t, server)
+
+	testCases := []struct {
+		name      string
+		tlsConfig configtls.ClientConfig
+		wantErr   string
+	}{
+		{
+			// The failure an operator hits today when pointing the receiver at an
+			// endpoint using a self-signed certificate.
+			name:      "self-signed cert rejected by default",
+			tlsConfig: configtls.ClientConfig{},
+			wantErr:   "certificate",
+		},
+		{
+			name: "self-signed cert trusted via ca_file",
+			tlsConfig: configtls.ClientConfig{
+				Config: configtls.Config{CAFile: caFile},
+			},
+		},
+		{
+			name:      "verification disabled via insecure_skip_verify",
+			tlsConfig: configtls.ClientConfig{InsecureSkipVerify: true},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			cfg := &Config{
+				URL:           server.URL,
+				AuthMode:      authModeNone,
+				ResponseField: "data",
+				ClientConfig: confighttp.ClientConfig{
+					Endpoint: server.URL,
+					TLS:      tc.tlsConfig,
+				},
+			}
+
+			client, err := newRESTAPIClient(ctx, componenttest.NewNopTelemetrySettings(), cfg, componenttest.NewNopHost())
+			require.NoError(t, err)
+			defer func() { require.NoError(t, client.Shutdown()) }()
+
+			data, err := fetchDataArray(ctx, client, server.URL, nil)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, data, 1)
+			require.Equal(t, "1", data[0]["id"])
+		})
+	}
 }

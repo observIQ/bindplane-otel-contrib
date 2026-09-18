@@ -50,6 +50,7 @@ Beta:
 | `backoff_multiplier` | float     | `2.0`   | `false`  | Multiplier for increasing the poll interval when no data or a partial page is returned. Must be greater than 1.0.                                                                                                                                           |
 | `storage`            | component |         | `false`  | The component ID of a storage extension for checkpointing                                                                                                                                                                                                   |
 | `timeout`            | duration  | `10s`   | `false`  | HTTP client timeout                                                                                                                                                                                                                                         |
+| `tls`                | object    |         | `false`  | TLS settings for the outbound connection (custom CA, client certificates, protocol versions). See [TLS Configuration](#tls-configuration).                                                                                                                  |
 
 ### Auth Mode Configuration
 
@@ -115,6 +116,62 @@ Request signing uses the [official Akamai EdgeGrid Go library](https://github.co
 | `client_token`  | string |         | `true`   | Akamai EdgeGrid client token                                                                                                                                                                  |
 | `client_secret` | string |         | `true`   | Akamai EdgeGrid client secret                                                                                                                                                                 |
 | `account_key`   | string |         | `false`  | Optional `accountSwitchKey`. When set, it is added as a query parameter on every request so partners can make calls against a managed account. See Akamai's docs on `accountSwitchKey` usage. |
+
+### TLS Configuration
+
+The receiver connects over HTTPS using the host's trust store by default, so public APIs need
+no TLS configuration. The `tls` block is for endpoints the default trust store cannot verify —
+an internal API signed by a private CA, or a TLS-inspecting egress proxy — and for APIs that
+require a client certificate.
+
+| Field                  | Type   | Default | Required | Description                                                                                                    |
+| ---------------------- | ------ | ------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| `ca_file`              | string |         | `false`  | Path to a PEM-encoded CA bundle used to verify the server certificate. Required for private or self-signed CAs. |
+| `cert_file`            | string |         | `false`  | Path to a PEM-encoded client certificate, for APIs that authenticate with mTLS.                                 |
+| `key_file`             | string |         | `false`  | Path to the PEM-encoded private key matching `cert_file`.                                                        |
+| `insecure_skip_verify` | bool   | `false` | `false`  | Disables server certificate verification. See the warning below.                                                 |
+| `server_name_override` | string |         | `false`  | Overrides the server name used for verification and SNI. Useful when connecting by IP.                           |
+| `min_version`          | string | `1.2`   | `false`  | Minimum accepted TLS version, e.g. `1.2` or `1.3`.                                                               |
+| `max_version`          | string |         | `false`  | Maximum accepted TLS version. Defaults to the highest version the Go runtime supports.                           |
+
+This is the standard collector TLS client block. The [configtls
+documentation](https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configtls/README.md)
+lists the remaining fields.
+
+#### Private or self-signed certificate
+
+Point `ca_file` at the CA that signed the endpoint's certificate. Without it the poll fails
+with `x509: certificate signed by unknown authority`.
+
+```yaml
+restapi:
+  url: https://api.internal.example.com/v1/events
+  auth_mode: bearer
+  bearer:
+    token: ${API_TOKEN}
+  tls:
+    ca_file: /etc/otel/certs/internal-ca.pem
+```
+
+#### Mutual TLS
+
+Some APIs authenticate the collector with a client certificate rather than a token. Set
+`auth_mode: none` when the certificate is the only credential.
+
+```yaml
+restapi:
+  url: https://api.partner.example.com/v1/records
+  auth_mode: none
+  tls:
+    ca_file: /etc/otel/certs/partner-ca.pem
+    cert_file: /etc/otel/certs/collector.pem
+    key_file: /etc/otel/certs/collector-key.pem
+```
+
+> [!WARNING]
+> `insecure_skip_verify: true` disables certificate verification entirely, which allows an
+> on-path attacker to intercept the connection and any credentials sent over it. Prefer
+> `ca_file`. Reserve `insecure_skip_verify` for local testing.
 
 ### Time-Bounding Configuration
 
