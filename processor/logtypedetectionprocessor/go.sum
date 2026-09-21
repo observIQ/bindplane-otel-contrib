@@ -44,8 +44,8 @@ github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee h1:W5t00kpgFd
 github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee/go.mod h1:yWuevngMOJpCy52FWWMvUC8ws7m/LJsjYzDa0/r8luk=
 github.com/open-telemetry/opamp-go v0.23.0 h1:k7h7w/muprut9/DAhUC4anX4v7hIdgO02gIsSjV4uq0=
 github.com/open-telemetry/opamp-go v0.23.0/go.mod h1:DIIVdkLefdqPW5L+4I2twmAicVrTB0Bp5XJAfedZzAM=
-github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages v0.159.0 h1:TFrC0x4hAZ7K4n/hyTF5K7qf6gja7nfJW1ePY+qqCvk=
-github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages v0.159.0/go.mod h1:cCs8yIxZMSpl1DGXKkTqa7uzGUVdkfGY7QnmyiRINMk=
+github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages v0.160.0 h1:T1soWCeWreIpP0i9as+yvCKKnGnLk9Qg0+BM1tIWLk4=
+github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages v0.160.0/go.mod h1:4/0aiippB6HsfFw27/4pblNcbkyUkDnkKM/M83u04ww=
 github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.160.0 h1:1qEz630ZgNwbQXAKLZHNNysnE4d2Qj6FAAO+Q/N4yhs=
 github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.160.0/go.mod h1:SH+uFxl3xDCEaSNfk4o9FBRuIfGDWlmxHBpPx73z7OQ=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=

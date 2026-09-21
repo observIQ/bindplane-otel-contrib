@@ -76,8 +76,8 @@ and the matchers in use are kept — upgrade the collector to move to a new majo
 When no version is held yet, whatever the server offers is accepted. With
 `opamp.matchers_version` set, the processor asks for the newest set at or below that
 version and refuses anything above it, so the matchers in use are pinned until the
-ceiling is raised. The ceiling applies to what the server offers; stored matchers
-already in use are kept even if the ceiling is later lowered. The server is asked at startup; it may also push `updateMatchers`
+ceiling is raised. The ceiling applies to stored matchers too, so lowering it
+drops a stored set above it on the next restart. The server is asked at startup; it may also push `updateMatchers`
 later, which is handled the same way.
 
 Versions only move forward. A lower version is never taken up, including after

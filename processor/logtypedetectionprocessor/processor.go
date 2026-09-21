@@ -242,10 +242,8 @@ func (p *logTypeDetectionProcessor) startStorage(ctx context.Context, host compo
 	if err != nil {
 		return fmt.Errorf("create storage client: %w", err)
 	}
-	p.storageClient = client
-
 	if p.cfg.OpAMP != nil {
-		if err := p.loadStoredMatchers(ctx); err != nil {
+		if err := p.loadStoredMatchers(ctx, client); err != nil {
 			return errors.Join(err, client.Close(ctx))
 		}
 	}
@@ -254,6 +252,7 @@ func (p *logTypeDetectionProcessor) startStorage(ctx context.Context, host compo
 	if err := client.LoadStorageData(ctx, fingerprintStorageKey, &saved); err != nil {
 		return errors.Join(fmt.Errorf("load log types: %w", err), client.Close(ctx))
 	}
+	p.storageClient = client
 
 	if saved.MatcherHash == p.matcherHash {
 		p.addSavedLogTypes(saved.LogTypes)

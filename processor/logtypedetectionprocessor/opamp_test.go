@@ -28,9 +28,11 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/extension"
+	"go.opentelemetry.io/collector/pipeline"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
+	"github.com/observiq/bindplane-otel-contrib/internal/storageclient"
 	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadata"
 )
 
@@ -288,6 +290,15 @@ func waitForMatchers(t *testing.T, p *logTypeDetectionProcessor) {
 	}
 }
 
+func requireStillAsking(t *testing.T, p *logTypeDetectionProcessor) {
+	t.Helper()
+	select {
+	case <-p.matchersReady:
+		t.Fatal("a refused reply must leave the processor asking the server")
+	default:
+	}
+}
+
 func matcherNames(p *logTypeDetectionProcessor) []string {
 	p.matcherMux.RLock()
 	defer p.matcherMux.RUnlock()
@@ -540,9 +551,73 @@ func TestOpAMPMaxVersionSentWithRequest(t *testing.T) {
 	require.NoError(t, p.start(ctx, host))
 	defer func() { require.NoError(t, p.stop(ctx)) }()
 
-	waitForMatchers(t, p)
-	requests := mock.sentRequests()
-	require.Len(t, requests, 1)
-	require.Equal(t, "1.5.0", requests[0].MaxVersion)
-	require.Empty(t, p.currentVersion(), "a reply above the ceiling is refused")
+	require.Eventually(t, func() bool { return len(mock.sentRequests()) > 0 }, time.Second, 10*time.Millisecond)
+	require.Equal(t, "1.5.0", mock.sentRequests()[0].MaxVersion)
+	require.Never(t, func() bool { return p.currentVersion() != "" }, 200*time.Millisecond, 10*time.Millisecond,
+		"a reply above the ceiling is refused")
+	requireStillAsking(t, p)
 }
+
+// A stored version above matchers_version is discarded on restart.
+func TestOpAMPStoredMatchersRespectMaxVersion(t *testing.T) {
+	ctx := context.Background()
+	id := component.MustNewID("logtypedetection")
+	matchers := []MatcherConfig{{Name: "nginx", Method: MatcherTypeStartsWith, Value: "GET "}}
+
+	first := versionedMock(id, "2.5.0", matchers)
+	host, storageID := matcherStorageHost(t, first)
+
+	cfg := opampConfig(nil)
+	cfg.StorageID = storageID
+
+	p := newOpAMPProcessor(t, cfg, id)
+	require.NoError(t, p.start(ctx, host))
+	waitForMatchers(t, p)
+	require.Equal(t, "2.5.0", p.currentVersion())
+	require.NoError(t, p.stop(ctx))
+
+	second := versionedMock(id, "2.1.0", matchers)
+	host2 := &testHost{components: map[component.ID]component.Component{
+		*storageID: host.GetExtensions()[*storageID],
+		opampID:    second,
+	}}
+
+	capped := opampConfig(nil)
+	capped.StorageID = storageID
+	capped.OpAMP.MatchersVersion = "2.1.0"
+
+	restarted := newOpAMPProcessor(t, capped, id)
+	require.NoError(t, restarted.start(ctx, host2))
+	defer func() { require.NoError(t, restarted.stop(ctx)) }()
+
+	waitForMatchers(t, restarted)
+	require.Equal(t, "2.1.0", restarted.currentVersion(), "the capped version from the server must win")
+}
+
+// Unreadable stored matchers are discarded rather than failing startup.
+func TestOpAMPStoredMatchersCorrupt(t *testing.T) {
+	ctx := context.Background()
+	id := component.MustNewID("logtypedetection")
+
+	mock := &mockOpAMPExtension{msgChan: make(chan *protobufs.CustomMessage, 1)}
+	host, storageID := matcherStorageHost(t, mock)
+
+	client, err := storageclient.NewStorageClient(ctx, host, component.KindProcessor, *storageID, id, pipeline.SignalLogs)
+	require.NoError(t, err)
+	require.NoError(t, client.SaveStorageData(ctx, matcherStorageKey, corruptStorageData{}))
+	require.NoError(t, client.Close(ctx))
+
+	cfg := opampConfig(nil)
+	cfg.StorageID = storageID
+
+	p := newOpAMPProcessor(t, cfg, id)
+	require.NoError(t, p.start(ctx, host))
+	defer func() { require.NoError(t, p.stop(ctx)) }()
+
+	require.Empty(t, p.currentVersion())
+}
+
+type corruptStorageData struct{}
+
+func (corruptStorageData) Marshal() ([]byte, error) { return []byte("{not json"), nil }
+func (corruptStorageData) Unmarshal([]byte) error   { return nil }
