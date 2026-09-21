@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	logTypeDetectionCapability = "com.bindplane.logtypedetection"
+	logTypeDetectionCapability = "logtypedetection.matchers"
 	requestMatchersType        = "requestMatchers"
 	updateMatchersType         = "updateMatchers"
 	matchersUpToDateType       = "matchersUpToDate"
@@ -42,9 +42,11 @@ const (
 
 // matchersMessage is the payload of every message in the capability.
 type matchersMessage struct {
-	Processor component.ID    `yaml:"processor"`
-	Version   string          `yaml:"version"`
-	Matchers  []MatcherConfig `yaml:"matchers"`
+	Processor component.ID `yaml:"processor"`
+	Version   string       `yaml:"version"`
+	// MaxVersion is the highest set version the processor accepts, empty for the newest
+	MaxVersion string          `yaml:"max_version,omitempty"`
+	Matchers   []MatcherConfig `yaml:"matchers"`
 }
 
 // persistedMatchers is the stored form of the matchers received over opamp.
@@ -64,20 +66,16 @@ func (m *persistedMatchers) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, m)
 }
 
-// startOpAMP applies stored matchers, registers the capability, and asks the server for newer ones.
-func (p *logTypeDetectionProcessor) startOpAMP(ctx context.Context, host component.Host) error {
-	if err := p.loadStoredMatchers(ctx); err != nil {
-		return err
-	}
-
-	ext, ok := host.GetExtensions()[*p.cfg.OpAMP]
+// startOpAMP registers the capability and asks the server for newer matchers.
+func (p *logTypeDetectionProcessor) startOpAMP(host component.Host) error {
+	ext, ok := host.GetExtensions()[p.cfg.OpAMP.Extension]
 	if !ok {
-		return fmt.Errorf("opamp extension %q does not exist", p.cfg.OpAMP)
+		return fmt.Errorf("opamp extension %q does not exist", p.cfg.OpAMP.Extension)
 	}
 
 	registry, ok := ext.(opampcustommessages.CustomCapabilityRegistry)
 	if !ok {
-		return fmt.Errorf("extension %q is not a custom message registry", p.cfg.OpAMP)
+		return fmt.Errorf("extension %q is not a custom message registry", p.cfg.OpAMP.Extension)
 	}
 
 	handler, err := registry.Register(logTypeDetectionCapability)
@@ -86,8 +84,7 @@ func (p *logTypeDetectionProcessor) startOpAMP(ctx context.Context, host compone
 	}
 	p.opampHandler = handler
 
-	p.opampWg.Add(1)
-	go p.processOpAMPMessages()
+	p.opampWg.Go(p.processOpAMPMessages)
 	p.opampWg.Go(p.awaitMatchers)
 
 	return nil
@@ -104,7 +101,11 @@ func (p *logTypeDetectionProcessor) loadStoredMatchers(ctx context.Context) erro
 		return nil
 	}
 
-	if _, err := p.applyMatchers(saved.Version, saved.Matchers); err != nil {
+	ver, err := version.NewVersion(saved.Version)
+	if err == nil {
+		_, err = p.useMatchers(ver, saved.Matchers)
+	}
+	if err != nil {
 		p.logger.Warn("Discarding stored matchers.", zap.String("version", saved.Version), zap.Error(err))
 		return nil
 	}
@@ -136,7 +137,7 @@ func (p *logTypeDetectionProcessor) stopOpAMP() {
 
 // awaitMatchers re-asks the server for newer matchers until it answers, the timeout elapses, or shutdown.
 func (p *logTypeDetectionProcessor) awaitMatchers() {
-	request, err := yaml.Marshal(matchersMessage{Processor: p.id, Version: p.currentVersion()})
+	request, err := yaml.Marshal(matchersMessage{Processor: p.id, Version: p.currentVersion(), MaxVersion: p.cfg.OpAMP.MatchersVersion})
 	if err != nil {
 		p.logger.Error("Failed to encode matchers request.", zap.Error(err))
 		p.matchersDone()
@@ -144,8 +145,8 @@ func (p *logTypeDetectionProcessor) awaitMatchers() {
 	}
 
 	var timedOut <-chan time.Time
-	if p.cfg.OpAMPRequestTimeout > 0 {
-		timeout := time.NewTimer(p.cfg.OpAMPRequestTimeout)
+	if p.cfg.OpAMP.RequestTimeout > 0 {
+		timeout := time.NewTimer(p.cfg.OpAMP.RequestTimeout)
 		defer timeout.Stop()
 		timedOut = timeout.C
 	}
@@ -165,7 +166,7 @@ func (p *logTypeDetectionProcessor) awaitMatchers() {
 			p.logger.Debug("Still waiting on the opamp server, asking again.")
 		case <-timedOut:
 			p.logger.Warn("Timed out waiting for matchers from the opamp server.",
-				zap.Duration("timeout", p.cfg.OpAMPRequestTimeout))
+				zap.Duration("timeout", p.cfg.OpAMP.RequestTimeout))
 			p.matchersDone()
 			return
 		case <-p.opampCtx.Done():
@@ -174,27 +175,16 @@ func (p *logTypeDetectionProcessor) awaitMatchers() {
 	}
 }
 
+// sendOpAMPMessage queues a message, treating an already-queued one as sent.
 func (p *logTypeDetectionProcessor) sendOpAMPMessage(messageType string, payload []byte) error {
-	for {
-		sending, err := p.opampHandler.SendMessage(messageType, payload)
-		switch {
-		case err == nil:
-			return nil
-		case errors.Is(err, types.ErrCustomMessagePending):
-			select {
-			case <-sending:
-			case <-p.opampCtx.Done():
-				return p.opampCtx.Err()
-			}
-		default:
-			return err
-		}
+	_, err := p.opampHandler.SendMessage(messageType, payload)
+	if errors.Is(err, types.ErrCustomMessagePending) {
+		return nil
 	}
+	return err
 }
 
 func (p *logTypeDetectionProcessor) processOpAMPMessages() {
-	defer p.opampWg.Done()
-
 	for {
 		select {
 		case msg := <-p.opampHandler.Message():
@@ -264,31 +254,30 @@ func (p *logTypeDetectionProcessor) decodeMatchersMessage(msg *protobufs.CustomM
 	return decoded, true
 }
 
-// matchersDone ends the wait on the server and settles any held-back log types.
+// matchersDone ends the wait on the server.
 func (p *logTypeDetectionProcessor) matchersDone() {
-	p.matchersOnce.Do(func() {
-		close(p.matchersReady)
-		p.matcherMux.Lock()
-		defer p.matcherMux.Unlock()
-		p.resolvePendingLogTypes()
-	})
+	p.matchersOnce.Do(func() { close(p.matchersReady) })
 }
 
-// applyMatchers puts a newer version of the same major in use, reporting whether it did.
+// applyMatchers puts an offered version at or below matchers_version in use, reporting whether it did.
 func (p *logTypeDetectionProcessor) applyMatchers(ver string, matchers []MatcherConfig) (bool, error) {
 	offered, err := version.NewVersion(ver)
 	if err != nil {
 		return false, fmt.Errorf("parse version %q: %w", ver, err)
 	}
 
-	if current := p.currentVersion(); current != "" {
-		held, err := version.NewVersion(current)
-		if err != nil {
-			return false, fmt.Errorf("parse held version %q: %w", current, err)
-		}
+	if p.maxVersion != nil && offered.GreaterThan(p.maxVersion) {
+		return false, fmt.Errorf("version %s is above matchers_version %s", ver, p.cfg.OpAMP.MatchersVersion)
+	}
 
+	return p.useMatchers(offered, matchers)
+}
+
+// useMatchers puts a newer version of the same major in use, reporting whether it did.
+func (p *logTypeDetectionProcessor) useMatchers(offered *version.Version, matchers []MatcherConfig) (bool, error) {
+	if held := p.heldVersion(); held != nil {
 		if offered.Segments()[0] != held.Segments()[0] {
-			return false, fmt.Errorf("version %s is a breaking change from %s", ver, current)
+			return false, fmt.Errorf("version %s is a breaking change from %s", offered.Original(), held.Original())
 		}
 
 		if !offered.GreaterThan(held) {
@@ -302,7 +291,7 @@ func (p *logTypeDetectionProcessor) applyMatchers(ver string, matchers []Matcher
 		}
 	}
 
-	if err := p.setServerMatchers(ver, matchers); err != nil {
+	if err := p.setServerMatchers(offered, matchers); err != nil {
 		return false, err
 	}
 

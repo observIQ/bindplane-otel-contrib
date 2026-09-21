@@ -33,8 +33,10 @@ on each log record.
 | storage | component ID | | ID of a storage extension used to persist state across restarts: the fingerprint-to-log-type map and, with `opamp`, the matchers received from the server. The map is loaded on startup, saved periodically, and saved on shutdown. The persisted map is tied to the `matchers` it was detected with, so editing, renaming, reordering, or removing a matcher discards it and log types are detected again from scratch. |
 | fingerprint_persist_interval | duration | `5m` | How often the fingerprint map is written to the storage extension. Only used when `storage` is set. |
 | max_saved_fingerprints | int | `10000` | Maximum number of fingerprint-to-log-type mappings cached in memory. Once full, the least recently seen fingerprint is evicted. Evicted mappings are also dropped from `storage` on the next save. |
-| opamp | component ID | | ID of an opamp extension. When set, the processor asks the opamp server for matchers on startup and merges them with the `matchers` below. See [OpAMP Matchers](#opamp-matchers). |
-| opamp_request_timeout | duration | `30s` | How long the processor keeps asking the opamp server for matchers after startup. Set to `0` to keep asking indefinitely. Only used when `opamp` is set. |
+| opamp | object | | When set, the processor asks an opamp server for matchers on startup and merges them with the `matchers` below. See [OpAMP Matchers](#opamp-matchers). |
+| opamp.extension | component ID | | ID of the opamp extension to send requests through. Required when `opamp` is set. |
+| opamp.matchers_version | string | | Highest matcher set version to accept from the server. The server answers with the newest set at or below it. Leave empty to always take the newest. |
+| opamp.request_timeout | duration | `30s` | How long the processor keeps asking the server for matchers after startup. Set to `0` to keep asking indefinitely. |
 
 ### Matchers
 
@@ -50,9 +52,18 @@ or slice body is stringified before it is tested. Target the log structure to av
 
 ### OpAMP Matchers
 
-When `opamp` is set, the processor registers the `com.bindplane.logtypedetection`
+When `opamp` is set, the processor registers the `logtypedetection.matchers`
 custom capability with the opamp extension and asks the server for matchers on
-startup.
+startup. Any OpAMP server that speaks the messages below can supply matchers.
+
+```yaml
+processors:
+  log_type_detection:
+    opamp:
+      extension: opamp
+      matchers_version: 1.5.0
+      request_timeout: 30s
+```
 
 Matchers are versioned with [semver](https://semver.org). The processor reports
 the version it holds and the server answers with either `updateMatchers`, if it
@@ -62,9 +73,12 @@ when the version has actually changed.
 Only a higher version of the **same major** is taken up. A major bump is treated
 as a breaking change the running collector may not understand, so it is refused
 and the matchers in use are kept — upgrade the collector to move to a new major.
-When no version is held yet, whatever the server offers is accepted. The version
-check is the only exchange: the server is asked at startup and does not push
-matchers at other times, so a matcher change takes effect on the next restart.
+When no version is held yet, whatever the server offers is accepted. With
+`opamp.matchers_version` set, the processor asks for the newest set at or below that
+version and refuses anything above it, so the matchers in use are pinned until the
+ceiling is raised. The ceiling applies to what the server offers; stored matchers
+already in use are kept even if the ceiling is later lowered. The server is asked at startup; it may also push `updateMatchers`
+later, which is handled the same way.
 
 Versions only move forward. A lower version is never taken up, including after
 a restart when matchers are stored, so to roll back publish the previous
@@ -82,7 +96,7 @@ With `storage` set, the matchers received on the last run are put in use
 before startup finishes. Either way the request to the server runs in the background and never
 holds up the collector: the processor starts with the matchers it has (from
 config, plus any stored ones) and asks the server every 5s until it answers,
-`opamp_request_timeout` elapses (`0` keeps asking indefinitely), or the
+`opamp.request_timeout` elapses (`0` keeps asking indefinitely), or the
 collector shuts down. The opamp connection is only established once the
 collector is up, so the first few requests on a fresh install are expected to
 fail and be retried. Logs read before the server answers are labelled with the
@@ -90,10 +104,8 @@ matchers in hand; if the server's set differs, log types detected so far are
 discarded and detected again.
 
 The matchers are stored alongside the fingerprint map, so a restart restores
-both together. If the map was detected
-with matchers that are not in hand at startup, it is held back until the
-exchange with the server ends (an answer or the timeout) and then restored only
-if the matcher set it was detected with is the one in use.
+both together. The map is kept only if it was detected with the matchers in
+hand at startup.
 
 #### Messages
 
@@ -101,11 +113,13 @@ All three message types carry the same YAML payload. `processor` must be the
 full component ID of the processor the message is for; a message naming a
 different processor is ignored.
 
-`requestMatchers`, sent by the processor — `version` is empty on a first run:
+`requestMatchers`, sent by the processor — `version` is empty on a first run and
+`max_version` is only present when `opamp.matchers_version` is set:
 
 ```yaml
 processor: log_type_detection
 version: 1.2.3
+max_version: 1.5.0
 ```
 
 `updateMatchers`, sent by the server when it has something newer:

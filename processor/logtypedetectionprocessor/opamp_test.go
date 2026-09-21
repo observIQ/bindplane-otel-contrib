@@ -36,8 +36,7 @@ import (
 
 var opampID = component.MustNewID("opamp")
 
-// mockOpAMPExtension answers a requestMatchers message with the matchers it was
-// given, standing in for an opamp server.
+// mockOpAMPExtension stands in for an opamp server.
 type mockOpAMPExtension struct {
 	component.Component
 
@@ -117,7 +116,7 @@ func newOpAMPProcessor(t *testing.T, cfg *Config, id component.ID) *logTypeDetec
 
 func opampConfig(matchers []MatcherConfig) *Config {
 	cfg := createDefaultConfig().(*Config)
-	cfg.OpAMP = &opampID
+	cfg.OpAMP = &OpAMPConfig{Extension: opampID, RequestTimeout: defaultOpAMPRequestTimeout}
 	cfg.Matchers = matchers
 	return cfg
 }
@@ -145,6 +144,7 @@ func TestOpAMPMatchersRequestedOnStart(t *testing.T) {
 	require.Len(t, requests, 1)
 	require.Equal(t, id, requests[0].Processor)
 	require.Empty(t, requests[0].Version, "a first run has no version to report")
+	require.Empty(t, requests[0].MaxVersion, "no ceiling unless opamp::matchers_version is set")
 
 	out, err := p.processLogs(ctx, logsFromBodies(`{"kind":"Event"}`))
 	require.NoError(t, err)
@@ -237,7 +237,7 @@ func TestOpAMPMatchersForOtherProcessorIgnored(t *testing.T) {
 	host := &testHost{components: map[component.ID]component.Component{opampID: mock}}
 
 	cfg := opampConfig([]MatcherConfig{{Name: "mine", Method: MatcherTypeStartsWith, Value: "GET "}})
-	cfg.OpAMPRequestTimeout = 100 * time.Millisecond
+	cfg.OpAMP.RequestTimeout = 100 * time.Millisecond
 
 	p := newOpAMPProcessor(t, cfg, id)
 	require.NoError(t, p.start(ctx, host))
@@ -262,7 +262,7 @@ func TestOpAMPInvalidMatchersRejected(t *testing.T) {
 	host := &testHost{components: map[component.ID]component.Component{opampID: mock}}
 
 	cfg := opampConfig([]MatcherConfig{{Name: "mine", Method: MatcherTypeStartsWith, Value: "GET "}})
-	cfg.OpAMPRequestTimeout = 100 * time.Millisecond
+	cfg.OpAMP.RequestTimeout = 100 * time.Millisecond
 
 	p := newOpAMPProcessor(t, cfg, id)
 	require.NoError(t, p.start(ctx, host))
@@ -299,9 +299,7 @@ func matcherNames(p *logTypeDetectionProcessor) []string {
 	return names
 }
 
-// On restart the persisted fingerprint map must come back, even though the
-// matcher set is not complete until the server answers. Otherwise a restart
-// would relabel every already-seen log structure from scratch.
+// The persisted fingerprint map is restored alongside the stored matchers on restart.
 func TestOpAMPRestartKeepsPersistedLogTypes(t *testing.T) {
 	ctx := context.Background()
 	id := component.MustNewID("logtypedetection")
@@ -353,7 +351,7 @@ func TestOpAMPRestartKeepsPersistedLogTypes(t *testing.T) {
 	require.Equal(t, 1, second.logTypes.Len(), "persisted log types should be restored once the server's matchers are in place")
 }
 
-// Held-back log types are settled when the server never answers, not left to be overwritten.
+// Log types detected under other matchers are discarded on restart.
 func TestOpAMPTimeoutResolvesPendingLogTypes(t *testing.T) {
 	ctx := context.Background()
 	id := component.MustNewID("logtypedetection")
@@ -385,15 +383,12 @@ func TestOpAMPTimeoutResolvesPendingLogTypes(t *testing.T) {
 	require.NoError(t, first.stop(ctx))
 
 	cfg := opampConfig(matchers)
-	cfg.OpAMPRequestTimeout = 50 * time.Millisecond
+	cfg.OpAMP.RequestTimeout = 50 * time.Millisecond
 	second, host := newRun(cfg)
 	require.NoError(t, second.start(ctx, host))
 	defer func() { require.NoError(t, second.stop(ctx)) }()
 
 	waitForMatchers(t, second)
-	second.matcherMux.RLock()
-	defer second.matcherMux.RUnlock()
-	require.Nil(t, second.pendingLogTypes)
 	require.Equal(t, 0, second.logTypes.Len(), "detected under different matchers, so discarded")
 }
 
@@ -427,8 +422,7 @@ func versionedMock(id component.ID, version string, matchers []MatcherConfig) *m
 	}
 }
 
-// Stored matchers are used immediately on restart, and the version they were
-// stored with is what the processor reports to the server.
+// Stored matchers are used on restart and their version is reported to the server.
 func TestOpAMPStoredMatchersReusedAcrossRestart(t *testing.T) {
 	ctx := context.Background()
 	id := component.MustNewID("logtypedetection")
@@ -478,10 +472,14 @@ func TestOpAMPVersionAcceptance(t *testing.T) {
 	testCases := []struct {
 		name        string
 		held        string
+		maxVersion  string
 		offered     string
 		wantApplied bool
 		wantErr     string
 	}{
+		{name: "at max version", held: "1.2.3", maxVersion: "1.5.0", offered: "1.5.0", wantApplied: true},
+		{name: "above max version refused", held: "1.2.3", maxVersion: "1.5.0", offered: "1.6.0", wantErr: "above matchers_version"},
+		{name: "above max version refused on first run", maxVersion: "1.5.0", offered: "1.6.0", wantErr: "above matchers_version"},
 		{name: "patch bump", held: "1.2.3", offered: "1.2.4", wantApplied: true},
 		{name: "minor bump", held: "1.2.3", offered: "1.3.0", wantApplied: true},
 		{name: "same version", held: "1.2.3", offered: "1.2.3"},
@@ -494,7 +492,9 @@ func TestOpAMPVersionAcceptance(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			p := newOpAMPProcessor(t, opampConfig(nil), id)
+			cfg := opampConfig(nil)
+			cfg.OpAMP.MatchersVersion = tc.maxVersion
+			p := newOpAMPProcessor(t, cfg, id)
 			if tc.held != "" {
 				applied, err := p.applyMatchers(tc.held, matchers)
 				require.NoError(t, err)
@@ -518,4 +518,31 @@ func TestOpAMPVersionAcceptance(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The configured ceiling is sent with the request and enforced on the reply.
+func TestOpAMPMaxVersionSentWithRequest(t *testing.T) {
+	ctx := context.Background()
+	id := component.MustNewID("logtypedetection")
+
+	mock := &mockOpAMPExtension{
+		msgChan:      make(chan *protobufs.CustomMessage, 1),
+		autoReply:    true,
+		replyFor:     id,
+		replyVersion: "1.6.0",
+		reply:        []MatcherConfig{{Name: "too_new", Method: MatcherTypeStartsWith, Value: "GET "}},
+	}
+	host := &testHost{components: map[component.ID]component.Component{opampID: mock}}
+
+	cfg := opampConfig(nil)
+	cfg.OpAMP.MatchersVersion = "1.5.0"
+	p := newOpAMPProcessor(t, cfg, id)
+	require.NoError(t, p.start(ctx, host))
+	defer func() { require.NoError(t, p.stop(ctx)) }()
+
+	waitForMatchers(t, p)
+	requests := mock.sentRequests()
+	require.Len(t, requests, 1)
+	require.Equal(t, "1.5.0", requests[0].MaxVersion)
+	require.Empty(t, p.currentVersion(), "a reply above the ceiling is refused")
 }
