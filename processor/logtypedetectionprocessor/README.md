@@ -65,47 +65,30 @@ processors:
       request_timeout: 30s
 ```
 
-Matchers are versioned with [semver](https://semver.org). The processor reports
-the version it holds and the server answers with either `updateMatchers`, if it
-has a newer set, or `matchersUpToDate`. A full matcher set only crosses the wire
-when the version has actually changed.
+Matcher sets are versioned with [semver](https://semver.org) and only move
+forward. The processor reports the version it holds and the server answers with
+`updateMatchers` or `matchersUpToDate`, so a full set only crosses the wire when
+the version changed. A major bump is refused as a breaking change; upgrade the
+collector to move to a new major. `opamp.matchers_version` caps what is
+accepted, including stored matchers on restart. To roll back, publish the
+previous matchers under a higher version.
 
-Only a higher version of the **same major** is taken up. A major bump is treated
-as a breaking change the running collector may not understand, so it is refused
-and the matchers in use are kept — upgrade the collector to move to a new major.
-When no version is held yet, whatever the server offers is accepted. With
-`opamp.matchers_version` set, the processor asks for the newest set at or below that
-version and refuses anything above it, so the matchers in use are pinned until the
-ceiling is raised. The ceiling applies to stored matchers too, so lowering it
-drops a stored set above it on the next restart. The server is asked at startup; it may also push `updateMatchers`
-later, which is handled the same way.
+Server matchers are merged with the configured `matchers` and ordered by
+`priority`, config-first on ties. They are validated the same way; an invalid or
+refused set is ignored and the matchers in use are kept.
 
-Versions only move forward. A lower version is never taken up, including after
-a restart when matchers are stored, so to roll back publish the previous
-matchers under a new, higher version.
+The request runs in the background and never holds up the collector. The
+processor starts with what it has — config, plus any stored matchers — and asks
+every 5s until the server answers, `opamp.request_timeout` elapses (`0` keeps
+asking indefinitely), or the collector shuts down. The opamp connection is only
+established once the collector is up, so the first few requests on a fresh
+install are expected to fail and be retried. Logs read before the server answers
+are labelled with the matchers in hand; if the server's set differs, log types
+detected so far are discarded and detected again.
 
-Matchers from the server are merged with the `matchers` in the config and the
-combined set is ordered by `priority` as usual. Matchers of equal priority keep
-config-first order. Server matchers are validated the same way configured ones
-are; an invalid or refused set is ignored and does not disturb the matchers in
-use.
-
-#### Startup
-
-With `storage` set, the matchers received on the last run are put in use
-before startup finishes. Either way the request to the server runs in the background and never
-holds up the collector: the processor starts with the matchers it has (from
-config, plus any stored ones) and asks the server every 5s until it answers,
-`opamp.request_timeout` elapses (`0` keeps asking indefinitely), or the
-collector shuts down. The opamp connection is only established once the
-collector is up, so the first few requests on a fresh install are expected to
-fail and be retried. Logs read before the server answers are labelled with the
-matchers in hand; if the server's set differs, log types detected so far are
-discarded and detected again.
-
-The matchers are stored alongside the fingerprint map, so a restart restores
-both together. The map is kept only if it was detected with the matchers in
-hand at startup.
+With `storage` set, matchers are persisted alongside the fingerprint map and
+both are restored together. The map is kept only if it was detected with the
+matchers in hand at startup.
 
 #### Messages
 
