@@ -34,6 +34,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/receiver/receivertest"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestInitializePagination_NoCheckpoint_UsesConfig(t *testing.T) {
@@ -2420,6 +2421,51 @@ func TestExtractOriginals(t *testing.T) {
 			responseField: "results",
 			want:          nil,
 		},
+		{
+			name: "empty body yields no originals",
+			body: "   ",
+			want: nil,
+		},
+		{
+			name: "body that is not JSON yields no originals",
+			body: `not json`,
+			want: nil,
+		},
+		{
+			name: "body that is a JSON scalar yields no originals",
+			body: `42`,
+			want: nil,
+		},
+		{
+			name:          "malformed path segment yields no originals",
+			body:          `{"results":[{"id":"1"}]}`,
+			responseField: "results[abc]",
+			want:          nil,
+		},
+		{
+			name:          "unterminated bracket yields no originals",
+			body:          `{"results":[{"id":"1"}]}`,
+			responseField: "results[0",
+			want:          nil,
+		},
+		{
+			name:          "walking into a scalar yields no originals",
+			body:          `{"results":"not an object"}`,
+			responseField: "results.nested",
+			want:          nil,
+		},
+		{
+			name:          "indexing a non-array yields no originals",
+			body:          `{"results":{"id":"1"}}`,
+			responseField: "results[0]",
+			want:          nil,
+		},
+		{
+			name:          "index out of range yields no originals",
+			body:          `{"intervals":[{"readings":[{"id":"1"}]}]}`,
+			responseField: "intervals[9].readings",
+			want:          nil,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -2606,4 +2652,108 @@ func TestPoll_BodyOptionsDisabledByDefault(t *testing.T) {
 	require.Equal(t, pcommon.ValueTypeMap, record.Body().Type())
 	require.Equal(t, "1", record.Body().Map().AsRaw()["id"])
 	require.Equal(t, 0, record.Attributes().Len())
+}
+
+// stubRESTAPIClient returns canned responses so tests can drive fetchDataPage
+// with data the real client would never produce.
+type stubRESTAPIClient struct {
+	data      []map[string]any
+	originals [][]byte
+	metadata  map[string]any
+}
+
+func (s *stubRESTAPIClient) FetchFullResponse(context.Context, apiRequest) (map[string]any, []byte, http.Header, error) {
+	return s.metadata, nil, http.Header{}, nil
+}
+
+func (s *stubRESTAPIClient) FetchNDJSON(context.Context, apiRequest, bool) ([]map[string]any, [][]byte, map[string]any, http.Header, error) {
+	return s.data, s.originals, s.metadata, http.Header{}, nil
+}
+
+func (s *stubRESTAPIClient) Shutdown() error { return nil }
+
+// TestFetchDataPage_DropsMisalignedOriginals covers the guard in fetchDataPage.
+// Records and original text come from two separate walks of the response, and
+// pairing them when the counts disagree would attach one record's text to
+// another. No real response reaches this state — with response_field set both
+// walks follow the same path, and an ambiguous array yields nil originals rather
+// than a short slice — so a stub client supplies the mismatch directly.
+func TestFetchDataPage_DropsMisalignedOriginals(t *testing.T) {
+	testCases := []struct {
+		name          string
+		data          []map[string]any
+		originals     [][]byte
+		wantOriginals bool
+	}{
+		{
+			name:          "aligned originals are kept",
+			data:          []map[string]any{{"id": "1"}, {"id": "2"}},
+			originals:     [][]byte{[]byte(`{"id":"1"}`), []byte(`{"id":"2"}`)},
+			wantOriginals: true,
+		},
+		{
+			name:      "fewer originals than records",
+			data:      []map[string]any{{"id": "1"}, {"id": "2"}, {"id": "3"}},
+			originals: [][]byte{[]byte(`{"id":"1"}`), []byte(`{"id":"2"}`)},
+		},
+		{
+			name:      "more originals than records",
+			data:      []map[string]any{{"id": "1"}},
+			originals: [][]byte{[]byte(`{"id":"1"}`), []byte(`{"id":"2"}`)},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			core, logs := observer.New(zap.WarnLevel)
+
+			cfg := &Config{
+				URL:               "https://api.example.com/data",
+				AuthMode:          authModeNone,
+				ResponseFormat:    responseFormatNDJSON,
+				Raw:               true,
+				Pagination:        PaginationConfig{Mode: paginationModeNone},
+				MinPollInterval:   10 * time.Second,
+				MaxPollInterval:   5 * time.Minute,
+				BackoffMultiplier: 2.0,
+			}
+
+			b := &baseReceiver{
+				cfg:    cfg,
+				logger: zap.New(core),
+				client: &stubRESTAPIClient{data: tc.data, originals: tc.originals},
+			}
+
+			_, data, originals, err := b.fetchDataPage(context.Background(), apiRequest{URL: cfg.URL})
+			require.NoError(t, err)
+			require.Equal(t, tc.data, data, "the records themselves must survive either way")
+
+			if tc.wantOriginals {
+				require.Equal(t, tc.originals, originals)
+				require.Zero(t, logs.Len(), "an aligned page must not warn")
+				return
+			}
+
+			require.Nil(t, originals, "a mismatched page must drop the originals entirely")
+			require.Equal(t, 1, logs.Len(), "dropping the originals must be reported")
+			require.Contains(t, logs.All()[0].Message, "does not line up")
+		})
+	}
+}
+
+// TestConvertJSONToLogs_DroppedOriginalsFallBack pairs with the guard above: once
+// fetchDataPage drops the originals, records fall back to the parsed body rather
+// than silently losing the option.
+func TestConvertJSONToLogs_DroppedOriginalsFallBack(t *testing.T) {
+	data := []map[string]any{{"id": "1"}, {"id": "2"}}
+	cfg := &Config{Raw: true, IncludeLogRecordOriginal: true}
+
+	logs := convertJSONToLogs(data, nil, cfg, zap.NewNop())
+
+	records := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
+	require.Equal(t, 2, records.Len())
+	for i := 0; i < records.Len(); i++ {
+		require.Equal(t, pcommon.ValueTypeMap, records.At(i).Body().Type())
+		require.Zero(t, records.At(i).Attributes().Len())
+	}
 }
