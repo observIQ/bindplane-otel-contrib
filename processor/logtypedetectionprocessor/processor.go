@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hashicorp/go-version"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/observiq/bindplane-otel-contrib/internal/storageclient"
 	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/fingerprint"
@@ -52,15 +53,15 @@ type logTypeDetectionProcessor struct {
 	matcherMux     sync.RWMutex
 	matchers       []Matcher
 	matcherHash    string
-	matcherVersion string
+	matcherVersion *version.Version
+	maxVersion     *version.Version
 
-	opampHandler    opampcustommessages.CustomCapabilityHandler
-	opampCtx        context.Context
-	opampCancel     context.CancelFunc
-	opampWg         sync.WaitGroup
-	matchersReady   chan struct{}
-	matchersOnce    sync.Once
-	pendingLogTypes *persistedFingerprints
+	opampHandler  opampcustommessages.CustomCapabilityHandler
+	opampCtx      context.Context
+	opampCancel   context.CancelFunc
+	opampWg       sync.WaitGroup
+	matchersReady chan struct{}
+	matchersOnce  sync.Once
 
 	stopped bool
 
@@ -151,11 +152,17 @@ func newLogTypeDetectionProcessor(cfg *Config, id component.ID, logger *zap.Logg
 		return nil, err
 	}
 
+	if cfg.OpAMP != nil && cfg.OpAMP.MatchersVersion != "" {
+		if p.maxVersion, err = version.NewVersion(cfg.OpAMP.MatchersVersion); err != nil {
+			return nil, fmt.Errorf("parse matchers_version %q: %w", cfg.OpAMP.MatchersVersion, err)
+		}
+	}
+
 	return p, nil
 }
 
 // setServerMatchers merges the server's matchers with the configured ones.
-func (p *logTypeDetectionProcessor) setServerMatchers(version string, server []MatcherConfig) error {
+func (p *logTypeDetectionProcessor) setServerMatchers(ver *version.Version, server []MatcherConfig) error {
 	matchers, hash, err := buildMatchers(slices.Concat(p.cfg.Matchers, server))
 	if err != nil {
 		return err
@@ -164,38 +171,29 @@ func (p *logTypeDetectionProcessor) setServerMatchers(version string, server []M
 	p.matcherMux.Lock()
 	defer p.matcherMux.Unlock()
 
-	p.matcherVersion = version
+	p.matcherVersion = ver
 
 	if hash != p.matcherHash {
 		p.matchers = matchers
 		p.matcherHash = hash
 		p.logTypes.Purge()
 	}
-	p.resolvePendingLogTypes()
 
 	return nil
 }
 
-// resolvePendingLogTypes restores held-back log types if they match the current matchers; needs matcherMux held.
-func (p *logTypeDetectionProcessor) resolvePendingLogTypes() {
-	if p.pendingLogTypes == nil {
-		return
-	}
-
-	switch {
-	case p.pendingLogTypes.MatcherHash == p.matcherHash:
-		p.addSavedLogTypes(p.pendingLogTypes.LogTypes)
-	case len(p.pendingLogTypes.LogTypes) > 0:
-		p.logger.Info("persisted log types were detected with a different matcher set, discarding")
-	}
-	p.pendingLogTypes = nil
-}
-
-func (p *logTypeDetectionProcessor) currentVersion() string {
+func (p *logTypeDetectionProcessor) heldVersion() *version.Version {
 	p.matcherMux.RLock()
 	defer p.matcherMux.RUnlock()
 
 	return p.matcherVersion
+}
+
+func (p *logTypeDetectionProcessor) currentVersion() string {
+	if held := p.heldVersion(); held != nil {
+		return held.Original()
+	}
+	return ""
 }
 
 func (p *logTypeDetectionProcessor) addSavedLogTypes(saved map[string]string) {
@@ -225,7 +223,7 @@ func (p *logTypeDetectionProcessor) start(ctx context.Context, host component.Ho
 		return nil
 	}
 
-	return p.startOpAMP(ctx, host)
+	return p.startOpAMP(host)
 }
 
 func (p *logTypeDetectionProcessor) startStorage(ctx context.Context, host component.Host) error {
@@ -244,18 +242,22 @@ func (p *logTypeDetectionProcessor) startStorage(ctx context.Context, host compo
 	if err != nil {
 		return fmt.Errorf("create storage client: %w", err)
 	}
+	p.storageClient = client
+
+	if p.cfg.OpAMP != nil {
+		if err := p.loadStoredMatchers(ctx); err != nil {
+			return errors.Join(err, client.Close(ctx))
+		}
+	}
+
 	saved := persistedFingerprints{}
 	if err := client.LoadStorageData(ctx, fingerprintStorageKey, &saved); err != nil {
 		return errors.Join(fmt.Errorf("load log types: %w", err), client.Close(ctx))
 	}
-	p.storageClient = client
 
-	switch {
-	case saved.MatcherHash == p.matcherHash:
+	if saved.MatcherHash == p.matcherHash {
 		p.addSavedLogTypes(saved.LogTypes)
-	case p.cfg.OpAMP != nil:
-		p.pendingLogTypes = &saved
-	case len(saved.LogTypes) > 0:
+	} else if len(saved.LogTypes) > 0 {
 		p.logger.Info("matcher config changed, discarding persisted log types")
 	}
 
@@ -290,6 +292,8 @@ func (p *logTypeDetectionProcessor) fingerprintPersistLoop(ctx context.Context) 
 }
 
 func (p *logTypeDetectionProcessor) save(ctx context.Context) error {
+	p.matcherMux.RLock()
+	hash := p.matcherHash
 	toSave := map[string]string{}
 	for _, logFingerprint := range p.logTypes.Keys() {
 		logType, ok := p.logTypes.Peek(logFingerprint)
@@ -298,9 +302,6 @@ func (p *logTypeDetectionProcessor) save(ctx context.Context) error {
 		}
 		toSave[strconv.FormatUint(logFingerprint, 16)] = logType
 	}
-
-	p.matcherMux.RLock()
-	hash := p.matcherHash
 	p.matcherMux.RUnlock()
 
 	state := persistedFingerprints{MatcherHash: hash, LogTypes: toSave}
