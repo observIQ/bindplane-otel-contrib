@@ -2025,10 +2025,9 @@ func TestEnums_RejectedWhenDecoded(t *testing.T) {
 	}
 }
 
-// TestConfigUnmarshalBodyOptions proves the two body options survive the YAML ->
-// confmap -> Config decode. Config.Unmarshal ends in conf.Unmarshal with
-// confmap.WithIgnoreUnused(), so a mistyped mapstructure tag would not error —
-// the option would just silently never take effect.
+// TestConfigUnmarshalBodyOptions proves the body options survive the YAML ->
+// confmap -> Config decode. Config.Unmarshal uses confmap.WithIgnoreUnused, so a
+// mistyped mapstructure tag would not error — the option would just never apply.
 func TestConfigUnmarshalBodyOptions(t *testing.T) {
 	testCases := []struct {
 		name                string

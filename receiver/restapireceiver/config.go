@@ -224,15 +224,12 @@ type Config struct {
 	ResponseField string `mapstructure:"response_field"`
 
 	// Raw emits each record's original JSON text as the log body instead of the
-	// parsed map. Records are still selected the same way; only the body rendering
-	// differs. Logs only — it has no effect on the metrics pipeline.
+	// parsed map. Logs only.
 	Raw bool `mapstructure:"raw"`
 
-	// IncludeLogRecordOriginal also writes each record's original JSON text to the
-	// log.record.original attribute. The body does not change. With Raw also set,
-	// the body and this attribute intentionally hold the same text: the two options
-	// are orthogonal, and duplicating the payload matches the attribute Bindplane
-	// generates for stanza-based sources.
+	// IncludeLogRecordOriginal also writes that text to the log.record.original
+	// attribute, leaving the body alone. Orthogonal to Raw; with both set the body
+	// and the attribute intentionally hold the same text. Logs only.
 	IncludeLogRecordOriginal bool `mapstructure:"include_log_record_original"`
 
 	// Auth defines authentication configuration.
@@ -323,9 +320,8 @@ type Config struct {
 	Metrics MetricsConfig `mapstructure:"metrics"`
 }
 
-// needsOriginal reports whether either body option requires the receiver to
-// keep each record's original JSON text. When false the receiver skips the
-// extra decode entirely.
+// needsOriginal reports whether either body option needs each record's original
+// text. When false the receiver skips the extra decode.
 func (c *Config) needsOriginal() bool {
 	return c.Raw || c.IncludeLogRecordOriginal
 }

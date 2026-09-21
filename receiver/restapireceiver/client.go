@@ -48,16 +48,15 @@ type apiRequest struct {
 // This interface allows for easier testing by enabling mock implementations.
 type restAPIClient interface {
 	// FetchFullResponse fetches the full JSON response for the given request.
-	// Returns the full response as map[string]any for pagination parsing, the raw
-	// response body, and response headers. The body is returned so callers that
-	// need each record's original text can re-walk it without re-encoding the
-	// parsed values; it is nil unless the config asks for originals.
+	// Returns the response as map[string]any for pagination parsing, the undecoded
+	// body, and response headers. body lets callers recover each record's original
+	// text; it is nil unless the config asks for originals.
 	FetchFullResponse(ctx context.Context, req apiRequest) (response map[string]any, body []byte, headers http.Header, err error)
 	// FetchNDJSON fetches an NDJSON response for the given request.
 	// When metadataInBody is true the last line is treated as pagination metadata;
 	// when false all lines are treated as data (metadata comes from headers instead).
-	// originals holds each data line's exact text, positionally aligned with data,
-	// and is nil unless the config asks for originals.
+	// originals holds each data line's exact text, aligned with data, and is nil
+	// unless the config asks for originals.
 	FetchNDJSON(ctx context.Context, req apiRequest, metadataInBody bool) (data []map[string]any, originals [][]byte, metadata map[string]any, headers http.Header, err error)
 	// Shutdown shuts down the REST API client.
 	Shutdown() error
@@ -205,6 +204,7 @@ func (c *defaultRESTAPIClient) FetchFullResponse(ctx context.Context, r apiReque
 
 	// Only hand back the body when a caller will walk it for original text.
 	rawBody := body
+
 	if !c.cfg.needsOriginal() {
 		rawBody = nil
 	}
@@ -284,8 +284,8 @@ func parseNDJSON(body []byte, metadataInBody, keepOriginal bool, logger *zap.Log
 		}
 	}
 
-	// Parse data lines. Each line is already its own original text, so originals
-	// stay aligned with data by being appended in the same pass.
+	// Parse data lines. Each line is its own original text; appending in the same
+	// pass keeps originals aligned with data.
 	data := make([]map[string]any, 0, len(dataLines))
 	var originals [][]byte
 	if keepOriginal {

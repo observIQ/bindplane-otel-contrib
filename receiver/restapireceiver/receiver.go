@@ -393,10 +393,9 @@ func (b *baseReceiver) fetchDataPage(ctx context.Context, req apiRequest) (map[s
 		}
 	}
 
-	// The parsed records and their original text are produced by two different
-	// walks of the response, so pair them only when both walks agree on how many
-	// records the page holds. Dropping the originals degrades to today's behavior;
-	// keeping a misaligned slice would attach one record's text to another.
+	// Records and original text come from two separate walks of the response.
+	// Pair them only when both agree on the record count: a misaligned slice
+	// would attach one record's text to another.
 	if originals != nil && len(originals) != len(data) {
 		b.logger.Warn("original record text does not line up with the parsed records; "+
 			"dropping it for this page",
@@ -914,19 +913,15 @@ func extractDataFromResponse(response map[string]any, responseField string, logg
 	return result
 }
 
-// extractOriginals walks the raw response body to the same item array
+// extractOriginals walks the undecoded body to the same item array
 // extractDataFromResponse selects, returning each item's exact bytes.
 //
 // It re-walks the body rather than re-encoding the parsed values because
-// re-marshaling a map[string]any does not round-trip: keys come back in a
-// different order and JSON numbers normalize to float64. Only the bytes the
-// server actually sent are the "original" the log.record.original attribute
-// is meant to carry.
+// re-marshaling a map[string]any does not round-trip: keys come back reordered
+// and JSON numbers normalize to float64.
 //
-// Returns nil when the array cannot be located unambiguously. The caller
-// checks the result against the parsed records and drops it on any length
-// mismatch, so a disagreement between the two walks costs the originals
-// rather than pairing a record with another record's text.
+// Returns nil when the array cannot be located unambiguously; the caller drops
+// the result on any length mismatch with the parsed records.
 func extractOriginals(body []byte, responseField string, logger *zap.Logger) [][]byte {
 	target, ok := locateRawArray(json.RawMessage(body), responseField)
 	if !ok {
@@ -946,8 +941,8 @@ func extractOriginals(body []byte, responseField string, logger *zap.Logger) [][
 	originals := make([][]byte, 0, len(items))
 	for _, item := range items {
 		trimmed := bytes.TrimSpace(item)
-		// extractDataFromResponse drops non-object items; skip the same ones here
-		// so the two slices stay positionally aligned.
+		// extractDataFromResponse drops non-object items; skip the same ones to
+		// stay aligned.
 		if len(trimmed) == 0 || trimmed[0] != '{' {
 			continue
 		}
@@ -980,9 +975,9 @@ func locateRawArray(body json.RawMessage, responseField string) (json.RawMessage
 		return data, true
 	}
 
-	// extractDataFromResponse falls back to "any array field", which ranges over a
-	// Go map and so has no defined order. Only accept that fallback when exactly
-	// one field is an array, which is the case where both walks must agree.
+	// extractDataFromResponse's "any array field" fallback ranges over a Go map,
+	// so it has no defined order. Accept it only when a single field is an array,
+	// where both walks must agree.
 	var found json.RawMessage
 	count := 0
 	for _, v := range fields {
@@ -997,9 +992,8 @@ func locateRawArray(body json.RawMessage, responseField string) (json.RawMessage
 	return found, true
 }
 
-// getNestedFieldRaw is the raw-bytes analogue of getNestedField: it walks the
-// same dot-notation path, with the same array-index support, over undecoded
-// JSON so the leaf keeps the server's exact bytes.
+// getNestedFieldRaw is the raw-bytes analogue of getNestedField: the same
+// dot-notation walk over undecoded JSON, so the leaf keeps its exact bytes.
 func getNestedFieldRaw(data json.RawMessage, path string) (json.RawMessage, bool) {
 	current := data
 

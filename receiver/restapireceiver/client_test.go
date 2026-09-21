@@ -1669,8 +1669,8 @@ func TestRESTAPIClient_Post_AkamaiEdgeGridSignsBody(t *testing.T) {
 	require.Equal(t, []string{`{"filter":"a"}`, `{"filter":"b"}`}, bodies)
 }
 
-// writeCertPEM writes srv's self-signed certificate to a PEM file and returns
-// its path, standing in for the CA bundle an operator would point ca_file at.
+// writeCertPEM writes srv's self-signed certificate to a PEM file, standing in
+// for the CA bundle an operator would point ca_file at.
 func writeCertPEM(t *testing.T, srv *httptest.Server) string {
 	t.Helper()
 
@@ -1684,10 +1684,9 @@ func writeCertPEM(t *testing.T, srv *httptest.Server) string {
 	return path
 }
 
-// TestClientTLS covers the self-signed-certificate case: the receiver squashes
-// confighttp.ClientConfig, so its `tls` block reaches the HTTP transport without
-// any receiver-specific plumbing. These tests pin that behavior so a future
-// refactor of client construction cannot silently drop it.
+// TestClientTLS covers the self-signed-certificate case. The receiver squashes
+// confighttp.ClientConfig, so `tls` reaches the transport with no receiver-side
+// plumbing; these pin that so a later refactor cannot silently drop it.
 func TestClientTLS(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1703,8 +1702,7 @@ func TestClientTLS(t *testing.T) {
 		wantErr   string
 	}{
 		{
-			// The failure an operator hits today when pointing the receiver at an
-			// endpoint using a self-signed certificate.
+			// The failure an operator hits against a self-signed endpoint.
 			name:      "self-signed cert rejected by default",
 			tlsConfig: configtls.ClientConfig{},
 			wantErr:   "certificate",

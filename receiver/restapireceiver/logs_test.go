@@ -205,9 +205,9 @@ func TestConvertJSONToLogs_InvalidTimestamp(t *testing.T) {
 	require.Greater(t, record.ObservedTimestamp(), pcommon.Timestamp(0))
 }
 
-// TestConvertJSONToLogs_BodyOptions covers `raw` and `include_log_record_original`
-// in every combination. The two are orthogonal, so with both set the body and the
-// attribute intentionally carry the same text.
+// TestConvertJSONToLogs_BodyOptions covers every combination of the two options.
+// They are orthogonal, so with both set the body and the attribute intentionally
+// carry the same text.
 func TestConvertJSONToLogs_BodyOptions(t *testing.T) {
 	data := []map[string]any{
 		{"id": "1", "message": "first"},
@@ -277,9 +277,9 @@ func TestConvertJSONToLogs_BodyOptions(t *testing.T) {
 	}
 }
 
-// TestConvertJSONToLogs_BodyOptionsWithoutOriginals covers the degraded path: the
-// options are on but the receiver could not recover the original text, so records
-// fall back to the parsed body rather than a re-encoded approximation.
+// TestConvertJSONToLogs_BodyOptionsWithoutOriginals covers the degraded path:
+// options on, but no original text recovered, so records fall back to the parsed
+// body rather than a re-encoded approximation.
 func TestConvertJSONToLogs_BodyOptionsWithoutOriginals(t *testing.T) {
 	data := []map[string]any{{"id": "1"}}
 	cfg := &Config{Raw: true, IncludeLogRecordOriginal: true}
@@ -294,7 +294,7 @@ func TestConvertJSONToLogs_BodyOptionsWithoutOriginals(t *testing.T) {
 }
 
 // TestConvertJSONToLogs_RawPreservesTimestamps pins that raw mode still reads the
-// parsed record for the timestamp, so switching it on does not change event times.
+// parsed record for the timestamp, so enabling it does not shift event times.
 func TestConvertJSONToLogs_RawPreservesTimestamps(t *testing.T) {
 	data := []map[string]any{{"id": "1", "timestamp": "2024-03-18T15:25:43Z"}}
 	originals := [][]byte{[]byte(`{"id":"1","timestamp":"2024-03-18T15:25:43Z"}`)}

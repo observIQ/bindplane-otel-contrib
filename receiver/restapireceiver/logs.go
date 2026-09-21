@@ -22,18 +22,17 @@ import (
 	"go.uber.org/zap"
 )
 
-// logRecordOriginalAttribute holds the original text. It matches the attribute
-// Bindplane generates for stanza-based sources.
+// logRecordOriginalAttribute matches the attribute Bindplane generates for
+// stanza-based sources.
 const logRecordOriginalAttribute = "log.record.original"
 
 // convertJSONToLogs converts an array of JSON objects to plog.Logs.
 // Each JSON object becomes one log record.
 //
-// originals holds each record's exact response bytes, positionally aligned with
-// data. It is nil when neither body option is enabled, and also when the
-// receiver could not recover the original text for the page; in that case both
-// options degrade to the parsed-map body rather than emitting a re-encoded
-// approximation of what the server sent.
+// originals holds each record's exact response bytes, aligned with data. It is
+// nil when neither body option is enabled, and when the receiver could not
+// recover the original text — in which case both options fall back to the
+// parsed body rather than a re-encoded approximation.
 func convertJSONToLogs(data []map[string]any, originals [][]byte, cfg *Config, logger *zap.Logger) plog.Logs {
 	logs := plog.NewLogs()
 	resourceLogs := logs.ResourceLogs().AppendEmpty()
@@ -52,8 +51,7 @@ func convertJSONToLogs(data []map[string]any, originals [][]byte, cfg *Config, l
 			original = string(originals[i])
 		}
 
-		// Set the body: the original text when raw mode has it, the parsed map
-		// otherwise.
+		// Body is the original text in raw mode, the parsed map otherwise.
 		if cfg.Raw && original != "" {
 			logRecord.Body().SetStr(original)
 		} else if err := logRecord.Body().SetEmptyMap().FromRaw(item); err != nil {
@@ -69,8 +67,8 @@ func convertJSONToLogs(data []map[string]any, originals [][]byte, cfg *Config, l
 			logRecord.Attributes().PutStr(logRecordOriginalAttribute, original)
 		}
 
-		// Try to extract timestamp from common field names. This reads the parsed
-		// record, so raw mode keeps the same timestamps as a parsed body.
+		// Try to extract timestamp from common field names. Reading the parsed
+		// record keeps timestamps identical in raw mode.
 		timestamp := extractTimestamp(item)
 		if timestamp > 0 {
 			logRecord.SetTimestamp(timestamp)

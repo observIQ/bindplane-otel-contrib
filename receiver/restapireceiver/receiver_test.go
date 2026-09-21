@@ -2352,7 +2352,7 @@ func TestCheckpoint_ExcludesPagesFetched(t *testing.T) {
 }
 
 // TestExtractOriginals covers locating the record array in the undecoded body
-// across the same response shapes extractDataFromResponse handles.
+// across the response shapes extractDataFromResponse handles.
 func TestExtractOriginals(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -2401,7 +2401,7 @@ func TestExtractOriginals(t *testing.T) {
 			want:          []string{`{"id":"1"}`},
 		},
 		{
-			// Picking between these would mean ranging over a Go map, which has no
+			// Choosing between these means ranging over a Go map, which has no
 			// defined order, so the two walks could disagree. Give up instead.
 			name:          "ambiguous multiple arrays yield no originals",
 			body:          `{"items":[{"id":"1"}],"others":[{"id":"2"}]}`,
@@ -2439,10 +2439,9 @@ func TestExtractOriginals(t *testing.T) {
 	}
 }
 
-// TestExtractOriginalsIsByteExact is the reason the receiver re-walks the body
-// instead of re-encoding the parsed records: re-marshaling a map[string]any
-// reorders keys and pushes large integers through float64, so it cannot
-// reproduce what the server sent.
+// TestExtractOriginalsIsByteExact is why the receiver re-walks the body instead
+// of re-encoding parsed records: re-marshaling a map[string]any reorders keys and
+// pushes large integers through float64.
 func TestExtractOriginalsIsByteExact(t *testing.T) {
 	const body = `{"data":[{"z":1,"a":2,"id":12345678901234567890,"nested":{"b":1,"a":2}}]}`
 
@@ -2450,8 +2449,7 @@ func TestExtractOriginalsIsByteExact(t *testing.T) {
 	require.Len(t, originals, 1)
 	require.Equal(t, `{"z":1,"a":2,"id":12345678901234567890,"nested":{"b":1,"a":2}}`, string(originals[0]))
 
-	// The same record after a parse/re-encode round trip differs, which is what
-	// the log.record.original attribute must not carry.
+	// The same record after a parse/re-encode round trip differs.
 	parsed := extractDataFromResponse(
 		map[string]any{"data": []any{map[string]any{"z": 1.0, "a": 2.0}}}, "data", zap.NewNop())
 	reencoded, err := json.Marshal(parsed[0])
@@ -2460,8 +2458,7 @@ func TestExtractOriginalsIsByteExact(t *testing.T) {
 }
 
 // TestExtractOriginalsAlignsWithParsedRecords pins the invariant the receiver
-// relies on: originals[i] is the text record data[i] was decoded from. A
-// mismatch here would attach one record's text to another.
+// relies on: originals[i] is the text data[i] was decoded from.
 func TestExtractOriginalsAlignsWithParsedRecords(t *testing.T) {
 	bodies := []struct {
 		body          string
@@ -2498,9 +2495,8 @@ func TestExtractOriginalsAlignsWithParsedRecords(t *testing.T) {
 }
 
 // TestPoll_BodyOptionsEndToEnd drives the real poll path for both response
-// formats, proving the original text survives from the HTTP response through to
-// the emitted log records — including the large integer and key order a
-// parse/re-encode round trip would destroy.
+// formats, proving the original text survives to the emitted records — including
+// the key order and large integer a re-encode would destroy.
 func TestPoll_BodyOptionsEndToEnd(t *testing.T) {
 	const jsonRecord = `{"z":"last","id":12345678901234567890,"a":"first"}`
 
@@ -2575,7 +2571,7 @@ func TestPoll_BodyOptionsEndToEnd(t *testing.T) {
 }
 
 // TestPoll_BodyOptionsDisabledByDefault pins that a config that does not opt in
-// is byte-for-byte the behavior that shipped before the options existed.
+// behaves exactly as it did before the options existed.
 func TestPoll_BodyOptionsDisabledByDefault(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
