@@ -223,6 +223,15 @@ type Config struct {
 	// Not used when response_format is "ndjson".
 	ResponseField string `mapstructure:"response_field"`
 
+	// Raw emits each record's original JSON text as the log body instead of the
+	// parsed map. Logs only.
+	Raw bool `mapstructure:"raw"`
+
+	// IncludeLogRecordOriginal also writes that text to the log.record.original
+	// attribute, leaving the body alone. Orthogonal to Raw; with both set the body
+	// and the attribute intentionally hold the same text. Logs only.
+	IncludeLogRecordOriginal bool `mapstructure:"include_log_record_original"`
+
 	// Auth defines authentication configuration.
 	AuthMode             AuthMode             `mapstructure:"auth_mode"`
 	APIKeyConfig         APIKeyConfig         `mapstructure:"apikey"`
@@ -309,6 +318,12 @@ type Config struct {
 
 	// Metrics defines configuration for metrics extraction.
 	Metrics MetricsConfig `mapstructure:"metrics"`
+}
+
+// needsOriginal reports whether either body option needs each record's original
+// text. When false the receiver skips the extra decode.
+func (c *Config) needsOriginal() bool {
+	return c.Raw || c.IncludeLogRecordOriginal
 }
 
 // MetricsConfig defines configuration for extracting metrics from API responses.

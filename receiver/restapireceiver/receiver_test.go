@@ -31,8 +31,10 @@ import (
 	"go.opentelemetry.io/collector/config/confighttp"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/extension/xextension/storage"
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/receiver/receivertest"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestInitializePagination_NoCheckpoint_UsesConfig(t *testing.T) {
@@ -2348,4 +2350,410 @@ func TestCheckpoint_ExcludesPagesFetched(t *testing.T) {
 	require.NoError(t, json.Unmarshal(legacy, &loaded))
 	require.Equal(t, 40, loaded.PaginationState.CurrentOffset)
 	require.Equal(t, 0, loaded.PaginationState.PagesFetched)
+}
+
+// TestExtractOriginals covers locating the record array in the undecoded body
+// across the response shapes extractDataFromResponse handles.
+func TestExtractOriginals(t *testing.T) {
+	testCases := []struct {
+		name          string
+		body          string
+		responseField string
+		want          []string
+	}{
+		{
+			name: "top-level array",
+			body: `[{"id":"1"},{"id":"2"}]`,
+			want: []string{`{"id":"1"}`, `{"id":"2"}`},
+		},
+		{
+			name: "data field",
+			body: `{"data":[{"id":"1"}],"next":"abc"}`,
+			want: []string{`{"id":"1"}`},
+		},
+		{
+			name:          "explicit response field",
+			body:          `{"results":[{"id":"1"},{"id":"2"}]}`,
+			responseField: "results",
+			want:          []string{`{"id":"1"}`, `{"id":"2"}`},
+		},
+		{
+			name:          "nested response field",
+			body:          `{"response":{"data":[{"id":"1"}]}}`,
+			responseField: "response.data",
+			want:          []string{`{"id":"1"}`},
+		},
+		{
+			name:          "response field with array index",
+			body:          `{"intervals":[{"readings":[{"id":"1"}]}]}`,
+			responseField: "intervals[0].readings",
+			want:          []string{`{"id":"1"}`},
+		},
+		{
+			name:          "non-object items are skipped, matching the parsed walk",
+			body:          `{"results":[{"id":"1"},"scalar",42,{"id":"2"}]}`,
+			responseField: "results",
+			want:          []string{`{"id":"1"}`, `{"id":"2"}`},
+		},
+		{
+			name:          "single array field is unambiguous without a response field",
+			body:          `{"items":[{"id":"1"}],"count":1}`,
+			responseField: "",
+			want:          []string{`{"id":"1"}`},
+		},
+		{
+			// Choosing between these means ranging over a Go map, which has no
+			// defined order, so the two walks could disagree. Give up instead.
+			name:          "ambiguous multiple arrays yield no originals",
+			body:          `{"items":[{"id":"1"}],"others":[{"id":"2"}]}`,
+			responseField: "",
+			want:          nil,
+		},
+		{
+			name:          "missing response field yields no originals",
+			body:          `{"results":[{"id":"1"}]}`,
+			responseField: "absent",
+			want:          nil,
+		},
+		{
+			name:          "response field that is not an array yields no originals",
+			body:          `{"results":{"id":"1"}}`,
+			responseField: "results",
+			want:          nil,
+		},
+		{
+			name: "empty body yields no originals",
+			body: "   ",
+			want: nil,
+		},
+		{
+			name: "body that is not JSON yields no originals",
+			body: `not json`,
+			want: nil,
+		},
+		{
+			name: "body that is a JSON scalar yields no originals",
+			body: `42`,
+			want: nil,
+		},
+		{
+			name:          "malformed path segment yields no originals",
+			body:          `{"results":[{"id":"1"}]}`,
+			responseField: "results[abc]",
+			want:          nil,
+		},
+		{
+			name:          "unterminated bracket yields no originals",
+			body:          `{"results":[{"id":"1"}]}`,
+			responseField: "results[0",
+			want:          nil,
+		},
+		{
+			name:          "walking into a scalar yields no originals",
+			body:          `{"results":"not an object"}`,
+			responseField: "results.nested",
+			want:          nil,
+		},
+		{
+			name:          "indexing a non-array yields no originals",
+			body:          `{"results":{"id":"1"}}`,
+			responseField: "results[0]",
+			want:          nil,
+		},
+		{
+			name:          "index out of range yields no originals",
+			body:          `{"intervals":[{"readings":[{"id":"1"}]}]}`,
+			responseField: "intervals[9].readings",
+			want:          nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractOriginals([]byte(tc.body), tc.responseField, zap.NewNop())
+
+			if tc.want == nil {
+				require.Nil(t, got)
+				return
+			}
+			as := make([]string, 0, len(got))
+			for _, b := range got {
+				as = append(as, string(b))
+			}
+			require.Equal(t, tc.want, as)
+		})
+	}
+}
+
+// TestExtractOriginalsIsByteExact is why the receiver re-walks the body instead
+// of re-encoding parsed records: re-marshaling a map[string]any reorders keys and
+// pushes large integers through float64.
+func TestExtractOriginalsIsByteExact(t *testing.T) {
+	const body = `{"data":[{"z":1,"a":2,"id":12345678901234567890,"nested":{"b":1,"a":2}}]}`
+
+	originals := extractOriginals([]byte(body), "data", zap.NewNop())
+	require.Len(t, originals, 1)
+	require.Equal(t, `{"z":1,"a":2,"id":12345678901234567890,"nested":{"b":1,"a":2}}`, string(originals[0]))
+
+	// The same record after a parse/re-encode round trip differs.
+	parsed := extractDataFromResponse(
+		map[string]any{"data": []any{map[string]any{"z": 1.0, "a": 2.0}}}, "data", zap.NewNop())
+	reencoded, err := json.Marshal(parsed[0])
+	require.NoError(t, err)
+	require.NotEqual(t, string(originals[0]), string(reencoded))
+}
+
+// TestExtractOriginalsAlignsWithParsedRecords pins the invariant the receiver
+// relies on: originals[i] is the text data[i] was decoded from.
+func TestExtractOriginalsAlignsWithParsedRecords(t *testing.T) {
+	bodies := []struct {
+		body          string
+		responseField string
+	}{
+		{`[{"id":"1"},{"id":"2"},{"id":"3"}]`, ""},
+		{`{"data":[{"id":"1"},{"id":"2"}]}`, ""},
+		{`{"results":[{"id":"1"},"skipme",{"id":"2"}]}`, "results"},
+		{`{"response":{"data":[{"id":"1"}]}}`, "response.data"},
+		{`{"data":[]}`, ""},
+	}
+
+	for _, b := range bodies {
+		t.Run(b.body, func(t *testing.T) {
+			// Mirror FetchFullResponse, which wraps a top-level array as {"data": ...}.
+			var decoded any
+			require.NoError(t, json.Unmarshal([]byte(b.body), &decoded))
+			response, ok := decoded.(map[string]any)
+			if !ok {
+				response = map[string]any{"data": decoded.([]any)}
+			}
+
+			parsed := extractDataFromResponse(response, b.responseField, zap.NewNop())
+			originals := extractOriginals([]byte(b.body), b.responseField, zap.NewNop())
+
+			require.Len(t, originals, len(parsed))
+			for i := range parsed {
+				var fromOriginal map[string]any
+				require.NoError(t, json.Unmarshal(originals[i], &fromOriginal))
+				require.Equal(t, parsed[i], fromOriginal)
+			}
+		})
+	}
+}
+
+// TestPoll_BodyOptionsEndToEnd drives the real poll path for both response
+// formats, proving the original text survives to the emitted records — including
+// the key order and large integer a re-encode would destroy.
+func TestPoll_BodyOptionsEndToEnd(t *testing.T) {
+	const jsonRecord = `{"z":"last","id":12345678901234567890,"a":"first"}`
+
+	testCases := []struct {
+		name           string
+		responseFormat ResponseFormat
+		responseField  string
+		payload        string
+		contentType    string
+	}{
+		{
+			name:           "json",
+			responseFormat: responseFormatJSON,
+			responseField:  "data",
+			payload:        `{"data":[` + jsonRecord + `]}`,
+			contentType:    "application/json",
+		},
+		{
+			name:           "ndjson",
+			responseFormat: responseFormatNDJSON,
+			payload:        jsonRecord + "\n" + `{"done":true}`,
+			contentType:    "application/x-ndjson",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(string(tc.name), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", tc.contentType)
+				_, _ = w.Write([]byte(tc.payload))
+			}))
+			defer server.Close()
+
+			cfg := &Config{
+				URL:                      server.URL,
+				AuthMode:                 authModeNone,
+				ResponseFormat:           tc.responseFormat,
+				ResponseField:            tc.responseField,
+				Raw:                      true,
+				IncludeLogRecordOriginal: true,
+				Pagination:               PaginationConfig{Mode: paginationModeNone},
+				MinPollInterval:          10 * time.Second,
+				MaxPollInterval:          5 * time.Minute,
+				BackoffMultiplier:        2.0,
+			}
+
+			sink := new(consumertest.LogsSink)
+			r, err := newRESTAPILogsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+			require.NoError(t, err)
+
+			ctx := context.Background()
+			require.NoError(t, r.initializeClient(ctx, componenttest.NewNopHost()))
+			r.storageClient = newMemStorageClient()
+			r.initializePagination()
+
+			result, err := r.poll(ctx)
+			require.NoError(t, err)
+			require.Equal(t, 1, result.recordCount)
+			require.Len(t, sink.AllLogs(), 1)
+
+			record := sink.AllLogs()[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+
+			require.Equal(t, pcommon.ValueTypeStr, record.Body().Type())
+			require.Equal(t, jsonRecord, record.Body().Str(),
+				"raw mode must emit the exact bytes the API returned")
+
+			original, ok := record.Attributes().Get(logRecordOriginalAttribute)
+			require.True(t, ok)
+			require.Equal(t, jsonRecord, original.Str())
+		})
+	}
+}
+
+// TestPoll_BodyOptionsDisabledByDefault pins that a config that does not opt in
+// behaves exactly as it did before the options existed.
+func TestPoll_BodyOptionsDisabledByDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"1"}]}`))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		URL:               server.URL,
+		AuthMode:          authModeNone,
+		ResponseField:     "data",
+		Pagination:        PaginationConfig{Mode: paginationModeNone},
+		MinPollInterval:   10 * time.Second,
+		MaxPollInterval:   5 * time.Minute,
+		BackoffMultiplier: 2.0,
+	}
+
+	sink := new(consumertest.LogsSink)
+	r, err := newRESTAPILogsReceiver(receivertest.NewNopSettings(metadata.Type), cfg, sink)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, r.initializeClient(ctx, componenttest.NewNopHost()))
+	r.storageClient = newMemStorageClient()
+	r.initializePagination()
+
+	_, err = r.poll(ctx)
+	require.NoError(t, err)
+	require.Len(t, sink.AllLogs(), 1)
+
+	record := sink.AllLogs()[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+	require.Equal(t, pcommon.ValueTypeMap, record.Body().Type())
+	require.Equal(t, "1", record.Body().Map().AsRaw()["id"])
+	require.Equal(t, 0, record.Attributes().Len())
+}
+
+// stubRESTAPIClient returns canned responses so tests can drive fetchDataPage
+// with data the real client would never produce.
+type stubRESTAPIClient struct {
+	data      []map[string]any
+	originals [][]byte
+	metadata  map[string]any
+}
+
+func (s *stubRESTAPIClient) FetchFullResponse(context.Context, apiRequest) (map[string]any, []byte, http.Header, error) {
+	return s.metadata, nil, http.Header{}, nil
+}
+
+func (s *stubRESTAPIClient) FetchNDJSON(context.Context, apiRequest, bool) ([]map[string]any, [][]byte, map[string]any, http.Header, error) {
+	return s.data, s.originals, s.metadata, http.Header{}, nil
+}
+
+func (s *stubRESTAPIClient) Shutdown() error { return nil }
+
+// TestFetchDataPage_DropsMisalignedOriginals covers the guard in fetchDataPage.
+// Records and original text come from two separate walks of the response, and
+// pairing them when the counts disagree would attach one record's text to
+// another. No real response reaches this state — with response_field set both
+// walks follow the same path, and an ambiguous array yields nil originals rather
+// than a short slice — so a stub client supplies the mismatch directly.
+func TestFetchDataPage_DropsMisalignedOriginals(t *testing.T) {
+	testCases := []struct {
+		name          string
+		data          []map[string]any
+		originals     [][]byte
+		wantOriginals bool
+	}{
+		{
+			name:          "aligned originals are kept",
+			data:          []map[string]any{{"id": "1"}, {"id": "2"}},
+			originals:     [][]byte{[]byte(`{"id":"1"}`), []byte(`{"id":"2"}`)},
+			wantOriginals: true,
+		},
+		{
+			name:      "fewer originals than records",
+			data:      []map[string]any{{"id": "1"}, {"id": "2"}, {"id": "3"}},
+			originals: [][]byte{[]byte(`{"id":"1"}`), []byte(`{"id":"2"}`)},
+		},
+		{
+			name:      "more originals than records",
+			data:      []map[string]any{{"id": "1"}},
+			originals: [][]byte{[]byte(`{"id":"1"}`), []byte(`{"id":"2"}`)},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			core, logs := observer.New(zap.WarnLevel)
+
+			cfg := &Config{
+				URL:               "https://api.example.com/data",
+				AuthMode:          authModeNone,
+				ResponseFormat:    responseFormatNDJSON,
+				Raw:               true,
+				Pagination:        PaginationConfig{Mode: paginationModeNone},
+				MinPollInterval:   10 * time.Second,
+				MaxPollInterval:   5 * time.Minute,
+				BackoffMultiplier: 2.0,
+			}
+
+			b := &baseReceiver{
+				cfg:    cfg,
+				logger: zap.New(core),
+				client: &stubRESTAPIClient{data: tc.data, originals: tc.originals},
+			}
+
+			_, data, originals, err := b.fetchDataPage(context.Background(), apiRequest{URL: cfg.URL})
+			require.NoError(t, err)
+			require.Equal(t, tc.data, data, "the records themselves must survive either way")
+
+			if tc.wantOriginals {
+				require.Equal(t, tc.originals, originals)
+				require.Zero(t, logs.Len(), "an aligned page must not warn")
+				return
+			}
+
+			require.Nil(t, originals, "a mismatched page must drop the originals entirely")
+			require.Equal(t, 1, logs.Len(), "dropping the originals must be reported")
+			require.Contains(t, logs.All()[0].Message, "does not line up")
+		})
+	}
+}
+
+// TestConvertJSONToLogs_DroppedOriginalsFallBack pairs with the guard above: once
+// fetchDataPage drops the originals, records fall back to the parsed body rather
+// than silently losing the option.
+func TestConvertJSONToLogs_DroppedOriginalsFallBack(t *testing.T) {
+	data := []map[string]any{{"id": "1"}, {"id": "2"}}
+	cfg := &Config{Raw: true, IncludeLogRecordOriginal: true}
+
+	logs := convertJSONToLogs(data, nil, cfg, zap.NewNop())
+
+	records := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
+	require.Equal(t, 2, records.Len())
+	for i := 0; i < records.Len(); i++ {
+		require.Equal(t, pcommon.ValueTypeMap, records.At(i).Body().Type())
+		require.Zero(t, records.At(i).Attributes().Len())
+	}
 }

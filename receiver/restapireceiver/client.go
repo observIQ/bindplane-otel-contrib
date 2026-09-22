@@ -48,13 +48,16 @@ type apiRequest struct {
 // This interface allows for easier testing by enabling mock implementations.
 type restAPIClient interface {
 	// FetchFullResponse fetches the full JSON response for the given request.
-	// Returns the full response as map[string]any for pagination parsing, plus
-	// response headers.
-	FetchFullResponse(ctx context.Context, req apiRequest) (map[string]any, http.Header, error)
+	// Returns the response as map[string]any for pagination parsing, the undecoded
+	// body, and response headers. body lets callers recover each record's original
+	// text; it is nil unless the config asks for originals.
+	FetchFullResponse(ctx context.Context, req apiRequest) (response map[string]any, body []byte, headers http.Header, err error)
 	// FetchNDJSON fetches an NDJSON response for the given request.
 	// When metadataInBody is true the last line is treated as pagination metadata;
 	// when false all lines are treated as data (metadata comes from headers instead).
-	FetchNDJSON(ctx context.Context, req apiRequest, metadataInBody bool) (data []map[string]any, metadata map[string]any, headers http.Header, err error)
+	// originals holds each data line's exact text, aligned with data, and is nil
+	// unless the config asks for originals.
+	FetchNDJSON(ctx context.Context, req apiRequest, metadataInBody bool) (data []map[string]any, originals [][]byte, metadata map[string]any, headers http.Header, err error)
 	// Shutdown shuts down the REST API client.
 	Shutdown() error
 }
@@ -193,16 +196,23 @@ func (c *defaultRESTAPIClient) do(ctx context.Context, r apiRequest) ([]byte, ht
 }
 
 // FetchFullResponse fetches the full JSON response for the given request.
-func (c *defaultRESTAPIClient) FetchFullResponse(ctx context.Context, r apiRequest) (map[string]any, http.Header, error) {
+func (c *defaultRESTAPIClient) FetchFullResponse(ctx context.Context, r apiRequest) (map[string]any, []byte, http.Header, error) {
 	body, headers, err := c.do(ctx, r)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+
+	// Only hand back the body when a caller will walk it for original text.
+	rawBody := body
+
+	if !c.cfg.needsOriginal() {
+		rawBody = nil
 	}
 
 	// Parse JSON
 	var jsonData any
 	if err := jsoniter.Unmarshal(body, &jsonData); err != nil {
-		return nil, nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
 	}
 
 	// Return as map
@@ -210,29 +220,29 @@ func (c *defaultRESTAPIClient) FetchFullResponse(ctx context.Context, r apiReque
 	if !ok {
 		// If response is an array, wrap it in a map
 		if arr, ok := jsonData.([]any); ok {
-			return map[string]any{"data": arr}, headers, nil
+			return map[string]any{"data": arr}, rawBody, headers, nil
 		}
-		return nil, nil, fmt.Errorf("response is not a JSON object or array")
+		return nil, nil, nil, fmt.Errorf("response is not a JSON object or array")
 	}
 
-	return responseMap, headers, nil
+	return responseMap, rawBody, headers, nil
 }
 
 // FetchNDJSON fetches an NDJSON response for the given request.
 // Each line of the response is a separate JSON object. When metadataInBody is
 // true the last line is treated as metadata (e.g., containing pagination cursors
 // like an offset token) and all other lines are returned as data objects.
-func (c *defaultRESTAPIClient) FetchNDJSON(ctx context.Context, r apiRequest, metadataInBody bool) ([]map[string]any, map[string]any, http.Header, error) {
+func (c *defaultRESTAPIClient) FetchNDJSON(ctx context.Context, r apiRequest, metadataInBody bool) ([]map[string]any, [][]byte, map[string]any, http.Header, error) {
 	body, headers, err := c.do(ctx, r)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
-	data, metadata, err := parseNDJSON(body, metadataInBody, c.logger)
+	data, originals, metadata, err := parseNDJSON(body, metadataInBody, c.cfg.needsOriginal(), c.logger)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return data, metadata, headers, nil
+	return data, originals, metadata, headers, nil
 }
 
 // parseNDJSON parses an NDJSON response body into data objects and a metadata object.
@@ -241,7 +251,7 @@ func (c *defaultRESTAPIClient) FetchNDJSON(ctx context.Context, r apiRequest, me
 // metadata is returned as nil (the caller is expected to source metadata elsewhere,
 // e.g. from response headers).
 // Empty lines are skipped.
-func parseNDJSON(body []byte, metadataInBody bool, logger *zap.Logger) ([]map[string]any, map[string]any, error) {
+func parseNDJSON(body []byte, metadataInBody, keepOriginal bool, logger *zap.Logger) ([]map[string]any, [][]byte, map[string]any, error) {
 	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
 
 	// Filter out empty lines
@@ -254,7 +264,7 @@ func parseNDJSON(body []byte, metadataInBody bool, logger *zap.Logger) ([]map[st
 	}
 
 	if len(nonEmptyLines) == 0 {
-		return []map[string]any{}, map[string]any{}, nil
+		return []map[string]any{}, nil, map[string]any{}, nil
 	}
 
 	var metadataLine string
@@ -270,12 +280,17 @@ func parseNDJSON(body []byte, metadataInBody bool, logger *zap.Logger) ([]map[st
 	var metadata map[string]any
 	if metadataLine != "" {
 		if err := jsoniter.UnmarshalFromString(metadataLine, &metadata); err != nil {
-			return nil, nil, fmt.Errorf("failed to parse NDJSON metadata line: %w", err)
+			return nil, nil, nil, fmt.Errorf("failed to parse NDJSON metadata line: %w", err)
 		}
 	}
 
-	// Parse data lines
+	// Parse data lines. Each line is its own original text; appending in the same
+	// pass keeps originals aligned with data.
 	data := make([]map[string]any, 0, len(dataLines))
+	var originals [][]byte
+	if keepOriginal {
+		originals = make([][]byte, 0, len(dataLines))
+	}
 	for i, line := range dataLines {
 		var obj map[string]any
 		if err := jsoniter.UnmarshalFromString(line, &obj); err != nil {
@@ -285,9 +300,12 @@ func parseNDJSON(body []byte, metadataInBody bool, logger *zap.Logger) ([]map[st
 			continue
 		}
 		data = append(data, obj)
+		if keepOriginal {
+			originals = append(originals, []byte(line))
+		}
 	}
 
-	return data, metadata, nil
+	return data, originals, metadata, nil
 }
 
 // signEdgeGridRequest applies Akamai EdgeGrid authentication to the request

@@ -35,6 +35,8 @@ Beta:
 | `request_body`       | string    |         | `false`  | A Go template rendering to the JSON request body sent with each request. Only valid when `method` is `post`. See [Request Body Templating](#request-body-templating). **Not masked in logs or configuration dumps — do not put credentials here; use `auth_mode` or `sensitive_headers`.** |
 | `response_format`    | string    | `json`  | `false`  | Response body format: `json` (standard JSON array/object) or `ndjson` (newline-delimited JSON). In NDJSON mode, each line is a separate JSON object; the last line is treated as metadata (e.g., containing pagination cursors) and is not emitted as data. |
 | `response_field`     | string    |         | `false`  | The name of the field in the response that contains the array of items. If empty, the response is assumed to be a top-level array. For nested fields, use dot notation (e.g., `response.data`). Array elements can be selected by non-negative index (e.g., `intervals[0].readings`, `matrix[0][1]`). Not used when `response_format` is `ndjson`.                |
+| `raw`                | bool      | `false` | `false`  | Emit each record's original JSON text as the log body instead of the parsed map. Logs only. See [Raw and Original Text](#raw-and-original-text).                                                                                                                                                                                                                  |
+| `include_log_record_original` | bool | `false` | `false`  | Additionally record each record's original text on the `log.record.original` attribute, leaving the body as-is. Logs only. See [Raw and Original Text](#raw-and-original-text).                                                                                                                                                                               |
 | `metrics`            | object    |         | `false`  | Metrics configuration (see below)                                                                                                                                                                                                                           |
 | `auth_mode`          | string    | `none`  | `false`  | Authentication mode: `none`, `apikey`, `bearer`, `basic`, `oauth2`, or `akamai_edgegrid`                                                                                                                                                                    |
 | `apikey`             | object    |         | `false`  | API Key configuration (see below)                                                                                                                                                                                                                           |
@@ -50,6 +52,7 @@ Beta:
 | `backoff_multiplier` | float     | `2.0`   | `false`  | Multiplier for increasing the poll interval when no data or a partial page is returned. Must be greater than 1.0.                                                                                                                                           |
 | `storage`            | component |         | `false`  | The component ID of a storage extension for checkpointing                                                                                                                                                                                                   |
 | `timeout`            | duration  | `10s`   | `false`  | HTTP client timeout                                                                                                                                                                                                                                         |
+| `tls`                | object    |         | `false`  | TLS settings for the outbound connection. See [TLS Configuration](#tls-configuration).                                                                                                                                                                      |
 
 ### Auth Mode Configuration
 
@@ -115,6 +118,92 @@ Request signing uses the [official Akamai EdgeGrid Go library](https://github.co
 | `client_token`  | string |         | `true`   | Akamai EdgeGrid client token                                                                                                                                                                  |
 | `client_secret` | string |         | `true`   | Akamai EdgeGrid client secret                                                                                                                                                                 |
 | `account_key`   | string |         | `false`  | Optional `accountSwitchKey`. When set, it is added as a query parameter on every request so partners can make calls against a managed account. See Akamai's docs on `accountSwitchKey` usage. |
+
+### Raw and Original Text
+
+By default each record's JSON object is parsed into a structured (map) log body. Two options
+change that:
+
+- `raw` emits the record's **original JSON text** as the body instead of the parsed map. Use it
+  when a downstream system expects the payload exactly as the API returned it.
+- `include_log_record_original` leaves the body alone and writes the original text to the
+  `log.record.original` attribute — the attribute Bindplane generates for stanza-based sources.
+
+The two are orthogonal; with both set, the body and the attribute hold the same text.
+
+```yaml
+restapi:
+  url: https://api.example.com/v1/events
+  auth_mode: none
+  response_field: data
+  raw: true
+  include_log_record_original: true
+```
+
+The original is the exact bytes the API sent, not a re-encoding, so key order and numeric
+precision are preserved. Timestamps still come from the parsed record, so `raw` does not change
+event times. Both options affect **logs only**.
+
+> [!NOTE]
+> The receiver must locate the record array in the undecoded response to attach original text.
+> It handles a top-level array, a `data` field, an explicit `response_field` (including dot
+> notation and array indexes), and a response whose only array field is the record array. If no
+> `response_field` is set and several array fields exist, the choice is ambiguous: the receiver
+> warns and falls back to the parsed body for that page. Set `response_field` to resolve it.
+
+### TLS Configuration
+
+The receiver uses the host's trust store by default, so public APIs need no TLS configuration.
+Use the `tls` block for endpoints the trust store cannot verify — an internal API signed by a
+private CA, a TLS-inspecting egress proxy — or for APIs requiring a client certificate.
+
+| Field                  | Type   | Default | Required | Description                                                                                                    |
+| ---------------------- | ------ | ------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| `ca_file`              | string |         | `false`  | Path to a PEM-encoded CA bundle used to verify the server certificate. Required for private or self-signed CAs. |
+| `cert_file`            | string |         | `false`  | Path to a PEM-encoded client certificate, for APIs that authenticate with mTLS.                                 |
+| `key_file`             | string |         | `false`  | Path to the PEM-encoded private key matching `cert_file`.                                                        |
+| `insecure_skip_verify` | bool   | `false` | `false`  | Disables server certificate verification. See the warning below.                                                 |
+| `server_name_override` | string |         | `false`  | Overrides the server name used for verification and SNI. Useful when connecting by IP.                           |
+| `min_version`          | string | `1.2`   | `false`  | Minimum accepted TLS version, e.g. `1.2` or `1.3`.                                                               |
+| `max_version`          | string |         | `false`  | Maximum accepted TLS version. Defaults to the highest the Go runtime supports.                                   |
+
+This is the standard collector TLS client block; the [configtls
+documentation](https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configtls/README.md)
+lists the remaining fields.
+
+#### Private or self-signed certificate
+
+Point `ca_file` at the CA that signed the endpoint's certificate. Without it the poll fails
+with `x509: certificate signed by unknown authority`.
+
+```yaml
+restapi:
+  url: https://api.internal.example.com/v1/events
+  auth_mode: bearer
+  bearer:
+    token: ${API_TOKEN}
+  tls:
+    ca_file: /etc/otel/certs/internal-ca.pem
+```
+
+#### Mutual TLS
+
+Set `auth_mode: none` when a client certificate is the only credential.
+
+```yaml
+restapi:
+  url: https://api.partner.example.com/v1/records
+  auth_mode: none
+  tls:
+    ca_file: /etc/otel/certs/partner-ca.pem
+    cert_file: /etc/otel/certs/collector.pem
+    key_file: /etc/otel/certs/collector-key.pem
+```
+
+> [!WARNING]
+> `insecure_skip_verify: true` disables certificate verification, allowing an on-path attacker
+> to intercept the connection and any credentials sent over it. Prefer `ca_file`; reserve this
+> for local testing.
 
 ### Time-Bounding Configuration
 
