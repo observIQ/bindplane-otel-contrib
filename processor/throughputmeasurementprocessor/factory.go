@@ -21,6 +21,9 @@ import (
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/processor"
 	"go.opentelemetry.io/collector/processor/processorhelper"
 )
@@ -55,6 +58,22 @@ func createDefaultConfig() component.Config {
 	}
 }
 
+// passLogs is the processorhelper process function. Measurement happens in the
+// consumer wrapper so that the outcome of the forward is known.
+func passLogs(_ context.Context, ld plog.Logs) (plog.Logs, error) {
+	return ld, nil
+}
+
+// passMetrics is the processorhelper process function for metrics. See passLogs.
+func passMetrics(_ context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
+	return md, nil
+}
+
+// passTraces is the processorhelper process function for traces. See passLogs.
+func passTraces(_ context.Context, td ptrace.Traces) (ptrace.Traces, error) {
+	return td, nil
+}
+
 func createTracesProcessor(
 	ctx context.Context,
 	set processor.Settings,
@@ -68,7 +87,7 @@ func createTracesProcessor(
 	}
 
 	return processorhelper.NewTraces(
-		ctx, set, cfg, nextConsumer, tmp.processTraces,
+		ctx, set, cfg, newTracesConsumer(tmp, nextConsumer), passTraces,
 		processorhelper.WithCapabilities(consumerCapabilities),
 		processorhelper.WithStart(tmp.start),
 		processorhelper.WithShutdown(tmp.shutdown),
@@ -88,7 +107,7 @@ func createLogsProcessor(
 	}
 
 	return processorhelper.NewLogs(
-		ctx, set, cfg, nextConsumer, tmp.processLogs,
+		ctx, set, cfg, newLogsConsumer(tmp, nextConsumer), passLogs,
 		processorhelper.WithCapabilities(consumerCapabilities),
 		processorhelper.WithStart(tmp.start),
 		processorhelper.WithShutdown(tmp.shutdown),
@@ -108,7 +127,7 @@ func createMetricsProcessor(
 	}
 
 	return processorhelper.NewMetrics(
-		ctx, set, cfg, nextConsumer, tmp.processMetrics,
+		ctx, set, cfg, newMetricsConsumer(tmp, nextConsumer), passMetrics,
 		processorhelper.WithCapabilities(consumerCapabilities),
 		processorhelper.WithStart(tmp.start),
 		processorhelper.WithShutdown(tmp.shutdown),

@@ -181,7 +181,9 @@ processor".
 - Disabled processor with a failing consumer records nothing.
 - Sampling ratio zero with a failing consumer records nothing.
 - The OpAMP reporter test that asserts a report happens after delivered traffic
-  gains a companion: rejected-only traffic does not produce a report.
+  gains a companion: after rejected-only traffic the report carries zero data
+  points. The reporter sends on every tick regardless; that is existing
+  behavior and stays as is.
 
 The processor tests build the consumer through the factory with a
 `consumertest` sink or a custom failing consumer, so the wrapper path is the
