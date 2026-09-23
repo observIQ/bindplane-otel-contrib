@@ -119,7 +119,7 @@ func (a *LogAdapter) ConsumeLogs(ctx context.Context, records []embed.LogRecord)
 	groups := make(map[string]*group)
 	order := make([]string, 0)
 	for i := range records {
-		merged := a.resource.MergeWithStringOverlay(records[i].Metadata.Resource)
+		merged := a.resource.MergeWithAnyOverlay(records[i].Metadata.Resource)
 		fp := FingerprintMap(merged)
 		g, exists := groups[fp]
 		if !exists {
