@@ -16,8 +16,10 @@ package logtypedetectionprocessor
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/confmap"
 )
 
 func TestCreateDefaultProcessorConfig(t *testing.T) {
@@ -54,6 +56,41 @@ func TestConfig_Validate(t *testing.T) {
 			err: errMissingLogTypeField,
 		},
 		{
+			name: "opamp without extension",
+			config: &Config{
+				LogTypeField:         "log_type_field",
+				MaxSavedFingerprints: defaultMaxSavedFingerprints,
+				OpAMP:                &OpAMPConfig{},
+			},
+			err: errMissingOpAMPExtension,
+		},
+		{
+			name: "negative opamp request timeout",
+			config: &Config{
+				LogTypeField:         "log_type_field",
+				MaxSavedFingerprints: defaultMaxSavedFingerprints,
+				OpAMP:                &OpAMPConfig{Extension: opampID, RequestTimeout: -time.Second},
+			},
+			err: errInvalidOpAMPTimeout,
+		},
+		{
+			name: "valid opamp max version",
+			config: &Config{
+				LogTypeField:         "log_type_field",
+				MaxSavedFingerprints: defaultMaxSavedFingerprints,
+				OpAMP:                &OpAMPConfig{Extension: opampID, MatchersVersion: "1.5.0"},
+			},
+		},
+		{
+			name: "invalid opamp max version",
+			config: &Config{
+				LogTypeField:         "log_type_field",
+				MaxSavedFingerprints: defaultMaxSavedFingerprints,
+				OpAMP:                &OpAMPConfig{Extension: opampID, MatchersVersion: "latest"},
+			},
+			err: errInvalidOpAMPMaxVersion,
+		},
+		{
 			name: "non-positive max saved fingerprints",
 			config: &Config{
 				LogTypeField: "log_type_field",
@@ -71,4 +108,21 @@ func TestConfig_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUnmarshalOpAMPDefaults(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	conf := confmap.NewFromStringMap(map[string]any{"opamp": map[string]any{"extension": "opamp"}})
+	require.NoError(t, conf.Unmarshal(cfg))
+	require.Equal(t, opampID, cfg.OpAMP.Extension)
+	require.Equal(t, defaultOpAMPRequestTimeout, cfg.OpAMP.RequestTimeout)
+
+	cfg = createDefaultConfig().(*Config)
+	conf = confmap.NewFromStringMap(map[string]any{"opamp": map[string]any{"extension": "opamp", "request_timeout": "0s"}})
+	require.NoError(t, conf.Unmarshal(cfg))
+	require.Zero(t, cfg.OpAMP.RequestTimeout, "an explicit zero keeps asking indefinitely")
+
+	cfg = createDefaultConfig().(*Config)
+	require.NoError(t, confmap.NewFromStringMap(map[string]any{}).Unmarshal(cfg))
+	require.Nil(t, cfg.OpAMP)
 }

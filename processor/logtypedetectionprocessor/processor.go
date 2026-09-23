@@ -24,13 +24,16 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/hashicorp/go-version"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/observiq/bindplane-otel-contrib/internal/storageclient"
 	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/fingerprint"
 	"github.com/observiq/bindplane-otel-contrib/processor/logtypedetectionprocessor/internal/metadata"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/opampcustommessages"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pipeline"
@@ -47,12 +50,22 @@ type logTypeDetectionProcessor struct {
 	id  component.ID
 	cfg *Config
 
-	matchers    []Matcher
-	matcherHash string
+	matcherMux     sync.RWMutex
+	matchers       []Matcher
+	matcherHash    string
+	matcherVersion *version.Version
+	maxVersion     *version.Version
+
+	opampHandler  opampcustommessages.CustomCapabilityHandler
+	opampCtx      context.Context
+	opampCancel   context.CancelFunc
+	opampWg       sync.WaitGroup
+	matchersReady chan struct{}
+	matchersOnce  sync.Once
 
 	stopped bool
 
-	fingerprintStorageClient storageclient.StorageClient
+	storageClient            storageclient.StorageClient
 	fingerprintPersistCancel context.CancelFunc
 	fingerprintPersistDone   chan struct{}
 	fingerprintsDirty        atomic.Bool
@@ -79,6 +92,36 @@ func (m *persistedFingerprints) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, m)
 }
 
+// buildMatchers compiles the matcher configs in priority order and hashes them.
+func buildMatchers(configs []MatcherConfig) ([]Matcher, string, error) {
+	if len(configs) == 0 {
+		return nil, "", nil
+	}
+
+	sorted := make([]MatcherConfig, len(configs))
+	copy(sorted, configs)
+	slices.SortStableFunc(sorted, func(i, j MatcherConfig) int {
+		return priorityRank(i.Priority) - priorityRank(j.Priority)
+	})
+
+	matchers := make([]Matcher, 0, len(sorted))
+	for _, m := range sorted {
+		matcher, err := m.Build()
+		if err != nil {
+			return nil, "", err
+		}
+		matchers = append(matchers, matcher)
+	}
+
+	hash, err := hashMatchers(sorted)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return matchers, hash, nil
+}
+
+// hashMatchers hashes the JSON form of the matcher config.
 func hashMatchers(matchers []MatcherConfig) (string, error) {
 	encoded, err := json.Marshal(matchers)
 	if err != nil {
@@ -95,35 +138,72 @@ func newLogTypeDetectionProcessor(cfg *Config, id component.ID, logger *zap.Logg
 	}
 
 	p := &logTypeDetectionProcessor{
-		logTypes:                 logTypes,
-		telemetry:                telemetry,
-		logger:                   logger,
-		id:                       id,
-		cfg:                      cfg,
-		fingerprintStorageClient: storageclient.NewNopStorage(),
+		logTypes:      logTypes,
+		telemetry:     telemetry,
+		logger:        logger,
+		id:            id,
+		cfg:           cfg,
+		storageClient: storageclient.NewNopStorage(),
+		matchersReady: make(chan struct{}),
+	}
+	p.opampCtx, p.opampCancel = context.WithCancel(context.Background())
+
+	if p.matchers, p.matcherHash, err = buildMatchers(cfg.Matchers); err != nil {
+		return nil, err
 	}
 
-	if cfg.Matchers != nil {
-		matchers := make([]MatcherConfig, len(cfg.Matchers))
-		copy(matchers, cfg.Matchers)
-		slices.SortStableFunc(matchers, func(i, j MatcherConfig) int {
-			return priorityRank(i.Priority) - priorityRank(j.Priority)
-		})
-
-		for _, m := range matchers {
-			matcher, err := m.Build()
-			if err != nil {
-				return nil, err
-			}
-			p.matchers = append(p.matchers, matcher)
-		}
-
-		if p.matcherHash, err = hashMatchers(matchers); err != nil {
-			return nil, err
+	if cfg.OpAMP != nil && cfg.OpAMP.MatchersVersion != "" {
+		if p.maxVersion, err = version.NewVersion(cfg.OpAMP.MatchersVersion); err != nil {
+			return nil, fmt.Errorf("parse matchers_version %q: %w", cfg.OpAMP.MatchersVersion, err)
 		}
 	}
 
 	return p, nil
+}
+
+// setServerMatchers merges the server's matchers with the configured ones.
+func (p *logTypeDetectionProcessor) setServerMatchers(ver *version.Version, server []MatcherConfig) error {
+	matchers, hash, err := buildMatchers(slices.Concat(p.cfg.Matchers, server))
+	if err != nil {
+		return err
+	}
+
+	p.matcherMux.Lock()
+	defer p.matcherMux.Unlock()
+
+	p.matcherVersion = ver
+
+	if hash != p.matcherHash {
+		p.matchers = matchers
+		p.matcherHash = hash
+		p.logTypes.Purge()
+	}
+
+	return nil
+}
+
+func (p *logTypeDetectionProcessor) heldVersion() *version.Version {
+	p.matcherMux.RLock()
+	defer p.matcherMux.RUnlock()
+
+	return p.matcherVersion
+}
+
+func (p *logTypeDetectionProcessor) currentVersion() string {
+	if held := p.heldVersion(); held != nil {
+		return held.Original()
+	}
+	return ""
+}
+
+func (p *logTypeDetectionProcessor) addSavedLogTypes(saved map[string]string) {
+	for key, logType := range saved {
+		logFingerprint, err := strconv.ParseUint(key, 16, 64)
+		if err != nil {
+			continue
+		}
+		p.logTypes.Add(logFingerprint, logType)
+	}
 }
 
 // priorityRank orders unset priority last.
@@ -135,7 +215,19 @@ func priorityRank(priority *int) int {
 }
 
 func (p *logTypeDetectionProcessor) start(ctx context.Context, host component.Host) error {
-	if p.cfg.FingerprintStorageID == nil {
+	if err := p.startStorage(ctx, host); err != nil {
+		return err
+	}
+
+	if p.cfg.OpAMP == nil {
+		return nil
+	}
+
+	return p.startOpAMP(host)
+}
+
+func (p *logTypeDetectionProcessor) startStorage(ctx context.Context, host component.Host) error {
+	if p.cfg.StorageID == nil {
 		return nil
 	}
 
@@ -143,32 +235,29 @@ func (p *logTypeDetectionProcessor) start(ctx context.Context, host component.Ho
 		ctx,
 		host,
 		component.KindProcessor,
-		*p.cfg.FingerprintStorageID,
+		*p.cfg.StorageID,
 		p.id,
 		pipeline.SignalLogs,
 	)
 	if err != nil {
 		return fmt.Errorf("create storage client: %w", err)
 	}
+	if p.cfg.OpAMP != nil {
+		if err := p.loadStoredMatchers(ctx, client); err != nil {
+			return errors.Join(err, client.Close(ctx))
+		}
+	}
+
 	saved := persistedFingerprints{}
 	if err := client.LoadStorageData(ctx, fingerprintStorageKey, &saved); err != nil {
 		return errors.Join(fmt.Errorf("load log types: %w", err), client.Close(ctx))
 	}
-	p.fingerprintStorageClient = client
+	p.storageClient = client
 
-	if saved.MatcherHash != p.matcherHash {
-		if len(saved.LogTypes) > 0 {
-			p.logger.Info("matcher config changed, discarding persisted log types")
-		}
-		saved.LogTypes = nil
-	}
-
-	for key, logType := range saved.LogTypes {
-		logFingerprint, err := strconv.ParseUint(key, 16, 64)
-		if err != nil {
-			continue
-		}
-		p.logTypes.Add(logFingerprint, logType)
+	if saved.MatcherHash == p.matcherHash {
+		p.addSavedLogTypes(saved.LogTypes)
+	} else if len(saved.LogTypes) > 0 {
+		p.logger.Info("matcher config changed, discarding persisted log types")
 	}
 
 	persistCtx, cancel := context.WithCancel(context.Background())
@@ -202,6 +291,8 @@ func (p *logTypeDetectionProcessor) fingerprintPersistLoop(ctx context.Context) 
 }
 
 func (p *logTypeDetectionProcessor) save(ctx context.Context) error {
+	p.matcherMux.RLock()
+	hash := p.matcherHash
 	toSave := map[string]string{}
 	for _, logFingerprint := range p.logTypes.Keys() {
 		logType, ok := p.logTypes.Peek(logFingerprint)
@@ -210,9 +301,10 @@ func (p *logTypeDetectionProcessor) save(ctx context.Context) error {
 		}
 		toSave[strconv.FormatUint(logFingerprint, 16)] = logType
 	}
+	p.matcherMux.RUnlock()
 
-	state := persistedFingerprints{MatcherHash: p.matcherHash, LogTypes: toSave}
-	if err := p.fingerprintStorageClient.SaveStorageData(ctx, fingerprintStorageKey, &state); err != nil {
+	state := persistedFingerprints{MatcherHash: hash, LogTypes: toSave}
+	if err := p.storageClient.SaveStorageData(ctx, fingerprintStorageKey, &state); err != nil {
 		return fmt.Errorf("save log types: %w", err)
 	}
 	return nil
@@ -224,18 +316,22 @@ func (p *logTypeDetectionProcessor) stop(ctx context.Context) error {
 	}
 	p.stopped = true
 	p.telemetry.Shutdown()
+	p.stopOpAMP()
 
 	if p.fingerprintPersistCancel == nil {
-		return p.fingerprintStorageClient.Close(ctx)
+		return p.storageClient.Close(ctx)
 	}
 
 	p.fingerprintPersistCancel()
 	<-p.fingerprintPersistDone
 
-	return errors.Join(p.save(ctx), p.fingerprintStorageClient.Close(ctx))
+	return errors.Join(p.save(ctx), p.storageClient.Close(ctx))
 }
 
 func (p *logTypeDetectionProcessor) processLogs(ctx context.Context, ld plog.Logs) (plog.Logs, error) {
+	p.matcherMux.RLock()
+	defer p.matcherMux.RUnlock()
+
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		resourceLogs := ld.ResourceLogs().At(i)
 		for j := 0; j < resourceLogs.ScopeLogs().Len(); j++ {
