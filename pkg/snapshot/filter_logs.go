@@ -59,7 +59,7 @@ func filterResourceLogs(resourceLog plog.ResourceLogs, searchQuery *string, mini
 
 	scopeLogs := resourceLog.ScopeLogs()
 	for i := 0; i < scopeLogs.Len(); i++ {
-		filteredScopeLogs := filterScopeLogs(resourceLog.ScopeLogs().At(i), queryMatchesResource, searchQuery, minimumTimestamp)
+		filteredScopeLogs := filterScopeLogs(scopeLogs.At(i), queryMatchesResource, searchQuery, minimumTimestamp)
 
 		// Don't append empty scope logs
 		if filteredScopeLogs.LogRecords().Len() != 0 {
