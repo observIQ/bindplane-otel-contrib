@@ -24,9 +24,16 @@ return from the next consumer is acceptance. This holds in every configuration:
 - A full queue, a permanent error, or exhausted retries return an error. The
   processor does not count the payload as throughput.
 
-The behavior is unconditional. Every throughput processor in a collector gates
-on acceptance. This includes processors placed early in a pipeline, so every
-measurement point in the pipeline drops under backpressure.
+The behavior is opt-in through the `count_on_delivery` field. When it is off,
+the default, the processor records a payload when it arrives, as before. When
+it is on, every throughput processor gates on acceptance. This includes
+processors placed early in a pipeline.
+
+When a pipeline fans out, a processor above the fanout counts the payload as
+delivered if at least one branch accepted it. Thus when one destination fails
+and one succeeds, the source-side processors show throughput, the processors in
+front of the failed destination show no throughput, and the processors in front
+of the healthy destination show throughput.
 
 Payloads the processor measured but the next consumer rejected go to a new set
 of rejected counters. Throughput plus rejected equals what arrived. A user can
@@ -34,16 +41,69 @@ detect backpressure from the processor's own metrics.
 
 ## Non-goals
 
-- No new configuration field. The behavior is always on.
 - The rejected counters do not go into the OpAMP report. They are internal
   collector telemetry only. A later change can add them to the report once a
   consumer needs them.
-- No per-exporter attribution when a pipeline fans out to more than one
-  exporter. Any non-nil error counts the whole payload as rejected.
+- No per-record attribution. A partial failure counts as a failure of the
+  whole payload.
 - No change to the processorhelper telemetry. `otelcol_processor_incoming_items`
   and `otelcol_processor_outgoing_items` keep their current meaning.
 
 ## Design
+
+### Flag
+
+`Config.CountOnDelivery` (`count_on_delivery`, default `false`) selects the
+mode. The flag exists so that configurations from Bindplane servers that do not
+render the field keep the current numbers. A Bindplane server that supports the
+new behavior renders `count_on_delivery: true` on every throughput processor.
+
+When the flag is off, the wrapper records a sampled payload with `Add*` and then
+forwards it with the context unchanged. This is the order of the process
+function before this change. The rejected counters stay at zero.
+
+### Fanout
+
+The collector's fanout consumer calls every branch and joins the errors. A
+processor above the fanout cannot tell "one branch failed" from "all branches
+failed" from the error alone.
+
+Each processor with the flag on puts a delivery tracker in the context before it
+forwards a payload:
+
+```go
+type deliveryTracker struct{ delivered atomic.Bool }
+```
+
+When a processor finds that its forward delivered the payload, it marks the
+tracker of the processor above it (the tracker in the context it received). A
+forward delivered the payload when it returned nil or when a processor below
+marked this processor's own tracker. The processor above then records the
+payload as delivered, even though the fanout returned an error.
+
+This works because the forward is synchronous: the context goes down the stack
+through connectors and the fanout consumer, and the result is read after the
+call returns. A component that forwards on a different goroutine (the batch
+processor, an exporter queue) returns before the result is known. The processor
+treats that return as acceptance.
+
+Rules:
+
+- A processor marks its parent also when it did not sample the payload.
+  Otherwise sampling below would hide deliveries from the processors above.
+- A disabled processor forwards the context unchanged, so the processors on
+  either side of it see each other.
+- The error returned to the caller does not change. The receiver still sees the
+  joined error.
+
+Limits:
+
+- A branch that accepts the payload but has no throughput processor with the
+  flag on cannot mark the processor above the fanout.
+- A processor with the flag off does not mark its parent. Configurations must
+  set the same value on every throughput processor.
+- The tracker and the context value cost two small allocations for each payload
+  on the flag-on path.
 
 ### Why measure before the call and record after
 
@@ -119,13 +179,17 @@ The process functions become pass-through and return the payload unchanged.
 The factory wraps the real next consumer before it passes it to processorhelper.
 The wrapper does the work, once per payload:
 
-1. If the processor is disabled, forward and return. Record nothing.
-2. Take one sampling decision with `rand.Float64() <= samplingCutOffRatio`.
-   If not sampled, forward and return. Record nothing.
-3. Measure the payload.
-4. Forward to the real next consumer.
-5. On nil, record as delivered. On error, record as rejected. Return the error
-   unchanged.
+1. If the flag is off, record the sampled payload with `Add*`, forward, and
+   return.
+2. If the processor is disabled, forward with the context unchanged and return.
+   Record nothing.
+3. Take one sampling decision with `rand.Float64() <= samplingCutOffRatio`.
+   If sampled, measure the payload.
+4. Forward to the real next consumer with the processor's own tracker in the
+   context.
+5. The payload is delivered when the forward returned nil or the own tracker
+   is marked. On delivery, mark the parent tracker.
+6. If sampled, record as delivered or as rejected. Return the error unchanged.
 
 The sampling decision happens before the outcome is known, so delivered and
 rejected payloads are sampled at the same ratio.
@@ -250,5 +314,5 @@ The processor branch adds the after table and the benchstat delta.
 
 The change ships in the next `pkg/measurements` and processor module versions
 and reaches agents through the normal bindplane-otel-collector dependency bump.
-Consumers of the existing counters need no change and start to see drops under
-backpressure.
+With the flag off, consumers of the existing counters see no change. The new
+behavior starts when the Bindplane server renders `count_on_delivery: true`.
