@@ -78,12 +78,18 @@ At every window rollover the buffer takes the pipeline's record and batch
 rate from what was offered during the window. After three
 consecutive windows above `highThroughputMultiple` (10) buffers' worth of
 records per second with at least `minBatchesPerSecond` (10) batches, the
-buffer switches to on-demand mode: the store is dropped and `Add` returns
-after one atomic load. A snapshot request then arms the buffer, waits until
-the store is full or `fillWait` (1 s) has passed, answers, and disarms
-(dropping the store again). If a request's wait times out the pipeline is no
-longer fast and the buffer returns to continuous mode. Requests that arrive
-while another is in flight share the same fill.
+buffer switches to on-demand mode: it stops collecting and keeps its store as
+the last known snapshot. `Add` then costs one atomic load plus one atomic add,
+and once every `heartbeatInterval` (10 s) it admits a single payload so the
+store stays a recent picture of the stream. A snapshot request arms the
+buffer, waits until a full store's worth of fresh records has arrived or
+`fillWait` (1 s) has passed, answers, and disarms. If the pipeline is
+flowing, the fresh records have displaced the old ones and the snapshot is
+from the moment of the request; if it went quiet, the request returns the
+last known snapshot (at most a heartbeat old relative to when traffic
+stopped) and the buffer returns to continuous mode. Requests that arrive
+while another is in flight share the same fill. All window arithmetic uses
+the monotonic clock, so a wall-clock step cannot freeze a window.
 
 Why count offered records instead of timing the fill: a single 1,000-record
 batch every 10 s "fills" the budget instantly but is 100 records/s (the first
@@ -94,14 +100,15 @@ resource and scope groups) so the rate is exact rather than extrapolated from
 the admitted batches. The batch-rate condition keeps a request from waiting a
 whole batch interval on large, infrequent batches.
 
-The request that arms the buffer drops the store first, so a snapshot holds
-only records collected for it even if a batch slipped in as the buffer
-disarmed. A request that begins in the same microsecond the buffer flips to
-on-demand can copy an empty store without waiting; Bindplane's next poll a
-second later arms the buffer, so at most one poll is lost. In on-demand mode
-each poll returns the ~100 records collected for it, so a 30 s search sees a
-sample of the stream, not a continuous tail; continuous mode admits ~100
-records per second, so the volume per poll is the same.
+The fill signal counts records admitted since the request armed the buffer,
+not the store's size, so a store that already held the last known snapshot
+does not satisfy a request until a full buffer's worth of fresh records has
+displaced it. A request that begins in the same microsecond the buffer flips
+to on-demand copies the store without waiting and gets data up to a second
+old, as in continuous mode. In on-demand mode each poll returns the ~100
+records collected for it, so a 30 s search sees a sample of the stream, not a
+continuous tail; continuous mode admits ~100 records per second, so the
+volume per poll is the same.
 
 ### 3.4 Behaviour changes
 
@@ -111,8 +118,9 @@ records per second, so the volume per poll is the same.
   batch, so a snapshot can be up to 1 s old.
 - In on-demand mode the request returns records from the moment of the request
   (a few ms old) and may take up to `100 / rate` seconds plus marshaling to
-  answer; a pipeline that just went quiet costs one 1 s wait, then the buffer
-  is continuous again.
+  answer. A pipeline that just went quiet costs one 1 s wait and returns the
+  last known snapshot, as the shipped buffer does; the buffer is then
+  continuous again.
 - A request no longer sees records admitted while it was marshaling.
 - `ConstructPayload` may block for up to `fillWait`. The collector's OpAMP
   custom-message handler runs in its own goroutine; the legacy report-manager
@@ -139,7 +147,7 @@ Hot path per batch, processor level (`BenchmarkProcessLogs`, 1,000 records):
 |-----------|---------|-----------|--------------------------------------------|
 | stock     | 226,983 | 13,012    | full deep copy                             |
 | budget    | 78      | 0         | steady state; one ≤100-record copy per second |
-| on-demand | ~2      | 0         | idle between requests                      |
+| on-demand | ~2–7    | 0         | idle between requests (one heartbeat copy per 10 s) |
 
 Buffer level (`BenchmarkLogBufferAdd`, 1,000 records):
 
@@ -148,7 +156,7 @@ Buffer level (`BenchmarkLogBufferAdd`, 1,000 records):
 | stock                 | 27     | 1         | stores the pointer; the processor copied  |
 | budget, steady        | 46–79  | 0         | counted, then rejected without a copy     |
 | budget, admitted      | 26,798 | 1,310     | bounded copy of 100 records               |
-| on-demand, idle       | 1.9    | 0         | one atomic load                           |
+| on-demand, idle       | 2–7    | 0         | one atomic load and one atomic add        |
 
 Snapshot request (`BenchmarkSnapshotRequest/unfiltered`, processor level):
 
@@ -163,19 +171,21 @@ batches, requests back to back):
 | Rate (records/s) | Mode reached | Request ns/op | Age of newest record | Records |
 |------------------|--------------|---------------|----------------------|---------|
 | 200              | continuous   | 272,667       | up to 1 s            | 100     |
-| 2,000            | on-demand    | 49,778,265    | 1.6 ms               | 100     |
-| 20,000           | on-demand    | 4,792,077     | 1.0 ms               | 100     |
+| 2,000            | on-demand    | 49,677,608    | 1.7 ms               | 100     |
+| 20,000           | on-demand    | 4,695,002     | 1.3 ms               | 100     |
 
 The on-demand request time is the time to collect 100 records at that rate
 (50 ms at 2k/s, 5 ms at 20k/s) plus ~0.3 ms to build the payload.
 
 Retained heap per full buffer (`BenchmarkLogBufferRetainedHeap`, 256-byte
-bodies, 10 attributes):
+bodies, 10 attributes). On-demand mode keeps the last known snapshot, so it
+retains the same bounded store as continuous mode; the saving is CPU, not
+memory:
 
-| Mode           | retained KB |
-|----------------|-------------|
-| continuous     | 71.9        |
-| on-demand idle | 0.23        |
+| Mode       | retained KB |
+|------------|-------------|
+| continuous | 71.9        |
+| on-demand  | 71.2        |
 
 ## 5. Docker A/B (whole collector)
 
@@ -220,9 +230,9 @@ check. At 1,000-record batches nothing from the snapshot path appears in a
 21 s profile.
 
 Container RSS was flat at 205–218 MB in all twelve runs and the instantaneous
-heap-in-use gauge swings with GC phase, so this rig cannot resolve the
-retained-buffer difference (a few hundred KB); the Go benchmark in §4 is the
-measurement for that.
+heap-in-use gauge swings with GC phase; both fixed builds retain the same
+bounded store (a few hundred KB across three buffers), below this rig's
+resolution.
 
 ## 6. GCP VM (Linux x86-64)
 
