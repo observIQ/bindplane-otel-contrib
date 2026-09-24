@@ -29,6 +29,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -39,8 +40,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/observiq/bindplane-otel-contrib/extension/opampgateway/internal/metadata"
+	"github.com/observiq/bindplane-otel-contrib/extension/opampgateway/internal/version"
 	"github.com/open-telemetry/opamp-go/protobufs"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/confighttp"
 	"go.opentelemetry.io/collector/config/confignet"
@@ -168,6 +171,23 @@ func TestGatewayUpstreamConnectionAffinity(t *testing.T) {
 	// }
 }
 
+func TestGatewayUpstreamUserAgent(t *testing.T) {
+	t.Parallel()
+
+	h := newGatewayTestHarness(t, 2)
+
+	// the module version is "unknown" under test because the extension is the
+	// main module, but the collector product and platform come through.
+	expected := fmt.Sprintf("opamp-gateway/unknown test-collector/v1.2.3 (%s/%s)", runtime.GOOS, runtime.GOARCH)
+	require.Equal(t, map[string]string{
+		"upstream-0": expected,
+		"upstream-1": expected,
+	}, h.upstream.UserAgents())
+
+	// the value must match what the version package builds for the same build info
+	require.Equal(t, version.UserAgent(testBuildInfo), expected)
+}
+
 func TestGatewayRestartAfterShutdown(t *testing.T) {
 	t.Parallel()
 
@@ -286,6 +306,13 @@ func TestGatewayDoubleShutdown(t *testing.T) {
 // --------------------------------------------------------------------------------------
 // test harness
 
+// testBuildInfo stands in for the collector distribution hosting the gateway.
+var testBuildInfo = component.BuildInfo{
+	Command:     "test-collector",
+	Description: "Test Collector Distribution",
+	Version:     "v1.2.3",
+}
+
 type gatewayTestHarness struct {
 	t        *testing.T
 	ctx      context.Context
@@ -318,6 +345,7 @@ func newGatewayTestHarness(t *testing.T, upstreamConnections int) *gatewayTestHa
 		},
 		UpstreamConnections: upstreamConnections,
 		OpAMPServer:         confighttp.ServerConfig{NetAddr: confignet.AddrConfig{Endpoint: "127.0.0.1:0", Transport: confignet.TransportTypeTCP}},
+		BuildInfo:           testBuildInfo,
 	}
 
 	logger := zaptest.NewLogger(t)
@@ -395,8 +423,9 @@ type upstreamMessage struct {
 }
 
 type testUpstreamConnection struct {
-	id   string
-	conn *websocket.Conn
+	id        string
+	userAgent string
+	conn      *websocket.Conn
 }
 
 type testOpAMPServer struct {
@@ -489,6 +518,7 @@ func newTestOpAMPServerTLS(t *testing.T, certPEM, keyPEM string) *testOpAMPServe
 func (s *testOpAMPServer) handle(w http.ResponseWriter, r *http.Request) {
 	// extract the connection id from the request
 	id := r.Header.Get("X-Opamp-Gateway-Connection-Id")
+	userAgent := r.Header.Get("User-Agent")
 
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -497,7 +527,7 @@ func (s *testOpAMPServer) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	s.connections = append(s.connections, &testUpstreamConnection{id: id, conn: conn})
+	s.connections = append(s.connections, &testUpstreamConnection{id: id, userAgent: userAgent, conn: conn})
 	s.mu.Unlock()
 	s.connectionCount.Add(1)
 
@@ -671,6 +701,18 @@ func (s *testOpAMPServer) WaitForAgentMessage(t *testing.T, agentID string, time
 			t.Fatalf("timed out waiting for message for agent %s", agentID)
 		}
 	}
+}
+
+// UserAgents returns the User-Agent header of every open upstream connection,
+// keyed by connection id.
+func (s *testOpAMPServer) UserAgents() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	agents := make(map[string]string, len(s.connections))
+	for _, c := range s.connections {
+		agents[c.id] = c.userAgent
+	}
+	return agents
 }
 
 func (s *testOpAMPServer) removeConnection(id string) {
@@ -1511,6 +1553,7 @@ func newGatewayTestHarnessWithCapabilities(t *testing.T, upstreamConnections int
 		},
 		UpstreamConnections: upstreamConnections,
 		OpAMPServer:         confighttp.ServerConfig{NetAddr: confignet.AddrConfig{Endpoint: "127.0.0.1:0", Transport: confignet.TransportTypeTCP}},
+		BuildInfo:           testBuildInfo,
 	}
 
 	logger := zaptest.NewLogger(t)
