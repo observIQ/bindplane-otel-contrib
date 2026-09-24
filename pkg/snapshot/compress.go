@@ -46,7 +46,11 @@ func compressedSize(data []byte) (int, error) {
 	cw := &countingWriter{}
 
 	w := gzipWriterPool.Get().(*gzip.Writer)
-	defer gzipWriterPool.Put(w)
+	defer func() {
+		// Drop the writer's reference to the payload before pooling it.
+		w.Reset(io.Discard)
+		gzipWriterPool.Put(w)
+	}()
 	w.Reset(cw)
 
 	if _, err := w.Write(data); err != nil {
@@ -64,7 +68,11 @@ func Compress(data []byte) ([]byte, error) {
 	var buf bytes.Buffer
 
 	w := gzipWriterPool.Get().(*gzip.Writer)
-	defer gzipWriterPool.Put(w)
+	defer func() {
+		// Drop the writer's reference to the payload before pooling it.
+		w.Reset(io.Discard)
+		gzipWriterPool.Put(w)
+	}()
 	w.Reset(&buf)
 
 	if _, err := w.Write(data); err != nil {
