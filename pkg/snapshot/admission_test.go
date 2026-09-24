@@ -45,7 +45,7 @@ func TestAdmission(t *testing.T) {
 		require.Equal(t, reject, a.decide(1))
 
 		// Rewind the window past the interval: budget resets.
-		a.windowNs.Store(0)
+		a.windowNs.Store(monoNow() - int64(2*time.Hour))
 		require.Equal(t, admit, a.decide(1))
 		a.charge(1)
 		require.Equal(t, admit, a.decide(1))
@@ -57,7 +57,7 @@ func TestAdmission(t *testing.T) {
 		var a admission
 		a.init(time.Hour, 1)
 		a.charge(1)
-		a.windowNs.Store(0)
+		a.windowNs.Store(monoNow() - int64(2*time.Hour))
 
 		var admitted atomic.Int32
 		var wg sync.WaitGroup
@@ -95,7 +95,7 @@ func TestBufferAddBudgetPerInterval(t *testing.T) {
 		require.Equal(t, []string{"fill-1", "fill-2", "fill-3"}, logBodies(t, buf))
 
 		// Past the interval: another buffer's worth is admitted, oldest evicted.
-		buf.admit.windowNs.Store(0)
+		buf.admit.windowNs.Store(monoNow() - int64(2*time.Hour))
 		buf.Add(logsWithBody("late"))
 		buf.Add(logsWithBody("later"))
 		buf.Add(logsWithBody("last"))
@@ -128,7 +128,7 @@ func TestBufferAddBudgetPerInterval(t *testing.T) {
 		buf.Add(md)
 		require.Equal(t, 2, buf.Len())
 		require.Equal(t, reject, buf.admit.decide(1))
-		buf.admit.windowNs.Store(0)
+		buf.admit.windowNs.Store(monoNow() - int64(2*time.Hour))
 		require.Equal(t, admit, buf.admit.decide(1))
 		buf.Add(md)
 		require.Equal(t, 2, buf.Len())

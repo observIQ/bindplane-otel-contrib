@@ -137,9 +137,9 @@ func BenchmarkLogBufferFreshness(b *testing.B) {
 
 // BenchmarkLogBufferRetainedHeap reports the live heap one buffer holds at
 // rest. "continuous" fills a buffer to its ideal size with 256-byte bodies and
-// ten attributes per record; "on_demand_idle" is a buffer that switched to
-// on-demand mode and dropped its store. Every Bindplane pipeline carries three
-// such buffers per signal.
+// ten attributes per record; "on_demand" is the same buffer after it switched
+// to on-demand mode, which keeps the store as the last known snapshot. Every
+// Bindplane pipeline carries three such buffers per signal.
 func BenchmarkLogBufferRetainedHeap(b *testing.B) {
 	ld := benchLogs(benchIdealSize, 10, 256)
 	modes := []struct {
@@ -151,8 +151,9 @@ func BenchmarkLogBufferRetainedHeap(b *testing.B) {
 			buf.Add(ld)
 			return buf
 		}},
-		{name: "on_demand_idle", make: func() *LogBuffer {
+		{name: "on_demand", make: func() *LogBuffer {
 			buf := NewLogBuffer(benchIdealSize)
+			buf.Add(ld)
 			forceOnDemand(b, buf)
 			buf.Add(ld) // ignored: idle on-demand buffers collect nothing
 			return buf

@@ -39,7 +39,7 @@ func logsN(n int, prefix string) plog.Logs {
 // batchesPerSecond batches of recordsPerBatch records, then offers one more
 // single-record payload, which rolls the window over and samples it.
 func simulateWindow(buf *LogBuffer, batchesPerSecond, recordsPerBatch int) {
-	buf.admit.windowNs.Store(time.Now().Add(-time.Second).UnixNano())
+	buf.admit.windowNs.Store(monoNow() - int64(time.Second))
 	buf.admit.used.Store(buf.admit.budget)
 	buf.admit.batches.Store(int64(batchesPerSecond))
 	buf.admit.offered.Store(int64(batchesPerSecond * recordsPerBatch))
@@ -64,19 +64,18 @@ func forceOnDemand(tb testing.TB, buf *LogBuffer) {
 	buf.admit.mu.Unlock()
 	require.True(tb, onDemand, "buffer should be on-demand after fast windows")
 	require.False(tb, buf.admit.collecting.Load())
-	require.Equal(tb, 0, buf.Len(), "on-demand buffer holds nothing between requests")
 }
 
 func TestOnDemandDetection(t *testing.T) {
-	t.Run("consecutive fast windows switch mode and drop the store", func(t *testing.T) {
+	t.Run("consecutive fast windows switch mode and keep the store", func(t *testing.T) {
 		buf := NewLogBuffer(10)
 		simulateFastWindow(buf)
 		simulateFastWindow(buf)
 		require.True(t, buf.admit.collecting.Load(), "still continuous after two fast windows")
 		require.Equal(t, 2, buf.Len())
 		simulateFastWindow(buf)
-		require.Equal(t, 0, buf.Len())
 		require.False(t, buf.admit.collecting.Load())
+		require.Equal(t, 2, buf.Len(), "the store is kept as the last known snapshot")
 	})
 
 	t.Run("slow windows never switch", func(t *testing.T) {
@@ -112,7 +111,7 @@ func TestOnDemandDetection(t *testing.T) {
 		buf := NewLogBuffer(100)
 		// 14 one-record batches and one 100-record batch per second: 114 rec/s.
 		for i := 0; i < 10; i++ {
-			buf.admit.windowNs.Store(time.Now().Add(-time.Second).UnixNano())
+			buf.admit.windowNs.Store(monoNow() - int64(time.Second))
 			buf.admit.used.Store(buf.admit.budget)
 			buf.admit.batches.Store(15)
 			buf.admit.offered.Store(114)
@@ -142,11 +141,53 @@ func TestOnDemandDetection(t *testing.T) {
 func TestOnDemandIdleIgnoresTraffic(t *testing.T) {
 	buf := NewLogBuffer(10)
 	forceOnDemand(t, buf)
+	before := buf.Len()
 
 	big := logsN(1000, "ignored")
 	allocs := testing.AllocsPerRun(100, func() { buf.Add(big) })
 	require.Zero(t, allocs)
-	require.Equal(t, 0, buf.Len())
+	require.Equal(t, before, buf.Len())
+}
+
+func TestOnDemandHeartbeatKeepsStoreCurrent(t *testing.T) {
+	buf := NewLogBuffer(10)
+	forceOnDemand(t, buf)
+	before := buf.Len()
+
+	// A heartbeat is due: exactly one of the next 64 payloads is admitted.
+	buf.admit.heartbeatInterval = 0
+	for i := 0; i < 64; i++ {
+		buf.Add(logsN(1, fmt.Sprintf("hb-%d", i)))
+	}
+	require.Equal(t, before+1, buf.Len())
+	require.Contains(t, logBodiesNoRequest(buf), "hb-63-0")
+
+	// Not due: nothing is admitted.
+	buf.admit.heartbeatInterval = time.Hour
+	for i := 0; i < 64; i++ {
+		buf.Add(logsN(1, "late"))
+	}
+	require.Equal(t, before+1, buf.Len())
+	require.False(t, buf.admit.collecting.Load())
+}
+
+// logBodiesNoRequest reads the store directly, without going through a
+// snapshot request that would arm an on-demand buffer.
+func logBodiesNoRequest(buf *LogBuffer) []string {
+	buf.mutex.Lock()
+	defer buf.mutex.Unlock()
+	var bodies []string
+	rls := buf.store.ResourceLogs()
+	for ri := 0; ri < rls.Len(); ri++ {
+		sls := rls.At(ri).ScopeLogs()
+		for si := 0; si < sls.Len(); si++ {
+			lrs := sls.At(si).LogRecords()
+			for li := 0; li < lrs.Len(); li++ {
+				bodies = append(bodies, lrs.At(li).Body().Str())
+			}
+		}
+	}
+	return bodies
 }
 
 func TestOnDemandRequestCollectsJustInTime(t *testing.T) {
@@ -177,11 +218,14 @@ func TestOnDemandRequestCollectsJustInTime(t *testing.T) {
 	wg.Wait()
 
 	require.Len(t, bodies, 10, "request collected a full buffer")
-	require.Contains(t, bodies[0], "live-")
+	for _, b := range bodies {
+		require.Contains(t, b, "live-", "only fresh records: %s", b)
+	}
 	require.Less(t, elapsed, buf.admit.fillWait, "filled before the wait expired")
 
-	// Back to idle: nothing retained, nothing collected.
-	require.Equal(t, 0, buf.Len())
+	// Back to idle: the fresh records stay as the last known snapshot,
+	// nothing more is collected.
+	require.Equal(t, 10, buf.Len())
 	require.False(t, buf.admit.collecting.Load())
 	buf.admit.mu.Lock()
 	require.True(t, buf.admit.onDemand)
@@ -189,16 +233,16 @@ func TestOnDemandRequestCollectsJustInTime(t *testing.T) {
 	buf.admit.mu.Unlock()
 }
 
-// TestOnDemandRequestDropsStaleStore guards the freshness guarantee: records
-// that slipped into an idle on-demand store (an Add that passed the gate just
-// before the buffer disarmed) must never be served as a fresh snapshot.
-func TestOnDemandRequestDropsStaleStore(t *testing.T) {
+// TestOnDemandRequestReplacesStaleStore guards the freshness guarantee: while
+// the pipeline is flowing, a request returns only records collected for it,
+// not the last known snapshot the idle buffer kept.
+func TestOnDemandRequestReplacesStaleStore(t *testing.T) {
 	buf := NewLogBuffer(10)
 	forceOnDemand(t, buf)
 
-	// Inject a leaked store the way a racing Add would leave it.
+	// The last known snapshot an idle buffer holds.
 	buf.mutex.Lock()
-	logsN(10, "stale").ResourceLogs().MoveAndAppendTo(buf.store.ResourceLogs())
+	buf.store = logsN(10, "stale")
 	buf.count.Store(10)
 	buf.mutex.Unlock()
 
@@ -228,18 +272,19 @@ func TestOnDemandRequestDropsStaleStore(t *testing.T) {
 }
 
 func TestOnDemandRequestTimeoutFallsBackToContinuous(t *testing.T) {
-	t.Run("nothing arrives", func(t *testing.T) {
+	t.Run("nothing arrives: the last known snapshot is returned", func(t *testing.T) {
 		buf := NewLogBuffer(10)
 		forceOnDemand(t, buf)
+		buf.mutex.Lock()
+		buf.store = logsN(4, "known")
+		buf.count.Store(4)
+		buf.mutex.Unlock()
 		buf.admit.fillWait = 50 * time.Millisecond
 
 		start := time.Now()
-		payload, err := buf.ConstructPayload(&plog.ProtoMarshaler{}, nil, nil, 1024*1024)
-		require.NoError(t, err)
+		bodies := logBodies(t, buf)
 		require.GreaterOrEqual(t, time.Since(start), 50*time.Millisecond)
-		ld, err := (&plog.ProtoUnmarshaler{}).UnmarshalLogs(payload)
-		require.NoError(t, err)
-		require.Equal(t, 0, ld.LogRecordCount())
+		require.Equal(t, []string{"known-0", "known-1", "known-2", "known-3"}, bodies)
 
 		// The pipeline is not fast any more: collect continuously again.
 		require.True(t, buf.admit.collecting.Load())
@@ -247,7 +292,7 @@ func TestOnDemandRequestTimeoutFallsBackToContinuous(t *testing.T) {
 		require.False(t, buf.admit.onDemand)
 		buf.admit.mu.Unlock()
 		buf.Add(logsN(4, "after"))
-		require.Equal(t, 4, buf.Len())
+		require.Equal(t, 8, buf.Len())
 	})
 
 	t.Run("partial fill is returned and kept", func(t *testing.T) {
@@ -255,6 +300,7 @@ func TestOnDemandRequestTimeoutFallsBackToContinuous(t *testing.T) {
 		forceOnDemand(t, buf)
 		buf.admit.fillWait = 100 * time.Millisecond
 
+		buf.Reset()
 		go func() {
 			time.Sleep(10 * time.Millisecond)
 			buf.Add(logsN(3, "partial"))
@@ -307,7 +353,7 @@ func TestOnDemandConcurrentRequestsShareOneFill(t *testing.T) {
 	for r, n := range results {
 		require.Equal(t, 10, n, "request %d saw a full buffer", r)
 	}
-	require.Equal(t, 0, buf.Len())
+	require.Equal(t, 10, buf.Len(), "store kept as the last known snapshot")
 	require.False(t, buf.admit.collecting.Load())
 	buf.admit.mu.Lock()
 	require.True(t, buf.admit.onDemand)
