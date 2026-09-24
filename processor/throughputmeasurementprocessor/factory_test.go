@@ -30,8 +30,9 @@ func TestNewFactory(t *testing.T) {
 	require.Equal(t, componentType, factory.Type())
 
 	expectedCfg := &Config{
-		Enabled:       true,
-		SamplingRatio: 0.5,
+		Enabled:         true,
+		SamplingRatio:   0.5,
+		CountOnDelivery: false,
 	}
 
 	cfg, ok := factory.CreateDefaultConfig().(*Config)

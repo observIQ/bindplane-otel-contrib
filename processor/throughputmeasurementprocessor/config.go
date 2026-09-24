@@ -75,6 +75,14 @@ type Config struct {
 
 	// When true, for logs, the processor will measure the raw bytes of the payload in addition to the protobuf size. This is more expensive but provides raw measurements if designated.
 	MeasureLogRawBytes bool `mapstructure:"measure_log_raw_bytes"`
+
+	// CountOnDelivery controls when a payload is recorded. When false, the
+	// processor records a payload when it arrives. When true, the processor
+	// records a payload after a downstream consumer accepts it, and records a
+	// refused payload in the rejected counters. When a pipeline fans out, the
+	// payload is delivered if at least one branch accepts it. Set the same value
+	// on every throughput processor in a configuration.
+	CountOnDelivery bool `mapstructure:"count_on_delivery"`
 }
 
 // Validate validates the processor configuration
