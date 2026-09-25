@@ -12,7 +12,7 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.29
 	github.com/sorairolake/lzip-go v0.3.8
 	github.com/stretchr/testify v1.12.1
-	github.com/ulikunitz/xz v0.5.16
+	github.com/ulikunitz/xz v0.5.17
 	go.opentelemetry.io/collector/pdata v1.66.0
 	go.uber.org/zap v1.28.0
 )
