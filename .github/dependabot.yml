@@ -140,6 +140,7 @@ updates:
     ignore:
       # Opentelemetry updates will be done manually
       - dependency-name: "github.com/open-telemetry/opentelemetry-collector*"
+      - dependency-name: "github.com/open-telemetry/opamp-go"
       - dependency-name: "go.opentelemetry.io/*"
     commit-message:
       prefix: "deps"
@@ -208,6 +209,7 @@ updates:
       # Opentelemetry updates will be done manually
       - dependency-name: "go.opentelemetry.io/*"
       - dependency-name: "github.com/open-telemetry/opentelemetry-collector*"
+      - dependency-name: "github.com/open-telemetry/opamp-go"
     commit-message:
       prefix: "deps"
       include: "scope"
@@ -219,6 +221,7 @@ updates:
       # Opentelemetry updates will be done manually
       - dependency-name: "go.opentelemetry.io/*"
       - dependency-name: "github.com/open-telemetry/opentelemetry-collector*"
+      - dependency-name: "github.com/open-telemetry/opamp-go"
     commit-message:
       prefix: "deps"
       include: "scope"
@@ -511,6 +514,7 @@ updates:
     ignore:
       # Opentelemetry updates will be done manually
       - dependency-name: "github.com/open-telemetry/opentelemetry-collector*"
+      - dependency-name: "github.com/open-telemetry/opamp-go"
       - dependency-name: "go.opentelemetry.io/*"
     commit-message:
       prefix: "deps"
@@ -533,6 +537,7 @@ updates:
     ignore:
       # Opentelemetry updates will be done manually
       - dependency-name: "github.com/open-telemetry/opentelemetry-collector*"
+      - dependency-name: "github.com/open-telemetry/opamp-go"
       - dependency-name: "go.opentelemetry.io/*"
     commit-message:
       prefix: "deps"
@@ -555,6 +560,7 @@ updates:
     ignore:
       # Opentelemetry updates will be done manually
       - dependency-name: "github.com/open-telemetry/opentelemetry-collector*"
+      - dependency-name: "github.com/open-telemetry/opamp-go"
       - dependency-name: "go.opentelemetry.io/*"
     commit-message:
       prefix: "deps"
