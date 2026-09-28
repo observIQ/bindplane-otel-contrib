@@ -100,7 +100,7 @@ func (sp *tracesSamplingProcessor) processTraces(ctx context.Context, td ptrace.
 					return sampleFunc(sp.dropCutOffRatio)
 				}
 
-				spanCtx := ottlspan.NewTransformContextPtr(
+				spanCtx := ottlspan.NewTransformContext(
 					td.ResourceSpans().At(i),
 					td.ResourceSpans().At(i).ScopeSpans().At(j),
 					span,
@@ -138,7 +138,7 @@ func (sp *logsSamplingProcessor) processLogs(ctx context.Context, ld plog.Logs) 
 					return sampleFunc(sp.dropCutOffRatio)
 				}
 
-				logCtx := ottllog.NewTransformContextPtr(
+				logCtx := ottllog.NewTransformContext(
 					ld.ResourceLogs().At(i),
 					ld.ResourceLogs().At(i).ScopeLogs().At(j),
 					logRecord,
@@ -176,7 +176,7 @@ func (sp *metricsSamplingProcessor) processMetrics(ctx context.Context, md pmetr
 					return sampleFunc(sp.dropCutOffRatio)
 				}
 
-				metricCtx := ottlmetric.NewTransformContextPtr(
+				metricCtx := ottlmetric.NewTransformContext(
 					md.ResourceMetrics().At(i),
 					md.ResourceMetrics().At(i).ScopeMetrics().At(j),
 					metric,

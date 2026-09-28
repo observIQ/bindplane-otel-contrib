@@ -130,7 +130,7 @@ func (p *spanCountProcessor) consumeTracesOTTL(ctx context.Context, t ptrace.Tra
 			spans := scopeSpan.Spans()
 			for k := 0; k < spans.Len(); k++ {
 				span := spans.At(k)
-				spanCtx := ottlspan.NewTransformContextPtr(resourceSpan, scopeSpan, span)
+				spanCtx := ottlspan.NewTransformContext(resourceSpan, scopeSpan, span)
 				match, err := p.OTTLmatch.Match(ctx, spanCtx)
 				if err != nil {
 					p.logger.Error("Error while matching OTTL span", zap.Error(err))

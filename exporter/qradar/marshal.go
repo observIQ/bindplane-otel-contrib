@@ -104,7 +104,7 @@ func (m *marshaler) getRawField(ctx context.Context, field string, logRecord plo
 	if err != nil {
 		return "", fmt.Errorf("raw_log_field is invalid: %s", err)
 	}
-	tCtx := ottllog.NewTransformContextPtr(resource, scope, logRecord)
+	tCtx := ottllog.NewTransformContext(resource, scope, logRecord)
 
 	lrExprResult, err := lrExpr.Execute(ctx, tCtx)
 	if err != nil {

@@ -144,7 +144,7 @@ func (p *logCountProcessor) consumeLogsOTTL(ctx context.Context, pl plog.Logs) {
 			logs := scopeLog.LogRecords()
 			for k := 0; k < logs.Len(); k++ {
 				log := logs.At(k)
-				logCtx := ottllog.NewTransformContextPtr(resourceLog, scopeLog, log)
+				logCtx := ottllog.NewTransformContext(resourceLog, scopeLog, log)
 				match, err := p.OTTLmatch.Match(ctx, logCtx)
 				if err != nil {
 					p.logger.Error("Error while matching OTTL log", zap.Error(err))

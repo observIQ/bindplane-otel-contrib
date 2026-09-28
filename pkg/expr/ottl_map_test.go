@@ -42,7 +42,7 @@ func TestExtractAttributes(t *testing.T) {
 	logResource := plog.NewResourceLogs()
 	testResource(t).CopyTo(logResource.Resource())
 
-	tCtx := ottllog.NewTransformContextPtr(logResource, logScope, testLogRecord(t))
+	tCtx := ottllog.NewTransformContext(logResource, logScope, testLogRecord(t))
 
 	mapOut := attrMap.ExtractAttributes(context.Background(), tCtx)
 

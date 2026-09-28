@@ -116,7 +116,7 @@ func (e *ottlExtractProcessor) extractMetrics(ctx context.Context, pl plog.Logs)
 			logRecords := scopeLog.LogRecords()
 			for k := 0; k < logRecords.Len(); k++ {
 				lr := logRecords.At(k)
-				logCtx := ottllog.NewTransformContextPtr(resourceLog, scopeLog, lr)
+				logCtx := ottllog.NewTransformContext(resourceLog, scopeLog, lr)
 
 				matches, err := e.ottlMatch.Match(ctx, logCtx)
 				if err != nil {
