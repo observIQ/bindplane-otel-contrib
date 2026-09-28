@@ -34,7 +34,7 @@ require (
 require (
 	github.com/bodgit/sevenzip v1.6.5 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
-	github.com/klauspost/compress v1.19.2 // indirect
+	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/linkedin/goavro/v2 v2.15.0 // indirect
 	github.com/nwaples/rardecode/v2 v2.4.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.30 // indirect
