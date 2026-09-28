@@ -1,0 +1,44 @@
+name: Slack PR Event Notifications
+
+# Sends Slack DMs for PR assignment, review outcomes, and @-mentions.
+# People opt in by setting "dm": true on their entry in
+# observIQ/gha-workflows/.github/pr-notify/config.json — until they do,
+# this workflow runs and sends nothing.
+#
+# This is independent of the `iris cr` channel notifications; you can run
+# both, or either on its own.
+
+on:
+  pull_request:
+    types: [assigned]
+  pull_request_review:
+    types: [submitted]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    # Cost control: a skipped job costs no Actions minutes. The
+    # issue_comment guard alone drops every plain (non-PR) issue comment.
+    if: >-
+      !endsWith(github.actor, '[bot]') &&
+      (github.event_name != 'issue_comment' || github.event.issue.pull_request)
+    uses: observIQ/gha-workflows/.github/workflows/reusable-slack-pr-events.yml@main
+    with:
+      event_name: ${{ github.event_name }}
+      event_action: ${{ github.event.action }}
+      event_payload: ${{ toJSON(github.event) }}
+      # Keep this matching the @ref on the `uses:` line above. Left empty,
+      # the scripts come from gha-workflows' default branch while the
+      # workflow comes from your pin, and the two drift.
+      gha_workflows_ref: main
+    # The org does not store these under the names the reusable workflow
+    # declares, so `secrets: inherit` will not find them. Map explicitly.
+    secrets:
+      SLACK_BOT_TOKEN: ${{ secrets.ORG_IRIS_SLACK_BOT_TOKEN }}
+      GHA_WORKFLOWS_TOKEN: ${{ secrets.ORG_BINDPLANE_BOT_PR_NOTIFY_TOKEN }}
