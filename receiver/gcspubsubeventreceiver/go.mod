@@ -39,7 +39,7 @@ require (
 	github.com/nwaples/rardecode/v2 v2.4.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.30 // indirect
 	github.com/sorairolake/lzip-go v0.3.8 // indirect
-	github.com/ulikunitz/xz v0.5.16 // indirect
+	github.com/ulikunitz/xz v0.5.17 // indirect
 )
 
 require (
