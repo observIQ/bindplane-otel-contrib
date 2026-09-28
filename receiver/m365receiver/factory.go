@@ -46,7 +46,7 @@ func createDefaultConfig() component.Config {
 		ClientConfig: confighttp.ClientConfig{
 			Timeout: 10 * time.Second,
 		},
-		MetricsBuilderConfig: metadata.DefaultMetricsBuilderConfig(),
+		MetricsBuilderConfig: metadata.NewDefaultMetricsBuilderConfig(),
 		Logs: &LogsConfig{
 			PollInterval:   5 * time.Minute,
 			GeneralLogs:    true,

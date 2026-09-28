@@ -112,7 +112,7 @@ func TestRecordMonitorFromFixture(t *testing.T) {
 	rep := loadFixture(t)
 	s := &neuronScraper{
 		settings: receivertest.NewNopSettings(metadata.Type),
-		mb:       metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), receivertest.NewNopSettings(metadata.Type)),
+		mb:       metadata.NewMetricsBuilder(metadata.NewDefaultMetricsBuilderConfig(), receivertest.NewNopSettings(metadata.Type)),
 	}
 	now := pcommon.NewTimestampFromTime(time.Now())
 	rb := s.mb.NewResourceBuilder()
@@ -176,7 +176,7 @@ func TestTwoLayerConfigResolution(t *testing.T) {
 func TestSysfsDegradesWhenRootMissing(t *testing.T) {
 	core, logs := observer.New(zapcore.ErrorLevel)
 	r := newSysfsReader("/nonexistent-neuron-sysfs-root", zap.New(core))
-	mb := metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), receivertest.NewNopSettings(metadata.Type))
+	mb := metadata.NewMetricsBuilder(metadata.NewDefaultMetricsBuilderConfig(), receivertest.NewNopSettings(metadata.Type))
 	now := pcommon.NewTimestampFromTime(time.Now())
 
 	// Multiple scrapes against an unreadable sysfs root must not crash and must
@@ -200,7 +200,7 @@ func TestSysfsECCEmission(t *testing.T) {
 	now := pcommon.NewTimestampFromTime(time.Now())
 
 	// Monitor active: only the sysfs-unique repairable series is emitted.
-	mb := metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), receivertest.NewNopSettings(metadata.Type))
+	mb := metadata.NewMetricsBuilder(metadata.NewDefaultMetricsBuilderConfig(), receivertest.NewNopSettings(metadata.Type))
 	r.recordSysfsECC(mb, now, "0", dir, true)
 	active, _ := collect(t, mb.Emit())
 	require.Len(t, active["aws.neuron.errors"], 1)
@@ -208,7 +208,7 @@ func TestSysfsECCEmission(t *testing.T) {
 	assert.True(t, ok, "repairable must be emitted while monitor is active")
 
 	// Monitor inactive: repairable + the two uncorrected fallback series.
-	mb2 := metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), receivertest.NewNopSettings(metadata.Type))
+	mb2 := metadata.NewMetricsBuilder(metadata.NewDefaultMetricsBuilderConfig(), receivertest.NewNopSettings(metadata.Type))
 	r.recordSysfsECC(mb2, now, "0", dir, false)
 	inactive, _ := collect(t, mb2.Emit())
 	assert.Len(t, inactive["aws.neuron.errors"], 3, "repairable + dram/sram uncorrected when monitor absent")
@@ -225,7 +225,7 @@ func TestSysfsPowerUtilizationStatistics(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(powerDir, "utilization"),
 		[]byte("POWER_STATUS_VALID,1781370720,1.50,3.50,2.00"), 0o600))
 
-	cfg := metadata.DefaultMetricsBuilderConfig()
+	cfg := metadata.NewDefaultMetricsBuilderConfig()
 	cfg.Metrics.AwsNeuronDevicePowerUtilization.Enabled = true // default-off; opt in for the test
 	mb := metadata.NewMetricsBuilder(cfg, receivertest.NewNopSettings(metadata.Type))
 	rb := mb.NewResourceBuilder()
@@ -288,7 +288,7 @@ func TestRecordMonitorSkipsNonNumericCoreKey(t *testing.T) {
 	}
 	s := &neuronScraper{
 		settings: receivertest.NewNopSettings(metadata.Type),
-		mb:       metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), receivertest.NewNopSettings(metadata.Type)),
+		mb:       metadata.NewMetricsBuilder(metadata.NewDefaultMetricsBuilderConfig(), receivertest.NewNopSettings(metadata.Type)),
 	}
 	now := pcommon.NewTimestampFromTime(time.Now())
 	s.recordMonitor(now, rep)
@@ -359,7 +359,7 @@ func TestScrapeErrorsWhenBothPathsFail(t *testing.T) {
 	r.markDegraded("neuron-monitor unavailable (test)", nil) // primary path down
 	s := &neuronScraper{
 		settings: settings,
-		mb:       metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), settings),
+		mb:       metadata.NewMetricsBuilder(metadata.NewDefaultMetricsBuilderConfig(), settings),
 		runner:   r,
 		sysfs:    newSysfsReader("/nonexistent-neuron-sysfs-root", zap.NewNop()), // sysfs path down too
 	}
@@ -377,7 +377,7 @@ func TestScrapeGracefulWhenOnlyOnePathFails(t *testing.T) {
 	r.markDegraded("neuron-monitor unavailable (test)", nil) // only the monitor path is down
 	s := &neuronScraper{
 		settings: settings,
-		mb:       metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), settings),
+		mb:       metadata.NewMetricsBuilder(metadata.NewDefaultMetricsBuilderConfig(), settings),
 		runner:   r,
 		sysfs:    newSysfsReader(dir, zap.NewNop()),
 	}

@@ -37,7 +37,7 @@ func TestBadToken(t *testing.T) {
 	root := "https://graph.microsoft.com/v1.0/reports/"
 	scraper := newM365Scraper(
 		receivertest.NewNopSettings(typ),
-		&Config{MetricsBuilderConfig: metadata.DefaultMetricsBuilderConfig()},
+		&Config{MetricsBuilderConfig: metadata.NewDefaultMetricsBuilderConfig()},
 	)
 	scraper.client = mc
 
@@ -93,7 +93,7 @@ func TestPartialMetrics(t *testing.T) {
 
 	scraper := newM365Scraper(
 		receivertest.NewNopSettings(typ),
-		&Config{MetricsBuilderConfig: metadata.DefaultMetricsBuilderConfig()},
+		&Config{MetricsBuilderConfig: metadata.NewDefaultMetricsBuilderConfig()},
 	)
 
 	scraper.client = mc
@@ -168,7 +168,7 @@ func TestScraper(t *testing.T) {
 
 	scraper := newM365Scraper(
 		receivertest.NewNopSettings(typ),
-		&Config{MetricsBuilderConfig: metadata.DefaultMetricsBuilderConfig()},
+		&Config{MetricsBuilderConfig: metadata.NewDefaultMetricsBuilderConfig()},
 	)
 
 	scraper.client = mc

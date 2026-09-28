@@ -37,7 +37,7 @@ func createDefaultConfig() component.Config {
 	cc := scraperhelper.NewDefaultControllerConfig()
 	return &Config{
 		ControllerConfig:     cc,
-		MetricsBuilderConfig: metadata.DefaultMetricsBuilderConfig(),
+		MetricsBuilderConfig: metadata.NewDefaultMetricsBuilderConfig(),
 		Command:              defaultCommand,
 	}
 }
