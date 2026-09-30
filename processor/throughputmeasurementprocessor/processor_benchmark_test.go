@@ -24,6 +24,7 @@ import (
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/processor"
@@ -31,9 +32,9 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
-// The benchmark drives the processor through the public factory only. The same
-// file compiles before and after the count-on-success change, so one benchmark
-// measures both sides. See docs/superpowers/specs/2026-09-15-throughput-count-on-success-design.md.
+// The benchmark drives the processor through the public factory only.
+// BenchmarkProcessor keeps the names and the default config of the before side,
+// so one benchmark measures both sides. See docs/superpowers/specs/2026-09-15-throughput-count-on-success-design.md.
 
 // benchConsumers holds the two next-consumer outcomes. The accepting consumer
 // returns nil on every call. The rejecting consumer returns an error on every call.
@@ -67,8 +68,8 @@ func benchSettings(b *testing.B) processor.Settings {
 
 // benchConfig enables the processor, samples every payload, and sets no
 // OpAMP extension, so the benchmark needs no host and no Start call.
-func benchConfig() *Config {
-	return &Config{Enabled: true, SamplingRatio: 1}
+func benchConfig(countOnDelivery bool) *Config {
+	return &Config{Enabled: true, SamplingRatio: 1, CountOnDelivery: countOnDelivery}
 }
 
 // syntheticLogs builds one resource and one scope with n log records.
@@ -84,15 +85,63 @@ func syntheticLogs(n int) plog.Logs {
 }
 
 // BenchmarkProcessor measures one ConsumeX call per iteration for each signal,
-// payload, and next-consumer outcome. Sub-benchmark names are stable so that
-// benchstat pairs the before and after rows.
+// payload, and next-consumer outcome, with count_on_delivery off (the default).
+// Sub-benchmark names are stable so that benchstat pairs the before and after rows.
 func BenchmarkProcessor(b *testing.B) {
-	b.Run("logs", benchmarkLogs)
-	b.Run("metrics", benchmarkMetrics)
-	b.Run("traces", benchmarkTraces)
+	benchmarkSignals(b, false)
 }
 
-func benchmarkLogs(b *testing.B) {
+// BenchmarkProcessorCountOnDelivery is BenchmarkProcessor with count_on_delivery
+// on. Its sub-benchmark names are the same, so benchstat can pair its rows with
+// BenchmarkProcessor rows after a rename of the top-level name.
+func BenchmarkProcessorCountOnDelivery(b *testing.B) {
+	benchmarkSignals(b, true)
+	b.Run("logs/fanout", benchmarkLogsFanout)
+}
+
+func benchmarkSignals(b *testing.B, countOnDelivery bool) {
+	b.Run("logs", func(b *testing.B) { benchmarkLogs(b, countOnDelivery) })
+	b.Run("metrics", func(b *testing.B) { benchmarkMetrics(b, countOnDelivery) })
+	b.Run("traces", func(b *testing.B) { benchmarkTraces(b, countOnDelivery) })
+}
+
+// benchmarkLogsFanout measures a source processor above a fanout with one
+// rejecting branch and one branch that has its own processor and accepts.
+func benchmarkLogsFanout(b *testing.B) {
+	goldenLogs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	ctx := context.Background()
+	branch, err := NewFactory().CreateLogs(ctx, benchSettings(b), benchConfig(true), consumertest.NewNop())
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() { _ = branch.Shutdown(ctx) })
+
+	rejecting := consumertest.NewErr(errors.New("rejected"))
+	fanout, err := consumer.NewLogs(func(ctx context.Context, ld plog.Logs) error {
+		return errors.Join(rejecting.ConsumeLogs(ctx, ld), branch.ConsumeLogs(ctx, ld))
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	source, err := NewFactory().CreateLogs(ctx, benchSettings(b), benchConfig(true), fanout)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() { _ = source.Shutdown(ctx) })
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = source.ConsumeLogs(ctx, goldenLogs)
+	}
+}
+
+func benchmarkLogs(b *testing.B, countOnDelivery bool) {
 	goldenLogs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
 	if err != nil {
 		b.Fatal(err)
@@ -112,7 +161,7 @@ func benchmarkLogs(b *testing.B) {
 		for _, c := range benchConsumers {
 			b.Run(p.name+"/"+c.name, func(b *testing.B) {
 				ctx := context.Background()
-				proc, err := NewFactory().CreateLogs(ctx, benchSettings(b), benchConfig(), c.next)
+				proc, err := NewFactory().CreateLogs(ctx, benchSettings(b), benchConfig(countOnDelivery), c.next)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -128,7 +177,7 @@ func benchmarkLogs(b *testing.B) {
 	}
 }
 
-func benchmarkMetrics(b *testing.B) {
+func benchmarkMetrics(b *testing.B, countOnDelivery bool) {
 	goldenMetrics, err := golden.ReadMetrics(filepath.Join("testdata", "metrics", "host-metrics.yaml"))
 	if err != nil {
 		b.Fatal(err)
@@ -137,7 +186,7 @@ func benchmarkMetrics(b *testing.B) {
 	for _, c := range benchConsumers {
 		b.Run("golden/"+c.name, func(b *testing.B) {
 			ctx := context.Background()
-			proc, err := NewFactory().CreateMetrics(ctx, benchSettings(b), benchConfig(), c.next)
+			proc, err := NewFactory().CreateMetrics(ctx, benchSettings(b), benchConfig(countOnDelivery), c.next)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -152,7 +201,7 @@ func benchmarkMetrics(b *testing.B) {
 	}
 }
 
-func benchmarkTraces(b *testing.B) {
+func benchmarkTraces(b *testing.B, countOnDelivery bool) {
 	goldenTraces, err := golden.ReadTraces(filepath.Join("testdata", "traces", "bindplane-traces.yaml"))
 	if err != nil {
 		b.Fatal(err)
@@ -161,7 +210,7 @@ func benchmarkTraces(b *testing.B) {
 	for _, c := range benchConsumers {
 		b.Run("golden/"+c.name, func(b *testing.B) {
 			ctx := context.Background()
-			proc, err := NewFactory().CreateTraces(ctx, benchSettings(b), benchConfig(), c.next)
+			proc, err := NewFactory().CreateTraces(ctx, benchSettings(b), benchConfig(countOnDelivery), c.next)
 			if err != nil {
 				b.Fatal(err)
 			}

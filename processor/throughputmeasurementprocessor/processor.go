@@ -39,6 +39,7 @@ type throughputMeasurementProcessor struct {
 	// servers that don't render `opamp`; delete with BPOP-5622.
 	bindplane          component.ID
 	measureLogRawBytes bool
+	countOnDelivery    bool
 
 	// registeredWithReporter records that start registered with the shared
 	// opamp reporter, so shutdown knows to release it.
@@ -64,6 +65,7 @@ func newThroughputMeasurementProcessor(logger *zap.Logger, mp metric.MeterProvid
 		global:              cfg.Global,
 		bindplane:           cfg.BindplaneExtension,
 		measureLogRawBytes:  cfg.MeasureLogRawBytes,
+		countOnDelivery:     cfg.CountOnDelivery,
 
 		started: &atomic.Bool{},
 		stopped: &atomic.Bool{},

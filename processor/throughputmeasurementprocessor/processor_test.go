@@ -923,10 +923,11 @@ func TestProcessor_RejectedOnlyReportsNoMeasurementsOverOpAMP(t *testing.T) {
 	opampID := component.MustNewID("opamp")
 
 	tmp, err := newThroughputMeasurementProcessor(zap.NewNop(), mp, &Config{
-		Enabled:       true,
-		SamplingRatio: 1,
-		OpAMP:         opampID,
-		Global:        &GlobalConfig{Interval: 50 * time.Millisecond},
+		Enabled:         true,
+		SamplingRatio:   1,
+		OpAMP:           opampID,
+		Global:          &GlobalConfig{Interval: 50 * time.Millisecond},
+		CountOnDelivery: true,
 	}, processorID)
 	require.NoError(t, err)
 

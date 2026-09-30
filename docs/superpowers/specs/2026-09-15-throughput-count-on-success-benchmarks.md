@@ -337,3 +337,68 @@ For a collector this is on the order of 100ns per batch that passes through
 the processor. A batch of 1000 log records already costs about 9µs in this
 processor, so the added share is about 3%. The change trades this cost for a
 correct throughput reading under backpressure.
+
+## Flag and fanout
+
+This section measures the `count_on_delivery` flag and the fanout delivery
+tracker. All four sides ran again on the same machine, one after the other,
+with no other load: before (`328ccb98`), the processor branch (`f3d3aa1d`),
+and this branch with the flag off and on.
+
+`BenchmarkProcessor` runs with the flag off (the default).
+`BenchmarkProcessorCountOnDelivery` runs the same cells with the flag on, plus a
+`logs/fanout` cell: a source processor above a fanout with one rejecting branch
+and one branch that has its own processor and accepts.
+
+### Commands
+
+```sh
+(cd processor/throughputmeasurementprocessor && go test -run '^$' -benchmem -count=10 -bench 'BenchmarkProcessor$' . > "$SCR/after-legacy.txt")
+(cd processor/throughputmeasurementprocessor && go test -run '^$' -benchmem -count=10 -bench 'BenchmarkProcessorCountOnDelivery' . > "$SCR/after-on.txt")
+sed 's/BenchmarkProcessorCountOnDelivery/BenchmarkProcessor/' "$SCR/after-on.txt" > "$SCR/after-on-renamed.txt"
+go run golang.org/x/perf/cmd/benchstat@latest "$SCR/pr963-processor.txt" "$SCR/after-legacy.txt"
+go run golang.org/x/perf/cmd/benchstat@latest "$SCR/pr963-processor.txt" "$SCR/after-on-renamed.txt"
+```
+
+### Flag off compared with the processor branch
+
+| Cell | processor branch | flag off | delta |
+| --- | --- | --- | --- |
+| logs/golden/accepted | 1.224µs | 1.236µs | +1.06% (p=0.020) |
+| logs/golden/rejected | 1.217µs | 1.221µs | ~ |
+| logs/1000/accepted | 9.261µs | 9.423µs | +1.75% (p=0.005) |
+| logs/10000/accepted | 83.90µs | 84.37µs | ~ |
+| metrics/golden/accepted | 1.408µs | 1.417µs | ~ |
+| traces/golden/accepted | 1.838µs | 1.785µs | -2.91% (p=0.000) |
+| geomean | 3.922µs | 3.930µs | +0.21% |
+
+Bytes and allocations per operation are the same in every cell (160 B, 9 allocs).
+The flag-off path adds no cost to the processor branch.
+
+The flag-off path is still slower than before (+3% to +8% on small log payloads).
+That is the cost described in [Reading](#reading). A separate run of the
+measurements branch (`24ddd215`), which still uses the old process function,
+shows the same logs cost (1.141µs to 1.207µs on `logs/golden/accepted`) and no
+change on metrics or traces. Thus the logs cost comes from the measure and
+record split in `pkg/measurements`, not from the consumer wrapper.
+
+### Flag on compared with the processor branch
+
+| Cell | processor branch | flag on | delta |
+| --- | --- | --- | --- |
+| logs/golden/accepted | 1.224µs | 1.252µs | +2.29% (p=0.000) |
+| logs/golden/rejected | 1.217µs | 1.255µs | +3.12% (p=0.000) |
+| logs/1000/accepted | 9.261µs | 9.231µs | ~ |
+| logs/10000/accepted | 83.90µs | 83.05µs | -1.02% (p=0.023) |
+| metrics/golden/accepted | 1.408µs | 1.451µs | +3.09% (p=0.000) |
+| traces/golden/accepted | 1.838µs | 1.879µs | +2.20% (p=0.000) |
+| logs/fanout | | 2.594µs | |
+| geomean | 3.922µs | 3.839µs | +1.14% |
+
+Every flag-on cell has 2 more allocations and 52 more bytes per operation
+(160 B to 212 B, 9 to 11 allocs): one `deliveryTracker` and one
+`context.WithValue`. The `logs/fanout` cell has two processors: 464 B and 24
+allocs.
+
+The added time is 30ns to 40ns per call on small payloads and within noise on
+large payloads.

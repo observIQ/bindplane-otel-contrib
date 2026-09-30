@@ -1,8 +1,10 @@
 # Throughput Measurement Processor
 
-This processor samples OTLP payloads and measures the protobuf size as well as number of OTLP objects in that payload. A payload is recorded only after the next component in the pipeline accepts it. When the pipeline applies backpressure and the next component refuses the payload, the payload is recorded into the `_rejected` counters instead. These measurements are added to the following counter metrics that can be accessed via the collectors internal telemetry service. Units for each `data_size` counter are in Bytes.
+This processor samples OTLP payloads and measures the protobuf size as well as number of OTLP objects in that payload. These measurements are added to the following counter metrics that can be accessed via the collectors internal telemetry service. Units for each `data_size` counter are in Bytes.
 
-Delivered counters (payloads the next component accepted):
+By default, the processor records a payload when the payload arrives. When `count_on_delivery` is `true`, the processor records a payload only after a component downstream accepts it, and records a refused payload in the `_rejected` counters. See [Count on delivery](#count-on-delivery).
+
+Delivered counters (all payloads by default; payloads that were accepted downstream when `count_on_delivery` is `true`):
 
 - `log_data_size` - The size of the log payload, including all attributes, headers, and metadata
 - `log_raw_bytes` - The raw byte size of the log body payload
@@ -12,7 +14,7 @@ Delivered counters (payloads the next component accepted):
 - `metric_count` - The number of metric data points in the payload
 - `trace_count` - The number of trace spans in the payload
 
-Rejected counters (payloads the next component refused):
+Rejected counters (payloads that were refused downstream; used only when `count_on_delivery` is `true`):
 
 - `log_data_size_rejected`, `log_raw_bytes_rejected`, `log_count_rejected`
 - `metric_data_size_rejected`, `metric_count_rejected`
@@ -20,16 +22,28 @@ Rejected counters (payloads the next component refused):
 
 Each rejected counter has the same meaning and attributes as its delivered counterpart.
 
-## What counts as delivered
+## Count on delivery
 
-The processor forwards the payload and waits for the result. A nil result means delivered. An error means rejected. The whole payload goes to one side; there is no partial credit.
+When `count_on_delivery` is `true`, the processor forwards the payload and waits for the result. The whole payload goes to one side; there is no partial credit.
+
+- A nil result means delivered.
+- When the pipeline fans out (for example, one source to more than one destination), the payload is delivered if at least one branch accepts it. A throughput processor in the branch that accepted the payload tells the processors above it through the request context. Thus a source-side processor counts the payload as delivered, even when the fanout returns an error because a different branch failed.
+- Otherwise, an error means rejected.
+
+What "accepted" means depends on the component after the processor:
 
 - When the exporter has a sending queue, memory or persistent, the exporter returns nil as soon as it enqueues the request. The processor counts at enqueue time.
+- A `batch` processor returns nil when it buffers the payload. The processor counts at that time.
 - When the exporter has no sending queue, the exporter blocks through its retries and returns the final result. The processor counts only on final success.
 - A full sending queue, a permanent error, or exhausted retries return an error. The processor counts the payload as rejected.
-- When a pipeline fans out to several exporters, an error from any of them counts the payload as rejected.
 
-Every throughput processor in a pipeline behaves this way, including ones placed early in the processor chain. Under backpressure, all of them report a drop in delivered counters and a rise in rejected counters. Only the delivered counters are reported to Bindplane over OpAMP.
+Limits:
+
+- A branch must have a throughput processor with `count_on_delivery: true` to tell the processors above it that it accepted the payload. A branch without one that accepts the payload does not prevent a rejected count above the fanout.
+- Set the same `count_on_delivery` value on every throughput processor in a configuration. A processor with `count_on_delivery: false` does not tell the processors above it about a delivery.
+- A partial failure counts as a failure of the full payload.
+
+Only the delivered counters are reported to Bindplane over OpAMP.
 
 ## Minimum agent versions
 
@@ -53,6 +67,7 @@ Every throughput processor in a pipeline behaves this way, including ones placed
 | `global`                | block |         | Settings for the shared reporter. Exactly one processor in a configuration should carry this block — it sets up the reporter. If no processor carries it, nothing is reported over opamp. |
 | `global.interval`       | duration |       | How often measurements are reported over opamp. Reporting is disabled if `0` or unset. |
 | `global.extra_labels` | map | | Extra key-value pairs added to all reported datapoints, overriding a processor's own `extra_labels` on conflicting keys. |
+| `count_on_delivery`     | bool  | `false` | When `true`, the processor records a payload only after a component downstream accepts it, and records a refused payload in the `_rejected` counters. See [Count on delivery](#count-on-delivery). |
 | `bindplane_extension`   | string |        | Deprecated; configure `opamp` instead. Component ID of a bindplane extension to register measurements with. Ignored when `opamp` is set. |
 
 ### Startup behavior
