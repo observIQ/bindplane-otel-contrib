@@ -59,7 +59,7 @@ func filterResourceMetrics(rm pmetric.ResourceMetrics, searchQuery *string, mini
 
 	scopeMetrics := rm.ScopeMetrics()
 	for i := 0; i < scopeMetrics.Len(); i++ {
-		filteredScopeMetrics := filterScopeMetrics(rm.ScopeMetrics().At(i), queryMatchesResource, searchQuery, minimumTimestamp)
+		filteredScopeMetrics := filterScopeMetrics(scopeMetrics.At(i), queryMatchesResource, searchQuery, minimumTimestamp)
 
 		// Don't append empty scope metrics
 		if filteredScopeMetrics.Metrics().Len() != 0 {

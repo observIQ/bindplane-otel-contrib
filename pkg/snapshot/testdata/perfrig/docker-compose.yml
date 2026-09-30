@@ -1,0 +1,25 @@
+# Snapshot-processor overhead rig. SCEN selects the config set (batch1 | batch1000).
+services:
+  with-snapshot:
+    image: ${IMAGE:-observiq/bindplane-agent:1.107.0}
+    container_name: snaprig-with
+    volumes:
+      - ./configs/${SCEN:-batch1}/with.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "14317:4317"   # OTLP gRPC
+      - "11777:1777"   # pprof
+      - "18888:8888"   # collector self-telemetry
+    cpus: ${CPUS:-2}
+    mem_limit: 2g
+
+  no-snapshot:
+    image: ${IMAGE:-observiq/bindplane-agent:1.107.0}
+    container_name: snaprig-without
+    volumes:
+      - ./configs/${SCEN:-batch1}/no.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "24317:4317"
+      - "21777:1777"
+      - "28888:8888"
+    cpus: ${CPUS:-2}
+    mem_limit: 2g
