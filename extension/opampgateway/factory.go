@@ -63,6 +63,7 @@ func createOpAMPGateway(ctx context.Context, cs extension.Settings, cfg componen
 		TLSConfig:            tlsConfig,
 		UpstreamConnections:  oCfg.Server.Connections,
 		OpAMPServer:          oCfg.Listener,
+		BuildInfo:            cs.BuildInfo,
 	}
 
 	gw := gateway.New(cs.Logger, settings, t)
