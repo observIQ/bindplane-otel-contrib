@@ -622,3 +622,152 @@ func TestResettableThroughputMeasurementsRegistry(t *testing.T) {
 		require.Equal(t, err.Error(), `measurements for processor "throughputmeasurement/1" was already registered`)
 	})
 }
+
+// collectSums reads every Int64 sum from the reader and returns name to value.
+// It fails the test if a metric has more than one data point.
+func collectSums(t *testing.T, reader *metric.ManualReader) map[string]int64 {
+	t.Helper()
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	sums := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok {
+				continue
+			}
+			require.Len(t, sum.DataPoints, 1, m.Name)
+			sums[m.Name] = sum.DataPoints[0].Value
+		}
+	}
+	return sums
+}
+
+func newTestMeasurements(t *testing.T) (*ThroughputMeasurements, *metric.ManualReader) {
+	t.Helper()
+
+	reader := metric.NewManualReader()
+	mp := metric.NewMeterProvider(metric.WithReader(reader))
+	t.Cleanup(func() {
+		require.NoError(t, mp.Shutdown(context.Background()))
+	})
+
+	tmp, err := NewThroughputMeasurements(mp, "throughputmeasurement/1", map[string]string{})
+	require.NoError(t, err)
+	return tmp, reader
+}
+
+func TestRecordRejectedLogs(t *testing.T) {
+	tmp, reader := newTestMeasurements(t)
+
+	tmp.RecordRejectedLogs(context.Background(), Measurement{Size: 3974, Count: 16, RawBytes: 2373, HasRawBytes: true})
+
+	sums := collectSums(t, reader)
+	require.Equal(t, int64(3974), sums["otelcol_processor_throughputmeasurement_log_data_size_rejected"])
+	require.Equal(t, int64(16), sums["otelcol_processor_throughputmeasurement_log_count_rejected"])
+	require.Equal(t, int64(2373), sums["otelcol_processor_throughputmeasurement_log_raw_bytes_rejected"])
+	require.NotContains(t, sums, "otelcol_processor_throughputmeasurement_log_data_size")
+	require.NotContains(t, sums, "otelcol_processor_throughputmeasurement_log_count")
+	require.NotContains(t, sums, "otelcol_processor_throughputmeasurement_log_raw_bytes")
+
+	require.Equal(t, int64(0), tmp.LogSize())
+	require.Equal(t, int64(0), tmp.LogCount())
+	require.Equal(t, int64(0), tmp.SequenceNumber())
+}
+
+func TestRecordRejectedMetrics(t *testing.T) {
+	tmp, reader := newTestMeasurements(t)
+
+	tmp.RecordRejectedMetrics(context.Background(), Measurement{Size: 5675, Count: 37})
+
+	sums := collectSums(t, reader)
+	require.Equal(t, int64(5675), sums["otelcol_processor_throughputmeasurement_metric_data_size_rejected"])
+	require.Equal(t, int64(37), sums["otelcol_processor_throughputmeasurement_metric_count_rejected"])
+	require.NotContains(t, sums, "otelcol_processor_throughputmeasurement_metric_data_size")
+	require.NotContains(t, sums, "otelcol_processor_throughputmeasurement_metric_count")
+	require.Equal(t, int64(0), tmp.SequenceNumber())
+}
+
+func TestRecordRejectedTraces(t *testing.T) {
+	tmp, reader := newTestMeasurements(t)
+
+	tmp.RecordRejectedTraces(context.Background(), Measurement{Size: 16767, Count: 178})
+
+	sums := collectSums(t, reader)
+	require.Equal(t, int64(16767), sums["otelcol_processor_throughputmeasurement_trace_data_size_rejected"])
+	require.Equal(t, int64(178), sums["otelcol_processor_throughputmeasurement_trace_count_rejected"])
+	require.NotContains(t, sums, "otelcol_processor_throughputmeasurement_trace_data_size")
+	require.NotContains(t, sums, "otelcol_processor_throughputmeasurement_trace_count")
+	require.Equal(t, int64(0), tmp.SequenceNumber())
+}
+
+func TestRecordLogs_SequenceNumber(t *testing.T) {
+	tmp, _ := newTestMeasurements(t)
+
+	tmp.RecordLogs(context.Background(), Measurement{Size: 1, Count: 1})
+	require.Equal(t, int64(1), tmp.SequenceNumber())
+
+	tmp.RecordRejectedLogs(context.Background(), Measurement{Size: 1, Count: 1})
+	require.Equal(t, int64(1), tmp.SequenceNumber(), "rejected records must not advance the sequence number")
+
+	tmp.RecordMetrics(context.Background(), Measurement{Size: 1, Count: 1})
+	tmp.RecordTraces(context.Background(), Measurement{Size: 1, Count: 1})
+	require.Equal(t, int64(3), tmp.SequenceNumber())
+}
+
+func TestRecordLogs_RawBytesFlag(t *testing.T) {
+	t.Run("not measured emits no series", func(t *testing.T) {
+		tmp, reader := newTestMeasurements(t)
+		tmp.RecordLogs(context.Background(), Measurement{Size: 10, Count: 1})
+		sums := collectSums(t, reader)
+		require.NotContains(t, sums, "otelcol_processor_throughputmeasurement_log_raw_bytes")
+	})
+
+	t.Run("measured zero emits series with zero", func(t *testing.T) {
+		tmp, reader := newTestMeasurements(t)
+		tmp.RecordLogs(context.Background(), Measurement{Size: 10, Count: 1, HasRawBytes: true})
+		sums := collectSums(t, reader)
+		require.Contains(t, sums, "otelcol_processor_throughputmeasurement_log_raw_bytes")
+		require.Equal(t, int64(0), sums["otelcol_processor_throughputmeasurement_log_raw_bytes"])
+	})
+}
+
+func TestRecordLogs_MatchesAddLogs(t *testing.T) {
+	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
+	require.NoError(t, err)
+
+	viaAdd, addReader := newTestMeasurements(t)
+	viaAdd.AddLogs(context.Background(), logs, true)
+
+	viaRecord, recordReader := newTestMeasurements(t)
+	viaRecord.RecordLogs(context.Background(), MeasureLogs(logs, true))
+
+	require.Equal(t, collectSums(t, addReader), collectSums(t, recordReader))
+	require.Equal(t, viaAdd.SequenceNumber(), viaRecord.SequenceNumber())
+}
+
+func TestRegistry_IgnoresRejectedRecords(t *testing.T) {
+	reg := NewResettableThroughputMeasurementsRegistry(true)
+	tmp, _ := newTestMeasurements(t)
+	require.NoError(t, reg.RegisterThroughputMeasurements("throughputmeasurement/1", tmp))
+
+	// Rejected-only traffic produces no report.
+	tmp.RecordRejectedLogs(context.Background(), Measurement{Size: 3974, Count: 16})
+	require.Equal(t, 0, reg.OTLPMeasurements(nil).DataPointCount())
+
+	// Delivered traffic produces a report that carries no rejected series.
+	tmp.RecordLogs(context.Background(), Measurement{Size: 3974, Count: 16})
+	reported := reg.OTLPMeasurements(nil)
+	require.NotEqual(t, 0, reported.DataPointCount())
+
+	metrics := reported.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics()
+	for i := 0; i < metrics.Len(); i++ {
+		require.NotContains(t, metrics.At(i).Name(), "_rejected")
+	}
+
+	// More rejected traffic after a report does not trigger another one.
+	tmp.RecordRejectedLogs(context.Background(), Measurement{Size: 3974, Count: 16})
+	require.Equal(t, 0, reg.OTLPMeasurements(nil).DataPointCount())
+}
