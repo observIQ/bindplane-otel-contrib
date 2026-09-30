@@ -1,8 +1,8 @@
 # Throughput Measurement Processor
 
-This processor samples OTLP payloads and measures the protobuf size as well as number of OTLP objects in that payload. These measurements are added to the following counter metrics that can be accessed via the collectors internal telemetry service. Units for each `data_size` counter are in Bytes.
+This processor samples OTLP payloads and measures the protobuf size as well as number of OTLP objects in that payload. A payload is recorded only after the next component in the pipeline accepts it. When the pipeline applies backpressure and the next component refuses the payload, the payload is recorded into the `_rejected` counters instead. These measurements are added to the following counter metrics that can be accessed via the collectors internal telemetry service. Units for each `data_size` counter are in Bytes.
 
-Counters:
+Delivered counters (payloads the next component accepted):
 
 - `log_data_size` - The size of the log payload, including all attributes, headers, and metadata
 - `log_raw_bytes` - The raw byte size of the log body payload
@@ -11,6 +11,25 @@ Counters:
 - `log_count` - The number of log records in the payload
 - `metric_count` - The number of metric data points in the payload
 - `trace_count` - The number of trace spans in the payload
+
+Rejected counters (payloads the next component refused):
+
+- `log_data_size_rejected`, `log_raw_bytes_rejected`, `log_count_rejected`
+- `metric_data_size_rejected`, `metric_count_rejected`
+- `trace_data_size_rejected`, `trace_count_rejected`
+
+Each rejected counter has the same meaning and attributes as its delivered counterpart.
+
+## What counts as delivered
+
+The processor forwards the payload and waits for the result. A nil result means delivered. An error means rejected. The whole payload goes to one side; there is no partial credit.
+
+- When the exporter has a sending queue, memory or persistent, the exporter returns nil as soon as it enqueues the request. The processor counts at enqueue time.
+- When the exporter has no sending queue, the exporter blocks through its retries and returns the final result. The processor counts only on final success.
+- A full sending queue, a permanent error, or exhausted retries return an error. The processor counts the payload as rejected.
+- When a pipeline fans out to several exporters, an error from any of them counts the payload as rejected.
+
+Every throughput processor in a pipeline behaves this way, including ones placed early in the processor chain. Under backpressure, all of them report a drop in delivered counters and a rise in rejected counters. Only the delivered counters are reported to Bindplane over OpAMP.
 
 ## Minimum agent versions
 

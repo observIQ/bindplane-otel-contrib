@@ -21,9 +21,6 @@ import (
 	"sync/atomic"
 
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/pdata/plog"
-	"go.opentelemetry.io/collector/pdata/pmetric"
-	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 
@@ -158,37 +155,15 @@ func (tmp *throughputMeasurementProcessor) registerWithV2AgentRegistry(bindplane
 	return nil
 }
 
-func (tmp *throughputMeasurementProcessor) processTraces(ctx context.Context, td ptrace.Traces) (ptrace.Traces, error) {
-	if tmp.enabled {
-		//#nosec G404 -- randomly generated number is not used for security purposes. It's ok if it's weak
-		if rand.Float64() <= tmp.samplingCutOffRatio {
-			tmp.measurements.AddTraces(ctx, td)
-		}
+// sample reports whether the current payload is measured.
+// A disabled processor never samples. The decision is taken before the payload
+// is forwarded, so delivered and rejected payloads are sampled at the same ratio.
+func (tmp *throughputMeasurementProcessor) sample() bool {
+	if !tmp.enabled {
+		return false
 	}
-
-	return td, nil
-}
-
-func (tmp *throughputMeasurementProcessor) processLogs(ctx context.Context, ld plog.Logs) (plog.Logs, error) {
-	if tmp.enabled {
-		//#nosec G404 -- randomly generated number is not used for security purposes. It's ok if it's weak
-		if rand.Float64() <= tmp.samplingCutOffRatio {
-			tmp.measurements.AddLogs(ctx, ld, tmp.measureLogRawBytes)
-		}
-	}
-
-	return ld, nil
-}
-
-func (tmp *throughputMeasurementProcessor) processMetrics(ctx context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
-	if tmp.enabled {
-		//#nosec G404 -- randomly generated number is not used for security purposes. It's ok if it's weak
-		if rand.Float64() <= tmp.samplingCutOffRatio {
-			tmp.measurements.AddMetrics(ctx, md)
-		}
-	}
-
-	return md, nil
+	//#nosec G404 -- randomly generated number is not used for security purposes. It's ok if it's weak
+	return rand.Float64() <= tmp.samplingCutOffRatio
 }
 
 func (tmp *throughputMeasurementProcessor) shutdown(ctx context.Context) error {
