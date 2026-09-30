@@ -35,7 +35,9 @@ import (
 // payload is delivered when the next consumer returns nil, or when a throughput
 // processor further down marks the delivery tracker (see deliveryTracker). The
 // measurement is taken before the forward because downstream components can
-// move data out of the payload.
+// move data out of the payload. A payload that is not sampled, or that reaches
+// a disabled processor, is forwarded untouched, and a nil return still marks
+// the parent tracker so a fanout above sees the delivery.
 type logsConsumer struct {
 	tmp  *throughputMeasurementProcessor
 	next consumer.Logs
@@ -52,34 +54,31 @@ func (c *logsConsumer) Capabilities() consumer.Capabilities {
 
 // ConsumeLogs forwards the payload and records the outcome.
 func (c *logsConsumer) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
+	// Case 1: disabled or not sampled. Forward untouched and tell the parent
+	// tracker, if any, when the next consumer accepted the payload.
+	if !c.tmp.sample() {
+		err := c.next.ConsumeLogs(ctx, ld)
+		if err == nil {
+			trackerFromContext(ctx).markDelivered()
+		}
+		return err
+	}
+
+	// Case 2: count on arrival.
 	if !c.tmp.countOnDelivery {
-		if c.tmp.sample() {
-			c.tmp.measurements.AddLogs(ctx, ld, c.tmp.measureLogRawBytes)
-		}
+		c.tmp.measurements.AddLogs(ctx, ld, c.tmp.measureLogRawBytes)
 		return c.next.ConsumeLogs(ctx, ld)
 	}
 
-	// A disabled processor passes the parent tracker through unchanged.
-	if !c.tmp.enabled {
-		return c.next.ConsumeLogs(ctx, ld)
-	}
-
-	sampled := c.tmp.sample()
-	var m measurements.Measurement
-	if sampled {
-		m = measurements.MeasureLogs(ld, c.tmp.measureLogRawBytes)
-	}
-
+	// Case 3: count on delivery.
 	own := &deliveryTracker{}
-	err := c.next.ConsumeLogs(contextWithTracker(ctx, own), ld)
-	delivered := settle(ctx, own, err)
+	m := measurements.MeasureLogs(ld, c.tmp.measureLogRawBytes)
 
-	if sampled {
-		if delivered {
-			c.tmp.measurements.RecordLogs(ctx, m)
-		} else {
-			c.tmp.measurements.RecordRejectedLogs(ctx, m)
-		}
+	err := c.next.ConsumeLogs(contextWithTracker(ctx, own), ld)
+	if settle(ctx, own, err) {
+		c.tmp.measurements.RecordLogs(ctx, m)
+	} else {
+		c.tmp.measurements.RecordRejectedLogs(ctx, m)
 	}
 	return err
 }
@@ -101,34 +100,31 @@ func (c *metricsConsumer) Capabilities() consumer.Capabilities {
 
 // ConsumeMetrics forwards the payload and records the outcome.
 func (c *metricsConsumer) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) error {
+	// Case 1: disabled or not sampled. Forward untouched and tell the parent
+	// tracker, if any, when the next consumer accepted the payload.
+	if !c.tmp.sample() {
+		err := c.next.ConsumeMetrics(ctx, md)
+		if err == nil {
+			trackerFromContext(ctx).markDelivered()
+		}
+		return err
+	}
+
+	// Case 2: count on arrival.
 	if !c.tmp.countOnDelivery {
-		if c.tmp.sample() {
-			c.tmp.measurements.AddMetrics(ctx, md)
-		}
+		c.tmp.measurements.AddMetrics(ctx, md)
 		return c.next.ConsumeMetrics(ctx, md)
 	}
 
-	// A disabled processor passes the parent tracker through unchanged.
-	if !c.tmp.enabled {
-		return c.next.ConsumeMetrics(ctx, md)
-	}
-
-	sampled := c.tmp.sample()
-	var m measurements.Measurement
-	if sampled {
-		m = measurements.MeasureMetrics(md)
-	}
-
+	// Case 3: count on delivery.
 	own := &deliveryTracker{}
-	err := c.next.ConsumeMetrics(contextWithTracker(ctx, own), md)
-	delivered := settle(ctx, own, err)
+	m := measurements.MeasureMetrics(md)
 
-	if sampled {
-		if delivered {
-			c.tmp.measurements.RecordMetrics(ctx, m)
-		} else {
-			c.tmp.measurements.RecordRejectedMetrics(ctx, m)
-		}
+	err := c.next.ConsumeMetrics(contextWithTracker(ctx, own), md)
+	if settle(ctx, own, err) {
+		c.tmp.measurements.RecordMetrics(ctx, m)
+	} else {
+		c.tmp.measurements.RecordRejectedMetrics(ctx, m)
 	}
 	return err
 }
@@ -150,34 +146,31 @@ func (c *tracesConsumer) Capabilities() consumer.Capabilities {
 
 // ConsumeTraces forwards the payload and records the outcome.
 func (c *tracesConsumer) ConsumeTraces(ctx context.Context, td ptrace.Traces) error {
+	// Case 1: disabled or not sampled. Forward untouched and tell the parent
+	// tracker, if any, when the next consumer accepted the payload.
+	if !c.tmp.sample() {
+		err := c.next.ConsumeTraces(ctx, td)
+		if err == nil {
+			trackerFromContext(ctx).markDelivered()
+		}
+		return err
+	}
+
+	// Case 2: count on arrival.
 	if !c.tmp.countOnDelivery {
-		if c.tmp.sample() {
-			c.tmp.measurements.AddTraces(ctx, td)
-		}
+		c.tmp.measurements.AddTraces(ctx, td)
 		return c.next.ConsumeTraces(ctx, td)
 	}
 
-	// A disabled processor passes the parent tracker through unchanged.
-	if !c.tmp.enabled {
-		return c.next.ConsumeTraces(ctx, td)
-	}
-
-	sampled := c.tmp.sample()
-	var m measurements.Measurement
-	if sampled {
-		m = measurements.MeasureTraces(td)
-	}
-
+	// Case 3: count on delivery.
 	own := &deliveryTracker{}
-	err := c.next.ConsumeTraces(contextWithTracker(ctx, own), td)
-	delivered := settle(ctx, own, err)
+	m := measurements.MeasureTraces(td)
 
-	if sampled {
-		if delivered {
-			c.tmp.measurements.RecordTraces(ctx, m)
-		} else {
-			c.tmp.measurements.RecordRejectedTraces(ctx, m)
-		}
+	err := c.next.ConsumeTraces(contextWithTracker(ctx, own), td)
+	if settle(ctx, own, err) {
+		c.tmp.measurements.RecordTraces(ctx, m)
+	} else {
+		c.tmp.measurements.RecordRejectedTraces(ctx, m)
 	}
 	return err
 }
@@ -185,8 +178,7 @@ func (c *tracesConsumer) ConsumeTraces(ctx context.Context, td ptrace.Traces) er
 // settle reports whether the forward delivered the payload. The payload is
 // delivered when the forward returned nil or when a branch below marked own.
 // On delivery, settle marks the parent tracker in ctx, so that the processor
-// above also sees the delivery. It marks the parent also for payloads that
-// were not sampled.
+// above also sees the delivery.
 func settle(ctx context.Context, own *deliveryTracker, err error) bool {
 	if err != nil && !own.wasDelivered() {
 		return false

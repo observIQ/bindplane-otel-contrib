@@ -89,10 +89,11 @@ treats that return as acceptance.
 
 Rules:
 
-- A processor marks its parent also when it did not sample the payload.
-  Otherwise sampling below would hide deliveries from the processors above.
-- A disabled processor forwards the context unchanged, so the processors on
-  either side of it see each other.
+- A processor that did not sample the payload, or is disabled, forwards the
+  context unchanged and marks its parent when the forward returns nil. It
+  allocates no tracker of its own. The processors on either side of it see
+  each other, and a delivery at the end of a branch still reaches the
+  processor above the fanout.
 - The error returned to the caller does not change. The receiver still sees the
   joined error.
 
@@ -102,8 +103,8 @@ Limits:
   flag on cannot mark the processor above the fanout.
 - A processor with the flag off does not mark its parent. Configurations must
   set the same value on every throughput processor.
-- The tracker and the context value cost two small allocations for each payload
-  on the flag-on path.
+- The tracker and the context value cost two small allocations for each
+  sampled payload on the flag-on path. Unsampled payloads allocate nothing.
 
 ### Why measure before the call and record after
 

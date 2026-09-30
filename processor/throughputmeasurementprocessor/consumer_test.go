@@ -493,6 +493,28 @@ func TestLogsConsumer_DisabledIsTransparent(t *testing.T) {
 	require.NotContains(t, sums, logCountRejected)
 }
 
+// A disabled processor that is the last throughput processor in a healthy
+// branch must still tell its parent about the delivery. Otherwise the joined
+// fanout error would make the parent count the payload as rejected.
+func TestLogsConsumer_DisabledLeafMarksParent(t *testing.T) {
+	source, sourceReader := newTestProcessor(t, &Config{CountOnDelivery: true, Enabled: true, SamplingRatio: 1})
+	disabled, disabledReader := newTestProcessor(t, &Config{CountOnDelivery: true, Enabled: false, SamplingRatio: 1})
+
+	pipeline := newLogsConsumer(source, fanoutLogs(t,
+		consumertest.NewErr(errDownstream),
+		newLogsConsumer(disabled, consumertest.NewNop()),
+	))
+
+	logs, err := golden.ReadLogs(filepath.Join("testdata", "logs", "w3c-logs.yaml"))
+	require.NoError(t, err)
+	require.ErrorIs(t, pipeline.ConsumeLogs(context.Background(), logs), errDownstream)
+
+	sums := collectSums(t, sourceReader)
+	require.Equal(t, int64(16), sums[logCount])
+	require.NotContains(t, sums, logCountRejected)
+	require.Empty(t, collectSums(t, disabledReader))
+}
+
 // A processor with count_on_delivery off does not mark its parent. This is a
 // documented limit of mixed configurations.
 func TestLogsConsumer_LegacyBranchDoesNotMarkParent(t *testing.T) {
