@@ -152,9 +152,9 @@ func newLogTypeDetectionProcessor(cfg *Config, id component.ID, logger *zap.Logg
 		return nil, err
 	}
 
-	if cfg.OpAMP != nil && cfg.OpAMP.MatchersVersion != "" {
-		if p.maxVersion, err = version.NewVersion(cfg.OpAMP.MatchersVersion); err != nil {
-			return nil, fmt.Errorf("parse matchers_version %q: %w", cfg.OpAMP.MatchersVersion, err)
+	if cfg.OpAMP != nil && cfg.OpAMP.MaxMatchersVersion != "" {
+		if p.maxVersion, err = version.NewSemver(cfg.OpAMP.MaxMatchersVersion); err != nil {
+			return nil, fmt.Errorf("parse max_matchers_version %q: %w", cfg.OpAMP.MaxMatchersVersion, err)
 		}
 	}
 
@@ -243,9 +243,7 @@ func (p *logTypeDetectionProcessor) startStorage(ctx context.Context, host compo
 		return fmt.Errorf("create storage client: %w", err)
 	}
 	if p.cfg.OpAMP != nil {
-		if err := p.loadStoredMatchers(ctx, client); err != nil {
-			return errors.Join(err, client.Close(ctx))
-		}
+		p.loadStoredMatchers(ctx, client)
 	}
 
 	saved := persistedFingerprints{}

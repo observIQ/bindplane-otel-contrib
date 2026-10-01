@@ -35,7 +35,7 @@ on each log record.
 | max_saved_fingerprints | int | `10000` | Maximum number of fingerprint-to-log-type mappings cached in memory. Once full, the least recently seen fingerprint is evicted. Evicted mappings are also dropped from `storage` on the next save. |
 | opamp | object | | When set, the processor asks an opamp server for matchers on startup and merges them with the `matchers` below. See [OpAMP Matchers](#opamp-matchers). |
 | opamp.extension | component ID | | ID of the opamp extension to send requests through. Required when `opamp` is set. |
-| opamp.matchers_version | string | | Highest matcher set version to accept from the server. The server answers with the newest set at or below it. Leave empty to always take the newest. |
+| opamp.max_matchers_version | string | | Highest matcher set version to accept from the server. The server answers with the newest set at or below it. Leave empty to always take the newest. |
 | opamp.request_timeout | duration | `30s` | How long the processor keeps asking the server for matchers after startup. Set to `0` to keep asking indefinitely. |
 
 ### Matchers
@@ -61,7 +61,7 @@ processors:
   log_type_detection:
     opamp:
       extension: opamp
-      matchers_version: 1.5.0
+      max_matchers_version: 1.5.0
       request_timeout: 30s
 ```
 
@@ -69,7 +69,7 @@ Matcher sets are versioned with [semver](https://semver.org) and only move
 forward. The processor reports the version it holds and the server answers with
 `updateMatchers` or `matchersUpToDate`, so a full set only crosses the wire when
 the version changed. A major bump is refused as a breaking change; upgrade the
-collector to move to a new major. `opamp.matchers_version` caps what is
+collector to move to a new major. `opamp.max_matchers_version` caps what is
 accepted, including stored matchers on restart. To roll back, publish the
 previous matchers under a higher version.
 
@@ -97,7 +97,7 @@ full component ID of the processor the message is for; a message naming a
 different processor is ignored.
 
 `requestMatchers`, sent by the processor — `version` is empty on a first run and
-`max_version` is only present when `opamp.matchers_version` is set:
+`max_version` is only present when `opamp.max_matchers_version` is set:
 
 ```yaml
 processor: log_type_detection

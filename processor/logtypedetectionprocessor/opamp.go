@@ -92,28 +92,23 @@ func (p *logTypeDetectionProcessor) startOpAMP(host component.Host) error {
 }
 
 // loadStoredMatchers applies the matchers held in storage, if any.
-func (p *logTypeDetectionProcessor) loadStoredMatchers(ctx context.Context, client storageclient.StorageClient) error {
+func (p *logTypeDetectionProcessor) loadStoredMatchers(ctx context.Context, client storageclient.StorageClient) {
 	saved := persistedMatchers{}
 	err := client.LoadStorageData(ctx, matcherStorageKey, &saved)
 	if err == nil && saved.Version == "" {
-		return nil
+		return
 	}
 
-	var ver *version.Version
 	if err == nil {
-		ver, err = version.NewVersion(saved.Version)
-	}
-	if err == nil {
-		_, err = p.useMatchers(ver, saved.Matchers)
+		_, err = p.applyMatchers(saved.Version, saved.Matchers)
 	}
 	if err != nil {
 		p.logger.Warn("Discarding stored matchers.", zap.String("version", saved.Version), zap.Error(err))
-		return nil
+		return
 	}
 
 	p.logger.Info("Loaded stored matchers.",
 		zap.String("version", saved.Version), zap.Int("matchers", len(saved.Matchers)))
-	return nil
 }
 
 func (p *logTypeDetectionProcessor) saveMatchers(ctx context.Context, version string, matchers []MatcherConfig) error {
@@ -149,7 +144,7 @@ func (p *logTypeDetectionProcessor) awaitMatchers() {
 	defer retry.Stop()
 
 	for {
-		request, err := yaml.Marshal(matchersMessage{Processor: p.id, Version: p.currentVersion(), MaxVersion: p.cfg.OpAMP.MatchersVersion})
+		request, err := yaml.Marshal(matchersMessage{Processor: p.id, Version: p.currentVersion(), MaxVersion: p.cfg.OpAMP.MaxMatchersVersion})
 		if err != nil {
 			p.logger.Error("Failed to encode matchers request.", zap.Error(err))
 			p.matchersDone()
@@ -208,6 +203,7 @@ func (p *logTypeDetectionProcessor) handleUpdateMatchers(msg *protobufs.CustomMe
 	if !ok {
 		return
 	}
+	defer p.matchersDone()
 
 	applied, err := p.applyMatchers(update.Version, update.Matchers)
 	if err != nil {
@@ -215,7 +211,6 @@ func (p *logTypeDetectionProcessor) handleUpdateMatchers(msg *protobufs.CustomMe
 			zap.String("version", update.Version), zap.Error(err))
 		return
 	}
-	p.matchersDone()
 
 	if !applied {
 		p.logger.Info("Offered matchers are not newer than the ones in use.",
@@ -267,20 +262,15 @@ func (p *logTypeDetectionProcessor) matchersDone() {
 	p.matchersOnce.Do(func() { close(p.matchersReady) })
 }
 
-// applyMatchers parses an offered version and puts it in use, reporting whether it did.
+// applyMatchers puts a newer version of the same major, at or below max_matchers_version, in use, reporting whether it did.
 func (p *logTypeDetectionProcessor) applyMatchers(ver string, matchers []MatcherConfig) (bool, error) {
-	offered, err := version.NewVersion(ver)
+	offered, err := version.NewSemver(ver)
 	if err != nil {
 		return false, fmt.Errorf("parse version %q: %w", ver, err)
 	}
 
-	return p.useMatchers(offered, matchers)
-}
-
-// useMatchers puts a newer version of the same major, at or below matchers_version, in use.
-func (p *logTypeDetectionProcessor) useMatchers(offered *version.Version, matchers []MatcherConfig) (bool, error) {
 	if p.maxVersion != nil && offered.GreaterThan(p.maxVersion) {
-		return false, fmt.Errorf("version %s is above matchers_version %s", offered.Original(), p.cfg.OpAMP.MatchersVersion)
+		return false, fmt.Errorf("version %s is above max_matchers_version %s", offered.Original(), p.cfg.OpAMP.MaxMatchersVersion)
 	}
 
 	if held := p.heldVersion(); held != nil {

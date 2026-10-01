@@ -146,7 +146,7 @@ func TestOpAMPMatchersRequestedOnStart(t *testing.T) {
 	require.Len(t, requests, 1)
 	require.Equal(t, id, requests[0].Processor)
 	require.Empty(t, requests[0].Version, "a first run has no version to report")
-	require.Empty(t, requests[0].MaxVersion, "no ceiling unless opamp::matchers_version is set")
+	require.Empty(t, requests[0].MaxVersion, "no ceiling unless opamp::max_matchers_version is set")
 
 	out, err := p.processLogs(ctx, logsFromBodies(`{"kind":"Event"}`))
 	require.NoError(t, err)
@@ -287,15 +287,6 @@ func waitForMatchers(t *testing.T, p *logTypeDetectionProcessor) {
 	case <-p.matchersReady:
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for the matcher exchange to finish")
-	}
-}
-
-func requireStillAsking(t *testing.T, p *logTypeDetectionProcessor) {
-	t.Helper()
-	select {
-	case <-p.matchersReady:
-		t.Fatal("a refused reply must leave the processor asking the server")
-	default:
 	}
 }
 
@@ -489,8 +480,8 @@ func TestOpAMPVersionAcceptance(t *testing.T) {
 		wantErr     string
 	}{
 		{name: "at max version", held: "1.2.3", maxVersion: "1.5.0", offered: "1.5.0", wantApplied: true},
-		{name: "above max version refused", held: "1.2.3", maxVersion: "1.5.0", offered: "1.6.0", wantErr: "above matchers_version"},
-		{name: "above max version refused on first run", maxVersion: "1.5.0", offered: "1.6.0", wantErr: "above matchers_version"},
+		{name: "above max version refused", held: "1.2.3", maxVersion: "1.5.0", offered: "1.6.0", wantErr: "above max_matchers_version"},
+		{name: "above max version refused on first run", maxVersion: "1.5.0", offered: "1.6.0", wantErr: "above max_matchers_version"},
 		{name: "patch bump", held: "1.2.3", offered: "1.2.4", wantApplied: true},
 		{name: "minor bump", held: "1.2.3", offered: "1.3.0", wantApplied: true},
 		{name: "same version", held: "1.2.3", offered: "1.2.3"},
@@ -504,7 +495,7 @@ func TestOpAMPVersionAcceptance(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := opampConfig(nil)
-			cfg.OpAMP.MatchersVersion = tc.maxVersion
+			cfg.OpAMP.MaxMatchersVersion = tc.maxVersion
 			p := newOpAMPProcessor(t, cfg, id)
 			if tc.held != "" {
 				applied, err := p.applyMatchers(tc.held, matchers)
@@ -546,7 +537,7 @@ func TestOpAMPMaxVersionSentWithRequest(t *testing.T) {
 	host := &testHost{components: map[component.ID]component.Component{opampID: mock}}
 
 	cfg := opampConfig(nil)
-	cfg.OpAMP.MatchersVersion = "1.5.0"
+	cfg.OpAMP.MaxMatchersVersion = "1.5.0"
 	p := newOpAMPProcessor(t, cfg, id)
 	require.NoError(t, p.start(ctx, host))
 	defer func() { require.NoError(t, p.stop(ctx)) }()
@@ -555,10 +546,10 @@ func TestOpAMPMaxVersionSentWithRequest(t *testing.T) {
 	require.Equal(t, "1.5.0", mock.sentRequests()[0].MaxVersion)
 	require.Never(t, func() bool { return p.currentVersion() != "" }, 200*time.Millisecond, 10*time.Millisecond,
 		"a reply above the ceiling is refused")
-	requireStillAsking(t, p)
+	waitForMatchers(t, p)
 }
 
-// A stored version above matchers_version is discarded on restart.
+// A stored version above max_matchers_version is discarded on restart.
 func TestOpAMPStoredMatchersRespectMaxVersion(t *testing.T) {
 	ctx := context.Background()
 	id := component.MustNewID("logtypedetection")
@@ -584,7 +575,7 @@ func TestOpAMPStoredMatchersRespectMaxVersion(t *testing.T) {
 
 	capped := opampConfig(nil)
 	capped.StorageID = storageID
-	capped.OpAMP.MatchersVersion = "2.1.0"
+	capped.OpAMP.MaxMatchersVersion = "2.1.0"
 
 	restarted := newOpAMPProcessor(t, capped, id)
 	require.NoError(t, restarted.start(ctx, host2))

@@ -78,7 +78,7 @@ func TestConfig_Validate(t *testing.T) {
 			config: &Config{
 				LogTypeField:         "log_type_field",
 				MaxSavedFingerprints: defaultMaxSavedFingerprints,
-				OpAMP:                &OpAMPConfig{Extension: opampID, MatchersVersion: "1.5.0"},
+				OpAMP:                &OpAMPConfig{Extension: opampID, MaxMatchersVersion: "1.5.0"},
 			},
 		},
 		{
@@ -86,7 +86,7 @@ func TestConfig_Validate(t *testing.T) {
 			config: &Config{
 				LogTypeField:         "log_type_field",
 				MaxSavedFingerprints: defaultMaxSavedFingerprints,
-				OpAMP:                &OpAMPConfig{Extension: opampID, MatchersVersion: "latest"},
+				OpAMP:                &OpAMPConfig{Extension: opampID, MaxMatchersVersion: "latest"},
 			},
 			err: errInvalidOpAMPMaxVersion,
 		},

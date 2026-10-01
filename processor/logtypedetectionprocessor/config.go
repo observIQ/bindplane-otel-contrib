@@ -39,7 +39,7 @@ var (
 	errInvalidMaxFingerprints = errors.New("max_saved_fingerprints must be > 0")
 	errMissingOpAMPExtension  = errors.New("opamp::extension is required")
 	errInvalidOpAMPTimeout    = errors.New("opamp::request_timeout must be >= 0")
-	errInvalidOpAMPMaxVersion = errors.New("opamp::matchers_version must be a semver version")
+	errInvalidOpAMPMaxVersion = errors.New("opamp::max_matchers_version must be a semver version")
 )
 
 // Config is the config of the processor.
@@ -66,8 +66,8 @@ type OpAMPConfig struct {
 	// Extension is the ID of the opamp extension to send requests through.
 	Extension component.ID `mapstructure:"extension"`
 
-	// MatchersVersion is the highest matcher set version to accept, empty for the newest.
-	MatchersVersion string `mapstructure:"matchers_version"`
+	// MaxMatchersVersion is the highest matcher set version to accept, empty for the newest.
+	MaxMatchersVersion string `mapstructure:"max_matchers_version"`
 
 	// RequestTimeout is how long the processor keeps asking for matchers, 0 to keep asking indefinitely.
 	RequestTimeout time.Duration `mapstructure:"request_timeout"`
@@ -110,8 +110,8 @@ func (c Config) Validate() error {
 		if c.OpAMP.RequestTimeout < 0 {
 			return errInvalidOpAMPTimeout
 		}
-		if c.OpAMP.MatchersVersion != "" {
-			if _, err := version.NewVersion(c.OpAMP.MatchersVersion); err != nil {
+		if c.OpAMP.MaxMatchersVersion != "" {
+			if _, err := version.NewSemver(c.OpAMP.MaxMatchersVersion); err != nil {
 				return fmt.Errorf("%w: %w", errInvalidOpAMPMaxVersion, err)
 			}
 		}
