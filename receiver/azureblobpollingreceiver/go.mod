@@ -3,7 +3,7 @@ module github.com/observiq/bindplane-otel-contrib/receiver/azureblobpollingrecei
 go 1.26.4
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.2
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.1
 	github.com/observiq/bindplane-otel-contrib/internal/azureblob v1.15.0
 	github.com/observiq/bindplane-otel-contrib/internal/blobconsume v1.15.0
