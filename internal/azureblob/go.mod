@@ -3,14 +3,15 @@ module github.com/observiq/bindplane-otel-contrib/internal/azureblob
 go 1.26.4
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1
-	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.1
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.2
+	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.2
 	github.com/stretchr/testify v1.12.1
 	go.uber.org/zap v1.28.0
 )
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/storage/internal v0.1.0 // indirect
 	github.com/apache/arrow-go/v18 v18.7.0 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/google/flatbuffers v25.12.19+incompatible // indirect
