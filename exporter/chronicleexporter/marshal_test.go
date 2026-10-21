@@ -1784,6 +1784,76 @@ var getRawFieldCases = []getRawFieldCase{
 		expect:   `{"binary":"530070006F006F006C00650072002F0031000000","param1":"Print Spooler","param2":"stopped"}`,
 	},
 	{
+		name:  "No body",
+		field: bodyField,
+		logRecord: func() plog.LogRecord {
+			return plog.NewLogRecord()
+		}(),
+		scope:    plog.NewScopeLogs(),
+		resource: plog.NewResourceLogs(),
+		expect:   "",
+	},
+	{
+		name:  "Int body",
+		field: bodyField,
+		logRecord: func() plog.LogRecord {
+			lr := plog.NewLogRecord()
+			lr.Body().SetInt(42)
+			return lr
+		}(),
+		scope:        plog.NewScopeLogs(),
+		resource:     plog.NewResourceLogs(),
+		expectErrStr: "unsupported log record expression result type: int64",
+	},
+	{
+		name:  "Double body",
+		field: bodyField,
+		logRecord: func() plog.LogRecord {
+			lr := plog.NewLogRecord()
+			lr.Body().SetDouble(4.2)
+			return lr
+		}(),
+		scope:        plog.NewScopeLogs(),
+		resource:     plog.NewResourceLogs(),
+		expectErrStr: "unsupported log record expression result type: float64",
+	},
+	{
+		name:  "Bool body",
+		field: bodyField,
+		logRecord: func() plog.LogRecord {
+			lr := plog.NewLogRecord()
+			lr.Body().SetBool(true)
+			return lr
+		}(),
+		scope:        plog.NewScopeLogs(),
+		resource:     plog.NewResourceLogs(),
+		expectErrStr: "unsupported log record expression result type: bool",
+	},
+	{
+		name:  "Bytes body",
+		field: bodyField,
+		logRecord: func() plog.LogRecord {
+			lr := plog.NewLogRecord()
+			lr.Body().SetEmptyBytes().FromRaw([]byte("Print Spooler"))
+			return lr
+		}(),
+		scope:        plog.NewScopeLogs(),
+		resource:     plog.NewResourceLogs(),
+		expectErrStr: "unsupported log record expression result type: []uint8",
+	},
+	{
+		name:  "Slice body",
+		field: bodyField,
+		logRecord: func() plog.LogRecord {
+			lr := plog.NewLogRecord()
+			lr.Body().SetEmptySlice().AppendEmpty().SetStr("Print Spooler")
+			return lr
+		}(),
+		scope:        plog.NewScopeLogs(),
+		resource:     plog.NewResourceLogs(),
+		expectErrStr: "unsupported log record expression result type: pcommon.Slice",
+	},
+	{
 		name:  "Map body field",
 		field: "body[\"param1\"]",
 		logRecord: func() plog.LogRecord {
@@ -1960,6 +2030,71 @@ func Test_getRawField(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, tc.expect, rawField)
+		})
+	}
+}
+
+func Test_getRawLog_EntireLogRecord(t *testing.T) {
+	testCases := []struct {
+		name      string
+		logRecord func() plog.LogRecord
+		expect    string
+	}{
+		{
+			name: "String body",
+			logRecord: func() plog.LogRecord {
+				lr := plog.NewLogRecord()
+				lr.Body().SetStr("Application started")
+				lr.Attributes().PutStr("key", "value")
+				return lr
+			},
+			expect: `{"body":"Application started","attributes":{"key":"value"},"resource_attributes":{"host.name":"host-001"}}`,
+		},
+		{
+			// Map bodies are currently sent as an empty string.
+			name: "Map body",
+			logRecord: func() plog.LogRecord {
+				lr := plog.NewLogRecord()
+				lr.Body().SetEmptyMap()
+				lr.Body().Map().PutStr("message", "Print Spooler stopped")
+				lr.Body().Map().PutInt("event_id", 7036)
+				lr.Attributes().PutStr("key", "value")
+				return lr
+			},
+			expect: `{"body":"","attributes":{"key":"value"},"resource_attributes":{"host.name":"host-001"}}`,
+		},
+		{
+			name: "Empty body",
+			logRecord: func() plog.LogRecord {
+				lr := plog.NewLogRecord()
+				lr.Attributes().PutStr("key", "value")
+				return lr
+			},
+			expect: `{"body":"","attributes":{"key":"value"},"resource_attributes":{"host.name":"host-001"}}`,
+		},
+		{
+			name: "Int body",
+			logRecord: func() plog.LogRecord {
+				lr := plog.NewLogRecord()
+				lr.Body().SetInt(42)
+				lr.Attributes().PutStr("key", "value")
+				return lr
+			},
+			expect: `{"body":"","attributes":{"key":"value"},"resource_attributes":{"host.name":"host-001"}}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &protoMarshaler{cfg: Config{RawLogField: ""}}
+			m.teleSettings.Logger = zap.NewNop()
+
+			resource := plog.NewResourceLogs()
+			resource.Resource().Attributes().PutStr("host.name", "host-001")
+
+			rawLog, err := m.getRawLog(context.Background(), tc.logRecord(), plog.NewScopeLogs(), resource)
+			require.NoError(t, err)
+			require.JSONEq(t, tc.expect, rawLog)
 		})
 	}
 }
