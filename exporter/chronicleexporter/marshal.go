@@ -203,9 +203,10 @@ func (m *protoMarshaler) processHTTPLogRecord(ctx context.Context, logRecord plo
 
 func (m *protoMarshaler) getRawLog(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (string, error) {
 	if m.cfg.RawLogField == "" {
-		body, _, err := bodyAsString(logRecord.Body())
-		if err != nil {
-			return "", err
+		// An empty body is sent as an empty string rather than null.
+		body := logRecord.Body().AsRaw()
+		if body == nil {
+			body = ""
 		}
 
 		entireLogRecord := map[string]any{
@@ -331,28 +332,19 @@ func (m *protoMarshaler) getHTTPIngestionLabels(logRecord plog.LogRecord) map[st
 	return labels
 }
 
-// bodyAsString returns a string body as is and a map body as JSON. The bool return
-// is false for any other body type, which the caller must handle.
-func bodyAsString(body pcommon.Value) (string, bool, error) {
-	switch body.Type() {
-	case pcommon.ValueTypeStr:
-		return body.Str(), true, nil
-	case pcommon.ValueTypeMap:
-		bytes, err := json.Marshal(body.AsRaw())
-		if err != nil {
-			return "", true, fmt.Errorf("marshal log body: %w", err)
-		}
-		return string(bytes), true, nil
-	}
-	return "", false, nil
-}
-
 // getRawField is a helper function to get the raw value of a field from a log record
 func (m *protoMarshaler) getRawField(ctx context.Context, field string, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (string, error) {
 	switch field {
 	case bodyField:
-		if body, ok, err := bodyAsString(logRecord.Body()); ok {
-			return body, err
+		switch logRecord.Body().Type() {
+		case pcommon.ValueTypeStr:
+			return logRecord.Body().Str(), nil
+		case pcommon.ValueTypeMap:
+			bytes, err := json.Marshal(logRecord.Body().AsRaw())
+			if err != nil {
+				return "", fmt.Errorf("marshal log body: %w", err)
+			}
+			return string(bytes), nil
 		}
 	case logTypeField:
 		attributes := logRecord.Attributes().AsRaw()

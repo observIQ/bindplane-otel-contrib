@@ -2060,7 +2060,7 @@ func Test_getRawLog_EntireLogRecord(t *testing.T) {
 				lr.Attributes().PutStr("key", "value")
 				return lr
 			},
-			expect: `{"body":"{\"event_id\":7036,\"message\":\"Print Spooler stopped\"}","attributes":{"key":"value"},"resource_attributes":{"host.name":"host-001"}}`,
+			expect: `{"body":{"event_id":7036,"message":"Print Spooler stopped"},"attributes":{"key":"value"},"resource_attributes":{"host.name":"host-001"}}`,
 		},
 		{
 			name: "Empty body",
@@ -2079,7 +2079,7 @@ func Test_getRawLog_EntireLogRecord(t *testing.T) {
 				lr.Attributes().PutStr("key", "value")
 				return lr
 			},
-			expect: `{"body":"","attributes":{"key":"value"},"resource_attributes":{"host.name":"host-001"}}`,
+			expect: `{"body":42,"attributes":{"key":"value"},"resource_attributes":{"host.name":"host-001"}}`,
 		},
 	}
 
