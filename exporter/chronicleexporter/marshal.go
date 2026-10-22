@@ -203,8 +203,14 @@ func (m *protoMarshaler) processHTTPLogRecord(ctx context.Context, logRecord plo
 
 func (m *protoMarshaler) getRawLog(ctx context.Context, logRecord plog.LogRecord, scope plog.ScopeLogs, resource plog.ResourceLogs) (string, error) {
 	if m.cfg.RawLogField == "" {
+		// An empty body is sent as an empty string rather than null.
+		body := logRecord.Body().AsRaw()
+		if body == nil {
+			body = ""
+		}
+
 		entireLogRecord := map[string]any{
-			"body":                logRecord.Body().Str(),
+			"body":                body,
 			"attributes":          logRecord.Attributes().AsRaw(),
 			"resource_attributes": resource.Resource().Attributes().AsRaw(),
 		}
