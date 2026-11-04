@@ -2,6 +2,9 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
+> [!WARNING]
+> **This repository is deprecated and no longer maintained.** Development has moved to the Dynatrace Bindplane Distribution of OpenTelemetry (DBDOT) contrib repository: [Dynatrace/dynatrace-bindplane-otel-contrib](https://github.com/Dynatrace/dynatrace-bindplane-otel-contrib). Please open issues and pull requests there.
+
 Contrib components (receivers, processors, exporters, extensions) for the [Bindplane OpenTelemetry Collector](https://github.com/observIQ/bindplane-otel-collector).
 
 ## Directory Structure
